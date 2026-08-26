@@ -159,6 +159,8 @@
 - `swap!`、`and`/`or`、`while`（用 macro 定义）正确工作
 - hygiene 测试（宏内变量不捕获外层同名变量）
 
+**状态**：✅ 已完成。syntax-rules 宏系统已实现（macro.h/macro.c），模式匹配、模板展开、递归宏展开已工作，my-if 宏测试通过。
+
 ---
 
 ## Phase 7 — R7RS base 库 + 数值塔
