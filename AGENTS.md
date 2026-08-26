@@ -6,7 +6,7 @@
 
 NPL：用 QBE 编译到 native 的 Scheme 方言。R7RS-small 兼容核心 + 渐进式类型系统（Typed-Racket 风格）+ 自举 + 神经网络语言构造。详见 `DESIGN.md`。
 
-当前状态：**Phase 3 进行中**。runtime 基础已实现（npl.h, alloc.c, gc.c），tagged pointer 算术已完成，let/begin 已支持。下一步：验证 runtime 链接和 GC 压力测试。
+当前状态：**Phase 3 完成**。runtime 基础已实现（npl.h, alloc.c, gc.c），tagged pointer 算术已验证，cons/car/cdr 链接已验证，gc_stress.npl 通过。下一步按 `PLAN.md` Phase 4 推进（闭包 + 尾调用）。
 
 ## 工作约定
 
