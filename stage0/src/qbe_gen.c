@@ -62,6 +62,8 @@ void qbe_ctx_init(QbeCtx *ctx, FILE *out, SymTab *symtab)
     ctx->next_tmp = 0;
     ctx->next_label = 0;
     ctx->depth = 0;
+    ctx->in_tail = 0;
+    ctx->current_func[0] = '\0';
 }
 
 /* Pool of buffers for temporaries and labels (to avoid static buffer reuse) */
@@ -371,17 +373,28 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             int is_local = (sym && sym->kind == SYM_LOCAL);
 
             if (is_local) {
-                /* Call via function pointer: %r =l call %f(l %env, ...) */
-                /* Always pass env as first argument (0 for now) */
+                /* Call via closure or function pointer */
+                /* Extract function pointer and env from closure object */
                 const char *qbe_name = sym->as.local.qbe_name;
+
+                /* Try to load function pointer and env from closure object */
+                /* Closure layout: [func_ptr(8 bytes), env_ptr(8 bytes)] */
+                const char *func_ptr = qbe_gen_tmp(ctx);
+                const char *env_ptr = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l loadl %s", func_ptr, qbe_name);
+                const char *env_slot = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l add %s, 8", env_slot, qbe_name);
+                emit(ctx, "%s =l loadl %s", env_ptr, env_slot);
+
+                /* Call with env as first argument */
                 if (arg_count == 0) {
-                    emit(ctx, "%s =l call %s(l 0)", result, qbe_name);
+                    emit(ctx, "%s =l call %s(l %s)", result, func_ptr, env_ptr);
                 } else if (arg_count == 1) {
-                    emit(ctx, "%s =l call %s(l 0, l %s)", result, qbe_name, arg_bufs[0]);
+                    emit(ctx, "%s =l call %s(l %s, l %s)", result, func_ptr, env_ptr, arg_bufs[0]);
                 } else if (arg_count == 2) {
-                    emit(ctx, "%s =l call %s(l 0, l %s, l %s)", result, qbe_name, arg_bufs[0], arg_bufs[1]);
+                    emit(ctx, "%s =l call %s(l %s, l %s, l %s)", result, func_ptr, env_ptr, arg_bufs[0], arg_bufs[1]);
                 } else {
-                    emit_raw(ctx, "%s =l call %s(l 0, l %s", result, qbe_name, arg_bufs[0]);
+                    emit_raw(ctx, "%s =l call %s(l %s, l %s", result, func_ptr, env_ptr, arg_bufs[0]);
                     for (int i = 1; i < arg_count; i++) {
                         fprintf(ctx->out, ", l %s", arg_bufs[i]);
                     }
@@ -423,6 +436,8 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             AstNode *params = AST_CDR(name_or_sig);
 
             if (name_node->tag == AST_SYMBOL) {
+                /* Register function in symbol table */
+                symtab_add_global_func(ctx->symtab, name_node->as.symbol, params, body);
                 /* Generate function definition */
                 gen_function(ctx, name_node->as.symbol, params, body);
                 return NULL;
@@ -432,7 +447,15 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
     }
 
     case AST_LAMBDA: {
-        /* Lambda expression: (lambda (params...) body) */
+        /* Lambda expression: (lambda (params...) body)
+         *
+         * Closure conversion: lambda generates a function that takes
+         * an env pointer as first arg, followed by regular params.
+         * The env pointer points to captured free variables.
+         *
+         * At the call site, the env is loaded from env pointer + offset.
+         */
+
         AstNode *params = AST_CAR(expr);
         AstNode *body = AST_CDR(expr);
 
@@ -444,46 +467,58 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         /* Collect free variables from the body, excluding lambda parameters */
         AstNode *free_vars = collect_free_vars_impl(body, ctx->symtab, params);
 
-        /* Temporarily redirect output to lambda buffer */
+        /* Count free variables */
+        int n_free = 0;
+        {
+            AstNode *fv = free_vars;
+            while (fv && !AST_IS_NIL(fv)) { n_free++; fv = AST_CDR(fv); }
+        }
+
+        /* ---- Generate the lambda function into lambda buffer ---- */
         FILE *saved_out = ctx->out;
         ctx->out = ctx->lambda_out;
 
-        /* Generate function header with free variables as extra parameters */
-        fprintf(ctx->out, "function l $%s(", lambda_name);
-
-        /* Add free variables as extra parameters */
-        AstNode *fv = free_vars;
-        int first_param = 1;
-        while (fv && !AST_IS_NIL(fv)) {
-            AstNode *var = AST_CAR(fv);
-            if (!first_param) fprintf(ctx->out, ", ");
-            fprintf(ctx->out, "l %s", param_qbe_name(var));
-            if (var->tag == AST_SYMBOL) {
-                symtab_add_local(ctx->symtab, var->as.symbol);
-            }
-            first_param = 0;
-            fv = AST_CDR(fv);
-        }
+        /* Function header: env pointer + regular params */
+        fprintf(ctx->out, "function l $%s(l %%env", lambda_name);
 
         /* Add regular parameters */
         AstNode *p = params;
         while (p && !AST_IS_NIL(p)) {
             AstNode *param = AST_CAR(p);
-            if (!first_param) fprintf(ctx->out, ", ");
-            fprintf(ctx->out, "l %s", param_qbe_name(param));
+            fprintf(ctx->out, ", l %s", param_qbe_name(param));
             if (param->tag == AST_SYMBOL) {
                 symtab_add_local(ctx->symtab, param->as.symbol);
             }
-            first_param = 0;
             p = AST_CDR(p);
         }
-        fprintf(ctx->out, ") {\n");
-
-        /* Generate body */
-        fprintf(ctx->out, "@start\n");
+        fprintf(ctx->out, ") {\n@start\n");
         ctx->depth = 1;
 
-        /* Generate body expression */
+        /* Load captured variables from env */
+        {
+            AstNode *fv = free_vars;
+            int idx = 0;
+            while (fv && !AST_IS_NIL(fv)) {
+                AstNode *var = AST_CAR(fv);
+                if (var->tag == AST_SYMBOL) {
+                    Symbol *sym = symtab_add_local(ctx->symtab, var->as.symbol);
+                    const char *tmp = qbe_gen_tmp(ctx);
+                    /* Load from env + idx*8 */
+                    if (idx == 0) {
+                        emit(ctx, "%s =l loadl %%env", tmp);
+                    } else {
+                        const char *addr = qbe_gen_tmp(ctx);
+                        emit(ctx, "%s =l add %%env, %d", addr, idx * 8);
+                        emit(ctx, "%s =l loadl %s", tmp, addr);
+                    }
+                    emit(ctx, "%s =l copy %s", sym->as.local.qbe_name, tmp);
+                }
+                idx++;
+                fv = AST_CDR(fv);
+            }
+        }
+
+        /* Generate body */
         const char *result = gen_expr(ctx, body, 1);
         if (result) {
             emit(ctx, "ret %s", result);
@@ -495,10 +530,61 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         ctx->depth = 0;
         ctx->out = saved_out;
 
-        /* Return the function pointer as a tagged value */
-        const char *func_ptr = qbe_gen_tmp(ctx);
-        emit(ctx, "%s =l copy $%s", func_ptr, lambda_name);
-        return func_ptr;
+        /* ---- Create closure object at the call site ---- */
+        /* Allocate env on stack: alloc8 for n_free pointers */
+        if (n_free > 0) {
+            const char *env_ptr = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l alloc8 %d", env_ptr, n_free * 8);
+
+            /* Store captured values into env */
+            AstNode *fv = free_vars;
+            int idx = 0;
+            while (fv && !AST_IS_NIL(fv)) {
+                AstNode *var = AST_CAR(fv);
+                if (var->tag == AST_SYMBOL) {
+                    /* Look up the variable in current scope */
+                    Symbol *sym = symtab_lookup(ctx->symtab, var->as.symbol);
+                    if (sym && sym->kind == SYM_LOCAL) {
+                        if (idx == 0) {
+                            emit(ctx, "storel %s, %s", sym->as.local.qbe_name, env_ptr);
+                        } else {
+                            const char *addr = qbe_gen_tmp(ctx);
+                            emit(ctx, "%s =l add %s, %d", addr, env_ptr, idx * 8);
+                            emit(ctx, "storel %s, %s", sym->as.local.qbe_name, addr);
+                        }
+                    } else {
+                        /* Free var not found — store 0 */
+                        if (idx == 0) {
+                            emit(ctx, "storel 0, %s", env_ptr);
+                        } else {
+                            const char *addr = qbe_gen_tmp(ctx);
+                            emit(ctx, "%s =l add %s, %d", addr, env_ptr, idx * 8);
+                            emit(ctx, "storel 0, %s", addr);
+                        }
+                    }
+                }
+                idx++;
+                fv = AST_CDR(fv);
+            }
+
+            /* Create closure object: [func_ptr, env_ptr] */
+            const char *closure = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l alloc8 16", closure);
+            const char *func_ptr = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l copy $%s", func_ptr, lambda_name);
+            emit(ctx, "storel %s, %s", func_ptr, closure);
+            const char *env_slot = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l add %s, 8", env_slot, closure);
+            emit(ctx, "storel %s, %s", env_ptr, env_slot);
+
+            /* Return closure pointer */
+            return closure;
+        } else {
+            /* No free variables — return function pointer directly */
+            const char *func_ptr = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l copy $%s", func_ptr, lambda_name);
+            return func_ptr;
+        }
     }
 
     case AST_LET: {
@@ -575,6 +661,19 @@ static AstNode *collect_free_vars_impl(AstNode *expr, SymTab *symtab, AstNode *e
         Symbol *sym = symtab_lookup(symtab, expr->as.symbol);
         if (sym && sym->kind == SYM_GLOBAL_FUNC) {
             return ast_nil(); /* Global function, not free */
+        }
+        /* Check if this is a built-in operator */
+        if (is_arith_op(expr->as.symbol) || is_cmp_op(expr->as.symbol)) {
+            return ast_nil(); /* Built-in, not free */
+        }
+        /* Check for other built-in functions */
+        if (strcmp(expr->as.symbol, "display") == 0 ||
+            strcmp(expr->as.symbol, "puts") == 0 ||
+            strcmp(expr->as.symbol, "cons") == 0 ||
+            strcmp(expr->as.symbol, "car") == 0 ||
+            strcmp(expr->as.symbol, "cdr") == 0 ||
+            strcmp(expr->as.symbol, "null?") == 0) {
+            return ast_nil(); /* Built-in, not free */
         }
         /* Everything else is potentially a free variable */
         return ast_pair(expr, ast_nil());

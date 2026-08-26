@@ -27,6 +27,8 @@ typedef struct {
     int     next_tmp;   /* counter for temporaries */
     int     next_label; /* counter for labels */
     int     depth;      /* nesting depth for indentation */
+    int     in_tail;    /* 1 if current position is a tail position */
+    char    current_func[128]; /* current function name (for self-recursion detection) */
 } QbeCtx;
 
 /* Initialize code generation context */
