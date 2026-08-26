@@ -144,11 +144,12 @@ static const char *param_qbe_name(AstNode *param)
 /* Generate QBE IL for a literal expression (number, string, boolean) */
 static const char *gen_literal(QbeCtx *ctx, AstNode *expr)
 {
-    static char buf[64];
+    char *buf = tmp_pool[tmp_idx % MAX_TMP];
+    tmp_idx++;
     switch (expr->tag) {
     case AST_FIXNUM:
         /* Fixnum: value << 2 | TAG_FIXNUM (which is 0) */
-        snprintf(buf, sizeof(buf), "%lld", (long long)(expr->as.fixnum << 2));
+        snprintf(buf, 32, "%lld", (long long)(expr->as.fixnum << 2));
         return buf;
     case AST_BOOL:
         /* Boolean: immediate value */
@@ -433,13 +434,7 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
 
         /* Generate body */
         if (body && !AST_IS_NIL(body)) {
-            /* Process all body expressions, return the last one */
-            const char *result = "0";
-            while (body && !AST_IS_NIL(body)) {
-                result = gen_expr(ctx, AST_CAR(body), depth + 1);
-                body = AST_CDR(body);
-            }
-            return result;
+            return gen_expr(ctx, body, depth + 1);
         }
         return "0";
     }
