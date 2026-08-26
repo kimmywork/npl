@@ -175,6 +175,16 @@ void npl_display(NplVal v);
 /* Print a single newline */
 void npl_newline(void);
 
+/* ---- String & symbol builtins ---- */
+NplVal npl_string_append(NplVal a, NplVal b);
+int64_t npl_string_length(NplVal s);
+NplVal npl_string_ref(NplVal s, NplVal i);   /* returns fixnum byte value */
+int npl_string_equal(NplVal a, NplVal b);    /* raw 0/1 */
+NplVal npl_number_to_string(NplVal v);
+NplVal npl_symbol_to_string(NplVal s);
+/* NOTE: no string->symbol in stage0 — v1 does not maintain a global
+ * symbol intern table spanning static quotes and runtime boxes. */
+
 /* Convert fixnum to string (for printing) */
 char *npl_fixnum_to_string(int64_t v);
 

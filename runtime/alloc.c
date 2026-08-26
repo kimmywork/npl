@@ -226,6 +226,93 @@ void npl_newline(void) {
     printf("\n");
 }
 
+/* ---- String & symbol builtins (increment-2) ---- */
+
+static NplVal box_bytes(const char *bytes, uint32_t len, uint32_t box_tag) {
+    size_t size = sizeof(NplString) + (size_t)len + 1;
+    NplString *str = (NplString *)npl_alloc(size);
+    str->header.tag = box_tag;
+    str->header.flags = 0;
+    str->length = len;
+    str->capacity = len;
+    if (len && bytes) memcpy(str->data, bytes, len);
+    str->data[len] = '\0';
+    str->header.flags = (uint32_t)(uintptr_t)g_alloc_head;
+    g_alloc_head = &str->header;
+    return (NplVal)(uintptr_t)str | TAG_PTR;
+}
+
+static const NplString *require_bytes(NplVal v, const char *who) {
+    if (!npl_is_ptr(v)) {
+        fprintf(stderr, "%s: not a string/symbol\n", who);
+        exit(1);
+    }
+    uint32_t tag = npl_header(v)->tag;
+    if (tag != BOX_STRING && tag != BOX_SYMBOL) {
+        fprintf(stderr, "%s: not a string/symbol\n", who);
+        exit(1);
+    }
+    return (const NplString *)npl_header(v);
+}
+
+NplVal npl_string_append(NplVal a, NplVal b) {
+    const NplString *sa = require_bytes(a, "string-append");
+    const NplString *sb = require_bytes(b, "string-append");
+    uint32_t len = sa->length + sb->length;
+    char *tmp = (char *)malloc((size_t)len + 1);
+    if (!tmp) { fprintf(stderr, "string-append: oom\n"); exit(1); }
+    memcpy(tmp, sa->data, sa->length);
+    memcpy(tmp + sa->length, sb->data, sb->length);
+    tmp[len] = '\0';
+    NplVal out = npl_string(tmp, len);
+    free(tmp);
+    return out;
+}
+
+int64_t npl_string_length(NplVal s) {
+    return (int64_t)require_bytes(s, "string-length")->length;
+}
+
+/* Returns the byte at index i as a fixnum (v1: single-byte strings). */
+NplVal npl_string_ref(NplVal s, NplVal i) {
+    const NplString *st = require_bytes(s, "string-ref");
+    int64_t idx = (int64_t)(i >> 2);   /* expect tagged fixnum */
+    if (idx < 0 || idx >= (int64_t)st->length) {
+        fprintf(stderr, "string-ref: index out of range\n");
+        exit(1);
+    }
+    return npl_fixnum((unsigned char)st->data[idx]);
+}
+
+int npl_string_equal(NplVal a, NplVal b) {
+    const NplString *sa = require_bytes(a, "string=?");
+    const NplString *sb = require_bytes(b, "string=?");
+    if (sa->length != sb->length) return 0;
+    return memcmp(sa->data, sb->data, sa->length) == 0;
+}
+
+NplVal npl_number_to_string(NplVal v) {
+    if (!npl_is_fixnum(v)) {
+        fprintf(stderr, "number->string: not a fixnum\n");
+        exit(1);
+    }
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%lld", (long long)npl_fixnum_value(v));
+    return npl_string(buf, (uint32_t)strlen(buf));
+}
+
+/* Copy bytes into a box with a different header tag (symbol<->string). */
+static NplVal retag_box(NplVal v, uint32_t new_tag) {
+    const NplString *src = (const NplString *)npl_header(v);
+    return box_bytes(src->data, src->length, new_tag);
+}
+
+NplVal npl_symbol_to_string(NplVal s) {
+    require_bytes(s, "symbol->string");
+    return retag_box(s, BOX_STRING);
+}
+
+
 /* ---- Helper: fixnum to string ---- */
 
 char *npl_fixnum_to_string(int64_t v) {

@@ -150,10 +150,17 @@ static int is_builtin_name(const char *name)
 {
     return (is_arith_op(name) || is_cmp_op(name) ||
             strcmp(name, "display") == 0 || strcmp(name, "puts") == 0 ||
+            strcmp(name, "newline") == 0 ||
             strcmp(name, "cons") == 0 || strcmp(name, "car") == 0 ||
             strcmp(name, "cdr") == 0 || strcmp(name, "null?") == 0 ||
             strcmp(name, "not") == 0 || strcmp(name, "eq?") == 0 ||
-            strcmp(name, "pair?") == 0);
+            strcmp(name, "pair?") == 0 ||
+            strcmp(name, "string-append") == 0 ||
+            strcmp(name, "string-length") == 0 ||
+            strcmp(name, "string-ref") == 0 ||
+            strcmp(name, "string=?") == 0 ||
+            strcmp(name, "number->string") == 0 ||
+            strcmp(name, "symbol->string") == 0);
 }
 
 /* Get the QBE name for a parameter */
@@ -202,6 +209,14 @@ static const char *gen_literal(QbeCtx *ctx, AstNode *expr)
         codegen_error("unsupported literal");
         return "0";
     }
+}
+
+/* Re-tag a raw int64 into a fixnum (v << 2). */
+static const char *retag_fixnum(QbeCtx *ctx, const char *raw)
+{
+    const char *result = qbe_gen_tmp(ctx);
+    emit(ctx, "%s =l shl %s, 2", result, raw);
+    return result;
 }
 
 /* Re-tag a raw 0/1 comparison result (:w) into a proper bool.
@@ -751,6 +766,47 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             emit(ctx, "%s =l copy 0", raw);
             fprintf(ctx->out, "%s\n", ldone);
             return retag_bool(ctx, raw);
+        }
+
+        /* ---- string & symbol builtins (increment-2) ---- */
+        if (strcmp(fname, "string-append") == 0) {
+            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *b = gen_expr(ctx, AST_CAR(AST_CDR(args)), depth + 1);
+            const char *result = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_string_append(l %s, l %s)", result, a, b);
+            return result;
+        }
+        if (strcmp(fname, "string-length") == 0) {
+            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *len = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_string_length(l %s)", len, a);
+            return retag_fixnum(ctx, len);
+        }
+        if (strcmp(fname, "string-ref") == 0) {
+            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *i = gen_expr(ctx, AST_CAR(AST_CDR(args)), depth + 1);
+            const char *result = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_string_ref(l %s, l %s)", result, a, i);
+            return result;
+        }
+        if (strcmp(fname, "string=?") == 0) {
+            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *b = gen_expr(ctx, AST_CAR(AST_CDR(args)), depth + 1);
+            const char *raw = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =w call $npl_string_equal(l %s, l %s)", raw, a, b);
+            return retag_bool(ctx, raw);
+        }
+        if (strcmp(fname, "number->string") == 0) {
+            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *result = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_number_to_string(l %s)", result, a);
+            return result;
+        }
+        if (strcmp(fname, "symbol->string") == 0) {
+            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *result = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_symbol_to_string(l %s)", result, a);
+            return result;
         }
 
         /* User-defined function call */

@@ -154,3 +154,38 @@ gen_expr default 分支、AST_SET 等未支持构造:**fprintf(stderr) + exit(1)
 | stage0/CMakeLists.txt | 加 desugar.c |
 | runtime/{npl.h,alloc.c} | npl_display 补齐 |
 | stage0/tests/test_core.npl, tools/check_core.sh | 新增 |
+
+---
+
+# 增量 2 设计 — 字符串与符号内建(自举编译器依赖)
+
+## 1. GAP
+
+compiler.npl 已在使用 `string-append`、`number->string`(reader 输出 QBE 代码
+需要拼接字符串),但 stage0/runtime 均未提供。
+
+## 2. 方案
+
+新增 runtime 函数(C,跟随现有 malloc/box 模型),QBE builtin 分发 call:
+
+| 形式 | runtime 函数 | 返回约定 |
+|------|--------------|----------|
+| `(string-append a b)` | `npl_string_append` | tagged NplVal(ptr\|1) |
+| `(string-length s)` | `npl_string_length` | 裸 int64 → codegen `shl 2` 补 tag |
+| `(string-ref s i)` | `npl_string_ref` | fixnum 字码(`c<<2`) |
+| `(string=? a b)` | `npl_string_equal` | 裸 0/1 → retag_bool |
+| `(number->string n)` | `npl_number_to_string` | tagged string box |
+| `(symbol->string s)` | `npl_symbol_to_string` | 同布局,tag 换 BOX_STRING |
+| `(string->symbol s)` | `npl_string_to_symbol` | 同布局,tag 换 BOX_SYMBOL |
+| `(substring s start end)` | 暂缓(YAGNI,自举暂不需要) | — |
+
+- v1 只支持 ASCII 单字节 string-ref(UTF-8 后置)。
+- 复用 `emit_string_box` 的 box 布局 `{tag,len,cap,data}`;symbol↔string
+  互换 = 分配新 box 拷贝字节、仅 header.tag 不同。
+- 所有内建经统一 builtin 表分发;未实现内建继续 fail-fast。
+
+## 3. 测试
+
+`stage0/tests/test_strings.npl` + `tools/check_core.sh` 扩展一节:
+round-trip(number->string ↔ display 输出一致)、append 长度守恒、
+ref 边界、symbol/string 互转恒等(eq? 与 string=?)。
