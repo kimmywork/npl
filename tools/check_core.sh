@@ -114,3 +114,37 @@ $NPLC0 -o "$WORK/el_bin" "$WORK/t_else.npl" >/dev/null 2>&1 \
 
 echo ""
 echo "=== All core feature tests passed ==="
+
+echo ""
+echo "=== String / symbol builtin tests ==="
+
+SRC2="$PROJECT_DIR/stage0/tests/test_strings.npl"
+BIN2="$WORK/str_bin"
+nplc0_ok "$SRC2" "$BIN2"
+
+cat > "$WORK/expected_str.txt" << 'EOF'
+foobar
+6
+1
+65
+12345
+1
+hello
+#t
+%42
+EOF
+
+run_expect_stdout "$BIN2" "$WORK/expected_str.txt" "string/symbol suite (stdout contract)"
+
+"$BIN2" >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 44 ] && pass "strings main returns tagged 11 (44)" || fail "exit 44 expected, got $rc"
+
+# contract: string-ref out of range must fail loudly at runtime
+cat > "$WORK/t_oob.npl" << 'EOF'
+(define (main) (string-ref "abc" 99))
+EOF
+nplc0_ok "$WORK/t_oob.npl" "$WORK/oob_bin"
+"$WORK/oob_bin" >/dev/null 2>&1
+rc=$?
+[ "$rc" -ne 0 ] && pass "contract: out-of-range string-ref aborts" || fail "contract: OOB string-ref must exit non-zero"
