@@ -93,6 +93,8 @@
 - 递归遍历深度 list 正确返回长度
 - `./build/stage0/nplc0 tests/gc_stress.npl` 正常退出，内存峰值合理
 
+**状态**：部分完成。runtime 基础已实现，cons/car/cdr 链接已验证，tagged pointer 算术已工作。GC 压力测试待验证。
+
 ---
 
 ## Phase 4 — 闭包 + 尾调用（完整 R7RS 控制流核心）
