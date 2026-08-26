@@ -1,0 +1,7 @@
+; test_lambda.npl — Phase 4 test: lambda and higher-order functions
+
+(define (apply-fn f x)
+  (f x))
+
+(define (main)
+  (apply-fn (lambda (x) (+ x 1)) 21))

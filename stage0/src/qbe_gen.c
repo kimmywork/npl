@@ -28,6 +28,7 @@
 
 /* Forward declarations */
 static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body);
+static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body, FILE *out);
 static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth);
 
 /* Helper: output with indentation */
@@ -54,6 +55,7 @@ static void emit_raw(QbeCtx *ctx, const char *fmt, ...)
 void qbe_ctx_init(QbeCtx *ctx, FILE *out, SymTab *symtab)
 {
     ctx->out = out;
+    ctx->lambda_out = tmpfile();  /* buffer for lambda definitions */
     ctx->symtab = symtab;
     ctx->next_tmp = 0;
     ctx->next_label = 0;
@@ -361,19 +363,43 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         {
             char safe_fname[128];
             qbe_sanitize_name(fname, safe_fname, sizeof(safe_fname));
-            if (arg_count == 0) {
-                emit(ctx, "%s =l call $%s()", result, safe_fname);
-            } else if (arg_count == 1) {
-                emit(ctx, "%s =l call $%s(l %s)", result, safe_fname, arg_bufs[0]);
-            } else if (arg_count == 2) {
-                emit(ctx, "%s =l call $%s(l %s, l %s)", result, safe_fname, arg_bufs[0], arg_bufs[1]);
-            } else {
-                /* More args — build call string */
-                emit_raw(ctx, "%s =l call $%s(l %s", result, safe_fname, arg_bufs[0]);
-                for (int i = 1; i < arg_count; i++) {
-                    fprintf(ctx->out, ", l %s", arg_bufs[i]);
+
+            /* Check if fname is a local variable (function pointer) */
+            Symbol *sym = symtab_lookup(ctx->symtab, fname);
+            int is_local = (sym && sym->kind == SYM_LOCAL);
+
+            if (is_local) {
+                /* Call via function pointer: %r =l call %f(...) */
+                /* Use the QBE name from the symbol table */
+                const char *qbe_name = sym->as.local.qbe_name;
+                if (arg_count == 0) {
+                    emit(ctx, "%s =l call %s()", result, qbe_name);
+                } else if (arg_count == 1) {
+                    emit(ctx, "%s =l call %s(l %s)", result, qbe_name, arg_bufs[0]);
+                } else if (arg_count == 2) {
+                    emit(ctx, "%s =l call %s(l %s, l %s)", result, qbe_name, arg_bufs[0], arg_bufs[1]);
+                } else {
+                    emit_raw(ctx, "%s =l call %s(l %s", result, qbe_name, arg_bufs[0]);
+                    for (int i = 1; i < arg_count; i++) {
+                        fprintf(ctx->out, ", l %s", arg_bufs[i]);
+                    }
+                    fprintf(ctx->out, ")\n");
                 }
-                fprintf(ctx->out, ")\n");
+            } else {
+                /* Call global function: %r =l call $f(...) */
+                if (arg_count == 0) {
+                    emit(ctx, "%s =l call $%s()", result, safe_fname);
+                } else if (arg_count == 1) {
+                    emit(ctx, "%s =l call $%s(l %s)", result, safe_fname, arg_bufs[0]);
+                } else if (arg_count == 2) {
+                    emit(ctx, "%s =l call $%s(l %s, l %s)", result, safe_fname, arg_bufs[0], arg_bufs[1]);
+                } else {
+                    emit_raw(ctx, "%s =l call $%s(l %s", result, safe_fname, arg_bufs[0]);
+                    for (int i = 1; i < arg_count; i++) {
+                        fprintf(ctx->out, ", l %s", arg_bufs[i]);
+                    }
+                    fprintf(ctx->out, ")\n");
+                }
             }
         }
         return result;
@@ -404,9 +430,25 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
     }
 
     case AST_LAMBDA: {
-        /* Lambda expression — for Phase 2, generate an anonymous function */
-        /* This is complex; for now return 0 */
-        return "0";
+        /* Lambda expression: (lambda (params...) body) */
+        AstNode *params = AST_CAR(expr);
+        AstNode *body = AST_CDR(expr);
+
+        /* Generate a unique function name */
+        static int lambda_count = 0;
+        char lambda_name[64];
+        snprintf(lambda_name, sizeof(lambda_name), "_lambda_%d", lambda_count++);
+
+        /* Temporarily redirect output to lambda buffer */
+        FILE *saved_out = ctx->out;
+        ctx->out = ctx->lambda_out;
+        gen_function(ctx, lambda_name, params, body);
+        ctx->out = saved_out;
+
+        /* Return the function pointer as a tagged value */
+        const char *result = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =l copy $%s", result, lambda_name);
+        return result;
     }
 
     case AST_LET: {
@@ -470,24 +512,24 @@ static void qbe_emit_name(QbeCtx *ctx, const char *name)
 }
 
 /* Generate a function definition */
-static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body)
+static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body, FILE *out)
 {
     /* Generate function header */
     if (strcmp(name, "main") == 0) {
-        fprintf(ctx->out, "export ");
+        fprintf(out, "export ");
     }
     /* Use 'l' (long/64-bit) for all values since we use tagged pointers */
-    fprintf(ctx->out, "function l $");
+    fprintf(out, "function l $");
     qbe_emit_name(ctx, name);
-    fprintf(ctx->out, "(");
+    fprintf(out, "(");
 
     /* Generate parameters */
     AstNode *p = params;
     int first = 1;
     while (p && !AST_IS_NIL(p)) {
         AstNode *param = AST_CAR(p);
-        if (!first) fprintf(ctx->out, ", ");
-        fprintf(ctx->out, "l %s", param_qbe_name(param));
+        if (!first) fprintf(out, ", ");
+        fprintf(out, "l %s", param_qbe_name(param));
         /* Add to symbol table as local */
         if (param->tag == AST_SYMBOL) {
             symtab_add_local(ctx->symtab, param->as.symbol);
@@ -495,10 +537,10 @@ static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode
         first = 0;
         p = AST_CDR(p);
     }
-    fprintf(ctx->out, ") {\n");
+    fprintf(out, ") {\n");
 
     /* Generate body */
-    fprintf(ctx->out, "@start\n");
+    fprintf(out, "@start\n");
     ctx->depth = 1;
 
     /* For a begin block or single expression */
@@ -526,8 +568,14 @@ static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode
         }
     }
 
-    fprintf(ctx->out, "}\n\n");
+    fprintf(out, "}\n\n");
     ctx->depth = 0;
+}
+
+/* Wrapper for main function definitions */
+static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body)
+{
+    gen_function_to(ctx, name, params, body, ctx->out);
 }
 
 /* Main entry point: generate QBE IL for entire program */
@@ -575,4 +623,12 @@ void qbe_gen_program(QbeCtx *ctx, AstNode *program)
         fprintf(ctx->out, "    ret 0\n");
         fprintf(ctx->out, "}\n");
     }
+
+    /* Output lambda definitions */
+    rewind(ctx->lambda_out);
+    char buf[4096];
+    while (fgets(buf, sizeof(buf), ctx->lambda_out)) {
+        fprintf(ctx->out, "%s", buf);
+    }
+    fclose(ctx->lambda_out);
 }
