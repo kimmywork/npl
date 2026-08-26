@@ -1,0 +1,156 @@
+# 增量 1 设计 — 核心语言特性补齐(GAP 修复)
+
+> 状态:实施中 | 前置:Phase 0-7 基线全绿(check_stage0.sh / check_r7rs.sh 通过)
+
+## 1. 背景:核查出的 GAP
+
+对照 PLAN.md Phase 8 目标(stage1 编译 src/compiler.npl)逐项核查 stage0 能力,
+发现以下 GAP(全部有复现命令佐证):
+
+| # | GAP | 影响 | 证据 |
+|---|-----|------|------|
+| G1 | `(cond ...)`/`else` 未支持,被当作未定义函数调用 | 任何自举编译器源都过不了链接 | `cond ((= x 1) ...)` → link error `_cond`, `_else` |
+| G2 | body 内部 define 未处理;lambda 多表达式 body 会走 application 分支 | `(lambda () (define x 1) (+ x 1))` 语义错乱 | qbe_gen.c gen_expr 无此分支 |
+| G3 | `(quote datum)` 编译为字面 `0`(静默!) | self-host reader 无法判别 symbol;`(= op '+)` 类操作不可能 | ast 注释 + gen_expr QUOTE 返回 "0" |
+| G4 | 顶层变量 `(define x 5)` 被静默丢弃("skip for now") | reader.npl 的 token 常量 define(TOK_LPAREN 0)全部失效 | qbe_gen_program 第一遍 |
+| G5 | unsupported 静默返回 "0"(set!/quote/default) | 错误程序产出静默错误的二进制,fail-fast 缺失 | default 分支 |
+| G6 | immediate 编码三处互相矛盾:npl.h(#t=6/#f=10/nil=2)vs gen_literal(4/8/0)vs if(jnz 非 0 即真) | `#f` 为真;数值塔/eq?/display 全部建立在不一致的沙上 | gen_literal L166 "4"/"8";npl.h IMM_* |
+| G7 | 缺谓词:not / eq? / pair?(null? 有) | R7RS 核心不可用 | builtin 表 |
+| G8 | display 不能打印 symbol/bool/nil 全集 | 调试产物不可读 | runtime/alloc.c |
+| G9 | 测试基建:check_*.sh 全部用 exit%256 黑盒,无可读断言,无契约/PBT | 回归网太粗,新特性验证不足 | 各 check 脚本 |
+
+G9 由单独增量解决;本增量修 G1-G8。
+
+## 2. 方案设计
+
+### 2.1 唯一事实来源:value 编码(runtime/npl.h)
+
+```
+NplVal (64-bit tagged):
+  fixnum : v << 2 | 0        (最高位丢弃 → 31-bit 有序 fixnum 有效位)
+  boxed  : ptr | 1           (NplHeader{tag32, flags32} + payload)
+  imm    : enc << 2 | 2      nil=2  #t=6  #f=10
+```
+
+修复原则:**所有通道(gen_literal / cmp 结果 / if 判定 / eq? / display)
+向该编码对齐**,而不是向 stage0 里的历史误编码对齐。
+
+### 2.2 truthiness(R7RS 严格化 + 兼容路径)
+
+- `if` 判定改为 `%c =w cnew %test, 10; jnz %c, ...` — 只有 `#f` 为假。
+- 同步:cmp op(`< > = <= >= not=`)的结果从裸 0/1 **re-tag 为 #t/#f**
+  (`shl 2; add 2`)。裸 0 不再是合法布尔,falsy 判定因此天然成立。
+- `null?` 改判 `ceqw %x, 2`(nil=2)。
+- 已知取舍:fixnum 0(v=0)恰好也是 falsy 常量(`cnew` 对 v=0 产生 #t),
+  即 `(if 0 ...)` 会误判为假 — 违背 R7RS 但影响面极小(比较结果才是
+  主流测试值),记为 KNOWN-LIMITATION,V2 用类型系统消除(typed 分支
+  直接 jnz)。
+- and/or 展开的中间值仍是真值表达式,不受影响。
+
+### 2.3 cond/else — desugar pass(非 special form)
+
+新增 `stage0/src/desugar.{c,h}`:在 macro 展开**之后**跑一次纯 AST 转换:
+
+```
+(cond (t1 e...) (t2 e...) ... (else e...))
+→ (if t1 (begin e...) (if t2 (begin e...) ... (begin else...)))
+```
+
+- clause body 为空(test-only)时,值为 test 本身(R7RS 行为)。
+- else 不在末尾 / else 重复 → 编译期报错。
+- 选择 desugar 而非 syntax-rules:阶段定位上 cond 属核表(driver 直译),
+  且 compiler.npl 未来照抄同一逻辑复杂度最低(KISS,Gall's Law)。
+
+### 2.4 内部 define(letrec* 近似)+ 多表达式 body
+
+qbe_gen 新增统一入口 `gen_body(ctx, exprs)`:
+
+```
+对 body 逐项:
+  (define v e) → 先 symtab_add_local(v)(名字先入域,letrec* 语序可见性)
+                 再 gen value,copy 入槽
+  其他         → gen_expr(最后一个的值作为 body 值)
+```
+
+- lambda / let 的 body 全部改走 gen_body。
+- KNOWN-LIMITATION:body 内 define 的名字不得被同一函数体内嵌 lambda
+  捕获(collect_free_vars 将其并入 exclude);需要共享状态请显式传参。
+  自举编译器遵守此规则即可。
+- 同时根治多表达式 body 被 application 分支误吞的 bug(G2b)。
+
+### 2.5 顶层全局变量(data 静态初始化)
+
+`(define name const)` 在 qbe_gen_program 中生成 QBE data:
+
+```
+data $gv_name = { l <static-repr> }    ; repr 为一次性求值的静态形式
+```
+
+静态初始化支持:fixnum / bool / nil / string literal / `'symbol` /
+`'(elements...)`(递归成对链)。其余表达式(含运算、调用)→ 编译期报错
+(YAGNI:compiler.npl 只需常量绑定;运行时 store 写全局置 V2)。
+
+访问:symbol 解析出 SYM_GLOBAL_VAR 时 `loadl $gv_name`。
+符号表新增 `SYM_GLOBAL_VAR`。
+
+### 2.6 quote 编译语义
+
+gen_expr 新增 AST_QUOTE:按 datum 类型递归构造静态 data 对象,返回 `$label`:
+
+| datum | data 形式 | NplVal |
+|-------|-----------|--------|
+| number | `{ l num }`(直接 fixnum,无 box) | v<<2 |
+| bool/nil | 无需 data,立即数 | 6/10/2 |
+| string | `{ w TAG_STRING, w 0, w len, w cap, b "..", b 0 }` | $label\|1 |
+| symbol | `{ w BOX_SYMBOL, w 0, w len, w cap, b "..", b 0 }` | $label\|1 |
+| pair | `{ w BOX_PAIR, w 0, l $car, l $cdr }` 递归 | $label\|1 |
+
+- 相同 literal 复用同一 label(按符号名去重即可,symbol 天然按名字;
+  pair 链不去重,YAGNI)。
+- 这使 self-host reader 可以执行 `(= tok TOK_LPAREN)` 之外真正的
+  `(eq? (car form) 'define)` 判别。
+
+### 2.7 新内建谓词
+
+| 形式 | 实现 |
+|------|------|
+| `(not x)` | `%r =w cnew %x, 10` → re-tag bool |
+| `(eq? a b)` | `%r =l ceql %a, %b`(boxed/imm/fixnum 指针级相等;string 内容相等不在 eq? 承诺内,R7RS 合规) |
+| `(pair? x)` | `%h =l loadsw %x`(取 header.tag) `%r =w ceqw %h, 0(BOX_PAIR)` — 仅当低 2 位 =1?简化:tagged ptr 必然低 2 位 01,直接比 header tag |
+
+### 2.8 display 增强(runtime)
+
+`npl_display` 补齐:BOX_SYMBOL(打印名字)/立即数(2→`()`,6→`#t`,
+10→`#f`;旧误编码 4/8 打印 `#t/#f` 保过渡兼容)/STRING 全集已有。
+
+### 2.9 fail-fast(错误卫生)
+
+gen_expr default 分支、AST_SET 等未支持构造:**fprintf(stderr) + exit(1)**,
+不再静默 "0"。compile() 收尾也校验 QBE/link 失败路径(已核对返回码=1 ✓)。
+
+## 3. 测试计划
+
+- 新增 `stage0/tests/test_core.npl`:cond 全形态(test-only body、else、
+  嵌套)、内部 define、多表达式 body、全局常量、quote(symbol/string/
+  nested list)、not/eq?/pair?、truthiness(#f 进 alt,nil 不假)。
+- 新增 `tools/check_core.sh`:非黑盒断言(display 输出 diff 到 golden
+  + exit code 检查),纳入回归。
+- 契约不变量(随 inc3 并入正式框架,本增量先手跑):
+  1. 任意 prog 走完 reader/desugar/codegen 三相,要么成功要么非零退出,
+     绝不静默输出错误二进制。
+  2. immediates 数据:round-trip 显示 #t/#f/()/quote-symbol 一致。
+  3. `(if #f A B)` 恒 B;`(if '() A B)` 恒 A(R7RS:nil 真)。
+- 全量回归:tools/check_stage0.sh + check_r7rs.sh + check_type.sh +
+  ninja 冒烟,必须保持全绿(exit-code 断言已按 #f=10/re-tag 口径复核)。
+
+## 4. 文件改动清单
+
+| 文件 | 动作 |
+|------|------|
+| stage0/src/desugar.{c,h} | 新增 |
+| stage0/src/qbe_gen.{c,h} | 大改(if/cmp/literal/quote/gvar/gen_body/pred/fail-fast) |
+| stage0/src/symtab.{c,h} | SYM_GLOBAL_VAR |
+| stage0/src/main.c | 挂 desugar pass |
+| stage0/CMakeLists.txt | 加 desugar.c |
+| runtime/{npl.h,alloc.c} | npl_display 补齐 |
+| stage0/tests/test_core.npl, tools/check_core.sh | 新增 |

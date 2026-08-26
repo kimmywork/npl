@@ -30,8 +30,8 @@
 static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body);
 static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body, FILE *out);
 static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth);
-static AstNode *collect_free_vars(AstNode *expr, SymTab *symtab);
 static AstNode *collect_free_vars_impl(AstNode *expr, SymTab *symtab, AstNode *exclude_params);
+static AstNode *collect_free_vars_seq(AstNode *exprs, SymTab *symtab, AstNode *exclude);
 
 /* Helper: output with indentation */
 static void emit(QbeCtx *ctx, const char *fmt, ...)
@@ -58,6 +58,7 @@ void qbe_ctx_init(QbeCtx *ctx, FILE *out, SymTab *symtab)
 {
     ctx->out = out;
     ctx->lambda_out = tmpfile();  /* buffer for lambda definitions */
+    ctx->data_out = tmpfile();    /* buffer for static data definitions */
     ctx->symtab = symtab;
     ctx->next_tmp = 0;
     ctx->next_label = 0;
@@ -131,6 +132,30 @@ static const char *qbe_cmp_op(const char *name)
     return NULL;
 }
 
+/* Fatal error during codegen: never silently emit wrong code (fail-fast) */
+static void codegen_error(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    fprintf(stderr, "codegen error: ");
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+    exit(1);
+}
+
+/* Check if a name is one of the built-in functions the compiler knows.
+ * Used by free-variable collection so builtins are not captured as env vars. */
+static int is_builtin_name(const char *name)
+{
+    return (is_arith_op(name) || is_cmp_op(name) ||
+            strcmp(name, "display") == 0 || strcmp(name, "puts") == 0 ||
+            strcmp(name, "cons") == 0 || strcmp(name, "car") == 0 ||
+            strcmp(name, "cdr") == 0 || strcmp(name, "null?") == 0 ||
+            strcmp(name, "not") == 0 || strcmp(name, "eq?") == 0 ||
+            strcmp(name, "pair?") == 0);
+}
+
 /* Get the QBE name for a parameter */
 static const char *param_qbe_name(AstNode *param)
 {
@@ -147,7 +172,19 @@ static const char *param_qbe_name(AstNode *param)
     return "%arg";
 }
 
-/* Generate QBE IL for a literal expression (number, string, boolean) */
+/*
+ * Value representation constants — the single source of truth is
+ * runtime/npl.h.  Duplicated here because stage0 does not include it.
+ *   fixnum : v << 2 | 0        boxed : ptr | 1        imm : enc << 2 | 2
+ *   nil=2  #t=6  #f=10         BOX_PAIR=0 BOX_STRING=1 BOX_VECTOR=2
+ *   BOX_SYMBOL=3 BOX_CLOSURE=4 BOX_FLOAT=5
+ */
+#define NPL_IMM_NIL    2
+#define NPL_IMM_TRUE   6
+#define NPL_IMM_FALSE  10
+#define NPL_BOX_PAIR   0
+
+/* Generate QBE IL for a literal expression (number, boolean, nil) */
 static const char *gen_literal(QbeCtx *ctx, AstNode *expr)
 {
     char *buf = tmp_pool[tmp_idx % MAX_TMP];
@@ -158,12 +195,182 @@ static const char *gen_literal(QbeCtx *ctx, AstNode *expr)
         snprintf(buf, 32, "%lld", (long long)(expr->as.fixnum << 2));
         return buf;
     case AST_BOOL:
-        /* Boolean: immediate value */
-        return expr->as.bool_val ? "4" : "8";  /* IMM_TRUE << 2 | TAG_IMM, IMM_FALSE << 2 | TAG_IMM */
+        return expr->as.bool_val ? "6" : "10";  /* #t / #f immediates */
     case AST_NIL:
-        /* Nil: 0 */
-        return "0";
+        return "2";
     default:
+        codegen_error("unsupported literal");
+        return "0";
+    }
+}
+
+/* Re-tag a raw 0/1 comparison result (:w) into a proper bool.
+ * Encodings are NOT affine in {#t=6, #f=10} because immediates interleave
+ * with nil (enc<<2 | TAG_IMM, nil enc=0, TRUE enc=1, FALSE enc=2).
+ * Result = (#FALSE_BASE) - raw<<2  → raw=0 → 10 (#f); raw=1 → 6 (#t). */
+static const char *retag_bool(QbeCtx *ctx, const char *raw)
+{
+    const char *wide = qbe_gen_tmp(ctx);
+    const char *shifted = qbe_gen_tmp(ctx);
+    const char *base = qbe_gen_tmp(ctx);
+    const char *result = qbe_gen_tmp(ctx);
+    emit(ctx, "%s =l extsw %s", wide, raw);
+    emit(ctx, "%s =l shl %s, 2", shifted, wide);
+    emit(ctx, "%s =l copy %d", base, NPL_IMM_FALSE);
+    emit(ctx, "%s =l sub %s, %s", result, base, shifted);
+    return result;
+}
+
+/* ---- Static data emission (quote / string / global constants) ---- */
+
+static char datum_pool[MAX_TMP][64];
+static int datum_idx = 0;
+static int next_datum_id = 0;
+
+static void qbe_data_escape(const char *src, char *dst, size_t dst_size)
+{
+    size_t o = 0;
+    for (; *src && o + 2 < dst_size - 1; src++) {
+        unsigned char c = (unsigned char)*src;
+        if (c == '"' || c == '\\') {
+            dst[o++] = '\\'; dst[o++] = c;
+        } else if (c == '\n') {
+            dst[o++] = '\\'; dst[o++] = 'n';
+        } else if (c == '\t') {
+            dst[o++] = '\\'; dst[o++] = 't';
+        } else if (c >= 32 && c < 127) {
+            dst[o++] = c;
+        } else {
+            /* other control bytes: skip (stage0 restriction) */
+        }
+    }
+    dst[o] = '\0';
+}
+
+/* Emit a boxed string-or-symbol object into the data section.
+ * box_tag: BOX_STRING (1) or BOX_SYMBOL (3). Layout mirrors runtime/npl.h:
+ *   struct { NplHeader{tag,flags}; uint32 length; uint32 capacity; char data[]; } */
+static const char *emit_string_box(QbeCtx *ctx, const char *s, int box_tag)
+{
+    char label_buf[64];
+    snprintf(label_buf, sizeof(label_buf), "$boxed_%d", next_datum_id++);
+    /* pool entry is write-once; keep the string stable for the process life */
+    char *label = datum_pool[datum_idx % MAX_TMP];
+    strcpy(label, label_buf);
+    datum_idx++;
+
+    char escaped[4096];
+    qbe_data_escape(s, escaped, sizeof(escaped));
+    size_t len = strlen(s);
+
+    fprintf(ctx->data_out,
+            "data %s = { w %d, w 0, w %zu, w %zu, b \"%s\", b 0 }\n",
+            label, box_tag, len, len + 1, escaped);
+    return label;
+}
+
+/* Wrap a static label reference with TAG_PTR ("$lbl+1"); numerics pass through. */
+static const char *tagged_data_ref(AstNode *expr, const char *repr)
+{
+    /* Only heap-object references (labels) need the tag bit. Literals for
+     * fixnum/bool/nil already carry their own encoding and contain no '$'. */
+    if (repr[0] != '$') return repr;
+
+    static char ref_buf[16][80];
+    static int rb = 0;
+    char *buf = ref_buf[rb % 16];
+    rb++;
+    snprintf(buf, 80, "%s+1", repr);
+    (void)expr;
+    return buf;
+}
+
+/* Emit a static representation of a quoted datum.
+ * Returns the QBE value string: an immediate constant for numbers/bools,
+ * or a "$label" reference for boxed objects. Fails fast on unsupported. */
+/* Dedup table for already-emitted symbol boxes.
+ * Returns a stable pointer to the canonical QBE label ("$sym_NAME");
+ * *is_new is set to 1 the first time a given symbol name is seen. */
+#define MAX_EMITTED_SYMS 1024
+#define SYM_LABEL_MAX 128
+static char sym_bare_names[MAX_EMITTED_SYMS][SYM_LABEL_MAX];
+static char sym_qbe_labels[MAX_EMITTED_SYMS][SYM_LABEL_MAX];
+static int emitted_sym_count = 0;
+
+static const char *intern_symbol_label(const char *safe_name, int *is_new)
+{
+    *is_new = 0;
+    for (int i = 0; i < emitted_sym_count; i++) {
+        if (strcmp(sym_bare_names[i], safe_name) == 0) {
+            return sym_qbe_labels[i];
+        }
+    }
+    if (emitted_sym_count >= MAX_EMITTED_SYMS) {
+        codegen_error("too many distinct quoted symbols (max %d)", MAX_EMITTED_SYMS);
+    }
+    snprintf(sym_bare_names[emitted_sym_count], SYM_LABEL_MAX, "%s", safe_name);
+    char *label_slot = sym_qbe_labels[emitted_sym_count++];
+    snprintf(label_slot, SYM_LABEL_MAX, "$sym_%s", safe_name);
+    *is_new = 1;
+    return label_slot;
+}
+
+static const char *emit_static_datum(QbeCtx *ctx, AstNode *expr)
+{
+    switch (expr->tag) {
+    case AST_QUOTE:
+        /* nested quote in global initializers: unwrap */
+        return emit_static_datum(ctx, AST_CAR(expr));
+
+    case AST_FIXNUM:
+    case AST_BOOL:
+    case AST_NIL:
+        return gen_literal(ctx, expr);
+
+    case AST_SYMBOL: {
+        /* Interned symbols are deduplicated: same name -> same label,
+         * one data definition, eq? works by construction. */
+        char safe_name[128];
+        qbe_sanitize_name(expr->as.symbol, safe_name, sizeof(safe_name));
+        int is_new = 0;
+        const char *label = intern_symbol_label(safe_name, &is_new);
+        if (is_new) {
+            fprintf(ctx->data_out,
+                    "data %s = { w 3, w 0, w %zu, w %zu, b \"%s\", b 0 }\n",
+                    label, strlen(expr->as.symbol), strlen(expr->as.symbol) + 1,
+                    expr->as.symbol);
+        }
+        return label;
+    }
+
+    case AST_STRING:
+        return emit_string_box(ctx, expr->as.string, 1);
+
+    case AST_PAIR: {
+        /* Pair: recursively emit car and cdr. Lists terminate in nil.
+         * Heap-object references carry TAG_PTR directly in the data. */
+        char *label = datum_pool[datum_idx % MAX_TMP];
+        datum_idx++;
+        snprintf(label, 64, "$pair_%d", next_datum_id++);
+        const char *car_r = tagged_data_ref(AST_CAR(expr),
+            emit_static_datum(ctx, AST_CAR(expr)));
+        const char *cdr_val = expr->as.pair.cdr && !AST_IS_NIL(expr->as.pair.cdr)
+                            ? emit_static_datum(ctx, expr->as.pair.cdr)
+                            : "2";
+        const char *cdr_r = expr->as.pair.cdr && !AST_IS_NIL(expr->as.pair.cdr)
+                            ? tagged_data_ref(expr->as.pair.cdr, cdr_val)
+                            : cdr_val;
+        fprintf(ctx->data_out,
+                "data %s = { w 0, w 0, l %s, l %s }\n", label, car_r, cdr_r);
+        return label;
+    }
+
+    case AST_LAMBDA:
+        codegen_error("cannot quote a lambda");
+        return "0";
+
+    default:
+        codegen_error("unsupported quoted datum (tag=%d)", expr->tag);
         return "0";
     }
 }
@@ -171,14 +378,88 @@ static const char *gen_literal(QbeCtx *ctx, AstNode *expr)
 /* Forward declaration */
 static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth);
 
+
+
+/* Produce a tagged pointer (| TAG_PTR) for a static data label. */
+static const char *tagged_ptr(QbeCtx *ctx, const char *label)
+{
+    const char *addr = qbe_gen_tmp(ctx);
+    const char *val = qbe_gen_tmp(ctx);
+    emit(ctx, "%s =l copy %s", addr, label);
+    emit(ctx, "%s =l add %s, 1", val, addr);
+    return val;
+}
+
+/* Generate code for (quote <datum>).
+ * Immediates need no address; boxed data are emitted statically then tagged. */
+static const char *gen_quote(QbeCtx *ctx, AstNode *datum)
+{
+    if (!datum || AST_IS_NIL(datum)) return "2";
+    switch (datum->tag) {
+    case AST_FIXNUM:
+    case AST_BOOL:
+        return gen_literal(ctx, datum);
+    default:
+        return tagged_ptr(ctx, emit_static_datum(ctx, datum));
+    }
+}
+
+/* Forward declaration */
+static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth);
+
+/* Generate QBE IL for a body sequence with internal defines.
+ * Handles both (lambda ...) bodies and (let ...) bodies.
+ *
+ *   body := (define name expr)* expr+     (R7RS letrec*-like order)
+ *
+ * Each internal define binds its name BEFORE evaluating its value,
+ * giving letrec* visibility; however names defined this way must not be
+ * captured by lambdas inside the same body (see design doc §2.4). */
+static const char *gen_body(QbeCtx *ctx, AstNode *body, int depth)
+{
+    const char *last_val = "0";
+    int has_value = 0;
+
+    while (body && !AST_IS_NIL(body)) {
+        AstNode *e = AST_CAR(body);
+
+        if (e && e->tag == AST_DEFINE) {
+            /* Internal define: bind name first, then evaluate value
+             * into its slot (letrec* ordering). */
+            AstNode *name_or_sig = AST_CAR(e);
+            AstNode *value = AST_CDR(e);
+
+            if (name_or_sig->tag == AST_PAIR) {
+                /* (define (f args...) body...) inside a body is not
+                 * supported at stage0; use (define f (lambda ...)). */
+                codegen_error("internal function shorthand (define (f ...) ...) "
+                              "is only valid at top level");
+            }
+            if (!name_or_sig || name_or_sig->tag != AST_SYMBOL) {
+                codegen_error("malformed internal define");
+            }
+            Symbol *sym = symtab_add_local(ctx->symtab, name_or_sig->as.symbol);
+            const char *val = gen_expr(ctx, value, depth);
+            emit(ctx, "%s =l copy %s", sym->as.local.qbe_name, val);
+        } else {
+            last_val = gen_expr(ctx, e, depth);
+            has_value = 1;
+        }
+        body = AST_CDR(body);
+    }
+
+    return has_value ? last_val : "0";
+}
+
 /* Generate QBE IL for an expression */
 static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
 {
-    if (!expr) return "0";
+    if (!expr) return "2";
 
     switch (expr->tag) {
     case AST_FIXNUM:
     case AST_BOOL:
+    case AST_NIL:
         return gen_literal(ctx, expr);
 
     case AST_SYMBOL: {
@@ -201,22 +482,43 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             emit(ctx, "storel 0, %s", env_slot);
             return closure;
         }
-        /* Global — for now return 0 */
+        if (sym && sym->kind == SYM_GLOBAL_VAR) {
+            /* Global variable: the data slot already holds a fully-tagged
+             * NplVal (heap refs stored as "$label+1"), so just load it. */
+            char safe_name[128];
+            qbe_sanitize_name(sym->name, safe_name, sizeof(safe_name));
+            const char *val = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l loadl $gv_%s", val, safe_name);
+            return val;
+        }
+        if (is_builtin_name(expr->as.symbol)) {
+            codegen_error("builtin '%s' used as a value is not supported", expr->as.symbol);
+        }
+        codegen_error("unbound symbol '%s'", expr->as.symbol);
         return "0";
     }
 
-    case AST_STRING: {
-        /* String constants — Phase 2: return 0 (not yet implemented) */
-        return "0";
-    }
+    case AST_STRING:
+        return tagged_ptr(ctx, emit_string_box(ctx, expr->as.string, 1));
+
+    case AST_QUOTE:
+        return gen_quote(ctx, AST_CAR(expr));
 
     case AST_IF: {
         /* (if test consequent alternate) */
+#ifdef NPL_DEBUG
+        fprintf(stderr, "[gen_expr] AST_IF at depth %d\n", depth);
+#endif
         AstNode *test   = AST_CAR(expr);
         AstNode *conseq = AST_CAR(AST_CDR(expr));
         AstNode *alt    = AST_CAR(AST_CDR(AST_CDR(expr)));
 
-        const char *result = qbe_gen_tmp(ctx);
+        /* The result crosses basic blocks (assigned in both branches,
+         * read after the merge). Per doc/il.txt ~ Phi we pass it through
+         * a stack slot instead of relying on cross-block temporaries. */
+        const char *slot = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =l alloc8 8", slot);
+
         const char *ltrue  = qbe_gen_label(ctx);
         const char *lfalse = qbe_gen_label(ctx);
         const char *ldone  = qbe_gen_label(ctx);
@@ -224,23 +526,27 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         /* Generate test condition */
         const char *test_val = gen_expr(ctx, test, depth + 1);
 
-        /* Branch on test */
-        emit(ctx, "jnz %s, %s, %s", test_val, ltrue, lfalse);
+        /* R7RS: only #f is false. Compare against the #f immediate. */
+        const char *truthy = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =w cnel %s, %d", truthy, test_val, NPL_IMM_FALSE);
+        emit(ctx, "jnz %s, %s, %s", truthy, ltrue, lfalse);
 
         /* True branch */
         fprintf(ctx->out, "%s\n", ltrue);
         const char *true_val = gen_expr(ctx, conseq, depth + 1);
-        emit(ctx, "%s =l copy %s", result, true_val);
+        emit(ctx, "storel %s, %s", true_val, slot);
         emit(ctx, "jmp %s", ldone);
 
         /* False branch */
         fprintf(ctx->out, "%s\n", lfalse);
         const char *false_val = gen_expr(ctx, alt, depth + 1);
-        emit(ctx, "%s =l copy %s", result, false_val);
+        emit(ctx, "storel %s, %s", false_val, slot);
         emit(ctx, "jmp %s", ldone);
 
         /* Merge */
         fprintf(ctx->out, "%s\n", ldone);
+        const char *result = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =l loadl %s", result, slot);
         return result;
     }
 
@@ -323,39 +629,37 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         }
 
         if (is_cmp_op(fname)) {
-            /* Comparison: (< a b) */
+            /* Comparison: (< a b) — result re-tagged as proper bool */
             AstNode *arg1 = AST_CAR(args);
             AstNode *arg2 = AST_CAR(AST_CDR(args));
 
             const char *v1 = gen_expr(ctx, arg1, depth + 1);
             const char *v2 = gen_expr(ctx, arg2, depth + 1);
-            const char *result = qbe_gen_tmp(ctx);
 
             const char *op = qbe_cmp_op(fname);
-            /* For comparison: extract values and compare */
             const char *tmp1 = qbe_gen_tmp(ctx);
             const char *tmp2 = qbe_gen_tmp(ctx);
             emit(ctx, "%s =l sar %s, 2", tmp1, v1);  /* extract v1 */
             emit(ctx, "%s =l sar %s, 2", tmp2, v2);  /* extract v2 */
-            emit(ctx, "%s =l %s %s, %s", result, op, tmp1, tmp2);
+            const char *raw = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =w %s %s, %s", raw, op, tmp1, tmp2);
+            return retag_bool(ctx, raw);
+        }
+
+        /* Check for display/puts — route everything through the runtime
+         * printer (handles fixnum/bool/nil/pair/string/symbol). */
+        if (strcmp(fname, "display") == 0 || strcmp(fname, "puts") == 0) {
+            AstNode *arg = AST_CAR(args);
+            const char *val = gen_expr(ctx, arg, depth + 1);
+            const char *result = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_display(l %s)", result, val);
             return result;
         }
 
-        /* Check for display/puts */
-        if (strcmp(fname, "display") == 0 || strcmp(fname, "puts") == 0) {
-            AstNode *arg = AST_CAR(args);
-            if (arg->tag == AST_STRING) {
-                /* Emit string data and call puts */
-                const char *data_name = qbe_gen_tmp(ctx);
-                /* For now, emit inline data reference */
-                /* We'll handle this in the string section */
-                const char *result = qbe_gen_tmp(ctx);
-                emit(ctx, "%s =l call $puts(l %s)", result, data_name);
-                return result;
-            }
-            const char *val = gen_expr(ctx, arg, depth + 1);
+        /* (newline): print a single '\n' */
+        if (strcmp(fname, "newline") == 0) {
             const char *result = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l call $puts(l %s)", result, val);
+            emit(ctx, "%s =l call $npl_newline()", result);
             return result;
         }
 
@@ -388,14 +692,65 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             return result;
         }
 
-        /* Check for null? (check if nil) */
+        /* Check for null? (check if nil) — returns proper bool */
         if (strcmp(fname, "null?") == 0) {
             AstNode *arg = AST_CAR(args);
             const char *val = gen_expr(ctx, arg, depth + 1);
-            const char *result = qbe_gen_tmp(ctx);
-            /* nil is 0 in our representation */
-            emit(ctx, "%s =l ceqw %s, 0", result, val);
-            return result;
+            const char *raw = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =w ceql %s, %d", raw, val, NPL_IMM_NIL);
+            return retag_bool(ctx, raw);
+        }
+
+        /* (not x): #t iff x is exactly #f */
+        if (strcmp(fname, "not") == 0) {
+            AstNode *arg = AST_CAR(args);
+            const char *val = gen_expr(ctx, arg, depth + 1);
+            const char *raw = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =w ceql %s, %d", raw, val, NPL_IMM_FALSE);
+            return retag_bool(ctx, raw);
+        }
+
+        /* (eq? a b): pointer-level identity. Fixnums compare by value
+         * (v<<2 tag is exact); boxed values compare by address; the two
+         * immediates #t/#f/nil are unique constants. */
+        if (strcmp(fname, "eq?") == 0) {
+            AstNode *arg1 = AST_CAR(args);
+            AstNode *arg2 = AST_CAR(AST_CDR(args));
+            const char *v1 = gen_expr(ctx, arg1, depth + 1);
+            const char *v2 = gen_expr(ctx, arg2, depth + 1);
+            const char *raw = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =w ceql %s, %s", raw, v1, v2);
+            return retag_bool(ctx, raw);
+        }
+
+        /* (pair? x): low-2-bits == TAG_PTR and header.tag == BOX_PAIR.
+         * Two branches to avoid loading the header of a non-pointer.
+         * The pointer must be untagged (& ~3) before the header load. */
+        if (strcmp(fname, "pair?") == 0) {
+            AstNode *arg = AST_CAR(args);
+            const char *val = gen_expr(ctx, arg, depth + 1);
+            const char *low = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =w and %s, 3", low, val);
+            const char *isp = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =w ceqw %s, 1", isp, low);
+
+            const char *lptr = qbe_gen_label(ctx);
+            const char *lnoptr = qbe_gen_label(ctx);
+            const char *ldone = qbe_gen_label(ctx);
+            const char *raw = qbe_gen_tmp(ctx);
+
+            emit(ctx, "jnz %s, %s, %s", isp, lptr, lnoptr);
+            fprintf(ctx->out, "%s\n", lptr);
+            const char *addr = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l add %s, -4", addr, val);  /* strip tag: ptr & ~3 */
+            const char *hdr = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l loadsw %s", hdr, addr);
+            emit(ctx, "%s =w ceqw %s, %d", raw, hdr, NPL_BOX_PAIR);
+            emit(ctx, "jmp %s", ldone);
+            fprintf(ctx->out, "%s\n", lnoptr);
+            emit(ctx, "%s =l copy 0", raw);
+            fprintf(ctx->out, "%s\n", ldone);
+            return retag_bool(ctx, raw);
         }
 
         /* User-defined function call */
@@ -517,34 +872,13 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         return result;
     }
 
-    case AST_DEFINE: {
-        /* (define name value) or (define (name params...) body) */
-        AstNode *name_or_sig = AST_CAR(expr);
-        AstNode *body = AST_CDR(expr);
-
-        if (name_or_sig->tag == AST_SYMBOL) {
-            /* Simple variable: (define x value) */
-            /* For Phase 2, we'll just evaluate and ignore */
-            /* Later this will store to a global */
-            return gen_expr(ctx, body, depth + 1);
-        } else if (name_or_sig->tag == AST_PAIR) {
-            /* Function: (define (name params...) body) */
-            AstNode *name_node = AST_CAR(name_or_sig);
-            AstNode *params = AST_CDR(name_or_sig);
-
-            if (name_node->tag == AST_SYMBOL) {
-                /* Register function in symbol table */
-                symtab_add_global_func(ctx->symtab, name_node->as.symbol, params, body);
-                /* Generate function definition */
-                gen_function(ctx, name_node->as.symbol, params, body);
-                return NULL;
-            }
-        }
-        return NULL;
-    }
+    case AST_DEFINE:
+        /* Defines are handled by qbe_gen_program (top level) and
+         * gen_body (internal). Reaching here means a misplaced define. */
+        codegen_error("misplaced define: only valid at top level or body position");
 
     case AST_LAMBDA: {
-        /* Lambda expression: (lambda (params...) body)
+        /* Lambda expression: (lambda (params...) body...)
          *
          * Closure conversion: lambda generates a function that takes
          * an env pointer as first arg, followed by regular params.
@@ -561,8 +895,25 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         char lambda_name[64];
         snprintf(lambda_name, sizeof(lambda_name), "_lambda_%d", lambda_count++);
 
-        /* Collect free variables from the body, excluding lambda parameters */
-        AstNode *free_vars = collect_free_vars_impl(body, ctx->symtab, params);
+        /* Names defined inside this body are not captured as free vars
+         * (stage0 restriction: internal defines cannot be closed over) */
+        AstNode *excluded = params;
+        {
+            AstNode *b = body;
+            while (b && !AST_IS_NIL(b)) {
+                AstNode *e = AST_CAR(b);
+                if (e && e->tag == AST_DEFINE && AST_CAR(e)->tag == AST_SYMBOL) {
+                    AstNode *cell = ast_pair(AST_CAR(e), ast_nil());
+                    cell->as.pair.cdr = excluded;
+                    excluded = cell;
+                }
+                b = AST_CDR(b);
+            }
+        }
+
+        /* Collect free variables from the body sequence, excluding lambda
+         * parameters and internal define names */
+        AstNode *free_vars = collect_free_vars_seq(body, ctx->symtab, excluded);
 
         /* Count free variables */
         int n_free = 0;
@@ -615,13 +966,9 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             }
         }
 
-        /* Generate body */
-        const char *result = gen_expr(ctx, body, 1);
-        if (result) {
-            emit(ctx, "ret %s", result);
-        } else {
-            emit(ctx, "ret 0");
-        }
+        /* Generate body (may contain internal defines and multiple exprs) */
+        const char *result = gen_body(ctx, body, 1);
+        emit(ctx, "ret %s", result ? result : "2");
 
         fprintf(ctx->out, "}\n\n");
         ctx->depth = 0;
@@ -707,9 +1054,9 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             bindings = AST_CDR(bindings);
         }
 
-        /* Generate body */
+        /* Generate body (may contain internal defines and multiple exprs) */
         if (body && !AST_IS_NIL(body)) {
-            return gen_expr(ctx, body, depth + 1);
+            return gen_body(ctx, body, depth + 1);
         }
         return "0";
     }
@@ -717,7 +1064,7 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
     case AST_BEGIN: {
         /* (begin exprs...) */
         AstNode *exprs = AST_CAR(expr);
-        const char *result = "0";
+        const char *result = "2";
 
         while (exprs && !AST_IS_NIL(exprs)) {
             result = gen_expr(ctx, AST_CAR(exprs), depth + 1);
@@ -727,11 +1074,10 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
     }
 
     case AST_SET:
-    case AST_QUOTE:
-        /* Not implemented in Phase 2 */
-        return "0";
+        codegen_error("set! is not supported in stage0 (bindings are immutable)");
 
     default:
+        codegen_error("unsupported construct (AST tag=%d)", expr->tag);
         return "0";
     }
 }
@@ -759,17 +1105,8 @@ static AstNode *collect_free_vars_impl(AstNode *expr, SymTab *symtab, AstNode *e
         if (sym && sym->kind == SYM_GLOBAL_FUNC) {
             return ast_nil(); /* Global function, not free */
         }
-        /* Check if this is a built-in operator */
-        if (is_arith_op(expr->as.symbol) || is_cmp_op(expr->as.symbol)) {
-            return ast_nil(); /* Built-in, not free */
-        }
-        /* Check for other built-in functions */
-        if (strcmp(expr->as.symbol, "display") == 0 ||
-            strcmp(expr->as.symbol, "puts") == 0 ||
-            strcmp(expr->as.symbol, "cons") == 0 ||
-            strcmp(expr->as.symbol, "car") == 0 ||
-            strcmp(expr->as.symbol, "cdr") == 0 ||
-            strcmp(expr->as.symbol, "null?") == 0) {
+        /* Check for built-in operators and functions */
+        if (is_builtin_name(expr->as.symbol)) {
             return ast_nil(); /* Built-in, not free */
         }
         /* Everything else is potentially a free variable */
@@ -832,10 +1169,24 @@ static AstNode *collect_free_vars_impl(AstNode *expr, SymTab *symtab, AstNode *e
     }
 }
 
-/* Public API: collect free variables from expression */
-static AstNode *collect_free_vars(AstNode *expr, SymTab *symtab)
+/* Collect free variables across a body sequence (list of expressions).
+ * Simply unions the free vars of each expression; the spine is a plain
+ * list, NOT an application. */
+static AstNode *collect_free_vars_seq(AstNode *exprs, SymTab *symtab, AstNode *exclude)
 {
-    return collect_free_vars_impl(expr, symtab, ast_nil());
+    AstNode *vars = ast_nil();
+    while (exprs && !AST_IS_NIL(exprs)) {
+        AstNode *item_vars = collect_free_vars_impl(exprs->as.pair.car, symtab, exclude);
+        if (AST_IS_NIL(vars)) {
+            vars = item_vars;
+        } else if (!AST_IS_NIL(item_vars)) {
+            AstNode *tail = vars;
+            while (!AST_IS_NIL(AST_CDR(tail))) tail = AST_CDR(tail);
+            AST_CDR(tail) = item_vars;
+        }
+        exprs = exprs->as.pair.cdr;
+    }
+    return vars;
 }
 
 /* Sanitize a name for use as a QBE function/variable name */
@@ -879,34 +1230,14 @@ static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstN
     }
     fprintf(out, ") {\n");
 
-    /* Generate body */
+    /* Generate body: sequence of expressions with optional internal defines */
     fprintf(out, "@start\n");
     ctx->depth = 1;
     ctx->in_tail = 1;  /* Body is in tail position */
 
-    /* For a begin block or single expression */
-    if (body->tag == AST_PAIR && AST_CAR(body) && AST_CAR(body)->tag == AST_SYMBOL &&
-        strcmp(AST_CAR(body)->as.symbol, "begin") == 0) {
-        /* Multiple expressions in begin block */
-        AstNode *exprs = AST_CDR(body);
-        const char *last_val = NULL;
-        while (exprs && !AST_IS_NIL(exprs)) {
-            last_val = gen_expr(ctx, AST_CAR(exprs), 1);
-            exprs = AST_CDR(exprs);
-        }
-        if (last_val) {
-            emit(ctx, "ret %s", last_val);
-        } else {
-            emit(ctx, "ret 0");
-        }
-    } else {
-        /* Single expression */
-        const char *result = gen_expr(ctx, body, 1);
-        if (result) {
-            emit(ctx, "ret %s", result);
-        } else {
-            emit(ctx, "ret 0");
-        }
+    {
+        const char *result = gen_body(ctx, body, 1);
+        emit(ctx, "ret %s", result ? result : "2");
     }
 
     fprintf(out, "}\n\n");
@@ -922,59 +1253,130 @@ static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode
     gen_function_to(ctx, name, params, body, ctx->out);
 }
 
+/* Check whether a top-level variable initializer is a static constant
+ * supported by data-section initialization. */
+static int is_static_const(AstNode *e)
+{
+    if (!e) return 0;
+    switch (e->tag) {
+    case AST_FIXNUM:
+    case AST_BOOL:
+    case AST_NIL:
+    case AST_STRING:
+        return 1;
+    case AST_QUOTE:
+        /* quoted symbol / string / number / (list ...) literal */
+        return e->as.pair.car != NULL;
+    default:
+        return 0;
+    }
+}
+
+/* Emit the data definition for a global variable slot.
+ * Heap-object values are stored pre-tagged ("($label+1)") so loads
+ * yield a valid NplVal directly. */
+static void emit_global_var(QbeCtx *ctx, const char *name, AstNode *value)
+{
+    char safe_name[128];
+    qbe_sanitize_name(name, safe_name, sizeof(safe_name));
+
+    int boxed = !(value->tag == AST_FIXNUM ||
+                  value->tag == AST_BOOL ||
+                  value->tag == AST_NIL);
+    const char *repr = emit_static_datum(ctx, value);
+    if (boxed) {
+        repr = tagged_data_ref(value, repr);
+    }
+    fprintf(ctx->data_out, "data $gv_%s = { l %s }\n", safe_name, repr);
+}
+
 /* Main entry point: generate QBE IL for entire program */
 void qbe_gen_program(QbeCtx *ctx, AstNode *program)
 {
-    /* First pass: collect all definitions and emit string data */
-    AstNode *cur = program;
     int has_main = 0;
 
-    /* Emit data section for strings */
-    /* For Phase 2, we'll use a simple approach: collect strings during codegen */
+    /* Pass 1: register ALL top-level definitions in the symbol table
+     * (so cross-references and forward references resolve correctly),
+     * and emit global variable data slots. */
+    {
+        AstNode *cur = program;
+        while (cur && !AST_IS_NIL(cur)) {
+            AstNode *expr = AST_CAR(cur);
 
-    /* Emit function definitions */
-    cur = program;
-    while (cur && !AST_IS_NIL(cur)) {
-        AstNode *expr = AST_CAR(cur);
+            if (expr->tag == AST_DEFINE) {
+                AstNode *name_or_sig = AST_CAR(expr);
+                AstNode *body = AST_CDR(expr);
 
-        if (expr->tag == AST_DEFINE) {
-            AstNode *name_or_sig = AST_CAR(expr);
-            AstNode *body = AST_CDR(expr);
-
-            if (name_or_sig->tag == AST_SYMBOL) {
-                /* Global variable — skip for now */
-            } else if (name_or_sig->tag == AST_PAIR) {
-                AstNode *name_node = AST_CAR(name_or_sig);
-                AstNode *params = AST_CDR(name_or_sig);
-                if (name_node->tag == AST_SYMBOL) {
-                    if (strcmp(name_node->as.symbol, "main") == 0) {
-                        has_main = 1;
+                if (name_or_sig && name_or_sig->tag == AST_SYMBOL) {
+                    if (!is_static_const(body)) {
+                        codegen_error("global variable '%s' requires a constant "
+                                      "initializer (fixnum/bool/nil/string/quote)",
+                                      name_or_sig->as.symbol);
                     }
-                    /* Register function in symbol table before generating */
-                    symtab_add_global_func(ctx->symtab, name_node->as.symbol, params, body);
+                    symtab_add_global_var(ctx->symtab, name_or_sig->as.symbol,
+                                          body);
+                    emit_global_var(ctx, name_or_sig->as.symbol, body);
+                } else if (name_or_sig && name_or_sig->tag == AST_PAIR) {
+                    AstNode *name_node = AST_CAR(name_or_sig);
+                    AstNode *params = AST_CDR(name_or_sig);
+                    if (name_node->tag == AST_SYMBOL) {
+                        symtab_add_global_func(ctx->symtab, name_node->as.symbol,
+                                               params, body);
+                        if (strcmp(name_node->as.symbol, "main") == 0) {
+                            has_main = 1;
+                        }
+                    } else {
+                        codegen_error("malformed top-level define");
+                    }
+                }
+            }
+            cur = AST_CDR(cur);
+        }
+    }
+
+    /* Pass 2: generate function definitions */
+    {
+        AstNode *cur = program;
+        while (cur && !AST_IS_NIL(cur)) {
+            AstNode *expr = AST_CAR(cur);
+            if (expr->tag == AST_DEFINE) {
+                AstNode *name_or_sig = AST_CAR(expr);
+                AstNode *body = AST_CDR(expr);
+                if (name_or_sig->tag == AST_PAIR) {
+                    AstNode *name_node = AST_CAR(name_or_sig);
+                    AstNode *params = AST_CDR(name_or_sig);
                     gen_function(ctx, name_node->as.symbol, params, body);
                 }
             }
+            cur = AST_CDR(cur);
         }
-
-        cur = AST_CDR(cur);
     }
 
     /* Generate main if not defined */
     if (!has_main) {
-        /* Look for a main function or generate a default one */
-        /* For Phase 2, just generate an empty main */
         fprintf(ctx->out, "export function w $main() {\n");
         fprintf(ctx->out, "@start\n");
         fprintf(ctx->out, "    ret 0\n");
         fprintf(ctx->out, "}\n");
     }
 
-    /* Output lambda definitions */
+    /* Flush static data section first, then lambda definitions.
+     * The runtime entry stub calls npl_runtime_init before anything runs. */
+    rewind(ctx->data_out);
+    {
+        char buf[4096];
+        while (fgets(buf, sizeof(buf), ctx->data_out)) {
+            fprintf(ctx->out, "%s", buf);
+        }
+    }
+    fclose(ctx->data_out);
+
     rewind(ctx->lambda_out);
-    char buf[4096];
-    while (fgets(buf, sizeof(buf), ctx->lambda_out)) {
-        fprintf(ctx->out, "%s", buf);
+    {
+        char buf[4096];
+        while (fgets(buf, sizeof(buf), ctx->lambda_out)) {
+            fprintf(ctx->out, "%s", buf);
+        }
     }
     fclose(ctx->lambda_out);
 }

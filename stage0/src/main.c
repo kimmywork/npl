@@ -19,6 +19,7 @@
 #include "symtab.h"
 #include "qbe_gen.h"
 #include "macro.h"
+#include "desugar.h"
 
 /* Paths to external tools — configured at build time */
 #ifndef QBE_PATH
@@ -74,6 +75,9 @@ static int compile(const char *filename, const char *output)
     MacroEnv macro_env;
     macro_env_init(&macro_env);
     ast = macro_expand_program(&macro_env, ast);
+
+    /* Desugar core forms (cond -> if chains etc.) */
+    ast = desugar_program(ast);
 
     /* Generate QBE IL */
     char ssa_path[1024];
@@ -152,6 +156,9 @@ static int emit_qbe(const char *filename)
     MacroEnv macro_env;
     macro_env_init(&macro_env);
     ast = macro_expand_program(&macro_env, ast);
+
+    /* Desugar core forms (cond -> if chains etc.) */
+    ast = desugar_program(ast);
 
     SymTab symtab;
     symtab_init(&symtab);

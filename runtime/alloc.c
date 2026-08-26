@@ -200,7 +200,13 @@ void npl_display(NplVal v) {
         }
         case BOX_STRING: {
             NplString *s = (NplString *)h;
-            printf("\"%.*s\"", (int)s->length, s->data);
+            /* R7RS display prints strings without quotes */
+            printf("%.*s", (int)s->length, s->data);
+            break;
+        }
+        case BOX_SYMBOL: {
+            NplSymbolLike *s = (NplSymbolLike *)h;
+            printf("%.*s", (int)s->length, s->data);
             break;
         }
         case BOX_FLOAT: {
@@ -214,6 +220,10 @@ void npl_display(NplVal v) {
     } else {
         printf("<unknown>");
     }
+}
+
+void npl_newline(void) {
+    printf("\n");
 }
 
 /* ---- Helper: fixnum to string ---- */

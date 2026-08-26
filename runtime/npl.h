@@ -63,6 +63,9 @@ typedef struct {
     char data[];  /* flexible array member */
 } NplString;
 
+/* ---- Symbol — same layout as string (tag BOX_SYMBOL) ---- */
+typedef NplString NplSymbolLike;
+
 /* ---- Vector ---- */
 typedef struct {
     NplHeader header;
@@ -168,6 +171,9 @@ size_t npl_gc_threshold(void);
 
 /* Display a value (for debugging) */
 void npl_display(NplVal v);
+
+/* Print a single newline */
+void npl_newline(void);
 
 /* Convert fixnum to string (for printing) */
 char *npl_fixnum_to_string(int64_t v);

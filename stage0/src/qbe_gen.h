@@ -23,6 +23,7 @@
 typedef struct {
     FILE   *out;        /* output file */
     FILE   *lambda_out; /* buffer for lambda definitions */
+    FILE   *data_out;   /* buffer for static data (strings/symbols/quotes/globals) */
     SymTab *symtab;     /* symbol table */
     int     next_tmp;   /* counter for temporaries */
     int     next_label; /* counter for labels */

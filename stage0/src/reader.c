@@ -395,9 +395,8 @@ static AstNode *parse_list_form(Parser *p)
                     AstNode *params = parse_list(p);
                     if (!check(p, TOK_RPAREN)) { parse_error(p, "expected ')'"); return ast_nil(); }
                     consume(p); /* ) */
-                    /* Body */
-                    AstNode *body = parse_expr(p);
-                    /* (define (f x) body) → define name=lambda(params, body) */
+                    /* Body — R7RS: sequence of expressions, stored as a list */
+                    AstNode *body_items = parse_list(p);
                     AstNode *sig = ast_pair(name, params);
                     /* consume closing paren */
                     if (is_bracket) {
@@ -407,7 +406,7 @@ static AstNode *parse_list_form(Parser *p)
                         if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
                         else consume(p);
                     }
-                    return ast_define(sig, body);
+                    return ast_define(sig, body_items);
                 } else {
                     /* Simple: (define name value) */
                     AstNode *name = parse_expr(p);
@@ -439,7 +438,8 @@ static AstNode *parse_list_form(Parser *p)
                     parse_error(p, "expected parameter list after lambda");
                     return ast_nil();
                 }
-                AstNode *body = parse_expr(p);
+                /* Body — R7RS: sequence of expressions, stored as a list */
+                AstNode *body_items = parse_list(p);
                 /* consume closing paren */
                 if (is_bracket) {
                     if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
@@ -448,7 +448,7 @@ static AstNode *parse_list_form(Parser *p)
                     if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
                     else consume(p);
                 }
-                return ast_lambda(params, body);
+                return ast_lambda(params, body_items);
             }
 
             if (tag == AST_LET) {
@@ -464,8 +464,8 @@ static AstNode *parse_list_form(Parser *p)
                     return ast_nil();
                 }
                 consume(p); /* consume ')' */
-                AstNode *body = parse_expr(p);
-                /* consume closing paren */
+                /* Body — R7RS: sequence of expressions, stored as a list */
+                AstNode *body_items = parse_list(p);
                 if (is_bracket) {
                     if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
                     else consume(p);
@@ -473,7 +473,7 @@ static AstNode *parse_list_form(Parser *p)
                     if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
                     else consume(p);
                 }
-                return ast_let(bindings, body);
+                return ast_let(bindings, body_items);
             }
 
             if (tag == AST_BEGIN) {

@@ -1,0 +1,68 @@
+; compiler.npl — Minimal NPL compiler for bootstrap
+;
+; Phase 8: Bootstrap implementation
+; This is a minimal compiler that can compile simple arithmetic to QBE IL.
+
+; ---- Helper functions ----
+(define (list-length lst)
+  (if (null? lst) 0 (+ 1 (list-length (cdr lst)))))
+
+(define (rev-acc lst acc)
+  (if (null? lst) acc (rev-acc (cdr lst) (cons (car lst) acc))))
+
+(define (list-reverse lst)
+  (rev-acc lst ()))
+
+(define (list-append a b)
+  (if (null? a) b (cons (car a) (list-append (cdr a) b))))
+
+; ---- QBE Code Generation ----
+; Generate QBE IL for a simple expression
+; Currently only supports: (+ a b), (- a b), (* a b)
+
+(define (gen-arith op a b)
+  (let ((op-str (cond
+                  ((= op '+) "add")
+                  ((= op '-) "sub")
+                  ((= op '*) "mul")
+                  (else "add"))))
+    (string-append op-str (string-append " " (string-append (number->string a) (string-append ", " (number->string b)))))))
+
+; ---- Number to string conversion ----
+(define (number->string n)
+  (if (= n 0) "0"
+    (if (< n 0)
+      (string-append "-" (number->string (- 0 n)))
+      (number->string-pos n))))
+
+(define (number->string-pos n)
+  (if (= n 0) ""
+    (let ((q (/ n 10))
+          (r (% n 10)))
+      (string-append (number->string-pos q) (digit->string r)))))
+
+(define (digit->string d)
+  (cond
+    ((= d 0) "0")
+    ((= d 1) "1")
+    ((= d 2) "2")
+    ((= d 3) "3")
+    ((= d 4) "4")
+    ((= d 5) "5")
+    ((= d 6) "6")
+    ((= d 7) "7")
+    ((= d 8) "8")
+    ((= d 9) "9")
+    (else "0")))
+
+; ---- String operations ----
+(define (string-append a b)
+  (list-append a b))
+
+(define (string-length s)
+  (list-length s))
+
+; ---- Main: generate a simple QBE program ----
+(define (main)
+  (let ((result (gen-arith '+ 1 2)))
+    (display result)))

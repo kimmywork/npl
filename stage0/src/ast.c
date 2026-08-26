@@ -270,22 +270,47 @@ void ast_print(const AstNode *node)
     case AST_DEFINE:
         printf("(define ");
         ast_print(AST_CAR(node));  /* name or signature */
-        printf(" ");
-        ast_print(AST_CDR(node));  /* value */
+        if (node->as.pair.car->tag == AST_PAIR) {
+            /* function define: (define (f args...) body...) — flat body */
+            const AstNode *cur = AST_CDR(node);
+            while (cur && !AST_IS_NIL(cur)) {
+                printf(" ");
+                ast_print(cur->as.pair.car);
+                cur = cur->as.pair.cdr;
+            }
+        } else {
+            /* variable define: (define x value) */
+            printf(" ");
+            ast_print(AST_CDR(node));
+        }
         printf(")");
         break;
     case AST_LAMBDA:
         printf("(lambda ");
         ast_print(AST_CAR(node));  /* params */
-        printf(" ");
-        ast_print(AST_CDR(node));  /* body */
+        {
+            /* body: sequence of expressions, printed flat */
+            const AstNode *cur = AST_CDR(node);
+            while (cur && !AST_IS_NIL(cur)) {
+                printf(" ");
+                ast_print(cur->as.pair.car);
+                cur = cur->as.pair.cdr;
+            }
+        }
         printf(")");
         break;
     case AST_LET:
         printf("(let ");
         ast_print(AST_CAR(node));  /* bindings */
-        printf(" ");
-        ast_print(AST_CDR(node));  /* body */
+        {
+            /* body: sequence of expressions, printed flat */
+            const AstNode *cur = AST_CDR(node);
+            while (cur && !AST_IS_NIL(cur)) {
+                printf(" ");
+                ast_print(cur->as.pair.car);
+                cur = cur->as.pair.cdr;
+            }
+        }
         printf(")");
         break;
     case AST_BEGIN:
