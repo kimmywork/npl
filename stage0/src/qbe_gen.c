@@ -384,8 +384,48 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         return "0";
     }
 
-    case AST_LET:
-    case AST_BEGIN:
+    case AST_LET: {
+        /* (let ((name val) ...) body) */
+        AstNode *bindings = AST_CAR(expr);
+        AstNode *body = AST_CDR(expr);
+
+        /* Process bindings */
+        while (bindings && !AST_IS_NIL(bindings)) {
+            AstNode *binding = AST_CAR(bindings);
+            AstNode *name = AST_CAR(binding);
+            AstNode *val = AST_CAR(AST_CDR(binding));
+
+            /* Generate value */
+            const char *val_str = gen_expr(ctx, val, depth + 1);
+
+            /* Store in symbol table */
+            if (name->tag == AST_SYMBOL) {
+                Symbol *sym = symtab_add_local(ctx->symtab, name->as.symbol);
+                emit(ctx, "%s =l copy %s", sym->as.local.qbe_name, val_str);
+            }
+
+            bindings = AST_CDR(bindings);
+        }
+
+        /* Generate body */
+        if (body && !AST_IS_NIL(body)) {
+            return gen_expr(ctx, AST_CAR(body), depth + 1);
+        }
+        return "0";
+    }
+
+    case AST_BEGIN: {
+        /* (begin exprs...) */
+        AstNode *exprs = AST_CAR(expr);
+        const char *result = "0";
+
+        while (exprs && !AST_IS_NIL(exprs)) {
+            result = gen_expr(ctx, AST_CAR(exprs), depth + 1);
+            exprs = AST_CDR(exprs);
+        }
+        return result;
+    }
+
     case AST_SET:
     case AST_QUOTE:
         /* Not implemented in Phase 2 */
