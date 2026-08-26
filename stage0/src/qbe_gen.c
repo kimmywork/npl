@@ -147,11 +147,14 @@ static const char *gen_literal(QbeCtx *ctx, AstNode *expr)
     static char buf[64];
     switch (expr->tag) {
     case AST_FIXNUM:
-        snprintf(buf, sizeof(buf), "%lld", (long long)expr->as.fixnum);
+        /* Fixnum: value << 2 | TAG_FIXNUM (which is 0) */
+        snprintf(buf, sizeof(buf), "%lld", (long long)(expr->as.fixnum << 2));
         return buf;
     case AST_BOOL:
-        return expr->as.bool_val ? "1" : "0";
+        /* Boolean: immediate value */
+        return expr->as.bool_val ? "4" : "8";  /* IMM_TRUE << 2 | TAG_IMM, IMM_FALSE << 2 | TAG_IMM */
     case AST_NIL:
+        /* Nil: 0 */
         return "0";
     default:
         return "0";
@@ -243,8 +246,21 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             const char *result = qbe_gen_tmp(ctx);
 
             const char *op = qbe_arith_op(fname);
-            /* Use 'l' type for all values */
-            emit(ctx, "%s =l %s %s, %s", result, op, v1, v2);
+
+            if (strcmp(fname, "+") == 0 || strcmp(fname, "-") == 0) {
+                /* For add/sub: tagged pointer arithmetic works directly */
+                /* (a << 2) + (b << 2) = (a + b) << 2 */
+                emit(ctx, "%s =l %s %s, %s", result, op, v1, v2);
+            } else {
+                /* For mul/div/rem: extract values, operate, then re-tag */
+                const char *tmp1 = qbe_gen_tmp(ctx);
+                const char *tmp2 = qbe_gen_tmp(ctx);
+                const char *tmp3 = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l sar %s, 2", tmp1, v1);  /* extract v1 */
+                emit(ctx, "%s =l sar %s, 2", tmp2, v2);  /* extract v2 */
+                emit(ctx, "%s =l %s %s, %s", tmp3, op, tmp1, tmp2);  /* operate */
+                emit(ctx, "%s =l shl %s, 2", result, tmp3);  /* re-tag */
+            }
             return result;
         }
 
@@ -258,8 +274,12 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             const char *result = qbe_gen_tmp(ctx);
 
             const char *op = qbe_cmp_op(fname);
-            /* Use 'l' type for comparison */
-            emit(ctx, "%s =l %s %s, %s", result, op, v1, v2);
+            /* For comparison: extract values and compare */
+            const char *tmp1 = qbe_gen_tmp(ctx);
+            const char *tmp2 = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l sar %s, 2", tmp1, v1);  /* extract v1 */
+            emit(ctx, "%s =l sar %s, 2", tmp2, v2);  /* extract v2 */
+            emit(ctx, "%s =l %s %s, %s", result, op, tmp1, tmp2);
             return result;
         }
 
@@ -337,19 +357,23 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         }
 
         /* Generate call */
-        if (arg_count == 0) {
-            emit(ctx, "%s =l call $%s()", result, fname);
-        } else if (arg_count == 1) {
-            emit(ctx, "%s =l call $%s(l %s)", result, fname, arg_bufs[0]);
-        } else if (arg_count == 2) {
-            emit(ctx, "%s =l call $%s(l %s, l %s)", result, fname, arg_bufs[0], arg_bufs[1]);
-        } else {
-            /* More args — build call string */
-            emit_raw(ctx, "%s =l call $%s(l %s", result, fname, arg_bufs[0]);
-            for (int i = 1; i < arg_count; i++) {
-                fprintf(ctx->out, ", l %s", arg_bufs[i]);
+        {
+            char safe_fname[128];
+            qbe_sanitize_name(fname, safe_fname, sizeof(safe_fname));
+            if (arg_count == 0) {
+                emit(ctx, "%s =l call $%s()", result, safe_fname);
+            } else if (arg_count == 1) {
+                emit(ctx, "%s =l call $%s(l %s)", result, safe_fname, arg_bufs[0]);
+            } else if (arg_count == 2) {
+                emit(ctx, "%s =l call $%s(l %s, l %s)", result, safe_fname, arg_bufs[0], arg_bufs[1]);
+            } else {
+                /* More args — build call string */
+                emit_raw(ctx, "%s =l call $%s(l %s", result, safe_fname, arg_bufs[0]);
+                for (int i = 1; i < arg_count; i++) {
+                    fprintf(ctx->out, ", l %s", arg_bufs[i]);
+                }
+                fprintf(ctx->out, ")\n");
             }
-            fprintf(ctx->out, ")\n");
         }
         return result;
     }
@@ -409,7 +433,13 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
 
         /* Generate body */
         if (body && !AST_IS_NIL(body)) {
-            return gen_expr(ctx, AST_CAR(body), depth + 1);
+            /* Process all body expressions, return the last one */
+            const char *result = "0";
+            while (body && !AST_IS_NIL(body)) {
+                result = gen_expr(ctx, AST_CAR(body), depth + 1);
+                body = AST_CDR(body);
+            }
+            return result;
         }
         return "0";
     }
@@ -436,6 +466,14 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
     }
 }
 
+/* Sanitize a name for use as a QBE function/variable name */
+static void qbe_emit_name(QbeCtx *ctx, const char *name)
+{
+    char buf[128];
+    qbe_sanitize_name(name, buf, sizeof(buf));
+    fprintf(ctx->out, "%s", buf);
+}
+
 /* Generate a function definition */
 static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body)
 {
@@ -444,7 +482,9 @@ static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode
         fprintf(ctx->out, "export ");
     }
     /* Use 'l' (long/64-bit) for all values since we use tagged pointers */
-    fprintf(ctx->out, "function l $%s(", name);
+    fprintf(ctx->out, "function l $");
+    qbe_emit_name(ctx, name);
+    fprintf(ctx->out, "(");
 
     /* Generate parameters */
     AstNode *p = params;
