@@ -18,6 +18,7 @@
 #include "reader.h"
 #include "symtab.h"
 #include "qbe_gen.h"
+#include "macro.h"
 
 /* Paths to external tools — configured at build time */
 #ifndef QBE_PATH
@@ -68,6 +69,11 @@ static int compile(const char *filename, const char *output)
         fprintf(stderr, "Error: %s\n", errbuf);
         return 1;
     }
+
+    /* Expand macros */
+    MacroEnv macro_env;
+    macro_env_init(&macro_env);
+    ast = macro_expand_program(&macro_env, ast);
 
     /* Generate QBE IL */
     char ssa_path[1024];
@@ -141,6 +147,11 @@ static int emit_qbe(const char *filename)
         fprintf(stderr, "Error: %s\n", errbuf);
         return 1;
     }
+
+    /* Expand macros */
+    MacroEnv macro_env;
+    macro_env_init(&macro_env);
+    ast = macro_expand_program(&macro_env, ast);
 
     SymTab symtab;
     symtab_init(&symtab);
