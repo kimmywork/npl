@@ -187,7 +187,21 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         if (sym && sym->kind == SYM_LOCAL) {
             return sym->as.local.qbe_name;
         }
-        /* Global — for now return 0 (functions are called directly) */
+        if (sym && sym->kind == SYM_GLOBAL_FUNC) {
+            /* Global function reference — create a closure object */
+            char safe_name[128];
+            qbe_sanitize_name(expr->as.symbol, safe_name, sizeof(safe_name));
+            const char *closure = qbe_gen_tmp(ctx);
+            const char *func_ptr = qbe_gen_tmp(ctx);
+            const char *env_slot = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l alloc8 16", closure);
+            emit(ctx, "%s =l copy $%s", func_ptr, safe_name);
+            emit(ctx, "storel %s, %s", func_ptr, closure);
+            emit(ctx, "%s =l add %s, 8", env_slot, closure);
+            emit(ctx, "storel 0, %s", env_slot);
+            return closure;
+        }
+        /* Global — for now return 0 */
         return "0";
     }
 
@@ -936,6 +950,8 @@ void qbe_gen_program(QbeCtx *ctx, AstNode *program)
                     if (strcmp(name_node->as.symbol, "main") == 0) {
                         has_main = 1;
                     }
+                    /* Register function in symbol table before generating */
+                    symtab_add_global_func(ctx->symtab, name_node->as.symbol, params, body);
                     gen_function(ctx, name_node->as.symbol, params, body);
                 }
             }

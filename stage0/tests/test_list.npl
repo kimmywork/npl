@@ -1,0 +1,45 @@
+; test_list.npl — Phase 7 test: list operations
+
+; list-length: count elements
+(define (list-length lst)
+  (if (null? lst)
+    0
+    (+ 1 (list-length (cdr lst)))))
+
+; list-append: concatenate two lists
+(define (list-append a b)
+  (if (null? a)
+    b
+    (cons (car a) (list-append (cdr a) b))))
+
+; list-reverse: reverse a list
+(define (rev-acc lst acc)
+  (if (null? lst)
+    acc
+    (rev-acc (cdr lst) (cons (car lst) acc))))
+
+(define (list-reverse lst)
+  (rev-acc lst ()))
+
+; list-map: apply function to each element
+(define (list-map f lst)
+  (if (null? lst)
+    ()
+    (cons (f (car lst)) (list-map f (cdr lst)))))
+
+; list-fold: fold left
+(define (list-fold f init lst)
+  (if (null? lst)
+    init
+    (list-fold f (f init (car lst)) (cdr lst))))
+
+; make-list: create list of n copies of value
+(define (make-list n val)
+  (if (<= n 0)
+    ()
+    (cons val (make-list (- n 1) val))))
+
+; Test: list-length
+(define (main)
+  (let ((lst (cons 1 (cons 2 (cons 3 ())))))
+    (list-length lst)))
