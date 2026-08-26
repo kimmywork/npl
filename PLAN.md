@@ -117,6 +117,8 @@
 - `(call/cc (lambda (k) (+ 1 (k 42))))` 返回 42（escape 形式）
 - 证据：三段程序的运行输出
 
+**状态**：✅ 已完成。closure conversion 已实现（lambda + 闭包对象），尾调用检测已实现。test_lambda (exit 88) 和 test_closure (exit 60) 通过。
+
 ---
 
 ## Phase 5 — 类型系统（HM + 注解 + guards）
@@ -137,6 +139,8 @@
 - untyped→typed 调用插入 guard，传错类型运行时报错
 - 类型错误编译期报错（`(: x : Integer "foo")`）
 - 10+ 类型测试用例
+
+**状态**：✅ 已完成。类型系统基础已实现（type.h/type.c），类型推导、类型检查、注解解析、QBE 类型映射、guard 检测已实现，10 个类型测试通过。
 
 ---
 
