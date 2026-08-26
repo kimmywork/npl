@@ -348,6 +348,52 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         }
 
         /* User-defined function call */
+        /* Check for self-recursive tail call optimization */
+        {
+            char safe_fname[128];
+            qbe_sanitize_name(fname, safe_fname, sizeof(safe_fname));
+            if (ctx->in_tail && strcmp(safe_fname, ctx->current_func) == 0) {
+                /* Self-recursive tail call!
+                 * 1. Generate argument values into temporaries
+                 * 2. Assign temps to parameter names
+                 * 3. jmp @start (loop instead of call)
+                 */
+                /* Collect argument values */
+                int tc = 0;
+                const char *tmp_vals[16];
+                AstNode *al = args;
+                while (al && !AST_IS_NIL(al) && tc < 16) {
+                    tmp_vals[tc] = gen_expr(ctx, AST_CAR(al), depth + 1);
+                    tc++;
+                    al = AST_CDR(al);
+                }
+
+                /* Re-assign parameters */
+                /* We need the parameter names. For now use %arg0, %arg1... */
+                /* Actually, the params are stored in the symbol table */
+                /* Just emit copy instructions for each arg */
+                /* TODO: proper param name tracking */
+
+                /* For now, just generate a regular call since proper
+                 * tail call requires tracking param names */
+                const char *result = qbe_gen_tmp(ctx);
+                if (tc == 0) {
+                    emit(ctx, "%s =l call $%s()", result, safe_fname);
+                } else if (tc == 1) {
+                    emit(ctx, "%s =l call $%s(l %s)", result, safe_fname, tmp_vals[0]);
+                } else if (tc == 2) {
+                    emit(ctx, "%s =l call $%s(l %s, l %s)", result, safe_fname, tmp_vals[0], tmp_vals[1]);
+                } else {
+                    emit_raw(ctx, "%s =l call $%s(l %s", result, safe_fname, tmp_vals[0]);
+                    for (int i = 1; i < tc; i++) {
+                        fprintf(ctx->out, ", l %s", tmp_vals[i]);
+                    }
+                    fprintf(ctx->out, ")\n");
+                }
+                return result;
+            }
+        }
+
         const char *result = qbe_gen_tmp(ctx);
         /* Collect arguments */
         AstNode *arg_list = args;
@@ -531,40 +577,45 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         ctx->out = saved_out;
 
         /* ---- Create closure object at the call site ---- */
-        /* Allocate env on stack: alloc8 for n_free pointers */
-        if (n_free > 0) {
+        /* Always create a closure object: [func_ptr, env_ptr] */
+        {
             const char *env_ptr = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l alloc8 %d", env_ptr, n_free * 8);
+            if (n_free > 0) {
+                emit(ctx, "%s =l alloc8 %d", env_ptr, n_free * 8);
 
-            /* Store captured values into env */
-            AstNode *fv = free_vars;
-            int idx = 0;
-            while (fv && !AST_IS_NIL(fv)) {
-                AstNode *var = AST_CAR(fv);
-                if (var->tag == AST_SYMBOL) {
-                    /* Look up the variable in current scope */
-                    Symbol *sym = symtab_lookup(ctx->symtab, var->as.symbol);
-                    if (sym && sym->kind == SYM_LOCAL) {
-                        if (idx == 0) {
-                            emit(ctx, "storel %s, %s", sym->as.local.qbe_name, env_ptr);
+                /* Store captured values into env */
+                AstNode *fv = free_vars;
+                int idx = 0;
+                while (fv && !AST_IS_NIL(fv)) {
+                    AstNode *var = AST_CAR(fv);
+                    if (var->tag == AST_SYMBOL) {
+                        /* Look up the variable in current scope */
+                        Symbol *sym = symtab_lookup(ctx->symtab, var->as.symbol);
+                        if (sym && sym->kind == SYM_LOCAL) {
+                            if (idx == 0) {
+                                emit(ctx, "storel %s, %s", sym->as.local.qbe_name, env_ptr);
+                            } else {
+                                const char *addr = qbe_gen_tmp(ctx);
+                                emit(ctx, "%s =l add %s, %d", addr, env_ptr, idx * 8);
+                                emit(ctx, "storel %s, %s", sym->as.local.qbe_name, addr);
+                            }
                         } else {
-                            const char *addr = qbe_gen_tmp(ctx);
-                            emit(ctx, "%s =l add %s, %d", addr, env_ptr, idx * 8);
-                            emit(ctx, "storel %s, %s", sym->as.local.qbe_name, addr);
-                        }
-                    } else {
-                        /* Free var not found — store 0 */
-                        if (idx == 0) {
-                            emit(ctx, "storel 0, %s", env_ptr);
-                        } else {
-                            const char *addr = qbe_gen_tmp(ctx);
-                            emit(ctx, "%s =l add %s, %d", addr, env_ptr, idx * 8);
-                            emit(ctx, "storel 0, %s", addr);
+                            /* Free var not found — store 0 */
+                            if (idx == 0) {
+                                emit(ctx, "storel 0, %s", env_ptr);
+                            } else {
+                                const char *addr = qbe_gen_tmp(ctx);
+                                emit(ctx, "%s =l add %s, %d", addr, env_ptr, idx * 8);
+                                emit(ctx, "storel 0, %s", addr);
+                            }
                         }
                     }
+                    idx++;
+                    fv = AST_CDR(fv);
                 }
-                idx++;
-                fv = AST_CDR(fv);
+            } else {
+                /* No free variables — store 0 as env */
+                emit(ctx, "%s =l copy 0", env_ptr);
             }
 
             /* Create closure object: [func_ptr, env_ptr] */
@@ -579,11 +630,6 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
 
             /* Return closure pointer */
             return closure;
-        } else {
-            /* No free variables — return function pointer directly */
-            const char *func_ptr = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l copy $%s", func_ptr, lambda_name);
-            return func_ptr;
         }
     }
 
@@ -752,6 +798,11 @@ static void qbe_emit_name(QbeCtx *ctx, const char *name)
 /* Generate a function definition */
 static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body, FILE *out)
 {
+    /* Set current function name for tail call detection */
+    char saved_func[128];
+    strncpy(saved_func, ctx->current_func, sizeof(saved_func));
+    qbe_sanitize_name(name, ctx->current_func, sizeof(ctx->current_func));
+
     /* Generate function header */
     if (strcmp(name, "main") == 0) {
         fprintf(out, "export ");
@@ -780,6 +831,7 @@ static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstN
     /* Generate body */
     fprintf(out, "@start\n");
     ctx->depth = 1;
+    ctx->in_tail = 1;  /* Body is in tail position */
 
     /* For a begin block or single expression */
     if (body->tag == AST_PAIR && AST_CAR(body) && AST_CAR(body)->tag == AST_SYMBOL &&
@@ -808,6 +860,9 @@ static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstN
 
     fprintf(out, "}\n\n");
     ctx->depth = 0;
+
+    /* Restore previous function name */
+    strncpy(ctx->current_func, saved_func, sizeof(ctx->current_func));
 }
 
 /* Wrapper for main function definitions */
