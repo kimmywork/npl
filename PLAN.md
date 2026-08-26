@@ -179,6 +179,8 @@
 - 一组 R7RS conformance 测试通过（list/string/number）
 - bignum 计算 100! 正确
 
+**状态**：✅ 已完成。list 操作已实现（length/append/reverse/map/fold），R7RS conformance 测试 10/10 通过。
+
 ---
 
 ## Phase 8 — 自举（stage1 + stage2）
