@@ -1,0 +1,19 @@
+# Build artifacts
+build/
+build-*/
+*.o
+*.s
+*.ssa
+build/qbe/qbe
+
+# QBE build objects (regenerated)
+external/qbe-1.3/*.o
+external/qbe-1.3/*/*.o
+external/qbe-1.3/qbe
+
+# Editor / OS
+.DS_Store
+*~
+.*.swp
+.cache/
+compile_commands.json
