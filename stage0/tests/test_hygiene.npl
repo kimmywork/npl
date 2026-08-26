@@ -1,0 +1,12 @@
+; test_hygiene.npl — Phase 6: hygiene test
+; Macro variables should not capture outer variables with same name
+
+(define-syntax my-let
+  (syntax-rules ()
+    ((my-let ((name val)) body)
+     ((lambda (name) body) val))))
+
+; Test: outer 'x' should not be captured by macro
+(define (main)
+  (let ((x 10))
+    (my-let ((x 20)) x)))

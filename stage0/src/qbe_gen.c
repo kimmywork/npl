@@ -236,8 +236,45 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         AstNode *args = AST_CDR(expr);
 
         if (func->tag != AST_SYMBOL) {
-            /* Lambda application — not supported in Phase 2 */
-            return "0";
+            /* Lambda application or complex expression */
+            /* Generate the function expression first */
+            const char *func_val = gen_expr(ctx, func, depth + 1);
+            if (!func_val || strcmp(func_val, "0") == 0) return "0";
+
+            /* Generate arguments */
+            int ac = 0;
+            char av[16][64];
+            AstNode *al = args;
+            while (al && !AST_IS_NIL(al) && ac < 16) {
+                const char *v = gen_expr(ctx, AST_CAR(al), depth + 1);
+                strncpy(av[ac], v, 63);
+                av[ac][63] = '\0';
+                ac++;
+                al = AST_CDR(al);
+            }
+
+            /* Extract func_ptr and env from closure */
+            const char *fp = qbe_gen_tmp(ctx);
+            const char *ep = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l loadl %s", fp, func_val);
+            const char *es = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l add %s, 8", es, func_val);
+            emit(ctx, "%s =l loadl %s", ep, es);
+
+            /* Call */
+            const char *result = qbe_gen_tmp(ctx);
+            if (ac == 0) {
+                emit(ctx, "%s =l call %s(l %s)", result, fp, ep);
+            } else if (ac == 1) {
+                emit(ctx, "%s =l call %s(l %s, l %s)", result, fp, ep, av[0]);
+            } else if (ac == 2) {
+                emit(ctx, "%s =l call %s(l %s, l %s, l %s)", result, fp, ep, av[0], av[1]);
+            } else {
+                emit_raw(ctx, "%s =l call %s(l %s, l %s", result, fp, ep, av[0]);
+                for (int i = 1; i < ac; i++) fprintf(ctx->out, ", l %s", av[i]);
+                fprintf(ctx->out, ")\n");
+            }
+            return result;
         }
 
         const char *fname = func->as.symbol;
