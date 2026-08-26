@@ -30,6 +30,8 @@
 static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body);
 static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body, FILE *out);
 static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth);
+static AstNode *collect_free_vars(AstNode *expr, SymTab *symtab);
+static AstNode *collect_free_vars_impl(AstNode *expr, SymTab *symtab, AstNode *exclude_params);
 
 /* Helper: output with indentation */
 static void emit(QbeCtx *ctx, const char *fmt, ...)
@@ -369,17 +371,17 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             int is_local = (sym && sym->kind == SYM_LOCAL);
 
             if (is_local) {
-                /* Call via function pointer: %r =l call %f(...) */
-                /* Use the QBE name from the symbol table */
+                /* Call via function pointer: %r =l call %f(l %env, ...) */
+                /* Always pass env as first argument (0 for now) */
                 const char *qbe_name = sym->as.local.qbe_name;
                 if (arg_count == 0) {
-                    emit(ctx, "%s =l call %s()", result, qbe_name);
+                    emit(ctx, "%s =l call %s(l 0)", result, qbe_name);
                 } else if (arg_count == 1) {
-                    emit(ctx, "%s =l call %s(l %s)", result, qbe_name, arg_bufs[0]);
+                    emit(ctx, "%s =l call %s(l 0, l %s)", result, qbe_name, arg_bufs[0]);
                 } else if (arg_count == 2) {
-                    emit(ctx, "%s =l call %s(l %s, l %s)", result, qbe_name, arg_bufs[0], arg_bufs[1]);
+                    emit(ctx, "%s =l call %s(l 0, l %s, l %s)", result, qbe_name, arg_bufs[0], arg_bufs[1]);
                 } else {
-                    emit_raw(ctx, "%s =l call %s(l %s", result, qbe_name, arg_bufs[0]);
+                    emit_raw(ctx, "%s =l call %s(l 0, l %s", result, qbe_name, arg_bufs[0]);
                     for (int i = 1; i < arg_count; i++) {
                         fprintf(ctx->out, ", l %s", arg_bufs[i]);
                     }
@@ -439,16 +441,64 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         char lambda_name[64];
         snprintf(lambda_name, sizeof(lambda_name), "_lambda_%d", lambda_count++);
 
+        /* Collect free variables from the body, excluding lambda parameters */
+        AstNode *free_vars = collect_free_vars_impl(body, ctx->symtab, params);
+
         /* Temporarily redirect output to lambda buffer */
         FILE *saved_out = ctx->out;
         ctx->out = ctx->lambda_out;
-        gen_function(ctx, lambda_name, params, body);
+
+        /* Generate function header with free variables as extra parameters */
+        fprintf(ctx->out, "function l $%s(", lambda_name);
+
+        /* Add free variables as extra parameters */
+        AstNode *fv = free_vars;
+        int first_param = 1;
+        while (fv && !AST_IS_NIL(fv)) {
+            AstNode *var = AST_CAR(fv);
+            if (!first_param) fprintf(ctx->out, ", ");
+            fprintf(ctx->out, "l %s", param_qbe_name(var));
+            if (var->tag == AST_SYMBOL) {
+                symtab_add_local(ctx->symtab, var->as.symbol);
+            }
+            first_param = 0;
+            fv = AST_CDR(fv);
+        }
+
+        /* Add regular parameters */
+        AstNode *p = params;
+        while (p && !AST_IS_NIL(p)) {
+            AstNode *param = AST_CAR(p);
+            if (!first_param) fprintf(ctx->out, ", ");
+            fprintf(ctx->out, "l %s", param_qbe_name(param));
+            if (param->tag == AST_SYMBOL) {
+                symtab_add_local(ctx->symtab, param->as.symbol);
+            }
+            first_param = 0;
+            p = AST_CDR(p);
+        }
+        fprintf(ctx->out, ") {\n");
+
+        /* Generate body */
+        fprintf(ctx->out, "@start\n");
+        ctx->depth = 1;
+
+        /* Generate body expression */
+        const char *result = gen_expr(ctx, body, 1);
+        if (result) {
+            emit(ctx, "ret %s", result);
+        } else {
+            emit(ctx, "ret 0");
+        }
+
+        fprintf(ctx->out, "}\n\n");
+        ctx->depth = 0;
         ctx->out = saved_out;
 
         /* Return the function pointer as a tagged value */
-        const char *result = qbe_gen_tmp(ctx);
-        emit(ctx, "%s =l copy $%s", result, lambda_name);
-        return result;
+        const char *func_ptr = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =l copy $%s", func_ptr, lambda_name);
+        return func_ptr;
     }
 
     case AST_LET: {
@@ -501,6 +551,95 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
     default:
         return "0";
     }
+}
+
+/* Collect free variables referenced in an expression */
+/* Returns a list of symbols that are not defined locally */
+/* exclude_params: list of parameter names to exclude */
+static AstNode *collect_free_vars_impl(AstNode *expr, SymTab *symtab, AstNode *exclude_params)
+{
+    if (!expr) return ast_nil();
+
+    switch (expr->tag) {
+    case AST_SYMBOL: {
+        /* Check if this symbol is in the exclude list (lambda's own params) */
+        AstNode *p = exclude_params;
+        while (p && !AST_IS_NIL(p)) {
+            AstNode *param = AST_CAR(p);
+            if (param->tag == AST_SYMBOL && strcmp(param->as.symbol, expr->as.symbol) == 0) {
+                return ast_nil(); /* This is a parameter, not free */
+            }
+            p = AST_CDR(p);
+        }
+        /* Check if this is a known global function (defined at top level) */
+        Symbol *sym = symtab_lookup(symtab, expr->as.symbol);
+        if (sym && sym->kind == SYM_GLOBAL_FUNC) {
+            return ast_nil(); /* Global function, not free */
+        }
+        /* Everything else is potentially a free variable */
+        return ast_pair(expr, ast_nil());
+    }
+    case AST_PAIR: {
+        /* Function application: (f arg1 arg2 ...) */
+        AstNode *func = AST_CAR(expr);
+        AstNode *args = AST_CDR(expr);
+
+        /* Collect from function and arguments */
+        AstNode *vars = collect_free_vars_impl(func, symtab, exclude_params);
+        while (args && !AST_IS_NIL(args)) {
+            AstNode *arg_vars = collect_free_vars_impl(AST_CAR(args), symtab, exclude_params);
+            /* Append arg_vars to vars */
+            if (AST_IS_NIL(vars)) {
+                vars = arg_vars;
+            } else {
+                AstNode *tail = vars;
+                while (!AST_IS_NIL(AST_CDR(tail))) {
+                    tail = AST_CDR(tail);
+                }
+                AST_CDR(tail) = arg_vars;
+            }
+            args = AST_CDR(args);
+        }
+        return vars;
+    }
+    case AST_IF: {
+        AstNode *test = AST_CAR(expr);
+        AstNode *conseq = AST_CAR(AST_CDR(expr));
+        AstNode *alt = AST_CAR(AST_CDR(AST_CDR(expr)));
+        AstNode *vars = collect_free_vars_impl(test, symtab, exclude_params);
+        /* Append conseq vars */
+        AstNode *conseq_vars = collect_free_vars_impl(conseq, symtab, exclude_params);
+        if (AST_IS_NIL(vars)) vars = conseq_vars;
+        else {
+            AstNode *tail = vars;
+            while (!AST_IS_NIL(AST_CDR(tail))) tail = AST_CDR(tail);
+            AST_CDR(tail) = conseq_vars;
+        }
+        /* Append alt vars */
+        AstNode *alt_vars = collect_free_vars_impl(alt, symtab, exclude_params);
+        if (AST_IS_NIL(vars)) vars = alt_vars;
+        else {
+            AstNode *tail = vars;
+            while (!AST_IS_NIL(AST_CDR(tail))) tail = AST_CDR(tail);
+            AST_CDR(tail) = alt_vars;
+        }
+        return vars;
+    }
+    case AST_LAMBDA: {
+        /* For nested lambda, exclude its own parameters */
+        AstNode *nested_params = AST_CAR(expr);
+        AstNode *nested_body = AST_CDR(expr);
+        return collect_free_vars_impl(nested_body, symtab, nested_params);
+    }
+    default:
+        return ast_nil();
+    }
+}
+
+/* Public API: collect free variables from expression */
+static AstNode *collect_free_vars(AstNode *expr, SymTab *symtab)
+{
+    return collect_free_vars_impl(expr, symtab, ast_nil());
 }
 
 /* Sanitize a name for use as a QBE function/variable name */
