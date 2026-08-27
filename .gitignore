@@ -4,6 +4,7 @@ build-*/
 *.o
 *.s
 *.ssa
+!bootstrap/*.ssa
 build/qbe/qbe
 
 # Local agent/session state
