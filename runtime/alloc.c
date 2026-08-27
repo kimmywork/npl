@@ -114,6 +114,7 @@ void npl_trace2(unsigned long tag, unsigned long v) {
 #include <execinfo.h>
 
 void npl_dump_addrs(void) {
+    fprintf(stderr, "anchor_g_alloc_head=%p\n", (void*)&g_alloc_head);
     void *bt[32];
     int n = backtrace(bt, 32);
     fprintf(stderr, "BACKTRACE:\n");
