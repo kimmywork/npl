@@ -85,7 +85,28 @@ echo "Test 8: Phase 0 smoke test"
 output=$(./build/smoke/hello)
 [ "$output" = "hello world" ] && pass "Phase 0 smoke test" || fail "Phase 0 smoke test failed"
 
-rm -f /tmp/npl_edge_test.npl
+# Test 9: unmatched and mismatched delimiters report useful locations
+echo "Test 9: Delimiter diagnostics"
+check_reader_error() {
+    local name="$1" source="$2" expected="$3"
+    printf '%b' "$source" > /tmp/npl_reader_error.npl
+    if "$NPLC0" --print-ast /tmp/npl_reader_error.npl \
+        >/tmp/npl_reader_error.out 2>/tmp/npl_reader_error.err; then
+        fail "$name: malformed input was accepted"
+    fi
+    grep -Fq "$expected" /tmp/npl_reader_error.err \
+        && pass "$name" \
+        || fail "$name: expected '$expected', got '$(tr '\n' ' ' </tmp/npl_reader_error.err)'"
+}
+check_reader_error "mismatched closer" '(]\n' \
+    "unmatched ']'; expected ')' to close '(' opened at line 1 col 1"
+check_reader_error "missing closer" '\n  (define x 1\n' \
+    "unmatched '(' opened at line 2 col 3; expected ')' before end of input"
+check_reader_error "extra closer" '\n  )\n' \
+    "line 2 col 3: unexpected closing delimiter"
+
+rm -f /tmp/npl_edge_test.npl /tmp/npl_reader_error.npl \
+      /tmp/npl_reader_error.out /tmp/npl_reader_error.err
 
 echo ""
 echo "=== All tests passed ==="

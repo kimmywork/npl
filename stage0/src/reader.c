@@ -139,10 +139,10 @@ static Token next_token(Lexer *lex)
 {
     Token tok;
     memset(&tok, 0, sizeof(tok));
-    tok.line = lex->line;
-    tok.col  = lex->col;
 
     skip_whitespace_and_comments(lex);
+    tok.line = lex->line;
+    tok.col  = lex->col;
 
     char c = peek(lex);
     if (c == '\0') {
@@ -284,6 +284,54 @@ static void parse_error(Parser *p, const char *msg)
     }
 }
 
+static TokType closing_type(Token open)
+{
+    return open.type == TOK_LBRACKET ? TOK_RBRACKET : TOK_RPAREN;
+}
+
+static const char *delimiter_text(TokType type)
+{
+    return type == TOK_LBRACKET || type == TOK_RBRACKET ? "]" : ")";
+}
+
+static void parse_delimiter_error(Parser *p, Token open)
+{
+    if (p->had_error) return;
+
+    p->had_error = 1;
+    if (check(p, TOK_EOF)) {
+        snprintf(p->error_msg, sizeof(p->error_msg),
+                 "parse error at line %d col %d: unmatched '%s' opened at "
+                 "line %d col %d; expected '%s' before end of input",
+                 cur(p).line, cur(p).col, open.text,
+                 open.line, open.col, delimiter_text(closing_type(open)));
+    } else {
+        snprintf(p->error_msg, sizeof(p->error_msg),
+                 "parse error at line %d col %d: unmatched '%s'; expected "
+                 "'%s' to close '%s' opened at line %d col %d",
+                 cur(p).line, cur(p).col, cur(p).text,
+                 delimiter_text(closing_type(open)), open.text,
+                 open.line, open.col);
+    }
+}
+
+static int consume_closer(Parser *p, Token open)
+{
+    if (check(p, closing_type(open))) {
+        consume(p);
+        return 1;
+    }
+    if (check(p, TOK_RPAREN) || check(p, TOK_RBRACKET) || check(p, TOK_EOF)) {
+        parse_delimiter_error(p, open);
+    } else {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "expected '%s'",
+                 delimiter_text(closing_type(open)));
+        parse_error(p, msg);
+    }
+    return 0;
+}
+
 /* Check if a symbol is a special form keyword */
 static AstTag special_form_tag(const char *sym)
 {
@@ -300,32 +348,32 @@ static AstTag special_form_tag(const char *sym)
 /* Forward decl */
 static AstNode *parse_expr(Parser *p);
 
-/* Parse a list of expressions until closing paren */
-static AstNode *parse_list(Parser *p)
+/* Parse a list of expressions without consuming its matching closer. */
+static AstNode *parse_list(Parser *p, Token open)
 {
-    if (check(p, TOK_RPAREN) || check(p, TOK_RBRACKET)) {
+    if (check(p, closing_type(open))) {
         return ast_nil();
     }
-    if (check(p, TOK_EOF)) {
-        parse_error(p, "unexpected end of input in list");
+    if (check(p, TOK_RPAREN) || check(p, TOK_RBRACKET) || check(p, TOK_EOF)) {
+        parse_delimiter_error(p, open);
         return ast_nil();
     }
 
     AstNode *car = parse_expr(p);
     if (p->had_error) return ast_nil();
 
-    AstNode *cdr = parse_list(p);
+    AstNode *cdr = parse_list(p, open);
     return ast_pair(car, cdr);
 }
 
 /* Parse bindings list for let: ((name val) ...) */
-static AstNode *parse_let_bindings(Parser *p)
+static AstNode *parse_let_bindings(Parser *p, Token bindings_open)
 {
     if (check(p, TOK_RPAREN)) {
         return ast_nil();
     }
-    if (check(p, TOK_EOF)) {
-        parse_error(p, "unexpected end of input in let bindings");
+    if (check(p, TOK_RBRACKET) || check(p, TOK_EOF)) {
+        parse_delimiter_error(p, bindings_open);
         return ast_nil();
     }
 
@@ -334,19 +382,15 @@ static AstNode *parse_let_bindings(Parser *p)
         parse_error(p, "expected '(' to start let binding");
         return ast_nil();
     }
-    consume(p); /* consume '(' */
+    Token binding_open = consume(p);
 
     AstNode *name = parse_expr(p);
     AstNode *val  = parse_expr(p);
 
-    if (!check(p, TOK_RPAREN)) {
-        parse_error(p, "expected ')' to close let binding");
-        return ast_nil();
-    }
-    consume(p); /* consume ')' */
+    if (!consume_closer(p, binding_open)) return ast_nil();
 
     AstNode *binding = ast_pair(name, ast_pair(val, ast_nil()));
-    AstNode *rest = parse_let_bindings(p);
+    AstNode *rest = parse_let_bindings(p, bindings_open);
     return ast_pair(binding, rest);
 }
 
@@ -354,10 +398,13 @@ static AstNode *parse_let_bindings(Parser *p)
 static AstNode *parse_list_form(Parser *p)
 {
     Token open = consume(p); /* consume '(' or '[' */
-    int is_bracket = (open.type == TOK_LBRACKET);
 
-    if (check(p, TOK_RPAREN) || check(p, TOK_RBRACKET)) {
+    if (check(p, closing_type(open))) {
         consume(p);
+        return ast_nil();
+    }
+    if (check(p, TOK_RPAREN) || check(p, TOK_RBRACKET)) {
+        parse_delimiter_error(p, open);
         return ast_nil();
     }
 
@@ -374,14 +421,7 @@ static AstNode *parse_list_form(Parser *p)
                 if (!check(p, TOK_RPAREN) && !check(p, TOK_RBRACKET)) {
                     alt = parse_expr(p);
                 }
-                /* consume closing paren */
-                if (is_bracket) {
-                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
-                    else consume(p);
-                } else {
-                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
-                    else consume(p);
-                }
+                consume_closer(p, open);
                 return ast_if(test, conseq, alt);
             }
 
@@ -389,36 +429,21 @@ static AstNode *parse_list_form(Parser *p)
                 /* Could be (define name value) or (define (name args...) body) */
                 if (check(p, TOK_LPAREN)) {
                     /* Function shorthand: (define (name args...) body) */
-                    consume(p); /* ( */
+                    Token sig_open = consume(p);
                     AstNode *name = parse_expr(p);  /* function name */
                     /* Read parameter list */
-                    AstNode *params = parse_list(p);
-                    if (!check(p, TOK_RPAREN)) { parse_error(p, "expected ')'"); return ast_nil(); }
-                    consume(p); /* ) */
+                    AstNode *params = parse_list(p, sig_open);
+                    if (!consume_closer(p, sig_open)) return ast_nil();
                     /* Body — R7RS: sequence of expressions, stored as a list */
-                    AstNode *body_items = parse_list(p);
+                    AstNode *body_items = parse_list(p, open);
                     AstNode *sig = ast_pair(name, params);
-                    /* consume closing paren */
-                    if (is_bracket) {
-                        if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
-                        else consume(p);
-                    } else {
-                        if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
-                        else consume(p);
-                    }
+                    consume_closer(p, open);
                     return ast_define(sig, body_items);
                 } else {
                     /* Simple: (define name value) */
                     AstNode *name = parse_expr(p);
                     AstNode *val  = parse_expr(p);
-                    /* consume closing paren */
-                    if (is_bracket) {
-                        if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
-                        else consume(p);
-                    } else {
-                        if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
-                        else consume(p);
-                    }
+                    consume_closer(p, open);
                     return ast_define(name, val);
                 }
             }
@@ -427,27 +452,16 @@ static AstNode *parse_list_form(Parser *p)
                 /* (lambda (params...) body) */
                 AstNode *params;
                 if (check(p, TOK_LPAREN) || check(p, TOK_LBRACKET)) {
-                    consume(p); /* open */
-                    params = parse_list(p);
-                    if (!check(p, TOK_RPAREN) && !check(p, TOK_RBRACKET)) {
-                        parse_error(p, "expected ')' or ']' to close lambda params");
-                        return ast_nil();
-                    }
-                    consume(p); /* close */
+                    Token params_open = consume(p);
+                    params = parse_list(p, params_open);
+                    if (!consume_closer(p, params_open)) return ast_nil();
                 } else {
                     parse_error(p, "expected parameter list after lambda");
                     return ast_nil();
                 }
                 /* Body — R7RS: sequence of expressions, stored as a list */
-                AstNode *body_items = parse_list(p);
-                /* consume closing paren */
-                if (is_bracket) {
-                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
-                    else consume(p);
-                } else {
-                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
-                    else consume(p);
-                }
+                AstNode *body_items = parse_list(p, open);
+                consume_closer(p, open);
                 return ast_lambda(params, body_items);
             }
 
@@ -457,50 +471,26 @@ static AstNode *parse_list_form(Parser *p)
                     parse_error(p, "expected '(' to start let bindings");
                     return ast_nil();
                 }
-                consume(p); /* consume '(' */
-                AstNode *bindings = parse_let_bindings(p);
-                if (!check(p, TOK_RPAREN)) {
-                    parse_error(p, "expected ')' to close let bindings");
-                    return ast_nil();
-                }
-                consume(p); /* consume ')' */
+                Token bindings_open = consume(p);
+                AstNode *bindings = parse_let_bindings(p, bindings_open);
+                if (!consume_closer(p, bindings_open)) return ast_nil();
                 /* Body — R7RS: sequence of expressions, stored as a list */
-                AstNode *body_items = parse_list(p);
-                if (is_bracket) {
-                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
-                    else consume(p);
-                } else {
-                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
-                    else consume(p);
-                }
+                AstNode *body_items = parse_list(p, open);
+                consume_closer(p, open);
                 return ast_let(bindings, body_items);
             }
 
             if (tag == AST_BEGIN) {
                 /* (begin exprs...) */
-                AstNode *exprs = parse_list(p);
-                /* consume closing paren */
-                if (is_bracket) {
-                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
-                    else consume(p);
-                } else {
-                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
-                    else consume(p);
-                }
+                AstNode *exprs = parse_list(p, open);
+                consume_closer(p, open);
                 return ast_begin(exprs);
             }
 
             if (tag == AST_QUOTE) {
                 /* (quote datum) */
                 AstNode *datum = parse_expr(p);
-                /* consume closing paren */
-                if (is_bracket) {
-                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
-                    else consume(p);
-                } else {
-                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
-                    else consume(p);
-                }
+                consume_closer(p, open);
                 return ast_quote(datum);
             }
 
@@ -508,29 +498,15 @@ static AstNode *parse_list_form(Parser *p)
                 /* (set! name value) */
                 AstNode *name = parse_expr(p);
                 AstNode *val  = parse_expr(p);
-                /* consume closing paren */
-                if (is_bracket) {
-                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
-                    else consume(p);
-                } else {
-                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
-                    else consume(p);
-                }
+                consume_closer(p, open);
                 return ast_set(name, val);
             }
         }
     }
 
     /* Regular list (application form) */
-    AstNode *items = parse_list(p);
-    /* consume closing paren */
-    if (is_bracket) {
-        if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
-        else consume(p);
-    } else {
-        if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
-        else consume(p);
-    }
+    AstNode *items = parse_list(p, open);
+    consume_closer(p, open);
     return items;
 }
 
@@ -548,7 +524,7 @@ static AstNode *parse_expr(Parser *p)
 
     case TOK_RPAREN:
     case TOK_RBRACKET:
-        parse_error(p, "unexpected closing bracket");
+        parse_error(p, "unexpected closing delimiter");
         return ast_nil();
 
     case TOK_LPAREN:

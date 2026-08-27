@@ -3,7 +3,8 @@
 > 数据来源:`docs/reference/r7rs.html`(R7RS-small 官方 HTML,全库条目
 > 头部机械化抽取)。R7RS-small 共定义 **319 个独立标识符**(base 库
 > ≈239,其余分布在 char/inexact/file/lazy/cxr 等 14 个标准库)。
-> 与 stage0/nplc1 当前 emit 面比对:直接可用 ~40 个(~12%)。
+> 与 stage0/nplc1 当前 emit 面比对:直接可用约 40 个。下列分组是
+> 标识符盘点与落地成本分类；具体实现状态以“当前实现覆盖”一节为准。
 >
 > **审计结论执行口径**:DESIGN.md §1.1 的目标一直是"R7RS-small 兼容核心 +
 > 自举子集",不是 100% base;§6.2 明确列出 stage0/自举所需的最小子集。
@@ -23,6 +24,12 @@
 
 - base(5): case, cond-expand, do, unless, when
 
+当前实现覆盖:
+- nplc1 已直接支持 `when`/`unless`。
+- nplc1 的 `case` 为已验证子集:数值/symbol datum list、`else`、顺序 clause body；
+  尚无 `=>` clause，datum 类型受自举 reader 限制，因此不标记为完整 R7RS `case`。
+- `cond-expand`/`do` 尚未接入 nplc1。
+
 ## D-macro需ellipsis — 3
 
 - base(3): quasiquote, unquote, unquote-splicing
@@ -30,6 +37,11 @@
 ## E-special-form增补 — 3
 
 - base(3): let*, letrec, letrec*
+
+当前实现覆盖:
+- nplc1 的 `let*` 已通过顺序绑定回归。
+- `letrec`/`letrec*` 已可解析和执行简单值绑定，但 emitter 仍复用顺序
+  `emit-binds`；未实现完整 letrec location 预分配与相互递归初始化语义，标记为 partial。
 
 ## F-libNPL/NPL层库 — 67
 
@@ -80,9 +92,10 @@ char/inexact/file/…等标准库)。当前实现的战略定位(DESIGN.md §6.2
 2. **list/vector 库**(map/for-each/append/reverse ≈30):
    NPL 层可写 —— 前提是自举编译器支持高阶函数捕获
    (collect_free_vars 已实现,g0/h2 用例已验证);
-3. **派生形式**(when/unless/case/do):Phase 6 的 syntax-rules 已就绪,
-   差把 macro 引擎挂回 nplc1 自举面;
-4. **letrec 家族**(letrec/letrec*/let*):driver 侧 desugar 即可;
+3. **派生形式**:nplc1 已接入 when/unless 与 case 子集;剩余 do、
+   cond-expand 和完整 `case =>`;
+4. **letrec 家族**:let* 与简单值绑定已可用;完整 letrec location
+   预分配/相互递归语义仍需实现;
 5. **异常+call/cc escape**(error/raise/guard/dynamic-wind):
    对应 Phase 4 遗留的 escape continuation 形式 — R7RS §3.5/§6.11;
 6. **模块系统**(define-library/syntax-error/include)与 bytevector/port:
@@ -90,7 +103,7 @@ char/inexact/file/…等标准库)。当前实现的战略定位(DESIGN.md §6.2
 
 ### 落地优先级
 
-C(macro 派生 when/unless/do/case)→ E(letrec 家族 desugar)→
+C 剩余(do/cond-expand/`case =>`)→ E 完整 letrec 语义→
 F-NPL 层(list/map 先行,依赖闭包)→ 数值塔 NPL 层 →
 D(quasiquote;可先用 syntax-rules 简化版)→ 异常族(先做 escape-only
 call/cc 即满足 DESIGN v1 承诺)→ G(module;后续演进)。

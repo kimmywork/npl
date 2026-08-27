@@ -411,7 +411,11 @@ wrapper 机制处理 h2_clean:
   任意参数化修复 —— 不动点闭合的最后一块
 
 已知残留(记录不阻塞):
-- letrec 解析偏移 bug(wip d8ee44c)在自举源之外仍未修;
-  when/unless 已可用
+- let/let*/letrec/letrec* 的 parser delimiter 契约已统一，简单值绑定回归通过；
+  letrec 的完整 location 预分配/相互递归语义仍未实现
+- nplc1 `case` 已支持 datum-list/else/顺序 body 子集；`=>` 与更多 datum
+  类型仍按 `docs/r7rs-audit.md` 标记为 partial
+- stage0 self-recursive tail-position 检测仍回退为普通 call，参数重绑定式
+  TCO 尚未实现
 - diag trace 钩子(npl_tracev/npl_trace2/npl_dump_addrs)留在 runtime,
   无 #ifdef 开销,后续可按需裁撤

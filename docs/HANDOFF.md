@@ -1,7 +1,7 @@
 # NPL 项目 Handoff 文档
 
-> 更新日期: 2026-08-27 | 分支: master | 最新 commit: `6d56a41`
-> 上一个任务: Phase 8 自举闭环 + 增量1~3(R7RS 特性/测试基建)
+> 更新日期: 2026-08-28 | 分支: master | 基线 commit: `f4a626c`
+> 上一个任务: reader delimiter diagnostics + let-family 修复 + self-hosted `case` 子集
 
 ---
 
@@ -26,11 +26,17 @@ ninja -C build smoke && ./build/smoke/hello        # Phase 0 冒烟: "hello worl
 | core features (increment-1/2) | ✅ | `tools/check_core.sh`(含 4 条编译期契约)|
 | type system (10 组) | ✅ | `tools/check_type.sh` |
 | property-based tests (PBT) | ✅ | `tools/prop_tests.py` — P1 eval 正确性(200-seed)/P2 fuzz/P3 fail-fast/P4 AST 稳定|
-| **Phase 8 Stage A** | ✅ | nplc1 编译算术=5/递归=7/add(20,22)=42/'ok'+exit9 |
-| **Phase 8 Stage B 不动点** | ✅ | il2==il3 **6267 行逐字节一致**(cproc 式验证)|
+| **Phase 8 Stage A** | ✅ | 基线 4 程序 + let-family 6 程序 + case 3 程序 + unmatched diagnostics 2 组 |
+| **Phase 8 Stage B 不动点** | ✅ | il2==il3 **7167 行逐字节一致** |
+
+> 当前待提交改动已通过 `run_tests.sh`、`check_bootstrap.sh` 与 smoke。`case`
+> 仅承诺本轮覆盖的 datum-list/else/顺序 body 子集；完整 R7RS `case` 仍见
+> `docs/r7rs-audit.md` 的限制说明。
 
 ### 交付物清单
-- `src/compiler.npl` — 自举编译器(L1 语言面, ~930 行)
+- `src/compiler.npl` — 自举编译器(L1 语言面,含 let-family 与 `case` 子集)
+- `tools/check_bootstrap.sh` — let-family/case/unmatched diagnostics 回归 + fixpoint
+- `stage0/src/reader.c` + `tools/check_stage0.sh` — 匹配 delimiter 与 opening 位置诊断
 - `runtime/simd_kernels.c/.h + simd_kernels_scalar.c` — NEON kernels(add/mul/dot + in-place add)
 - `runtime/simd_bench.c` + `tools/check_simd.sh` — 正确性 + ≥3x 加速验收
 - `docs/r7rs-audit.md` — R7RS-small 全库合规审计(319 标识符机械化盘点)
@@ -55,17 +61,32 @@ ninja -C build smoke && ./build/smoke/hello        # Phase 0 冒烟: "hello worl
 6. **sanitize 死链** —— lower-case 分支条件永假且 `(int->string c)` 不可达;
    函数名被 sanitize 成空串 → `$__` 这类函数名 → FUNCS 表损坏。
 7. **emit-main 漏 `$npl_global_inits()` 调用** —— 含 runtime-init 全局的程序其数据槽保持 nil。
+8. **letrec/let* 解析偏移 bug** —— 根因是 `parse-let` 会预吃
+   bindings 外层 `(`, 而 `parse-special` 的 letrec/let* 路径不预吃, 共用同一 `binding-pairs`
+   导致错位 → `(letrec ((a 40)) a)` 报 "unexpected )"/"unbound symbol 'a'"。
+   修复: `binding-pairs` 统一负责吃外层 `(` + 收尾 `)`, `parse-let` 不再预吃;
+   另修 `tagged-dispatch` 的 tag 11/13 → 220/221(parse 产出与 dispatch 检查不一致)。
+   验证: bootstrap Stage A 新增 6 个回归测试(p_let/p_let2/p_letrec/p_letrec2/p_letstar/
+   p_letstar2)全过。
+9. **case 顶层结构错位** —— `emit-case-chain` 少一个右括号、`emit-datum-tests`
+   多一个右括号，总深度为 0 但两个后续 `define` 被吞进函数体。修复函数边界后，补齐
+   datum literal、else、顺序 body 与 no-match 初始化路径；3 个 Stage A 回归通过。
+10. **reader delimiter 诊断不足** —— stage0 曾静默接受 `(]`，且 token 行列记录在跳过空白前；
+    现按 opening token 匹配 `(`/`)`、`[`/`]` 并报告 opening 位置。nplc1 在 tokenization 前
+    分块扫描字符串/注释之外的括号，长源码不会因逐字符递归耗尽栈。
 
 ### 未解决的问题(下个会话优先处理)
-1. **letrec 解析偏移 bug(wip, stash 中)** ——
-   `(letrec ((a 40)) a)` 触发 "unexpected )";
-   工作副本在 stash (`git stash list` 可见 wip-letrec-letstar-partial),
-   含 when/unless/case/do/letrec/let* 的 parser+emit 半成品与三个候选修复方向。
-2. **npl_cdr/npl_car fail-fast 改动** —— 现在 runtime 对非 pair 输入直接 abort(exit 1),
+1. **R7RS `case` 仍是子集** —— 已支持数值/symbol datum list、else 与多表达式 body；
+   尚未支持标准中的 `=>` clause，quoted datum 类型仍受自举 reader 限制。
+2. **letrec 语义仍是近似** —— 当前 emitter 复用顺序 `emit-binds`，满足本轮值绑定回归，
+   但不提供完整 letrec 的预分配 location/相互递归初始化语义。
+3. **stage0 尾调用优化未完成** —— `qbe_gen.c` 能识别 self-recursive tail position，
+   但参数重绑定仍是 TODO 并回退为普通 `call`；不要把该检测脚手架视为 TCO 已交付。
+4. **npl_cdr/npl_car fail-fast 改动** —— 现在 runtime 对非 pair 输入直接 abort(exit 1),
    不再返回 nil;若有调用方依赖旧行为需排查(git log runtime/alloc.c 有记录)。
-3. **diagnostic trace 钩子** —— npl_tracev/npl_trace2/npl_dump_addrs 留在 runtime
+5. **diagnostic trace 钩子** —— npl_tracev/npl_trace2/npl_dump_addrs 留在 runtime
    (fprintf 到 stderr), 编译器主路径零影响, 后续可加 #ifdef 或删除。
-4. **structured concurrency(spawn/await/scope)** —— 用户指示降级未实施(PLAN Phase 9 后半段)。
+6. **structured concurrency(spawn/await/scope)** —— 用户指示降级未实施(PLAN Phase 9 后半段)。
 
 ### 已知限制(设计层面接受)
 - 自举语言面 L1 故意**不含闭包/高阶函数**调用(limiting but deliberate),
@@ -78,21 +99,21 @@ ninja -C build smoke && ./build/smoke/hello        # Phase 0 冒烟: "hello worl
 ## 三、接下来的规划
 
 ### P0(下一会话最优先)
-1. **恢复 stash 并落地 letrec 偏移修复**: binding-pairs 需要"外层负责吃掉 bindings 收尾括号"
-   或统一由 caller `expect-rparen`;参考文档的候选方案A/B/C逐一试;
-2. **完成 case/do 的 emit 分支**(tag 9/10 已经 parse 但尚未实现 dispatch)
-3. **把 /tmp/w2x 内零散测试正式化** → 合入 tools/check_core.sh + tests/
+1. **完成 `do` 的 parse/emit 分支并加入 Stage A/fixpoint 回归**。
+2. **决定 `case =>` 是否进入当前 L1 子集**；未决定前保持 audit 中的 partial 标记。
+3. **实现真正的 letrec location 预分配语义**，用相互递归或 forward-reference 用例验收。
+4. **把 /tmp/w2x 内仍有价值的零散测试正式化** → 合入 tools/check_core.sh + tests/。
 
 ### P1(Phase 9 推进)
-4. structured concurrency: spawn/await/scope(runtime pthread shim +
+5. structured concurrency: spawn/await/scope(runtime pthread shim +
    work-stealing 简版), PLAN.md 原文要求
-5. NEON: matmul kernel(PLAN 说 SIMD 3x+ 达标, 可继续扩展 NN 需要的算子)
+6. NEON: matmul kernel(PLAN 说 SIMD 3x+ 达标, 可继续扩展 NN 需要的算子)
 
 ### P2(R7RS 缺口收敛, 详见 docs/r7rs-audit.md 优先级)
-6. C 组宏派生(when/unless/do/case——宏挂接进自举面)
-7. E 组(letrec 家族), D(quasiquote 简化版)
-8. F 组(list/map/reverse 等 NPL 层可写的 library function)
-9. 数值塔(abs/floor/gcd/lcm 等), 异常族(error/raise/guard; 先做 escape-only call/cc
+7. C 组剩余派生形式(`do`/`cond-expand`)与 `case =>`
+8. E 组完整 letrec 语义,D(quasiquote 简化版)
+9. F 组(list/map/reverse 等 NPL 层可写的 library function)
+10. 数值塔(abs/floor/gcd/lcm 等),异常族(error/raise/guard;先做 escape-only call/cc
    即满足 DESIGN v1 承诺), G(define-library 等大特性最后)
 
 ### 验收口径提醒(团队约定)

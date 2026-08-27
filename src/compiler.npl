@@ -161,6 +161,65 @@
       (step-token s i acc)
       (lex-eof acc)))
 
+; Validate delimiters before tokenization so a shifted close cannot hide the
+; opening location. mode: 0 normal, 1 string, 2 line comment. Scanning is
+; chunked because self-hosted calls do not currently receive tail-call lowering.
+(define (check-parens s i line col opens mode)
+  (if (< i (string-length s))
+      (let ((st (check-parens-block s i line col opens mode 256)))
+        (check-parens s (car st)
+                      (car (cdr st))
+                      (car (cdr (cdr st)))
+                      (car (cdr (cdr (cdr st))))
+                      (car (cdr (cdr (cdr (cdr st)))))))
+      (if (null? opens)
+          0
+          (paren-open-error (car (car opens)) (cdr (car opens))))))
+
+(define (paren-state i line col opens mode)
+  (cons i (cons line (cons col (cons opens (cons mode ()))))))
+
+(define (check-parens-block s i line col opens mode left)
+  (if (or2b (= left 0) (not (< i (string-length s))))
+      (paren-state i line col opens mode)
+      (let ((c (string-ref s i)))
+        (if (= mode 2)
+            (if (= c 10)
+                (check-parens-block s (+ i 1) (+ line 1) 1 opens 0 (- left 1))
+                (check-parens-block s (+ i 1) line (+ col 1) opens 2 (- left 1)))
+            (if (= mode 1)
+                (if (= c 34)
+                    (check-parens-block s (+ i 1) line (+ col 1) opens 0 (- left 1))
+                    (if (= c 10)
+                        (check-parens-block s (+ i 1) (+ line 1) 1 opens 1 (- left 1))
+                        (check-parens-block s (+ i 1) line (+ col 1) opens 1 (- left 1))))
+                (if (= c 59)
+                    (check-parens-block s (+ i 1) line (+ col 1) opens 2 (- left 1))
+                    (if (= c 34)
+                        (check-parens-block s (+ i 1) line (+ col 1) opens 1 (- left 1))
+                        (if (= c 40)
+                            (check-parens-block s (+ i 1) line (+ col 1)
+                                                (cons (cons line col) opens) 0 (- left 1))
+                            (if (= c 41)
+                                (if (null? opens)
+                                    (paren-close-error line col)
+                                    (check-parens-block s (+ i 1) line (+ col 1)
+                                                        (cdr opens) 0 (- left 1)))
+                                (if (= c 10)
+                                    (check-parens-block s (+ i 1) (+ line 1) 1 opens 0 (- left 1))
+                                    (check-parens-block s (+ i 1) line (+ col 1) opens 0 (- left 1))))))))))))
+
+(define (paren-close-error line col)
+  (begin
+    (display "nplc1: unmatched ) at line ") (display line)
+    (display " col ") (display col) (newline) (exit 20)))
+
+(define (paren-open-error line col)
+  (begin
+    (display "nplc1: unmatched ( at line ") (display line)
+    (display " col ") (display col) (display "; expected ) before end of input")
+    (newline) (exit 20)))
+
 (define (do-bad-char c)
   (begin (display "nplc1: bad character byte ") (display c)
          (newline) (exit 20)))
@@ -260,13 +319,15 @@
                         (begin (advance! cur)
                                (cons 221 (cons (binding-pairs cur)
                                                (cons (grab-body-until-rparen cur) ()))))
-                        (if (= tag 3)
-                            (parse-if cur)
-                            (if (= tag 1)
-                                (parse-define cur)
-                                (if (= tag 2)
-                                    (parse-lambda cur)
-                                    (parse-let cur)))))))))))
+                        (if (= tag 9)
+                            (parse-case cur)
+                            (if (= tag 3)
+                                (parse-if cur)
+                                (if (= tag 1)
+                                    (parse-define cur)
+                                    (if (= tag 2)
+                                        (parse-lambda cur)
+                                        (parse-let cur))))))))))))
 
 (define (or2b a b) (if a #t b))
 (define (list3 a b c) (cons a (cons b (cons c ()))))
@@ -320,25 +381,73 @@
 (define (parse-lambda cur)
   (fatal "lambda unsupported in slice"))
 
+(define (parse-case cur)
+  (advance! cur)
+  (let ((key (parse-expr cur)))
+    (let ((clauses (parse-case-clauses cur)))
+      (cons 222 (cons key (cons clauses ()))))))
+
+; clause: ((d1 d2 ...) body...) | (else body...)
+; parsed as: (datums . body)  — datums is () for else, else marker
+; is a fresh symbol atom (cons 100 "else") so empty () stays distinct.
+(define (parse-case-clauses cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (begin
+        (if (not (= (peek-kind cur) 1)) (fatal "case needs ( clause"))
+        (advance! cur)
+        (let ((is-else
+                (if (= (peek-kind cur) 4)
+                    (string=? (peek-payload cur) "else")
+                    #f)))
+          (if is-else
+              (begin
+                (advance! cur)
+                (let ((body (grab-body-until-rparen cur)))
+                  (let ((rest (parse-case-clauses cur)))
+                    (cons (cons (cons 100 "else") body) rest))))
+              (let ((datums (parse-datums cur)))
+                (let ((body (grab-body-until-rparen cur)))
+                  (let ((rest (parse-case-clauses cur)))
+                    (cons (cons datums body) rest)))))))))
+
+; consumes the datums-list '(' ... ')' itself.
+(define (parse-datums cur)
+  (if (not (= (peek-kind cur) 1)) (fatal "case clause needs ( datums"))
+  (advance! cur)
+  (case-datums-loop cur))
+
+; case-datums-loop: read items until matching ')', consuming it.
+(define (case-datums-loop cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (cons (parse-quote-datum cur) (case-datums-loop cur))))
+
 (define (parse-let cur)
   (advance! cur)   ; consume the 'let' keyword itself
-  (if (not (= (peek-kind cur) 1)) (fatal "let needs bindings"))
-  (advance! cur)
   (let ((binds (binding-pairs cur)))
     (let ((body (grab-body-until-rparen cur)))
       (cons 214 (cons binds (cons body ()))))))
 
+; contract: caller must NOT pre-consume the bindings '('.
+; binding-pairs consumes the outer '(' itself, reads zero or more
+; (name expr) pairs, then consumes the matching ')'.
 (define (binding-pairs cur)
+  (if (not (= (peek-kind cur) 1)) (fatal "let needs bindings ("))
+  (advance! cur)
+  (binding-loop cur))
+
+(define (binding-loop cur)
   (if (= (peek-kind cur) 2)
       (begin (advance! cur) ())
-      (if (not (= (peek-kind cur) 1))
-          (fatal "malformed let binding")
-          (begin
-            (advance! cur)
-            (let ((nm (parse-expr cur)))
-              (let ((vx (parse-expr cur)))
-                (expect-rparen cur "binding")
-                (cons (cons nm vx) (binding-pairs cur))))))))
+      (begin
+        (if (not (= (peek-kind cur) 1)) (fatal "malformed let binding"))
+        (advance! cur)
+        (let ((nm (parse-expr cur)))
+          (let ((vx (parse-expr cur)))
+            (expect-rparen cur "binding")
+            (let ((rest (binding-loop cur)))
+              (cons (cons nm vx) rest)))))))
 
 (define (parse-all cur acc)
   (if (= (peek-kind cur) 7)
@@ -679,6 +788,71 @@
   ; identical emission for let* in this slice (sequenced re-binding)
   (emit-binds (car (cdr e)) (car (cdr (cdr e))) env))
 
+; case: (222 key (clause ...))
+; clause = (datums . body)  — datums is (100 . "else") for else, else a
+; list of datum AST nodes.  Key is compared by tagged-value identity.
+(define (emit-case e env)
+  (let ((key-expr (car (cdr e))))
+    (let ((clauses (car (cdr (cdr e)))))
+      (let ((kv (emit-expr key-expr env)))
+        (let ((slot (new-tmp)))
+          (func-line (string-append slot " =l alloc8 8"))
+          (let ((ld (new-label)))
+            (emit-case-chain kv slot clauses ld env)
+            (func-line ld)
+            (let ((rr (new-tmp)))
+              (func-line (string-append rr " =l loadl " slot))
+              rr)))))))
+
+; walk clauses; each emits its datum tests then body into slot,
+; then jumps to ld. No-match falls through to the next clause. Else
+; is unconditional; exhaustion stores nil before joining.
+(define (emit-case-chain kv slot clauses ld env)
+  (if (null? clauses)
+      (begin
+        (func-line (string-append "storel 2, " slot))
+        (func-line (string-append "jmp " ld)))
+      (let ((c (car clauses)))
+        (let ((datums (car c)))
+          (let ((body (cdr c)))
+            (if (is-else-clause? datums)
+                (begin
+                  (emit-into-slot body slot env)
+                  (func-line (string-append "jmp " ld)))
+                (begin
+                  (let ((lc (new-label)))
+                    (let ((lfall (new-label)))
+                      (emit-datum-tests kv datums lc lfall env)
+                      (func-line lc)
+                      (emit-into-slot body slot env)
+                      (func-line (string-append "jmp " ld))
+                      (func-line lfall)
+                      (emit-case-chain kv slot (cdr clauses) ld env))))))))))
+
+(define (is-else-clause? datums)
+  (if (pair-shape? datums)
+      (if (= (car datums) 100)
+          (string=? (cdr datums) "else")
+          #f)
+      #f))
+
+; for each datum, compare kv == dv; if any matches jump to lc.
+; On no match across all datums, fall through (no explicit jump).
+(define (emit-datum-tests kv datums lc lfall env)
+  (if (null? datums)
+      (func-line (string-append "jmp " lfall))
+      (let ((dv (walk-datum (car datums))))
+        (let ((raw (new-tmp)))
+          (func-line (string-append raw " =w ceql " kv ", " dv))
+          (let ((lnext (new-label)))
+            (func-line (string-append "jnz " raw ", " lc ", " lnext))
+            (func-line lnext)
+            (emit-datum-tests kv (cdr datums) lc lfall env))))))
+
+(define (emit-into-slot body slot env)
+  (let ((v (emit-body body env)))
+    (func-line (string-append "storel " v ", " slot))))
+
 (define (tagged-dispatch e env)
   (let ((tag (car e)))
     (if (= tag 108)
@@ -705,13 +879,15 @@
                                         (emit-when-unless e env)
                                         (if (= tag 8)
                                             (emit-when-unless e env)
-                                            (if (= tag 11)
+                                            (if (= tag 220)
                                                 (emit-letrec e env)
-                                                (if (= tag 13)
+                                                (if (= tag 221)
                                                     (emit-letstar e env)
+                                                (if (= tag 222)
+                                                    (emit-case e env)
                                                 (if (= tag 215)
                                                     (emit-application e env)
-                                                    (fatal "unknown AST form"))))))))))))))))
+                                                    (fatal "unknown AST form")))))))))))))))))
 
 (define (emit-application e env)
   (let ((head (car e)))
@@ -1122,6 +1298,7 @@
       (fatal "usage: nplc1 <input.npl>")
       (begin
         (let ((src (read-file (car args))))
+          (check-parens src 0 1 1 () 0)
           (let ((cur (cell (lex-loop src 0 ()))))
             (let ((forms (parse-all cur ())))
               (begin
