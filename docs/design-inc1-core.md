@@ -346,3 +346,28 @@ C. delete declare-string-box 死代码(last-glob-slot "$FIX_ME")
    并审计 pre-tagged-string-slot 是否被意外路径触达
 D. 复验手段:w2 wrapper 增加 set_car_/cell_get 包装,
    对 FUNCS/GLOBS 写入打 tag 流
+
+## Stage B 诊断 IV(同轮续,差分对照完成)
+
+新增对照实验:对 stage0 产物(n1w)与自举产物(c1w2/w4)以相同
+wrapper 机制处理 h2_clean:
+- 输入侧完全一致:char-class 扫描次数均为 108(排除输入/文件差异)
+- wrapper 覆盖率不等价(1007 vs 141 事件):因两版 IL 的常数传递
+  方式不同(stage0 多走 %t 寄存器,全部命中 wrapper;nplc1 将部分
+  raw 常量直接内联进 call,被 skip 规则漏掉)— 该 diff 维度无效,
+  已记录避免误导
+- 失败样例分型确认:
+    b_min/h1(零参 builtin)          -> PASS
+    display(str)/begin              -> FAIL(v=#f 遍历)
+    用户函数 (f)/(f x)/(f a b)      -> FAIL(#t/野指针/segv)
+  ⇒ 触发条件与「FUNCS 注册表的查找与遍历」以及「params/body 链」强相关,
+  而非词法层
+
+下轮首选实验(顺序执行):
+1. 在 $pass_register_functions/$register_func/$lookup_func 三点插桩
+   (wrapper 化 cell_get/car/cdr 已可用),dump FUNCS alist 内容
+2. 对 g0 `(define (f) 9)(define (main) (f))`:若 FUNCS 注册时
+   sig 解包错位((cdr (car ...)) 层级),lk-s 的 string=? 将把
+   bool 当字符串比较,require_bytes 失败会在更早退出 — 若未早退
+   则验证 lk-s 的 entries 非 pair 进入循环
+3. 一旦定位,回归 Stage B(il2==il3)
