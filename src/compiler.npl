@@ -1,68 +1,935 @@
-; compiler.npl — Minimal NPL compiler for bootstrap
+; compiler.npl — NPL-in-NPL compiler, vertical slice (increment-4 / Phase 8)
 ;
-; Phase 8: Bootstrap implementation
-; This is a minimal compiler that can compile simple arithmetic to QBE IL.
+; Usage : nplc1 <input.npl>       ; prints QBE IL of the input to stdout
+;
+; Supports (v0 slice):
+;   top    : (define (name params...) body...)   multi-expr bodies
+;            (define name const)                 num / string / 'sym only
+;   forms  : if (3 arms), begin, let ((n v)...), quote -> static data
+;   atoms  : fixnums, strings, nil, #t/#f ignored in datum walk
+;   builtins: cons car cdr null? eq? not display newline exit
+;             + - * < =  program-arguments read-file
+;             string-length string-append number->string string=?
+; NO closures/higher-order functions anywhere in this file.
 
-; ---- Helper functions ----
-(define (list-length lst)
-  (if (null? lst) 0 (+ 1 (list-length (cdr lst)))))
+(define (fatal msg)
+  (begin (display "nplc1: ") (display msg) (newline) (exit 21)))
 
-(define (rev-acc lst acc)
-  (if (null? lst) acc (rev-acc (cdr lst) (cons (car lst) acc))))
+(define (cell v) (cons v ()))
+(define (cell-get c) (car c))
+(define (cell-set! c v) (set-car! c v))
 
-(define (list-reverse lst)
-  (rev-acc lst ()))
+(define (and2 a b) (if a b #f))
+(define (or2 a b) (if a #t b))
 
-(define (list-append a b)
-  (if (null? a) b (cons (car a) (list-append (cdr a) b))))
+(define (rev lst) (rev-into lst ()))
 
-; ---- QBE Code Generation ----
-; Generate QBE IL for a simple expression
-; Currently only supports: (+ a b), (- a b), (* a b)
+(define (rev-into lst acc)
+  (if (null? lst) acc (rev-into (cdr lst) (cons (car lst) acc))))
 
-(define (gen-arith op a b)
-  (let ((op-str (cond
-                  ((= op '+) "add")
-                  ((= op '-) "sub")
-                  ((= op '*) "mul")
-                  (else "add"))))
-    (string-append op-str (string-append " " (string-append (number->string a) (string-append ", " (number->string b)))))))
+(define (ch-digit-q2 c) (if (< 47 c) (< c 58) #f))
+(define (ch-alpha-up-e c) (if (< 64 c) (< c 91) #f))
+(define (ch-alpha-low-e c) (if (< 96 c) (< c 123) #f))
 
-; ---- Number to string conversion ----
-(define (number->string n)
-  (if (= n 0) "0"
-    (if (< n 0)
-      (string-append "-" (number->string (- 0 n)))
-      (number->string-pos n))))
+(define (sanitize s i out)
+  (if (< i (string-length s))
+      (let ((c (string-ref s i)))
+        (if (if (ch-digit-q2 c)
+                #t
+                (if (ch-alpha-up-e c)
+                    #t
+                    (if (ch-alpha-low-e c) (= c 95) (= c 95))))
+            (sanitize s (+ i 1) (string-append out (int->string c)))
+            (sanitize s (+ i 1) (string-append out "_"))))
+      out))
 
-(define (number->string-pos n)
-  (if (= n 0) ""
-    (let ((q (/ n 10))
-          (r (% n 10)))
-      (string-append (number->string-pos q) (digit->string r)))))
+; ---------------- lexer ----------------
+; tokens: (kind . payload); kinds 1"(" 2")" 3"'" 4sym 5num 6str 7eof
 
-(define (digit->string d)
-  (cond
-    ((= d 0) "0")
-    ((= d 1) "1")
-    ((= d 2) "2")
-    ((= d 3) "3")
-    ((= d 4) "4")
-    ((= d 5) "5")
-    ((= d 6) "6")
-    ((= d 7) "7")
-    ((= d 8) "8")
-    ((= d 9) "9")
-    (else "0")))
+(define (ch-digit? c) (if (< 47 c) (< c 58) #f))
+(define (ch-ws? c)
+  (if (= c 32) #t
+      (if (= c 9) #t
+          (if (= c 10) #t (= c 13)))))
+(define (ch-alpha-low? c) (if (< 96 c) (< c 123) #f))
+(define (ch-alpha-up? c) (if (< 64 c) (< c 91) #f))
+(define (ch-symchar? c)
+  (if (ch-digit? c) #t
+      (if (ch-alpha-low? c) #t
+          (if (ch-alpha-up? c) #t
+              (if (= c 45) #t
+                  (if (= c 95) #t
+                      (if (= c 63) #t
+                          (if (= c 33) #t
+                              (if (= c 42) #t
+                                  (if (= c 47) #t
+                                      (if (= c 43) #t
+                                          (if (= c 61) #t
+                                              (if (= c 60) #t
+                                                  (if (= c 62) #t
+                                                      (if (= c 37) #t (= c 46))))))))))))))))
 
-; ---- String operations ----
-(define (string-append a b)
-  (list-append a b))
+(define (lex-skip-ws s i len)
+  (if (if (< i len) (if (ch-ws? (string-ref s i)) #t (= (string-ref s i) 59)) #f)
+      (lex-to-eol-or-next s i len)
+      i))
 
-(define (string-length s)
-  (list-length s))
+(define (lex-to-eol-or-next s i len)
+  (if (= (string-ref s i) 59)
+      (lex-comment s i len)
+      (+ i 1)))
 
-; ---- Main: generate a simple QBE program ----
+(define (lex-comment s i len)
+  (if (if (< i len) (not (= (string-ref s i) 10)) #f)
+      (lex-comment s (+ i 1) len)
+      (if (< i len) (+ i 1) len)))
+
+(define (lex-str-close s j len start acc)
+  (if (< j len)
+      (if (= (string-ref s j) 34)
+          (lex-loop s (+ j 1) len (cons (cons 6 (substring s start j)) acc))
+          (lex-str-close s (+ j 1) len start acc))
+      (fatal "unterminated string")))
+
+(define (digits-value s i j acc)
+  (if (< i j)
+      (digits-value s (+ i 1) j (+ (* acc 10) (- (string-ref s i) 48)))
+      acc))
+
+(define (lex-loop s i len acc)
+  (let ((i2 (lex-skip-ws s i len)))
+    (if (< i2 len)
+        (step-token s i2 len acc)
+        (rev (cons (cons 7 ()) acc)))))          ; eof then normalize once
+
+(define (step-token s i len acc)
+  (let ((c (string-ref s i)))
+    (if (= c 40)
+        (lex-loop s (+ i 1) len (cons (cons 1 ()) acc))
+        (if (= c 41)
+            (lex-loop s (+ i 1) len (cons (cons 2 ()) acc))
+            (if (= c 39)
+                (lex-loop s (+ i 1) len (cons (cons 3 ()) acc))
+                (if (= c 34)
+                    (lex-str-close s (+ i 1) len (+ i 1) acc)
+                    (if (ch-digit? c)
+                        (push-number s i len #f acc)
+                        (if (if (= c 45) (< (+ i 1) len) #f)
+                            (let ((j (scan-num-after-sign s i len)))
+                              (lex-loop s j len
+                                (cons (cons 5 (- 0 (digits-value s (+ i 1) j 0)))
+                                      acc)))
+                            (if (ch-symchar? c)
+                                (push-symbol s i len acc)
+                                (do-bad-char c))))))))))
+
+(define (scan-digits s j len)
+  ; advance while current char is a digit
+  (if (ch-digit? (string-ref s j))
+      (scan-digits s (+ j 1) len)
+      j))
+
+(define (scan-num-after-sign s i len)
+  (scan-digits s (+ i 1) len))
+
+
+
+
+(define (push-number s i len neg acc)
+  (let ((j (scan-digits s i len)))
+    (let ((v (digits-value s i j 0)))
+      (if neg
+          (lex-loop s j len (cons (cons 5 (- 0 v)) acc))
+          (lex-loop s j len (cons (cons 5 v) acc))))))
+
+(define (push-symbol s i len acc)
+  (let ((j (scan-num-pred-2 s i len)))
+    (lex-loop s j len (cons (cons 4 (substring s i j)) acc))))
+
+(define (scan-num-pred-2 s j len)
+  (if (if (< j len) (ch-symchar? (string-ref s j)) #f)
+      (scan-num-pred-2 s (+ j 1) len)
+      j))
+
+(define (do-bad-char c)
+  (begin (display "nplc1: bad character byte ") (display c)
+         (newline) (exit 20)))
+
+; ---------------- parser ----------------
+
+; cur is a cell whose content is the remaining TOKEN LIST.
+; cell -> list -> first-token -> field : three cars/cars-cdr.
+(define (peek-kind cur) (car (car (car cur))))
+(define (peek-payload cur) (cdr (car (car cur))))
+(define (advance! cur) (set-car! cur (cdr (car cur))))
+
+(define (expect-rparen cur what)
+  (if (= (peek-kind cur) 2) (advance! cur) (fatal (string-append "expected ) after " what))))
+
+(define (parse-expr cur)
+  (let ((k (peek-kind cur)))
+    (if (= k 5)
+        (let ((v (peek-payload cur))) (advance! cur) v)
+        (if (= k 7)
+            (fatal "unexpected end of input")
+            (if (= k 2)
+                (fatal "unexpected )")
+                (if (= k 4)
+                    (let ((nm (peek-payload cur))) (advance! cur) (cons 100 nm))
+                    (if (= k 6)
+                        (let ((tx (peek-payload cur))) (advance! cur) (cons 101 tx))
+                        (if (= k 3)
+                            (begin (advance! cur)
+                                   (cons 204 (cons (parse-quote-datum cur) ())))
+                            (parse-list-form cur)))))))))
+
+(define (parse-quote-datum cur)
+  (let ((k (peek-kind cur)))
+    (if (= k 5)
+        (let ((v (peek-payload cur))) (advance! cur) v)
+        (if (= k 4)
+            (let ((nm (peek-payload cur))) (advance! cur) (cons 100 nm))
+            (if (= k 6)
+                (let ((tx (peek-payload cur))) (advance! cur) (cons 101 tx))
+                (if (= k 1)
+                    (begin (advance! cur) (datum-items cur))
+                    (fatal "bad quoted datum")))))))
+
+(define (datum-items cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (cons (parse-quote-datum cur) (datum-items cur))))
+
+(define (head-tag nm)
+  (if (string=? nm "define") 1
+      (if (string=? nm "lambda") 2
+          (if (string=? nm "if") 3
+              (if (string=? nm "let") 4
+                  (if (string=? nm "quote") 5
+                      (if (string=? nm "begin") 6 0)))))))
+
+(define (parse-list-form cur)
+  (advance! cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (if (not (= (peek-kind cur) 4))
+          (collect-chain cur)
+          (if (not (= (head-tag (peek-payload cur)) 0))
+              (parse-special cur)
+              (collect-chain cur)))))
+
+(define (collect-chain cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (cons (parse-expr cur) (collect-chain cur))))
+
+(define (parse-special cur)
+  (let ((tag (head-tag (peek-payload cur))))
+    (if (= tag 5)
+        (begin (advance! cur) (cons 204 (cons (parse-quote-datum cur) ())))
+        (if (= tag 6)
+            (begin (advance! cur)
+                   (cons 216 (grab-body-until-rparen cur)))
+            (if (= tag 3)
+                (parse-if cur)
+                (if (= tag 1)
+                    (parse-define cur)
+                    (if (= tag 2)
+                        (parse-lambda cur)
+                        (parse-let cur))))))))
+
+(define (grab-body-until-rparen cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (cons (parse-expr cur) (grab-body-until-rparen cur))))
+
+(define (parse-if cur)
+  (let ((t (parse-expr cur)))
+    (let ((c (parse-expr cur)))
+      (let ((a (parse-expr cur)))
+        (expect-rparen cur "if")
+        (cons 213 (cons t (cons c (cons a ()))))))))
+
+(define (parse-define cur)
+  (begin
+    ; consume the define keyword itself (parse-special dispatched on it)
+    (advance! cur)
+    (if (= (peek-kind cur) 1)
+      (begin
+        (advance! cur)
+        (let ((nm (peek-payload cur)))
+          (if (not (= (peek-kind cur) 4)) (fatal "bad define name"))
+          (advance! cur)
+          (let ((params (param-names cur)))
+            (let ((body (grab-body-until-rparen cur)))
+              (cons 211 (cons (cons (cons 100 nm) params) (cons body ())))))))
+      (let ((nm-e (parse-expr cur)))
+        (let ((val (parse-expr cur)))
+          (expect-rparen cur "define")
+          (cons 200 (cons nm-e (cons val ()))))))))
+
+(define (param-names cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (if (= (peek-kind cur) 4)
+          (let ((nm (peek-payload cur)))
+            (advance! cur)
+            (cons (cons 100 nm) (param-names cur)))
+          (fatal "bad parameter name"))))
+
+(define (parse-lambda cur)
+  (fatal "lambda unsupported in slice"))
+
+(define (parse-let cur)
+  (if (not (= (peek-kind cur) 1)) (fatal "let needs bindings"))
+  (advance! cur)
+  (let ((binds (binding-pairs cur)))
+    (let ((body (grab-body-until-rparen cur)))
+      (cons 214 (cons binds (cons body ()))))))
+
+(define (binding-pairs cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (if (not (= (peek-kind cur) 1))
+          (fatal "malformed let binding")
+          (begin
+            (advance! cur)
+            (let ((nm (parse-expr cur)))
+              (let ((vx (parse-expr cur)))
+                (expect-rparen cur "binding")
+                (cons (cons nm vx) (binding-pairs cur))))))))
+
+(define (parse-all cur acc)
+  (if (= (peek-kind cur) 7)
+      (rev acc)
+      (parse-all cur (cons (parse-expr cur) acc))))
+
+; ---------------- emitter state ----------------
+
+(define TMPN (cell 0))
+(define DATAN (cell 0))
+(define DATA-BUF (cell ()))
+(define FUNC-BUF (cell ()))
+(define FUNCS (cell ()))
+(define GLOBS (cell ()))
+(define SYMS (cell ()))
+
+(define (new-tmp)
+  (cell-set! TMPN (+ 1 (cell-get TMPN)))
+  (string-append "%t" (number->string (cell-get TMPN))))
+
+(define (new-label)
+  (string-append "@L" (number->string (cell-set! DATAN (+ 1 (cell-get DATAN))))))
+
+(define (data-line ln) (cell-set! DATA-BUF (cons ln (cell-get DATA-BUF))))
+(define (func-line ln) (cell-set! FUNC-BUF (cons ln (cell-get FUNC-BUF))))
+
+(define (register-func nm)
+  (cell-set! FUNCS (cons (cons nm (string-append "$" (sanitize nm 0 "")))
+                         (cell-get FUNCS))))
+
+(define (lk-s entries nm)
+  (if (null? entries)
+      ""
+      (if (string=? (car (car entries)) nm)
+          (cdr (car entries))
+          (lk-s (cdr entries) nm))))
+
+(define (lookup-func nm) (lk-s (cell-get FUNCS) nm))
+(define (lookup-glob nm) (lk-s (cell-get GLOBS) nm))
+
+; ---------------- static data ----------------
+
+(define (intern-sym nm)
+  (let ((found (lk-s (cell-get SYMS) nm)))
+    (if (> (string-length found) 0)
+        found
+        (begin
+          (cell-set! DATAN (+ 1 (cell-get DATAN)))
+          (let ((lab (string-append "$sym_" (number->string (cell-get DATAN)))))
+            (cell-set! SYMS (cons (cons nm lab) (cell-get SYMS)))
+            (data-line (join6 lab " = { w 3, w 0, w "
+                              (number->string (string-length nm))
+                              ", w "
+                              (number->string (+ 1 (string-length nm)))
+                              ", b "))
+            (data-line (join6 nm "\", b 0 }" "" "" ""))
+            lab)))))
+
+(define (join6 a b c d e f)
+  (string-append a b (string-append c (string-append d
+                 (string-append e f)))))
+
+(define (fresh-string-op text)
+  (cell-set! DATAN (+ 1 (cell-get DATAN)))
+  (let ((lab (string-append "$s_" (number->string (cell-get DATAN)))))
+    (data-line
+      (string-append lab " = { w 1, w 0, w "
+                     (number->string (string-length text))
+                     ", w "
+                     (number->string (+ 1 (string-length text)))
+                     ", b \"" text "\", b 0 }"))
+    (label-ref-op lab)))
+
+(define (label-ref-op lab)
+  (let ((a (new-tmp)))
+    (func-line (string-append a " =l copy " lab))
+    (let ((b (new-tmp)))
+      (func-line (string-append b " =l add " a ", 1"))
+      b)))
+
+(define (walk-datum d)
+  (if (null? d)
+      "2"
+      (if (number? d)
+          (number->string (* d 4))
+          (if (pair-shape? d)
+              (walk-boxed d)
+              (fatal "bad datum")))))
+(define (walk-boxed d)
+  (if (= (car d) 100)
+      (label-ref-op (intern-sym (cdr d)))
+      (if (= (car d) 101)
+          (fresh-string-op (cdr d))
+          (build-static-pair d))))
+
+(define (build-static-pair d)
+  (cell-set! DATAN (+ 1 (cell-get DATAN)))
+  (let ((lab (string-append "$q_" (number->string (cell-get DATAN)))))
+    (let ((cr (walk-datum (car d))))
+      (let ((cd (walk-datum (cdr d))))
+        (data-line (string-append lab " = { w 0, w 0, l " cr ", l " cd " }"))
+        (label-ref-op lab)))))
+
+(define (pair-shape? x)
+  (if (number? x) #f (not (null? x))))
+
+(define (sym-atom? x)
+  (if (pair-shape? x) (= (car x) 100) #f))
+
+(define (str-atom? x)
+  (if (pair-shape? x) (= (car x) 101) #f))
+
+; ---------------- expression emission ----------------
+
+(define (env-extend env nm tmp) (cons (cons nm tmp) env))
+
+(define (env-lookup env nm)
+  (if (null? env)
+      ""
+      (if (string=? (car (car env)) nm)
+          (cdr (car env))
+          (env-lookup (cdr env) nm))))
+
+(define (count-up xs n)
+  (if (null? xs) n (count-up (cdr xs) (+ n 1))))
+
+(define (eval-args-fixed args env need acc)
+  (if (= need 0)
+      (rev acc)
+      (if (null? args)
+          (fatal "missing argument")
+          (let ((v (emit-expr (car args) env)))
+            (eval-args-fixed (cdr args) env (- need 1) (cons v acc))))))
+
+(define (check-arity args lo hi)
+  (let ((n (count-up args 0)))
+    (if (< n lo) (fatal "too few arguments")
+        (if (> n hi) (fatal "too many arguments") n))))
+(define (checked-call fn n args env)
+  (check-arity args n n)
+  (let ((ops (eval-args-fixed args env n ())))
+    (call-with-ops fn ops)))
+
+(define (zero-named fn args)
+  (check-arity args 0 0)
+  (let ((r (new-tmp)))
+    (func-line (string-append r " =l call $" fn "()"))
+    r))
+
+(define (not-builtin args env)
+  (check-arity args 1 1)
+  (let ((v (emit-expr (car args) env)))
+    (let ((raw (new-tmp)))
+      (func-line (string-append raw " =l ceql " v ", 10"))
+      (bool-from-raw raw))))
+
+(define (eq-builtin args env)
+  (check-arity args 2 2)
+  (let ((ops (eval-args-fixed args env 2 ())))
+    (let ((raw (new-tmp)))
+      (func-line (string-append raw " =l ceql " (car ops) ", "
+                                (car (cdr ops))))
+      (bool-from-raw raw))))
+
+(define (null-question args env)
+  (check-arity args 1 1)
+  (let ((v (emit-expr (car args) env)))
+    (let ((raw (new-tmp)))
+      (func-line (string-append raw " =w ceql " v ", 2"))
+      (bool-from-raw raw))))
+
+(define (pair-question args env)
+  (check-arity args 1 1)
+  (let ((v (emit-expr (car args) env)))
+    (let ((low (new-tmp)))
+      (func-line (string-append low " =w and " v ", 3"))
+      (let ((isp (new-tmp)))
+        (func-line (string-append isp " =w ceqw " low ", 1"))
+        (let ((lt (new-label)))
+          (let ((lf (new-label)))
+            (let ((ld (new-label)))
+              (let ((raw (new-tmp)))
+                (func-line (string-append "jnz " isp ", " lt ", " lf))
+                (func-line lt)
+                (let ((addr (new-tmp)))
+                  (func-line (string-append addr " =l add " v ", -4"))
+                  (let ((hdr (new-tmp)))
+                    (func-line (string-append hdr " =l loadsw " addr))
+                    (func-line (string-append raw " =w ceqw " hdr ", 0"))
+                    (func-line (string-append "jmp " ld))
+                    (func-line lf)
+                    (func-line (string-append raw " =l copy 0"))
+                    (func-line ld)
+                    (bool-from-raw raw)))))))))))
+
+(define (progn-exit args env)
+  (check-arity args 1 1)
+  (let ((v (emit-expr (car args) env)))
+    (func-line (string-append "call $npl_exit(l " v ")"))
+    "2"))
+
+(define (two-to-nil qfn args env)
+  (check-arity args 2 2)
+  (let ((ops (eval-args-fixed args env 2 ())))
+    (func-line (string-append "call $" qfn "(l " (car ops)
+                             ", l " (car (cdr ops)) ")"))
+    "2"))
+
+(define (len-as-fixnum args env)
+  (check-arity args 1 1)
+  (let ((v (emit-expr (car args) env)))
+    (let ((raw (new-tmp)))
+      (func-line (string-append raw " =l call $npl_string_length(l " v ")"))
+      (let ((r (new-tmp)))
+        (func-line (string-append r " =l shl " raw ", 2"))
+        r))))
+
+(define (streq-builtin args env)
+  (check-arity args 2 2)
+  (let ((ops (eval-args-fixed args env 2 ())))
+    (let ((raw (new-tmp)))
+      (func-line (string-append raw " =w call $npl_string_equal(l "
+                                (car ops) ", l " (car (cdr ops)) ")"))
+      (bool-from-raw raw))))
+
+(define (mul-builtin args env)
+  (check-arity args 2 2)
+  (let ((ops (eval-args-fixed args env 2 ())))
+    (let ((ua (new-tmp)))
+      (func-line (string-append ua " =l sar " (car ops) ", 2"))
+      (let ((ub (new-tmp)))
+        (func-line (string-append ub " =l sar " (car (cdr ops)) ", 2"))
+        (let ((m (new-tmp)))
+          (func-line (string-append m " =l mul " ua ", " ub))
+          (let ((r (new-tmp)))
+            (func-line (string-append r " =l shl " m ", 2"))
+            r))))))
+
+(define (binary-tagged qop args env)
+  (check-arity args 2 2)
+  (let ((ops (eval-args-fixed args env 2 ())))
+    (let ((r (new-tmp)))
+      (func-line (string-append r " =l " qop " " (car ops)
+                               ", " (car (cdr ops))))
+      r)))
+
+(define (unknown-call nm)
+  (begin (display "nplc1: unknown builtin or unbound: ")
+         (display nm) (newline) (exit 31)))
+
+(define (symbol-value nm env)
+  (let ((local (env-lookup env nm)))
+    (if (> (string-length local) 0)
+        local
+        (let ((glob (lookup-glob nm)))
+          (if (> (string-length glob) 0)
+              (let ((r (new-tmp)))
+                (func-line (string-append r " =l loadl " glob))
+                r)
+              (fatal (string-append "unbound symbol " nm)))))))
+
+(define (tagged-form e env)
+  ; an APPLICATION's head is itself a pair (the callee expression);
+  ; tagged forms carry a numeric tag in the car.
+  (if (pair-shape? (car e))
+      (emit-application e env)
+      (tagged-dispatch e env)))
+
+(define (tagged-dispatch e env)
+  (let ((tag (car e)))
+    (if (= tag 100)
+        (symbol-value (cdr e) env)
+        (if (= tag 101)
+            (fresh-string-op (cdr e))
+            (if (= tag 204)
+                (walk-datum (car (cdr e)))
+                (if (= tag 213)
+                    (emit-if e env)
+                    (if (= tag 214)
+                        (emit-let e env)
+                        (if (= tag 216)
+                            (emit-body (cdr e) env)
+                            (if (= tag 215)
+                                (emit-application e env)
+                                (fatal "unknown AST form"))))))))))
+
+(define (emit-application e env)
+  (let ((head (car e)))
+    (if (not (pair-shape? head))
+        (fatal "bad call head")
+        (if (not (= (car head) 100))
+            (fatal "bad call head kind")
+            (route-call (cdr head) (cdr e) env)))))
+
+(define (emit-expr e env)
+  (if (number? e)
+      (let ((r (new-tmp)))
+        (func-line (string-append r " =l copy " (number->string (* e 4))))
+        r)
+      (if (null? e)
+          "2"
+          (if (pair-shape? e)
+              (tagged-form e env)
+              (fatal "bad expression")))))
+
+(define (call-with-ops fn ops)
+  (let ((r (new-tmp))
+        (n (length-xs ops)))
+    (if (= n 0)
+        (func-line (string-append r " =l call $" fn "()"))
+        (if (= n 1)
+            (func-line (string-append r " =l call $" fn "(l " (car ops) ")"))
+            (if (= n 2)
+                (func-line (string-append r " =l call $" fn "(l "
+                           (car ops) ", l " (car (cdr ops)) ")"))
+                (func-line (string-append r " =l call $" fn "(l "
+                           (car ops) ", l " (car (cdr ops))
+                           ", l " (car (cdr (cdr ops))) ")")))))
+    r))
+
+(define (length-xs xs)
+  (if (null? xs) 0 (+ 1 (length-xs (cdr xs)))))
+
+(define (bool-from-raw raw)
+  (let ((wide (new-tmp)))
+    (func-line (string-append wide " =l extsw " raw))
+    (let ((sh (new-tmp)))
+      (func-line (string-append sh " =l shl " wide ", 2"))
+      (let ((base (new-tmp)))
+        (func-line (string-append base " =l copy 10"))
+        (let ((rr (new-tmp)))
+          (func-line (string-append rr " =l sub " base ", " sh))
+          rr)))))
+
+(define (emit-compare opn args env)
+  (check-arity args 2 2)
+  (let ((va (emit-expr (car args) env)))
+    (let ((vb (emit-expr (car (cdr args)) env)))
+    (let ((ua (new-tmp)))
+      (func-line (string-append ua " =l sar " va ", 2"))
+      (let ((ub (new-tmp)))
+        (func-line (string-append ub " =l sar " vb ", 2"))
+        (let ((raw (new-tmp)))
+          (func-line
+            (string-append raw " =w "
+              (if (string=? opn "<") "csltw"
+                  (if (string=? opn ">") "csgtw"
+                      (if (string=? opn "=") "ceqw"
+                          (if (string=? opn "<=") "cslew" "csgew"))))
+              " " ua ", " ub))
+          (bool-from-raw raw)))))))
+
+(define (is-cmp? nm)
+  (if (string=? nm "<") #t
+      (if (string=? nm ">") #t
+          (if (string=? nm "=") #t
+              (if (string=? nm "<=") #t
+                  (if (string=? nm ">=") #t #f))))))
+
+(define (cmp-or-arith nm args env)
+  (if (is-cmp? nm)
+      (emit-compare nm args env)
+      (if (string=? nm "+")
+          (binary-tagged "add" args env)
+          (if (string=? nm "-")
+              (binary-tagged "sub" args env)
+              (if (string=? nm "*")
+                  (mul-builtin args env)
+                  (if (> (string-length (lookup-func nm)) 0)
+                      (user-call nm args env)
+                      (unknown-call nm)))))))
+
+(define (number-question args env)
+  (check-arity args 1 1)
+  (let ((v (emit-expr (car args) env)))
+    (let ((low (new-tmp)))
+      (func-line (string-append low " =w and " v ", 3"))
+      (let ((raw (new-tmp)))
+        (func-line (string-append raw " =w ceqw " low ", 0"))
+        (bool-from-raw raw)))))
+
+(define (route-call nm args env)
+  (if (string=? nm "number?")
+      (number-question args env)
+      (if (string=? nm "cons")
+      (checked-call "npl_cons" 2 args env)
+      (if (string=? nm "car")
+          (checked-call "npl_car" 1 args env)
+          (if (string=? nm "cdr")
+              (checked-call "npl_cdr" 1 args env)
+              (if (string=? nm "display")
+                  (checked-call "npl_display" 1 args env)
+                  (if (string=? nm "newline")
+                      (zero-named "npl_newline" args)
+                      (if (string=? nm "null?")
+                          (null-question args env)
+                          (if (string=? nm "pair?")
+                              (pair-question args env)
+                              (if (string=? nm "not")
+                                  (not-builtin args env)
+                                  (if (string=? nm "eq?")
+                                      (eq-builtin args env)
+                                      (if (string=? nm "exit")
+                                          (progn-exit args env)
+                                          (if (string=? nm "program-arguments")
+                                              (zero-named "npl_program_arguments" args)
+                                              (if (string=? nm "set-car!")
+                                                  (two-to-nil "npl_set_car" args env)
+                                                  (if (string=? nm "set-cdr!")
+                                                      (two-to-nil "npl_set_cdr" args env)
+                                                      (if (string=? nm "string-append")
+                                                          (checked-call "npl_string_append" 2 args env)
+                                                          (if (string=? nm "number->string")
+                                                              (checked-call "npl_number_to_string" 1 args env)
+                                                              (if (string=? nm "symbol->string")
+                                                                  (checked-call "npl_symbol_to_string" 1 args env)
+                                                                  (if (string=? nm "string-length")
+                                                                      (len-as-fixnum args env)
+                                                                      (if (string=? nm "string=?")
+                                                                          (streq-builtin args env)
+                                                                          (if (string=? nm "read-file")
+                                                                              (checked-call "npl_read_file" 1 args env)
+                                                                              (cmp-or-arith nm args env))))))))))))))))))))))
+
+(define (user-call nm args env)
+  (let ((argn (count-up args 0)))
+    (let ((ops (eval-args-fixed args env argn ())))
+      (call-with-ops (lookup-func nm) ops))))
+
+(define (emit-if e env)
+  (let ((t (car (cdr e))))
+    (let ((c (car (cdr (cdr e)))))
+      (let ((a (car (cdr (cdr (cdr e))))))
+        (let ((slot (new-tmp)))
+          (func-line (string-append slot " =l alloc8 8"))
+          (let ((lt (new-label)))
+            (let ((lf (new-label)))
+              (let ((ld (new-label)))
+                (let ((tv (emit-expr t env)))
+                  (let ((tt (new-tmp)))
+                    (func-line (string-append tt " =w cnel " tv ", 10"))
+                    (func-line (string-append "jnz " tt ", " lt ", " lf))
+                    (func-line lt)
+                    (let ((cv (emit-expr c env)))
+                      (func-line (string-append "storel " cv ", " slot))
+                      (func-line (string-append "jmp " ld))
+                      (func-line lf)
+                      (let ((av (emit-expr a env)))
+                        (func-line (string-append "storel " av ", " slot))
+                        (func-line ld)
+                        (let ((rr (new-tmp)))
+                          (func-line (string-append rr " =l loadl " slot))
+                          rr)))))))))))))
+
+(define (emit-let e env)
+  (let ((binds (car (cdr e))))
+    (let ((body (car (cdr (cdr e)))))
+      (emit-binds binds body env))))
+
+(define (emit-binds binds body env)
+  (if (null? binds)
+      (emit-body body env)
+      (let ((b (car binds)))
+        (let ((vv (emit-expr (cdr b) env)))
+          (emit-binds (cdr binds) body
+                      (env-extend env (cdr (car b)) vv))))))
+
+(define (emit-body body env)
+  (if (null? body)
+      "2"
+      (if (null? (cdr body))
+          (emit-expr (car body) env)
+          (begin
+            (emit-expr (car body) env)
+            (emit-body (cdr body) env)))))
+
+; ---------------- top-level ----------------
+
+(define (fun-def? f)
+  (if (pair-shape? f) (= (car f) 211) #f))
+
+(define (defined-name e) (cdr (car (car (cdr e)))))
+
+(define (pass-register-functions forms)
+  (if (null? forms)
+      0
+      (begin
+        (if (fun-def? (car forms))
+            (register-func (defined-name (car forms)))
+            0)
+        (pass-register-functions (cdr forms)))))
+
+(define (variable-def e)
+  (let ((nm-e (car (cdr e))))
+    (let ((init (car (cdr (cdr e)))))
+      (if (not (sym-atom? nm-e))
+          (fatal "bad define-variable name")
+          (begin
+            (cell-set! GLOBS
+              (cons (cons (cdr nm-e)
+                          (string-append "$gv_" (sanitize (cdr nm-e) 0 "")))
+                    (cell-get GLOBS)))
+            (emit-global-slot (cdr nm-e) init))))))
+
+(define (emit-global-slot nm init)
+  (let ((slot (string-append "$gv_" (sanitize nm 0 ""))))
+    (if (number? init)
+        (data-line (string-append slot " = { l "
+                                  (number->string (* init 4)) " }"))
+        (if (null? init)
+            (data-line (string-append slot " = { l 2 }"))
+            (if (str-atom? init)
+                (pre-tagged-string-slot nm init slot)
+                (if (sym-atom? init)
+                    (data-line (string-append slot " = { l "
+                                              (intern-sym (cdr init))
+                                              "+1 }"))
+                    (fatal "unsupported global initializer")))))))
+
+(define (pre-tagged-string-slot nm init slot)
+  ; declare box, then store its tagged reference into slot
+  (declare-string-box init 1)
+  0)
+
+; declares just the box at the *current* DATAN id, matching fresh-string-op
+(define (declare-string-box init k)
+  (let ((txt (cdr init)))
+    (cell-set! DATAN (+ 1 (cell-get DATAN)))
+    (let ((lab (string-append "$s_" (number->string (cell-get DATAN)))))
+      (data-line
+        (string-append lab " = { w 1, w 0, w "
+                       (number->string (string-length txt))
+                       ", w "
+                       (number->string (+ 1 (string-length txt)))
+                       ", b \"" txt "\", b 0 }"))
+      (append-line-to-data
+        (string-append (last-glob-slot) " = { l " lab "+1 }")))))
+
+(define (append-line-to-data ln) (data-line ln))
+(define (last-glob-slot) "$FIX_ME")
+
+(define (emit-function nm params body)
+  (func-line
+    (string-append "function l $" (sanitize nm 0 "")
+                   "(" (render-params params 0) ") {"))
+  (let ((result (emit-body body (bind-params params 0 ()))))
+    (func-line (string-append "ret " result)))
+  (func-line "}"))
+
+(define (emit-main params body)
+  ; emitted programs follow the same runtime ABI as stage0 output:
+  ; store args, run global initializers, then the user body
+  (func-line "export function l $main(l %argc, l %argv) {")
+  (func-line "call $npl_store_args(l %argc, l %argv)")
+  (func-line "call $npl_global_inits()")
+  (let ((result (emit-body body ())))
+    (func-line (string-append "ret " result)))
+  (func-line "}"))
+
+(define (has-runtime-globals forms)
+  0)
+
+(define (bind-params params idx acc)
+  (if (null? params)
+      acc
+      (bind-params (cdr params) (+ idx 1)
+                   (env-extend acc (cdr (car params))
+                               (string-append "%p" (number->string idx))))))
+
+(define (render-params params idx)
+  (if (null? params)
+      ""
+      (string-append (if (= idx 0) "" ", ")
+                     "l %p" (number->string idx)
+                     (render-params (cdr params) (+ idx 1)))))
+
+(define (var-def? f)
+  (if (pair-shape? f) (= (car f) 200) #f))
+
+(define (emit-top-level f)
+  (if (fun-def? f)
+      (if (string=? (defined-name f) "main")
+          (emit-main (cdr (car (car (cdr f)))) (car (cdr (cdr f))))
+          (emit-function (defined-name f)
+                         (cdr (car (car (cdr f))))
+                         (car (cdr (cdr f)))))
+      (if (var-def? f)
+          (variable-def f)
+          (fatal "top level must contain definitions"))))
+
+(define INIT-EMITTED (cell 0))
+
+(define (emit-empty-global-inits)
+  ; target programs have static-only globals; provide the no-op that the
+  ; $main prologue references so linking always succeeds
+  (func-line "function l $npl_global_inits() {")
+  (func-line "@start")
+  (func-line "ret 2")
+  (func-line "}"))
+
+(define (dump-and-print)
+  (if (= (cell-get INIT-EMITTED) 0)
+      (begin (emit-empty-global-inits)
+             (cell-set! INIT-EMITTED 7))
+      0)
+  (print-lines (rev (cell-get DATA-BUF)))
+  (print-lines (rev (cell-get FUNC-BUF))))
+
+(define (print-lines xs)
+  (if (null? xs)
+      0
+      (begin (display (car xs)) (newline) (print-lines (cdr xs)))))
+
+(define (run args)
+  (if (null? args)
+      (fatal "usage: nplc1 <input.npl>")
+      (begin
+        (let ((src (read-file (car args))))
+          (let ((cur (cell (lex-loop src 0 (string-length src) ()))))
+            (let ((forms (parse-all cur ())))
+              (begin
+                (pass-register-functions forms)
+                (emit-all-forms forms)
+                (dump-and-print))))))))
+
+(define (emit-all-forms forms)
+  (if (null? forms)
+      0
+      (begin (emit-top-level (car forms))
+             (emit-all-forms (cdr forms)))))
+
 (define (main)
-  (let ((result (gen-arith '+ 1 2)))
-    (display result)))
+  (begin
+    (run (program-arguments))
+    11))
