@@ -398,6 +398,15 @@
       (string=? (peek-payload cur) name)
       #f))
 
+(define (function-type param-type result-type)
+  (cons 5 (cons param-type (cons result-type ()))))
+
+(define (function-type? ty)
+  (if (pair-shape? ty) (= (car ty) 5) #f))
+
+(define (function-param-type ty) (car (cdr ty)))
+(define (function-result-type ty) (car (cdr (cdr ty))))
+
 (define (pair-type car-type cdr-type)
   (cons 4 (cons car-type (cons cdr-type ()))))
 
@@ -413,13 +422,21 @@
       (if (= (peek-kind cur) 1)
           (begin
             (advance! cur)
-            (if (not (next-symbol? cur "Pair"))
-                (fatal "unknown structured type"))
-            (advance! cur)
-            (let ((car-type (parse-type cur)))
-              (let ((cdr-type (parse-type cur)))
-                (expect-rparen cur "Pair type")
-                (pair-type car-type cdr-type))))
+            (if (next-symbol? cur "Pair")
+                (begin
+                  (advance! cur)
+                  (let ((car-type (parse-type cur)))
+                    (let ((cdr-type (parse-type cur)))
+                      (expect-rparen cur "Pair type")
+                      (pair-type car-type cdr-type))))
+                (if (next-symbol? cur "->")
+                    (begin
+                      (advance! cur)
+                      (let ((param-type (parse-type cur)))
+                        (let ((result-type (parse-type cur)))
+                          (expect-rparen cur "function type")
+                          (function-type param-type result-type))))
+                    (fatal "unknown structured type"))))
           (fatal "expected type"))))
 
 (define (parse-type-name cur)
@@ -476,7 +493,11 @@
           (if (type-concrete? (pair-car-type ty))
               (type-concrete? (pair-cdr-type ty))
               #f)
-          #f)))
+          (if (function-type? ty)
+              (if (type-concrete? (function-param-type ty))
+                  (type-concrete? (function-result-type ty))
+                  #f)
+              #f))))
 
 (define (any-concrete-type? types)
   (if (null? types)
@@ -486,7 +507,23 @@
           (any-concrete-type? (cdr types)))))
 
 (define (parse-lambda cur)
-  (fatal "lambda unsupported in slice"))
+  (advance! cur)
+  (if (not (= (peek-kind cur) 1)) (fatal "lambda needs parameters"))
+  (advance! cur)
+  (let ((spec (parameter-specs cur)))
+    (let ((params (car spec)))
+      (let ((types (car (cdr spec))))
+        (let ((result-type (parse-optional-result-type cur)))
+          (let ((body (grab-body-until-rparen cur)))
+            (if (not (= (count-up params 0) 1))
+                (fatal "nplc1 typed lambda currently requires one parameter"))
+            (if (not (all-concrete-types? types))
+                (fatal "typed lambda needs annotated parameters"))
+            (if (not (scalar-type? result-type))
+                (fatal "typed lambda needs a scalar result annotation"))
+            (cons 226
+              (cons params
+                (cons types (cons result-type (cons body ())))))))))))
 
 (define (parse-case cur)
   (advance! cur)
@@ -615,12 +652,16 @@
       (cell-set! DATA-BUF (cons ln (cell-get DATA-BUF)))))
 ; single writer for code lines: honours CURBUF ("I" -> global inits body)
 (define INIT-BUF (cell ()))
+(define LAMBDA-BUF (cell ()))
+(define LAMBDA-N (cell 0))
 (define CURBUF  (cell "F"))
 (define HAS-INIT (cell 0))
 (define (func-line ln)
   (if (string=? (cell-get CURBUF) "I")
       (cell-set! INIT-BUF (cons ln (cell-get INIT-BUF)))
-      (cell-set! FUNC-BUF (cons ln (cell-get FUNC-BUF)))))
+      (if (string=? (cell-get CURBUF) "L")
+          (cell-set! LAMBDA-BUF (cons ln (cell-get LAMBDA-BUF)))
+          (cell-set! FUNC-BUF (cons ln (cell-get FUNC-BUF))))))
 
 ; registry stores the BARE sanitized name; callers prepend '$' themselves
 (define (register-func nm)
@@ -660,7 +701,15 @@
                   (type=? (pair-cdr-type left) (pair-cdr-type right))
                   #f)
               #f)
-          #f)))
+          (if (function-type? left)
+              (if (function-type? right)
+                  (if (type=? (function-param-type left)
+                              (function-param-type right))
+                      (type=? (function-result-type left)
+                              (function-result-type right))
+                      #f)
+                  #f)
+              #f))))
 
 (define (scalar-type? ty)
   (if (number? ty) (> ty 0) #f))
@@ -1062,7 +1111,9 @@
                                                     (emit-case e env)
                                                 (if (= tag 215)
                                                     (emit-application e env)
-                                                    (fatal "unknown AST form"))))))))))))))))))
+                                                (if (= tag 226)
+                                                    (tv-op (emit-typed-lambda e))
+                                                    (fatal "unknown AST form")))))))))))))))))))
 
 (define (emit-application e env)
   (let ((head (car e)))
@@ -1373,20 +1424,24 @@
           (cdr (car env))
           (tenv-lookup (cdr env) nm))))
 
+(define (pointer-type? ty)
+  (if (pair-type? ty) #t (function-type? ty)))
+
 (define (typed-qbe-type ty)
-  (if (pair-type? ty) "l" (if (= ty 3) "d" "w")))
+  (if (pointer-type? ty) "l" (if (= ty 3) "d" "w")))
 (define (typed-guard-name ty)
   (if (pair-type? ty) "npl_guard_pair"
+      (if (function-type? ty) "npl_guard_closure"
       (if (= ty 2) "npl_guard_bool"
-          (if (= ty 3) "npl_guard_float" "npl_guard_integer"))))
+          (if (= ty 3) "npl_guard_float" "npl_guard_integer")))))
 (define (typed-box-name ty)
-  (if (pair-type? ty) "npl_box_identity"
+  (if (pointer-type? ty) "npl_box_identity"
       (if (= ty 2) "npl_box_bool"
           (if (= ty 3) "npl_box_float" "npl_box_integer"))))
 (define (typed-store-op ty)
-  (if (pair-type? ty) "storel" (if (= ty 3) "stored" "storew")))
+  (if (pointer-type? ty) "storel" (if (= ty 3) "stored" "storew")))
 (define (typed-load-op ty)
-  (if (pair-type? ty) "loadl"
+  (if (pointer-type? ty) "loadl"
       (if (= ty 3) "loadd" (if (= ty 2) "loaduw" "loadsw"))))
 
 (define (numeric-type? ty)
@@ -1440,13 +1495,76 @@
                     (typed-let e env)
                     (if (= tag 216)
                         (typed-body (cdr e) env)
-                        (fatal "unsupported construct in typed code")))))))))
+                        (if (= tag 226)
+                            (emit-typed-lambda e)
+                            (fatal "unsupported construct in typed code"))))))))))
+
+(define (emit-typed-lambda e)
+  (let ((params (car (cdr e))))
+    (let ((types (car (cdr (cdr e)))))
+      (let ((result-type (car (cdr (cdr (cdr e))))))
+        (let ((body (car (cdr (cdr (cdr (cdr e)))))))
+          (cell-set! LAMBDA-N (+ 1 (cell-get LAMBDA-N)))
+          (let ((name
+                  (string-append "_typed_lambda_"
+                                 (number->string (cell-get LAMBDA-N)))))
+            (let ((saved-buffer (cell-get CURBUF)))
+              (cell-set! CURBUF "L")
+              (func-line
+                (string-append "function l $" name
+                  "(l %npl_env, l %npl_argc, l %npl_argv) {"))
+              (func-line "@start")
+              (let ((tagged (new-tmp)))
+                (func-line (string-append tagged " =l loadl %npl_argv"))
+                (let ((raw (new-tmp)))
+                  (func-line
+                    (string-append raw " =" (typed-qbe-type (car types))
+                      " call $" (typed-guard-name (car types))
+                      "(l " tagged ")"))
+                  (let ((raw-result (new-tmp)))
+                    (func-line
+                      (string-append raw-result " =" (typed-qbe-type result-type)
+                        " call $" name "__typed(l %npl_env, "
+                        (typed-qbe-type (car types)) " " raw ")"))
+                    (let ((boxed (new-tmp)))
+                      (func-line
+                        (string-append boxed " =l call $"
+                          (typed-box-name result-type) "("
+                          (typed-qbe-type result-type) " " raw-result ")"))
+                      (func-line (string-append "ret " boxed))))))
+              (func-line "}")
+              (func-line
+                (string-append "function " (typed-qbe-type result-type)
+                  " $" name "__typed(l %typed_env, "
+                  (typed-qbe-type (car types)) " %lp0) {"))
+              (func-line "@start")
+              (let ((lambda-env
+                      (tenv-extend () (cdr (car params)) (car types) "%lp0")))
+                (let ((value (typed-body body lambda-env)))
+                  (if (not (type=? (tv-type value) result-type))
+                      (fatal "typed lambda result mismatch") 0)
+                  (func-line (string-append "ret " (tv-op value)))))
+              (func-line "}")
+              (cell-set! CURBUF saved-buffer)
+              (let ((environment (new-tmp)))
+                (func-line
+                  (string-append environment
+                    " =l call $npl_make_environment(l 0, l 0)"))
+                (let ((closure (new-tmp)))
+                  (func-line
+                    (string-append closure " =l call $npl_make_closure(l $"
+                      name ", l " environment ", l 1)"))
+                  (typed-value
+                    (function-type (car types) result-type) closure))))))))))
 
 (define (typed-application e env)
   (let ((head (car e)))
     (if (not (sym-atom? head))
         (fatal "typed call head must be a symbol")
         (let ((nm (cdr head)))
+          (let ((local (tenv-lookup env nm)))
+            (if (if (null? local) #f (function-type? (tv-type local)))
+                (typed-closure-call local (cdr e) env)
           (if (string=? nm "cons")
               (typed-cons (cdr e) env)
               (if (string=? nm "car")
@@ -1459,7 +1577,29 @@
                             (let ((cmp (typed-cmp-op nm 1)))
                               (if (> (string-length cmp) 0)
                                   (typed-compare nm (cdr e) env)
-                                  (typed-user-call nm (cdr e) env))))))))))))
+                                  (typed-user-call nm (cdr e) env))))))))))))))
+
+(define (typed-closure-call closure args env)
+  (check-arity args 1 1)
+  (let ((fn-type (tv-type closure)))
+    (let ((arg (typed-expr (car args) env)))
+      (if (not (type=? (tv-type arg) (function-param-type fn-type)))
+          (fatal "typed closure argument mismatch") 0)
+      (let ((boxed-arg (typed-box-op arg)))
+        (let ((argv (new-tmp)))
+          (func-line (string-append argv " =l alloc8 8"))
+          (func-line (string-append "storel " boxed-arg ", " argv))
+          (let ((tagged (new-tmp)))
+            (func-line
+              (string-append tagged " =l call $npl_apply(l " (tv-op closure)
+                             ", l 1, l " argv ")"))
+            (let ((result-type (function-result-type fn-type)))
+              (let ((result (new-tmp)))
+                (func-line
+                  (string-append result " =" (typed-qbe-type result-type)
+                    " call $" (typed-guard-name result-type)
+                    "(l " tagged ")"))
+                (typed-value result-type result)))))))))
 
 (define (typed-box-op value)
   (let ((boxed (new-tmp)))
@@ -1880,6 +2020,7 @@
   ; $npl_global_inits: with a real body when any global had a runtime-
   ; computed initializer, else the empty stub (main always calls it)
   (print-lines (rev (cell-get DATA-BUF)))
+  (print-lines (rev (cell-get LAMBDA-BUF)))
   (print-lines (rev (cell-get FUNC-BUF)))
   (if (= (cell-get HAS-INIT) 7)
       (begin

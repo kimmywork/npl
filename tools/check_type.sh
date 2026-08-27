@@ -202,6 +202,42 @@ build_ssa "$WORK/typed-lambda.ssa" "$WORK/typed-lambda"
 run_expect "$WORK/typed-lambda" 168
 pass "explicit typed lambda captures an Integer through a managed environment"
 
+cat > "$WORK/self-lambda.npl" << 'EOF'
+(define (apply-one (f : (-> Integer Integer)) (x : Integer)) : Integer
+  (f x))
+(define (local-lambda (x : Integer)) : Integer
+  (let ((f (lambda ((y : Integer)) : Integer (+ y 1))))
+    (f x)))
+(define (main)
+  (+ (apply-one (lambda ((z : Integer)) : Integer (+ z 1)) 20)
+     (local-lambda 20)))
+EOF
+emit_stage1 "$WORK/self-lambda.npl" "$WORK/self-lambda.ssa"
+grep -Fq 'function l $_typed_lambda_' "$WORK/self-lambda.ssa" \
+    || fail "nplc1 generic typed lambda entry missing"
+grep -Fq '__typed(l %typed_env, w %lp0)' "$WORK/self-lambda.ssa" \
+    || fail "nplc1 unboxed typed lambda body missing"
+grep -Fq 'call $npl_guard_closure' "$WORK/self-lambda.ssa" \
+    || fail "nplc1 function boundary guard missing"
+grep -Fq 'call $npl_apply' "$WORK/self-lambda.ssa" \
+    || fail "nplc1 typed closure apply missing"
+build_ssa "$WORK/self-lambda.ssa" "$WORK/self-lambda"
+run_expect "$WORK/self-lambda" 168
+
+cat > "$WORK/self-lambda-capture.npl" << 'EOF'
+(define (bad-capture (n : Integer)) : Integer
+  (let ((f (lambda ((x : Integer)) : Integer (+ x n))))
+    (f 1)))
+(define (main) 0)
+EOF
+rc=0
+"$WORK/nplc1" "$WORK/self-lambda-capture.npl" \
+    > "$WORK/self-lambda-capture.out" 2> "$WORK/self-lambda-capture.err" || rc=$?
+[ "$rc" -ne 44 ] || fail "nplc1 silently accepted a typed lambda capture"
+grep -Fq 'typed unbound n' "$WORK/self-lambda-capture.out" \
+    || fail "nplc1 typed lambda capture diagnostic missing"
+pass "self-hosted unary typed lambdas and function parameters use managed closures"
+
 cat > "$WORK/compound.npl" << 'EOF'
 (define (first-plus (p : (Pair Integer Integer)) (n : Integer)) : Integer
   (+ (car p) n))

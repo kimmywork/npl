@@ -7,7 +7,8 @@
 > proper tail calls 与 escape-only `call/cc` 已完成；显式 Integer/Bool typed-unboxed、
 > guards 和 Float typed lowering 已接通；后续完整类型、R7RS、库与语言能力以
 > self-hosted compiler 为实现主体，stage0 只维持 bootstrap 所需子集；self-hosted
-> Pair typed pointer 已落地，函数类型、typed lambda、record/row/refinement 尚未完成；
+> Pair typed pointer 与 unary 非捕获 typed lambda 已落地，捕获/HM、
+> record/row/refinement 尚未完成；
 > 完整数值塔、NN、网络和 target tier 仍未完成。逐阶段状态以 `PLAN.md` 为准。
 > 本轮不实现并行调度与 structured concurrency。
 

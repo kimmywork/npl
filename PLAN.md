@@ -154,8 +154,9 @@ GC 后 closure 环境和 `(call/cc (lambda (k) (+ 1 (k 42)))) => 42`。
 验证；这些 C 端能力只作为 bootstrap 支撑，不代表完整语言实现。下一步应将必要的
 类型解析、检查、guards 和 unboxed emission 以 self-hosted NPL 实现，并以 nplc1/nplc2
 行为和 fixpoint 作为主要验收。self-hosted `(Pair A B)` 参数现已支持结构类型解析、
-typed pointer、Dynamic guard、typed `cons/car/cdr` 和元素类型检查；函数类型、typed
-lambda、record/row/refinement 仍未完成。
+typed pointer、Dynamic guard、typed `cons/car/cdr` 和元素类型检查。self-hosted
+`(-> A B)` 与 unary、显式、非捕获 typed lambda 现通过 managed closure/function guard/
+`npl_apply`；捕获 lambda、HM、record/row/refinement 仍未完成。
 
 ---
 
