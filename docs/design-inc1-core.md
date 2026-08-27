@@ -250,3 +250,25 @@ ref 边界、symbol/string 互转恒等(eq? 与 string=?)。
    a. 功能验收 — nplc1 boot_hello.npl > x.ssa;qbe+clang 链接运行;
    b. 不动点验收 — il2=nplc1 compiler.npl;nplc2 由 il2 构建;
       il3=nplc2 compiler.npl;diff il2 il3 必须 0 字节差。
+
+## 增量 4 进度更新(2026-08-27 第二轮)
+
+新达成:
+- emit-top-level 解包错位修复(params 曾取到名字字符串 → $___ )
+- sanitize 条件链逻辑修复(lower-case 分支永假),int->string 接入 route
+- FUNCS 表存裸名,消除 call $$f 双 $
+- 词法 class 9(#)/10,`#t/#f` 双字符 token;parse-expr 两臂 if 兼容
+- parse-let 补关键字消费;data 行统一 "data " 前缀(data-line 收口)
+- escape-free 字符串拼接((quoted s) 组合子,消除 \" 转义需求)
+- nplc1 端 R7RS variadic string-append 折叠;runtime-init 全局
+  ($npl_global_inits + data 占位槽)双端对称实现
+- tools/check_bootstrap.sh:**Stage A 全绿**
+  (算术=5 / 递归=7 / 带参与序 add(20,22)=42 / 字符串+begin=9 'ok')
+
+剩余单点(Stage B 尾):
+- nplc2(il2 构建的二进制)自举时崩溃于 rev_into 对 nil 的 cdr
+  (v=10;nplc1 同输入正常 → c1il 产物存在一处参数/序列生成缺陷,
+   仅出现在带 body 计算的被调函数;no_pie 在 arm64 不可用,
+   使用 runtime anchor 差值法定位到 rev_into+0x44)
+- 下一步:diff c1il.ssa 与 nplc1 自身产物中 $rev/$eval_args_fixed/
+  user_call 三函数;嫌疑集中于 eval-args-fixed 累积方向或 env 链

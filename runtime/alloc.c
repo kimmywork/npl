@@ -99,16 +99,20 @@ NplVal npl_float(double v) {
     return (NplVal)(uintptr_t)f | TAG_PTR;
 }
 
+unsigned long npl_runtime_anchor(void) {
+    return (unsigned long)(uintptr_t)&g_alloc_head;
+}
+
 /* ---- Value accessors ---- */
 
 NplVal npl_car(NplVal v) {
     if (!npl_is_ptr(v)) {
-        fprintf(stderr, "npl_car: not a pair\n");
+        fprintf(stderr, "npl_car: not a pair (v=%lu)\n", (unsigned long)v);
         exit(1);
     }
     NplPair *p = npl_pair_ptr(v);
     if (p->header.tag != BOX_PAIR) {
-        fprintf(stderr, "npl_car: not a pair\n");
+        fprintf(stderr, "npl_car: not a pair (v=%lu)\n", (unsigned long)v);
         exit(1);
     }
     return p->car;
@@ -122,12 +126,18 @@ NplVal npl_cdr(NplVal v) {
 #ifdef NPL_TRACE_APPEND
         fprintf(stderr, "[cdr-on-nonptr v=%lu]\n", (unsigned long)v);
 #endif
-        fprintf(stderr, "npl_cdr: not a pair\n");
+        void *lr1 = __builtin_return_address(0);
+        extern unsigned long npl_runtime_anchor(void);
+        fprintf(stderr, "npl_cdr: v=%lu from=%p anchor=%p\n",
+                (unsigned long)v, lr1,
+                (void *)npl_runtime_anchor());
         exit(1);
     }
     NplPair *p = npl_pair_ptr(v);
     if (p->header.tag != BOX_PAIR) {
-        fprintf(stderr, "npl_cdr: not a pair\n");
+        void *lr1b = __builtin_return_address(0);
+        fprintf(stderr, "npl_cdr: badtag v=%lu from=%p\n",
+                (unsigned long)v, lr1b);
         exit(1);
     }
     return p->cdr;
@@ -442,7 +452,9 @@ NplVal npl_lex_class_w(NplVal cT, NplVal wantT) {
              c=='-' || c=='_' || c=='?' || c=='!' || c=='*' ||
              c=='/' || c=='+' || c=='=' || c=='<' || c=='>' ||
              c=='%' || c=='.')                          cls = 7; /* symch */
-    else                                                cls = 8; /* bad  */
+    else if (c == '#')                                 cls = 9; /* hash */
+    else if (c == '+')                                 cls = 10;
+    else                                               cls = 8; /* bad  */
     return npl_bool(cls == want);
 }
 
