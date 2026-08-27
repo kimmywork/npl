@@ -291,3 +291,36 @@ ref 边界、symbol/string 互转恒等(eq? 与 string=?)。
   b. 重点复查 emit_global_slot 的 CURBUF/I-F 分支与
      declare-string-box 中遗留 last-glob-slot("$FIX_ME")死代码
   c. h2 最小化失败样例可作回归夹具
+
+## Stage B 诊断进展 II(2026-08-27 第三轮,事件级 trace)
+
+方法论定型(全部工具已入库):
+1. `tools` 侧:IL 级全量 wrapper 包装生成器(对 npl_cdr/car/cons/
+   set_car_/string_append 的 455 个 call site 自动包 trace stub,
+   site*16+i 编号,tag>=8000 表返回值)
+2. runtime 侧:npl_trace2(tag,val)+backtrace dump+PIE anchor 校准
+3. normdiff.py/ctrldiff.py/calldiff.py 三件套归一化 IL diff
+   (temp/label/data 常量名规范后对比)
+
+关键实证(h2.npl 经 nplc2 执行,w2 event log):
+- 词法流完全正常推进:tokens 链依次构建(kind 字面量 16/24/20 等
+  与 tagged 编码自洽),"ok" string box、EOF guard 全部按序发生
+- 崩溃点精确锁定:**rev_into 遍历 acc(tokens)至第 8 层,
+  该 cell 的 cdr = 10(#f)**,而非任何合法 cell/nil
+- 另一疑点(push_number 读到的数值字节与预期不符)指向
+  入口数据流的 argv/read-file 链路,需下轮甄别
+- stage0 同源产物对相同输入全程无恙;两次运行的差异只能来自
+  执行体本身(排除静态 IL 语义差:calldiff/ctrldiff 均零差异)
+- 因此问题类别判定为:**执行期内存破坏或全局初始化时序**,
+  高度怀疑与 CURBUF/HAS-INIT/INIT-BUF 全局 cell 的
+  $npl_global_inits 单次执行契约有关(见 emit_global_slot 分支)
+
+下轮攻坚计划(冷启动可直入):
+1. 复核 c1il.ssa 的 $npl_global_inits:storel 数量、$gv_ 占位符覆盖度;
+   用 IL 文本插桩给每个 storel 前 trace(tag=GVIDX,val)
+2. 审计 variable_def 与 register-func 两处 FUNCS/GLOBS 的写路径是否
+   在 inits 之外仍有 set-car! 泄漏(CURBUF="I" 期间 func-line 写入
+   INIT-BUF 是否污染 tokens 相关结构)
+3. declare-string-box 内遗留的 last-glob-slot/"$FIX_ME"/fresh-string-
+   op-declare 死代码清理(str-atom 全局初始化器从未启用)
+4. 目标验收不变:check_bootstrap.sh Stage B — il2==il3 字节一致
