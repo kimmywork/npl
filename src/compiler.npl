@@ -673,19 +673,20 @@
               (tagged-form e env)
               (fatal "bad expression")))))
 
+; build a call argument list of ANY length by folding the operand list
+(define (args-join ops)
+  ; returns "l a, l b, ..." — requires >=1 op
+  (if (null? (cdr ops))
+      (string-append "l " (car ops))
+      (string-append "l " (car ops) ", " (args-join (cdr ops)))))
+
 (define (call-with-ops fn ops)
   (let ((r (new-tmp))
         (n (length-xs ops)))
     (if (= n 0)
         (func-line (string-append r " =l call $" fn "()"))
-        (if (= n 1)
-            (func-line (string-append r " =l call $" fn "(l " (car ops) ")"))
-            (if (= n 2)
-                (func-line (string-append r " =l call $" fn "(l "
-                           (car ops) ", l " (car (cdr ops)) ")"))
-                (func-line (string-append r " =l call $" fn "(l "
-                           (car ops) ", l " (car (cdr ops))
-                           ", l " (car (cdr (cdr ops))) ")")))))
+        (func-line (string-append r " =l call $" fn "("
+                                  (args-join ops) ")")))
     r))
 
 (define (length-xs xs)
