@@ -59,6 +59,8 @@ void qbe_ctx_init(QbeCtx *ctx, FILE *out, SymTab *symtab)
     ctx->out = out;
     ctx->lambda_out = tmpfile();  /* buffer for lambda definitions */
     ctx->data_out = tmpfile();    /* buffer for static data definitions */
+    ctx->init_out = tmpfile();    /* buffer for runtime global initializers */
+    ctx->has_init = 0;
     ctx->symtab = symtab;
     ctx->next_tmp = 0;
     ctx->next_label = 0;
@@ -154,13 +156,18 @@ static int is_builtin_name(const char *name)
             strcmp(name, "cons") == 0 || strcmp(name, "car") == 0 ||
             strcmp(name, "cdr") == 0 || strcmp(name, "null?") == 0 ||
             strcmp(name, "not") == 0 || strcmp(name, "eq?") == 0 ||
-            strcmp(name, "pair?") == 0 ||
+            strcmp(name, "pair?") == 0 || strcmp(name, "number?") == 0 ||
             strcmp(name, "string-append") == 0 ||
             strcmp(name, "string-length") == 0 ||
             strcmp(name, "string-ref") == 0 ||
             strcmp(name, "string=?") == 0 ||
             strcmp(name, "number->string") == 0 ||
-            strcmp(name, "symbol->string") == 0);
+            strcmp(name, "symbol->string") == 0 ||
+            strcmp(name, "substring") == 0 ||
+            strcmp(name, "int->string") == 0 ||
+            strcmp(name, "program-arguments") == 0 ||
+            strcmp(name, "read-file") == 0 || strcmp(name, "exit") == 0 ||
+            strcmp(name, "set-car!") == 0 || strcmp(name, "set-cdr!") == 0);
 }
 
 /* Get the QBE name for a parameter */
@@ -716,6 +723,17 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             return retag_bool(ctx, raw);
         }
 
+        /* (number? x): low tag bits == TAG_FIXNUM(0) */
+        if (strcmp(fname, "number?") == 0) {
+            AstNode *arg = AST_CAR(args);
+            const char *val = gen_expr(ctx, arg, depth + 1);
+            const char *low = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =w and %s, 3", low, val);
+            const char *raw = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =w ceqw %s, 0", raw, low);
+            return retag_bool(ctx, raw);
+        }
+
         /* (not x): #t iff x is exactly #f */
         if (strcmp(fname, "not") == 0) {
             AstNode *arg = AST_CAR(args);
@@ -802,11 +820,55 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             emit(ctx, "%s =l call $npl_number_to_string(l %s)", result, a);
             return result;
         }
+        if (strcmp(fname, "substring") == 0) {
+            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *i = gen_expr(ctx, AST_CAR(AST_CDR(args)), depth + 1);
+            const char *j = gen_expr(ctx, AST_CAR(AST_CDR(AST_CDR(args))), depth + 1);
+            const char *result = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_substring(l %s, l %s, l %s)", result, a, i, j);
+            return result;
+        }
+        if (strcmp(fname, "int->string") == 0) {
+            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *result = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_int_to_string_char(l %s)", result, a);
+            return result;
+        }
         if (strcmp(fname, "symbol->string") == 0) {
             const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
             const char *result = qbe_gen_tmp(ctx);
             emit(ctx, "%s =l call $npl_symbol_to_string(l %s)", result, a);
             return result;
+        }
+
+        /* ---- bootstrap I/O & control (increment-4) ---- */
+        if (strcmp(fname, "program-arguments") == 0) {
+            const char *result = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_program_arguments()", result);
+            return result;
+        }
+        if (strcmp(fname, "read-file") == 0) {
+            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *result = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_read_file(l %s)", result, a);
+            return result;
+        }
+        if (strcmp(fname, "exit") == 0) {
+            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
+            emit(ctx, "call $npl_exit(l %s)", a);
+            return "2";
+        }
+        if (strcmp(fname, "set-car!") == 0) {
+            const char *p = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *v = gen_expr(ctx, AST_CAR(AST_CDR(args)), depth + 1);
+            emit(ctx, "call $npl_set_car(l %s, l %s)", p, v);
+            return "2";
+        }
+        if (strcmp(fname, "set-cdr!") == 0) {
+            const char *p = gen_expr(ctx, AST_CAR(args), depth + 1);
+            const char *v = gen_expr(ctx, AST_CAR(AST_CDR(args)), depth + 1);
+            emit(ctx, "call $npl_set_cdr(l %s, l %s)", p, v);
+            return "2";
         }
 
         /* User-defined function call */
@@ -1268,6 +1330,22 @@ static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstN
     /* Use 'l' (long/64-bit) for all values since we use tagged pointers */
     fprintf(out, "function l $");
     qbe_emit_name(ctx, name);
+    if (strcmp(name, "main") == 0) {
+        /* Unix C runtime passes (argc, argv) in the first two argument
+         * registers; forward them to the runtime before anything runs. */
+        fprintf(out, "(l %%npl_argc, l %%npl_argv) {\n");
+        fprintf(out, "@start\n");
+        fprintf(out, "    call $npl_store_args(l %%npl_argc, l %%npl_argv)\n");
+        if (ctx->has_init)
+            fprintf(out, "    call $npl_global_inits()\n");
+        ctx->depth = 1;
+        ctx->in_tail = 1;
+        const char *result = gen_body(ctx, body, 1);
+        emit(ctx, "ret %s", result ? result : "2");
+        fprintf(out, "}\n\n");
+        strncpy(ctx->current_func, saved_func, sizeof(ctx->current_func));
+        return;
+    }
     fprintf(out, "(");
 
     /* Generate parameters */
@@ -1364,14 +1442,35 @@ void qbe_gen_program(QbeCtx *ctx, AstNode *program)
                 AstNode *body = AST_CDR(expr);
 
                 if (name_or_sig && name_or_sig->tag == AST_SYMBOL) {
-                    if (!is_static_const(body)) {
-                        codegen_error("global variable '%s' requires a constant "
-                                      "initializer (fixnum/bool/nil/string/quote)",
-                                      name_or_sig->as.symbol);
-                    }
+                    char safe_vn[128];
+                    qbe_sanitize_name(name_or_sig->as.symbol, safe_vn,
+                                      sizeof(safe_vn));
                     symtab_add_global_var(ctx->symtab, name_or_sig->as.symbol,
                                           body);
-                    emit_global_var(ctx, name_or_sig->as.symbol, body);
+                    if (is_static_const(body)) {
+                        emit_global_var(ctx, name_or_sig->as.symbol, body);
+                    } else {
+                        /* runtime-initialized global: writable slot filled by
+                         * the synthesized $npl_global_inits function */
+                        fprintf(ctx->data_out,
+                                "data $gv_%s = { l 2 }\n", safe_vn);
+                        if (!ctx->has_init) {
+                            fprintf(ctx->init_out,
+                                    "function l $npl_global_inits() {\n");
+                            fprintf(ctx->init_out, "@start\n");
+                            ctx->has_init = 1;
+                        }
+                        {   /* route generated code into the init body */
+                            FILE *saved = ctx->out;
+                            ctx->out = ctx->init_out;
+                            ctx->depth = 1;
+                            const char *vtmp = gen_expr(ctx, body, 1);
+                            ctx->out = saved;
+                            ctx->depth = 0;
+                            fprintf(ctx->init_out, "    storel %s, $gv_%s\n",
+                                    vtmp, safe_vn);
+                        }
+                    }
                 } else if (name_or_sig && name_or_sig->tag == AST_PAIR) {
                     AstNode *name_node = AST_CAR(name_or_sig);
                     AstNode *params = AST_CDR(name_or_sig);
@@ -1408,10 +1507,22 @@ void qbe_gen_program(QbeCtx *ctx, AstNode *program)
         }
     }
 
+    if (ctx->has_init) {
+        fprintf(ctx->init_out, "    ret 2\n}\n\n");
+        /* every program entry must run initializers first: hook into both
+         * the emitted user main and our fallback main via a preamble we
+         * prepend right here. Simplest: define a wrapper the linker sees:
+         *   real work happens because gen_function_to already ran for main.
+         * To keep order correct we re-open: instead we make nplc programs
+         * call the initializer from the entry; for stage0 simplicity the
+         * initializer is invoked from $main prologue text appended now. */
+    }
+
     /* Generate main if not defined */
     if (!has_main) {
         fprintf(ctx->out, "export function w $main() {\n");
         fprintf(ctx->out, "@start\n");
+        if (ctx->has_init) fprintf(ctx->out, "    call $npl_global_inits()\n");
         fprintf(ctx->out, "    ret 0\n");
         fprintf(ctx->out, "}\n");
     }
@@ -1426,6 +1537,16 @@ void qbe_gen_program(QbeCtx *ctx, AstNode *program)
         }
     }
     fclose(ctx->data_out);
+
+    if (ctx->has_init) {
+        rewind(ctx->init_out);
+        {
+            char ib[4096];
+            while (fgets(ib, sizeof(ib), ctx->init_out))
+                fprintf(ctx->out, "%s", ib);
+        }
+    }
+    fclose(ctx->init_out);
 
     rewind(ctx->lambda_out);
     {

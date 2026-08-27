@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* ---- Global state ---- */
 
@@ -103,12 +104,12 @@ NplVal npl_float(double v) {
 NplVal npl_car(NplVal v) {
     if (!npl_is_ptr(v)) {
         fprintf(stderr, "npl_car: not a pair\n");
-        return npl_nil();
+        exit(1);
     }
     NplPair *p = npl_pair_ptr(v);
     if (p->header.tag != BOX_PAIR) {
         fprintf(stderr, "npl_car: not a pair\n");
-        return npl_nil();
+        exit(1);
     }
     return p->car;
 }
@@ -116,12 +117,12 @@ NplVal npl_car(NplVal v) {
 NplVal npl_cdr(NplVal v) {
     if (!npl_is_ptr(v)) {
         fprintf(stderr, "npl_cdr: not a pair\n");
-        return npl_nil();
+        exit(1);
     }
     NplPair *p = npl_pair_ptr(v);
     if (p->header.tag != BOX_PAIR) {
         fprintf(stderr, "npl_cdr: not a pair\n");
-        return npl_nil();
+        exit(1);
     }
     return p->cdr;
 }
@@ -256,8 +257,14 @@ static const NplString *require_bytes(NplVal v, const char *who) {
 }
 
 NplVal npl_string_append(NplVal a, NplVal b) {
+#ifdef NPL_TRACE_APPEND
+    fprintf(stderr, "[append a=%lu b=%lu]", (unsigned long)a, (unsigned long)b);
+#endif
     const NplString *sa = require_bytes(a, "string-append");
     const NplString *sb = require_bytes(b, "string-append");
+#ifdef NPL_TRACE_APPEND
+    fprintf(stderr, "[alen=%u blen=%u]", sa->length, sb->length);
+#endif
     uint32_t len = sa->length + sb->length;
     char *tmp = (char *)malloc((size_t)len + 1);
     if (!tmp) { fprintf(stderr, "string-append: oom\n"); exit(1); }
@@ -310,6 +317,89 @@ static NplVal retag_box(NplVal v, uint32_t new_tag) {
 NplVal npl_symbol_to_string(NplVal s) {
     require_bytes(s, "symbol->string");
     return retag_box(s, BOX_STRING);
+}
+
+/* ---- bootstrap I/O & control (increment-4) ---- */
+
+static int g_argc_stored = 0;
+static char **g_argv_stored = NULL;
+static NplVal g_args_list = 2;   /* nil until first program-arguments call */
+
+void npl_store_args(int argc, char **argv) {
+#ifdef NPL_UNBUFFERED_STDOUT
+    setvbuf(stdout, (char *)NULL, _IONBF, 0);
+#endif
+    g_argc_stored = argc;
+    g_argv_stored = argv;
+}
+
+/* Build (once) the list of argument strings; argv[0] (program path) omitted. */
+NplVal npl_program_arguments(void) {
+    if (!npl_is_nil(g_args_list)) {
+        return g_args_list;
+    }
+    NplVal acc = 2; /* nil */
+    for (int i = g_argc_stored - 1; i >= 1; i--) {
+        NplVal s = npl_string(g_argv_stored[i],
+                              (uint32_t)strlen(g_argv_stored[i]));
+        acc = npl_cons(s, acc);
+    }
+    g_args_list = acc;
+    return acc;
+}
+
+NplVal npl_read_file(NplVal path) {
+    const NplString *p = require_bytes(path, "read-file");
+    char *buf = (char *)malloc((size_t)p->length + 1);
+    if (!buf) { fprintf(stderr, "read-file: oom\n"); exit(1); }
+    memcpy(buf, p->data, p->length);
+    buf[p->length] = '\0';
+
+    FILE *fp = fopen(buf, "rb");
+    free(buf);
+    if (!fp) {
+        fprintf(stderr, "read-file: cannot open '%.*s'\n",
+                (int)p->length, p->data);
+        exit(1);
+    }
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (size < 0) { fclose(fp); exit(1); }
+    char *data = (char *)malloc((size_t)size + 1);
+    size_t got = fread(data, 1, (size_t)size, fp);
+    fclose(fp);
+    data[got] = '\0';
+    NplVal out = npl_string(data, (uint32_t)got);
+    free(data);
+    return out;
+}
+
+NplVal npl_substring(NplVal s, NplVal i, NplVal j) {
+    const NplString *st = require_bytes(s, "substring");
+    int64_t a = (int64_t)(i >> 2);
+    int64_t b = (int64_t)(j >> 2);
+    if (a < 0 || b < a || b > (int64_t)st->length) {
+        fprintf(stderr, "substring: bad range\n");
+        exit(1);
+    }
+    return box_bytes(st->data + a, (uint32_t)(b - a), st->header.tag);
+}
+
+NplVal npl_int_to_string_char(NplVal code) {
+    int64_t v = (int64_t)(code >> 2);
+    if (v < 1 || v > 255) {
+        fprintf(stderr, "int->string: byte out of range\n");
+        exit(1);
+    }
+    char one = (char)v;
+    return box_bytes(&one, 1, BOX_STRING);
+}
+
+void npl_exit(NplVal code) {
+    int64_t v = (int64_t)(code >> 2);          /* untag fixnum */
+    fflush(stdout);
+    _Exit((int)(v & 255));
 }
 
 

@@ -184,6 +184,14 @@ NplVal npl_number_to_string(NplVal v);
 NplVal npl_symbol_to_string(NplVal s);
 /* NOTE: no string->symbol in stage0 — v1 does not maintain a global
  * symbol intern table spanning static quotes and runtime boxes. */
+NplVal npl_substring(NplVal s, NplVal i, NplVal j); /* bytes [i,j) as new box */
+NplVal npl_int_to_string_char(NplVal code);         /* 1-byte string */
+
+/* ---- bootstrap I/O & control ---- */
+void npl_store_args(int argc, char **argv);   /* called from emitted $main */
+NplVal npl_program_arguments(void);           /* list of arg strings, argv[1..] */
+NplVal npl_read_file(NplVal path);            /* whole file as string; aborts on error */
+void npl_exit(NplVal code);                   /* untagged fixnum, low byte */
 
 /* Convert fixnum to string (for printing) */
 char *npl_fixnum_to_string(int64_t v);

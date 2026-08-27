@@ -189,3 +189,39 @@ compiler.npl 已在使用 `string-append`、`number->string`(reader 输出 QBE �
 `stage0/tests/test_strings.npl` + `tools/check_core.sh` 扩展一节:
 round-trip(number->string ↔ display 输出一致)、append 长度守恒、
 ref 边界、symbol/string 互转恒等(eq? 与 string=?)。
+
+---
+
+# 增量 4 设计 — 自举编译器(src/compiler.npl)
+
+## 1. 形态与验收映射
+
+- `nplc1` := nplc0 编译 src/compiler.npl 的产物(读 NPL 源 → 输出 QBE IL 到 stdout)。
+- 验收一(功能):`nplc1 tests/boot_hello.npl > boot.ssa && qbe && link` 后运行正确。
+- 验收二(不动点):`nplc1 compiler.npl > il2`;用 il2 构建 `nplc2`;
+  `nplc2 compiler.npl > il3`;断言 **il2 == il3**(自举到达不动点,
+  cproc 式 validate;逐字节 stage0==stage1 翻译不在本阶段承诺)。
+
+## 2. 语言面 L1(compiler.npl 允许使用 = 其 codegen 允许编译,二者同步收敛)
+
+- 表:special forms 仅 define(function shorthand & constant var)/lambda/
+  let/if;body 多表达式;内部 define 不用(规避捕获限制);
+  quote:仅 symbol/整数/布尔。
+- builtin:+ - * < =(dispatch table 再加即可,但源码克制使用)
+  car cdr cons null? pair? eq? not display newline
+  string-length string-append string-ref number->string string=? symbol->string
+  新增 I/O 与控制:set-car! set-cdr!(可变计数器单元)/
+  read-file(program source)/ program-arguments / exit。
+- 高阶函数与闭包:**编译器源码刻意不用**(闭包捕获属高危面;
+  全部用 top-level 函数 + 显式循环消除)。
+
+## 3. 关键实现点
+
+- argv:QBE `_main(w0=argc, x1=argv)` ABI;gen_function_to 对 main 发射
+  两参签名并立刻 `call $npl_store_args`;`(program-arguments)` 返回字符串列表。
+- read-file:整文件读入 box string;失败 exit(1)。
+- exit:`(exit code)` → `$npl_exit`(untag, &255, _Exit)。
+- emitter:`out` 为反向 string 累积流;tmp/label 计数器用 cons cell +
+  set-car! 可变单元;env 为关联表(局部名 → QBE %temp 名符串)。
+- 生成的 IL 与 stage0 不比对(命名私有);只保行为。
+
