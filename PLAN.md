@@ -190,15 +190,29 @@
 **产物**：`src/compiler.npl`（stage1/2 源），`tools/check_bootstrap.sh`
 
 **动作**：
-1. 用 NPL 子集实现 reader/parser/typecheck/cps/qbe_gen。
+1. 用 NPL 子集实现 reader/parser/codegen（L1 语言面 = 自身可表达）。
 2. `./nplc0 src/compiler.npl -o nplc1`
-3. `./nplc1 src/compiler.npl -o nplc2`
-4. `diff nplc1 nplc2`（或 IL 输出一致）。
+3. `./nplc1 src/compiler.npl > il2`；由 il2 构建 nplc2
+4. `il3 = nplc2(compiler.npl)`；断言 il2==il3（cproc 式不动点）
 
 **验收**：
-- stage1 能编译 `tests/hello.npl` 并运行正确
-- stage1==stage2（字节或 IL 一致）
-- 证据：bootstrap 脚本输出
+- [x] Stage A（功能）：check_bootstrap.sh Stage A 全绿 —
+      nplc1 编译算术(exit=5)/自递归(7)/带参调用 add(20,22)=42/
+      字符串+begin(display 'ok',exit=9)，qbe+clang 链接运行全部正确
+- [x] il2 可发射（5734 行）并可构建出可运行的 nplc2 二进制
+- [ ] Stage B（不动点）：nplc2 自举时剩一个已知运行缺陷
+      （rev_into 对 nil-cdr, v=10；仅影响带 body 计算的被调函数），
+      诊断范围已定位，见 docs/design-inc1-core.md ledger
+- 证据：`./tools/check_bootstrap.sh`（SKIP 状态即当前缺口）
+
+**状态**：🔶 进行中（Stage A 完成；Stage B 最后一个缺陷收敛中）
+
+附带增量（2026-08-27）：
+- 核心特性补齐：R7RS 布尔域统一 / cond / 内部 define / quote→静态 data /
+  全局常量与 runtime-init 双通道 / fail-fast codegen（check_core.sh）
+- 字符串/符号内建全组 + OOB 契约测试
+- 测试工具化：run_tests.sh 五套件统一入口；prop_tests.py 四性质 PBT
+  （eval 正确性 200-seed / fuzz 鲁棒 / fail-fast / AST 稳定）
 
 ---
 
