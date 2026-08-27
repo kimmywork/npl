@@ -26,12 +26,19 @@
 #include <ctype.h>
 #include <stdarg.h>
 
+typedef struct {
+    const char *value;
+    Type *type;
+} TypedValue;
+
 /* Forward declarations */
 static void gen_function(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body);
 static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body, FILE *out);
 static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth);
 static AstNode *collect_free_vars_impl(AstNode *expr, SymTab *symtab, AstNode *exclude_params);
 static AstNode *collect_free_vars_seq(AstNode *exprs, SymTab *symtab, AstNode *exclude);
+static TypedValue gen_typed_lambda(QbeCtx *ctx, AstNode *expr, TypeEnv *env);
+static int unboxed_lambda(TypedLambda *lambda);
 
 /* Helper: output with indentation */
 static void emit(QbeCtx *ctx, const char *fmt, ...)
@@ -1172,6 +1179,13 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         codegen_error("misplaced define: only valid at top level or body position");
 
     case AST_LAMBDA: {
+        TypedLambda *typed_lambda = ctx->types
+            ? type_program_lambda(ctx->types, expr) : NULL;
+        if (unboxed_lambda(typed_lambda)) {
+            TypeEnv typed_env;
+            type_env_init(&typed_env);
+            return gen_typed_lambda(ctx, expr, &typed_env).value;
+        }
         /* Lambda expression: (lambda (params...) body...)
          *
          * Closure conversion: lambda generates a function that takes
@@ -1506,11 +1520,6 @@ static AstNode *collect_free_vars_seq(AstNode *exprs, SymTab *symtab, AstNode *e
     return vars;
 }
 
-typedef struct {
-    const char *value;
-    Type *type;
-} TypedValue;
-
 static int unboxed_type(Type *type)
 {
     return type && (type->kind == TYPE_INTEGER || type->kind == TYPE_BOOL);
@@ -1527,9 +1536,34 @@ static int unboxed_function(TypedFunction *function)
     return 1;
 }
 
+static int unboxed_lambda(TypedLambda *lambda)
+{
+    if (!lambda) return 0;
+    int explicitly_typed = lambda->result_annotated;
+    for (int i = 0; i < lambda->arity; i++)
+        if (lambda->param_annotated[i]) explicitly_typed = 1;
+    if (!lambda->in_typed_context && !explicitly_typed) return 0;
+
+    lambda->result = type_resolve(lambda->result);
+    if (!unboxed_type(lambda->result)) return 0;
+    for (int i = 0; i < lambda->arity; i++) {
+        lambda->params[i] = type_resolve(lambda->params[i]);
+        if (!unboxed_type(lambda->params[i])) return 0;
+    }
+    return 1;
+}
+
+static Type *typed_lambda_function_type(TypedLambda *lambda)
+{
+    Type *type = lambda->result;
+    for (int i = lambda->arity - 1; i >= 0; i--)
+        type = type_func(lambda->params[i], type);
+    return type;
+}
+
 static TypedValue gen_typed_expr_at(QbeCtx *ctx, AstNode *expr,
-                                          TypeEnv *env, int tail,
-                                          int *terminated);
+                                    TypeEnv *env, int tail,
+                                    int *terminated);
 
 static TypedValue gen_typed_expr(QbeCtx *ctx, AstNode *expr, TypeEnv *env)
 {
@@ -1543,14 +1577,89 @@ static TypedValue typed_value(const char *value, Type *type)
     return result;
 }
 
+static TypedValue gen_typed_closure_call(QbeCtx *ctx, const char *closure,
+                                         Type *function_type, AstNode *args,
+                                         TypeEnv *env, int tail,
+                                         int *terminated)
+{
+    char boxed[16][64];
+    int argc = 0;
+    Type *remaining = type_resolve(function_type);
+    for (AstNode *arg = args; arg && !AST_IS_NIL(arg); arg = AST_CDR(arg)) {
+        remaining = type_resolve(remaining);
+        if (!remaining || remaining->kind != TYPE_FUNC || argc >= 16)
+            codegen_error("typed closure received too many arguments");
+        TypedValue value = gen_typed_expr(ctx, AST_CAR(arg), env);
+        if (!type_unify(value.type, remaining->as.func.param))
+            codegen_error("typed closure argument %d has wrong type", argc + 1);
+        const char *boxed_value = qbe_gen_tmp(ctx);
+        const char *box = value.type->kind == TYPE_BOOL
+            ? "npl_box_bool" : "npl_box_integer";
+        emit(ctx, "%s =l call $%s(w %s)", boxed_value, box, value.value);
+        snprintf(boxed[argc], sizeof(boxed[argc]), "%s", boxed_value);
+        argc++;
+        remaining = remaining->as.func.result;
+    }
+    remaining = type_resolve(remaining);
+    if (!remaining || remaining->kind == TYPE_FUNC)
+        codegen_error("partial typed closure application is not supported");
+    if (!unboxed_type(remaining))
+        codegen_error("typed closure result is not unboxable");
+
+    const char *argv = "0";
+    if (argc > 0) {
+        argv = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =l alloc8 %d", argv, argc * 8);
+        for (int i = 0; i < argc; i++) {
+            const char *slot = argv;
+            if (i > 0) {
+                slot = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l add %s, %d", slot, argv, i * 8);
+            }
+            emit(ctx, "storel %s, %s", boxed[i], slot);
+        }
+    }
+    if (tail) {
+        emit(ctx, "call $npl_tail_request_closure(l %s, l %d, l %s)",
+             closure, argc, argv);
+        emit(ctx, "ret 0");
+        *terminated = 1;
+        return typed_value("0", remaining);
+    }
+
+    const char *tagged = qbe_gen_tmp(ctx);
+    emit(ctx, "%s =l call $npl_apply(l %s, l %d, l %s)",
+         tagged, closure, argc, argv);
+    const char *result = qbe_gen_tmp(ctx);
+    const char *guard = remaining->kind == TYPE_BOOL
+        ? "npl_guard_bool" : "npl_guard_integer";
+    emit(ctx, "%s =w call $%s(l %s)", result, guard, tagged);
+    return typed_value(result, remaining);
+}
+
 static TypedValue gen_typed_call(QbeCtx *ctx, AstNode *expr, TypeEnv *env,
                                  int tail, int *terminated)
 {
     AstNode *head = AST_CAR(expr);
     AstNode *args = AST_CDR(expr);
-    if (!head || head->tag != AST_SYMBOL)
-        codegen_error("typed code requires a direct call");
+    if (!head) codegen_error("missing typed call head");
+    if (head->tag != AST_SYMBOL) {
+        TypedValue closure = gen_typed_expr(ctx, head, env);
+        if (!closure.type || type_resolve(closure.type)->kind != TYPE_FUNC)
+            codegen_error("typed call head is not a function");
+        return gen_typed_closure_call(ctx, closure.value, closure.type, args,
+                                      env, tail, terminated);
+    }
     const char *name = head->as.symbol;
+    Type *local_type = type_env_lookup(env, name);
+    if (local_type && type_resolve(local_type)->kind == TYPE_FUNC) {
+        Symbol *symbol = symtab_lookup(ctx->symtab, name);
+        if (!symbol || symbol->kind != SYM_LOCAL)
+            codegen_error("missing typed closure binding '%s'", name);
+        return gen_typed_closure_call(ctx, symbol->as.local.qbe_name,
+                                      local_type, args, env, tail,
+                                      terminated);
+    }
 
     if (is_arith_op(name)) {
         if (!args || AST_IS_NIL(args) || !AST_CDR(args) ||
@@ -1669,6 +1778,188 @@ static TypedValue gen_typed_call(QbeCtx *ctx, AstNode *expr, TypeEnv *env,
     return typed_value(result, callee->result);
 }
 
+static TypedValue gen_typed_lambda(QbeCtx *ctx, AstNode *expr, TypeEnv *env)
+{
+    TypedLambda *lambda = ctx->types
+        ? type_program_lambda(ctx->types, expr) : NULL;
+    if (!unboxed_lambda(lambda))
+        codegen_error("typed lambda requires concrete Integer/Bool annotations");
+
+    AstNode *params = AST_CAR(expr);
+    AstNode *body = AST_CDR(expr);
+    AstNode *free_vars = collect_free_vars_seq(body, ctx->symtab, params);
+    Type *capture_types[16];
+    int capture_count = 0;
+    for (AstNode *fv = free_vars; fv && !AST_IS_NIL(fv); fv = AST_CDR(fv)) {
+        AstNode *var = AST_CAR(fv);
+        Type *type = var && var->tag == AST_SYMBOL
+            ? type_env_lookup(env, var->as.symbol) : NULL;
+        if (!unboxed_type(type) || capture_count >= 16)
+            codegen_error("typed lambda captures an unsupported value");
+        capture_types[capture_count++] = type;
+    }
+
+    static int typed_lambda_count = 0;
+    char name[64];
+    snprintf(name, sizeof(name), "_typed_lambda_%d", typed_lambda_count++);
+
+    FILE *saved_out = ctx->out;
+    FILE *definition = tmpfile();
+    if (!definition) codegen_error("cannot create typed lambda buffer");
+    int saved_depth = ctx->depth;
+    int saved_symtab_count = ctx->symtab->count;
+    int saved_next_local = ctx->symtab->next_local;
+    char saved_if_slot_base[32];
+    int saved_next_if_slot = ctx->next_if_slot;
+    TypedFunction *saved_typed = ctx->current_typed;
+    AstNode *saved_typed_params = ctx->current_typed_params;
+    snprintf(saved_if_slot_base, sizeof(saved_if_slot_base), "%s",
+             ctx->if_slot_base);
+    ctx->out = definition;
+    ctx->depth = 1;
+
+    /* Dynamic-facing generic closure body. */
+    fprintf(ctx->out,
+            "function l $%s(l %%npl_env, l %%npl_argc, l %%npl_argv) {\n",
+            name);
+    fprintf(ctx->out, "@start\n");
+    char raw_args[16][64];
+    AstNode *param = params;
+    for (int i = 0; i < lambda->arity; i++) {
+        const char *slot = "%npl_argv";
+        if (i > 0) {
+            slot = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l add %%npl_argv, %d", slot, i * 8);
+        }
+        const char *tagged = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =l loadl %s", tagged, slot);
+        const char *raw = qbe_gen_tmp(ctx);
+        const char *guard = lambda->params[i]->kind == TYPE_BOOL
+            ? "npl_guard_bool" : "npl_guard_integer";
+        emit(ctx, "%s =w call $%s(l %s)", raw, guard, tagged);
+        snprintf(raw_args[i], sizeof(raw_args[i]), "%s", raw);
+        param = AST_CDR(param);
+    }
+    const char *raw_result = qbe_gen_tmp(ctx);
+    if (lambda->arity == 0) {
+        emit(ctx, "%s =w call $%s__typed(l %%npl_env)", raw_result, name);
+    } else {
+        emit_raw(ctx, "%s =w call $%s__typed(l %%npl_env, w %s",
+                 raw_result, name, raw_args[0]);
+        for (int i = 1; i < lambda->arity; i++)
+            fprintf(ctx->out, ", w %s", raw_args[i]);
+        fprintf(ctx->out, ")\n");
+    }
+    const char *boxed_result = qbe_gen_tmp(ctx);
+    const char *box_result = lambda->result->kind == TYPE_BOOL
+        ? "npl_box_bool" : "npl_box_integer";
+    emit(ctx, "%s =l call $%s(w %s)", boxed_result, box_result, raw_result);
+    emit(ctx, "ret %s", boxed_result);
+    fprintf(ctx->out, "}\n\n");
+
+    /* Unboxed implementation. */
+    fprintf(ctx->out, "function w $%s__typed(l %%typed_env", name);
+    param = params;
+    for (int i = 0; i < lambda->arity; i++) {
+        fprintf(ctx->out, ", w %s", param_qbe_name(AST_CAR(param)));
+        param = AST_CDR(param);
+    }
+    fprintf(ctx->out, ") {\n@start\n");
+    prepare_if_slots(ctx, body, ctx->out);
+
+    TypeEnv lambda_env;
+    type_env_init(&lambda_env);
+    param = params;
+    for (int i = 0; i < lambda->arity; i++) {
+        AstNode *var = AST_CAR(param);
+        type_env_bind(&lambda_env, var->as.symbol, lambda->params[i]);
+        symtab_add_local(ctx->symtab, var->as.symbol);
+        param = AST_CDR(param);
+    }
+    AstNode *fv = free_vars;
+    for (int i = 0; i < capture_count; i++) {
+        AstNode *var = AST_CAR(fv);
+        const char *tagged = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =l call $npl_environment_ref(l %%typed_env, l %d)",
+             tagged, i);
+        const char *raw = qbe_gen_tmp(ctx);
+        const char *guard = capture_types[i]->kind == TYPE_BOOL
+            ? "npl_guard_bool" : "npl_guard_integer";
+        emit(ctx, "%s =w call $%s(l %s)", raw, guard, tagged);
+        Symbol *symbol = symtab_add_local(ctx->symtab, var->as.symbol);
+        emit(ctx, "%s =w copy %s", symbol->as.local.qbe_name, raw);
+        type_env_bind(&lambda_env, var->as.symbol, capture_types[i]);
+        fv = AST_CDR(fv);
+    }
+    fprintf(ctx->out, "    jmp @typed_tail\n@typed_tail\n");
+    ctx->current_typed = NULL;
+    ctx->current_typed_params = params;
+    TypedValue result = typed_value("0", type_void());
+    int terminated = 0;
+    for (AstNode *item = body; item && !AST_IS_NIL(item);
+         item = AST_CDR(item)) {
+        int is_last = AST_IS_NIL(AST_CDR(item));
+        result = gen_typed_expr_at(ctx, AST_CAR(item), &lambda_env,
+                                   is_last, &terminated);
+        if (terminated) break;
+    }
+    if (!type_equal(result.type, lambda->result))
+        codegen_error("typed lambda result mismatch");
+    if (!terminated) emit(ctx, "ret %s", result.value);
+    fprintf(ctx->out, "}\n\n");
+
+    fflush(definition);
+    rewind(definition);
+    {
+        char line[4096];
+        while (fgets(line, sizeof(line), definition))
+            fputs(line, ctx->lambda_out);
+    }
+    fclose(definition);
+    ctx->out = saved_out;
+    ctx->depth = saved_depth;
+    ctx->symtab->count = saved_symtab_count;
+    ctx->symtab->next_local = saved_next_local;
+    snprintf(ctx->if_slot_base, sizeof(ctx->if_slot_base), "%s",
+             saved_if_slot_base);
+    ctx->next_if_slot = saved_next_if_slot;
+    ctx->current_typed = saved_typed;
+    ctx->current_typed_params = saved_typed_params;
+
+    /* Box captured raw values into a managed environment. */
+    const char *captures = "0";
+    if (capture_count > 0) {
+        captures = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =l alloc8 %d", captures, capture_count * 8);
+        fv = free_vars;
+        for (int i = 0; i < capture_count; i++) {
+            AstNode *var = AST_CAR(fv);
+            Symbol *symbol = symtab_lookup(ctx->symtab, var->as.symbol);
+            if (!symbol || symbol->kind != SYM_LOCAL)
+                codegen_error("missing typed capture '%s'", var->as.symbol);
+            const char *boxed = qbe_gen_tmp(ctx);
+            const char *box = capture_types[i]->kind == TYPE_BOOL
+                ? "npl_box_bool" : "npl_box_integer";
+            emit(ctx, "%s =l call $%s(w %s)", boxed, box,
+                 symbol->as.local.qbe_name);
+            const char *slot = captures;
+            if (i > 0) {
+                slot = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l add %s, %d", slot, captures, i * 8);
+            }
+            emit(ctx, "storel %s, %s", boxed, slot);
+            fv = AST_CDR(fv);
+        }
+    }
+    const char *environment = qbe_gen_tmp(ctx);
+    emit(ctx, "%s =l call $npl_make_environment(l %d, l %s)",
+         environment, capture_count, captures);
+    const char *closure = qbe_gen_tmp(ctx);
+    emit(ctx, "%s =l call $npl_make_closure(l $%s, l %s, l %d)",
+         closure, name, environment, lambda->arity);
+    return typed_value(closure, typed_lambda_function_type(lambda));
+}
+
 static TypedValue gen_typed_expr_at(QbeCtx *ctx, AstNode *expr,
                                     TypeEnv *env, int tail,
                                     int *terminated)
@@ -1687,7 +1978,10 @@ static TypedValue gen_typed_expr_at(QbeCtx *ctx, AstNode *expr,
     case AST_SYMBOL: {
         Type *type = type_env_lookup(env, expr->as.symbol);
         Symbol *symbol = symtab_lookup(ctx->symtab, expr->as.symbol);
-        if (!unboxed_type(type) || !symbol || symbol->kind != SYM_LOCAL)
+        Type *resolved = type_resolve(type);
+        if ((!unboxed_type(resolved) &&
+             (!resolved || resolved->kind != TYPE_FUNC)) ||
+            !symbol || symbol->kind != SYM_LOCAL)
             codegen_error("typed code references Dynamic value '%s'",
                           expr->as.symbol);
         return typed_value(symbol->as.local.qbe_name, type);
@@ -1751,9 +2045,11 @@ static TypedValue gen_typed_expr_at(QbeCtx *ctx, AstNode *expr,
             if (!name || name->tag != AST_SYMBOL)
                 codegen_error("malformed typed let binding");
             Symbol *symbol = symtab_add_local(ctx->symtab, name->as.symbol);
-            emit(ctx, "%s =w copy %s", symbol->as.local.qbe_name,
+            Type *resolved = type_resolve(value.type);
+            emit(ctx, "%s =%s copy %s", symbol->as.local.qbe_name,
+                 resolved && resolved->kind == TYPE_FUNC ? "l" : "w",
                  value.value);
-            type_env_bind(env, name->as.symbol, value.type);
+            type_env_bind_generalized(env, name->as.symbol, value.type);
         }
         TypedValue result = typed_value("0", type_void());
         for (AstNode *body = AST_CDR(expr); body && !AST_IS_NIL(body);
@@ -1778,6 +2074,14 @@ static TypedValue gen_typed_expr_at(QbeCtx *ctx, AstNode *expr,
             if (*terminated) break;
         }
         return result;
+    }
+    case AST_LAMBDA: {
+        TypedLambda *lambda = ctx->types
+            ? type_program_lambda(ctx->types, expr) : NULL;
+        if (!lambda) codegen_error("missing inferred lambda type");
+        if (unboxed_lambda(lambda)) return gen_typed_lambda(ctx, expr, env);
+        const char *closure = gen_expr(ctx, expr, 1);
+        return typed_value(closure, typed_lambda_function_type(lambda));
     }
     default:
         codegen_error("construct is not supported in unboxed typed code");

@@ -149,13 +149,14 @@ GC 后 closure 环境和 `(call/cc (lambda (k) (+ 1 (k 42)))) => 42`。
 - 类型错误编译期报错（`(: x : Integer "foo")`）
 - 10+ 类型测试用例
 
-**状态**：🟡 核心显式类型路径已接通，HM 仍未完成。reader/AST/driver 现支持
-变量、参数和返回注解；nplc0 与 nplc1 都为 fully-annotated `Integer`/`Bool`
-函数生成 `function w ...__typed`，typed direct calls 保持 unboxed，Dynamic wrapper
-插入 guard 并 box 返回值。编译期矛盾注解、runtime guard、Bool、typed globals、
-词法 shadow 和 nplc0 的 10,000,000 次 unboxed self-tail 均有验收。剩余：
-algorithm W/let-polymorphism、typed lambda、Float/复合类型 unboxed，以及 nplc1
-的 typed tail lowering。
+**状态**：🟡 Integer/Bool 核心与 nplc0 局部 HM 已完成，复合类型仍未完成。
+reader/AST/driver 支持变量、参数、返回和 typed lambda 注解；nplc0 与 nplc1 为
+fully-annotated `Integer`/`Bool` 函数生成 `function w ...__typed`，typed direct calls
+保持 unboxed，Dynamic wrapper 插入 guard 并 box 返回值。nplc0 实现 fresh vars、
+occurs-check unification、let-generalization/instantiation；多态 `id` 在同一作用域实例化
+为 Integer 与 Bool。typed lambda 可通过 managed env 捕获；nplc0/nplc1 的
+10,000,000 次 unboxed self-tail 均通过。剩余：Float、Pair/record/函数复合类型的
+完整 unboxed lowering，以及 self-host compiler 的 HM/typed-lambda 子集。
 
 ---
 

@@ -19,6 +19,7 @@ static Type g_type_float    = { TYPE_FLOAT,   {{0}} };
 static Type g_type_bool     = { TYPE_BOOL,    {{0}} };
 static Type g_type_string   = { TYPE_STRING,  {{0}} };
 static Type g_type_void     = { TYPE_VOID,    {{0}} };
+static int next_type_var_id = 0;
 
 Type *type_dynamic(void)  { return &g_type_dynamic; }
 Type *type_integer(void)  { return &g_type_integer; }
@@ -35,6 +36,8 @@ Type *type_var(int id)
     t->as.var.instance = NULL;
     return t;
 }
+
+Type *type_fresh_var(void) { return type_var(next_type_var_id++); }
 
 Type *type_func(Type *param, Type *result)
 {
@@ -63,6 +66,44 @@ static Type *resolve(Type *t)
         t = t->as.var.instance;
     }
     return t;
+}
+
+Type *type_resolve(Type *t) { return resolve(t); }
+
+static int occurs(Type *variable, Type *type)
+{
+    type = resolve(type);
+    if (variable == type) return 1;
+    if (!type) return 0;
+    if (type->kind == TYPE_FUNC)
+        return occurs(variable, type->as.func.param) ||
+               occurs(variable, type->as.func.result);
+    if (type->kind == TYPE_PAIR)
+        return occurs(variable, type->as.pair.car) ||
+               occurs(variable, type->as.pair.cdr);
+    return 0;
+}
+
+int type_unify(Type *a, Type *b)
+{
+    a = resolve(a);
+    b = resolve(b);
+    if (!a || !b || a == b) return 1;
+    if (a->kind == TYPE_DYNAMIC || b->kind == TYPE_DYNAMIC) return 1;
+    if (a->kind == TYPE_VAR) {
+        if (occurs(a, b)) return 0;
+        a->as.var.instance = b;
+        return 1;
+    }
+    if (b->kind == TYPE_VAR) return type_unify(b, a);
+    if (a->kind != b->kind) return 0;
+    if (a->kind == TYPE_FUNC)
+        return type_unify(a->as.func.param, b->as.func.param) &&
+               type_unify(a->as.func.result, b->as.func.result);
+    if (a->kind == TYPE_PAIR)
+        return type_unify(a->as.pair.car, b->as.pair.car) &&
+               type_unify(a->as.pair.cdr, b->as.pair.cdr);
+    return 1;
 }
 
 int type_equal(Type *a, Type *b)
@@ -107,11 +148,65 @@ void type_env_init(TypeEnv *env)
     memset(env, 0, sizeof(TypeEnv));
 }
 
+static uint64_t free_type_vars(Type *type)
+{
+    type = resolve(type);
+    if (!type) return 0;
+    if (type->kind == TYPE_VAR)
+        return type->as.var.id < 64 ? UINT64_C(1) << type->as.var.id : 0;
+    if (type->kind == TYPE_FUNC)
+        return free_type_vars(type->as.func.param) |
+               free_type_vars(type->as.func.result);
+    if (type->kind == TYPE_PAIR)
+        return free_type_vars(type->as.pair.car) |
+               free_type_vars(type->as.pair.cdr);
+    return 0;
+}
+
+static uint64_t free_env_vars(TypeEnv *env)
+{
+    uint64_t vars = 0;
+    for (int i = 0; i < env->count; i++)
+        vars |= free_type_vars(env->types[i]) & ~env->quantified[i];
+    return vars;
+}
+
+static Type *instantiate_type(Type *type, uint64_t quantified,
+                              Type **mapping)
+{
+    type = resolve(type);
+    if (!type) return NULL;
+    if (type->kind == TYPE_VAR && type->as.var.id < 64 &&
+        (quantified & (UINT64_C(1) << type->as.var.id))) {
+        if (!mapping[type->as.var.id])
+            mapping[type->as.var.id] = type_fresh_var();
+        return mapping[type->as.var.id];
+    }
+    if (type->kind == TYPE_FUNC)
+        return type_func(instantiate_type(type->as.func.param, quantified, mapping),
+                         instantiate_type(type->as.func.result, quantified, mapping));
+    if (type->kind == TYPE_PAIR)
+        return type_pair(instantiate_type(type->as.pair.car, quantified, mapping),
+                         instantiate_type(type->as.pair.cdr, quantified, mapping));
+    return type;
+}
+
 void type_env_bind(TypeEnv *env, const char *name, Type *type)
 {
     if (env->count < TYPE_ENV_MAX) {
         env->names[env->count] = sym_intern(name);
         env->types[env->count] = type;
+        env->quantified[env->count] = 0;
+        env->count++;
+    }
+}
+
+void type_env_bind_generalized(TypeEnv *env, const char *name, Type *type)
+{
+    if (env->count < TYPE_ENV_MAX) {
+        env->names[env->count] = sym_intern(name);
+        env->types[env->count] = type;
+        env->quantified[env->count] = free_type_vars(type) & ~free_env_vars(env);
         env->count++;
     }
 }
@@ -121,7 +216,9 @@ Type *type_env_lookup(TypeEnv *env, const char *name)
     const char *interned = sym_intern(name);
     for (int i = env->count - 1; i >= 0; i--) {
         if (env->names[i] == interned) {
-            return env->types[i];
+            if (!env->quantified[i]) return resolve(env->types[i]);
+            Type *mapping[64] = {0};
+            return instantiate_type(env->types[i], env->quantified[i], mapping);
         }
     }
     return NULL;
@@ -449,6 +546,7 @@ static Type *parse_known_annotation(AstNode *node)
 void type_program_init(TypeProgram *program)
 {
     memset(program, 0, sizeof(*program));
+    next_type_var_id = 0;
 }
 
 TypedFunction *type_program_function(TypeProgram *program, const char *name)
@@ -465,6 +563,14 @@ TypedVariable *type_program_variable(TypeProgram *program, const char *name)
     for (int i = program->variable_count - 1; i >= 0; i--) {
         if (strcmp(program->variables[i].name, name) == 0)
             return &program->variables[i];
+    }
+    return NULL;
+}
+
+TypedLambda *type_program_lambda(TypeProgram *program, AstNode *node)
+{
+    for (int i = program->lambda_count - 1; i >= 0; i--) {
+        if (program->lambdas[i].node == node) return &program->lambdas[i];
     }
     return NULL;
 }
@@ -603,6 +709,86 @@ static int register_definitions(AstNode *ast, TypeProgram *program,
     return 1;
 }
 
+static int register_lambdas(AstNode *node, TypeProgram *program,
+                            char *errbuf, size_t errbuf_size)
+{
+    if (!node || AST_IS_NIL(node)) return 1;
+    if (node->tag == AST_QUOTE) return 1;
+
+    if (node->tag == AST_LAMBDA) {
+        AstNode *params = AST_CAR(node);
+        AstNode *result_annotation = NULL;
+        if (params && params->tag == AST_ANNOTATION) {
+            result_annotation = AST_CDR(params);
+            params = AST_CAR(params);
+            AST_CAR(node) = params;
+        }
+
+        if (program->lambda_count >= TYPE_PROGRAM_MAX) {
+            type_error(errbuf, errbuf_size, "type error: too many lambdas");
+            return 0;
+        }
+        TypedLambda *lambda = &program->lambdas[program->lambda_count++];
+        memset(lambda, 0, sizeof(*lambda));
+        lambda->node = node;
+        lambda->body = AST_CDR(node);
+        lambda->result = type_fresh_var();
+        if (result_annotation) {
+            lambda->result = parse_known_annotation(result_annotation);
+            if (!lambda->result) {
+                type_error(errbuf, errbuf_size,
+                           "type error: unknown lambda return annotation");
+                return 0;
+            }
+            lambda->result_annotated = 1;
+        }
+        for (AstNode *p = params; p && !AST_IS_NIL(p); p = AST_CDR(p)) {
+            if (lambda->arity >= TYPE_MAX_PARAMS) {
+                type_error(errbuf, errbuf_size,
+                           "type error: lambda has more than 16 parameters");
+                return 0;
+            }
+            if (AST_CAR(p)->tag == AST_SYMBOL) {
+                lambda->params[lambda->arity] = type_fresh_var();
+                lambda->param_annotated[lambda->arity] = 0;
+            } else if (!parse_parameter(
+                           &AST_CAR(p), "lambda",
+                           &lambda->params[lambda->arity],
+                           &lambda->param_annotated[lambda->arity],
+                           errbuf, errbuf_size)) {
+                return 0;
+            }
+            lambda->arity++;
+        }
+
+        for (AstNode *body = AST_CDR(node); body && !AST_IS_NIL(body);
+             body = AST_CDR(body)) {
+            if (!register_lambdas(AST_CAR(body), program,
+                                  errbuf, errbuf_size)) return 0;
+        }
+        return 1;
+    }
+
+    if (AST_IS_PAIR(node)) {
+        return register_lambdas(AST_CAR(node), program, errbuf, errbuf_size) &&
+               register_lambdas(AST_CDR(node), program, errbuf, errbuf_size);
+    }
+    return 1;
+}
+
+static void mark_typed_lambdas(AstNode *node, TypeProgram *program)
+{
+    if (!node || AST_IS_NIL(node) || node->tag == AST_QUOTE) return;
+    if (node->tag == AST_LAMBDA) {
+        TypedLambda *lambda = type_program_lambda(program, node);
+        if (lambda) lambda->in_typed_context = 1;
+    }
+    if (AST_IS_PAIR(node)) {
+        mark_typed_lambdas(AST_CAR(node), program);
+        mark_typed_lambdas(AST_CDR(node), program);
+    }
+}
+
 static int compatible(Type *actual, Type *expected)
 {
     actual = resolve(actual);
@@ -634,6 +820,40 @@ static Type *infer_call(AstNode *expr, TypeEnv *env, TypeProgram *program,
 {
     AstNode *function = AST_CAR(expr);
     AstNode *args = AST_CDR(expr);
+
+    Type *local_function = NULL;
+    if (function && function->tag == AST_SYMBOL)
+        local_function = type_env_lookup(env, function->as.symbol);
+    else if (function)
+        local_function = infer_program_expr(function, env, program, ok,
+                                            errbuf, errbuf_size);
+    Type *applied = resolve(local_function);
+    if (applied && applied->kind == TYPE_FUNC) {
+        int index = 0;
+        for (AstNode *arg = args; arg && !AST_IS_NIL(arg);
+             arg = AST_CDR(arg), index++) {
+            applied = resolve(applied);
+            if (!applied || applied->kind != TYPE_FUNC) {
+                type_error(errbuf, errbuf_size,
+                           "type error: too many arguments to local function");
+                *ok = 0;
+                return NULL;
+            }
+            Type *actual = infer_program_expr(AST_CAR(arg), env, program, ok,
+                                              errbuf, errbuf_size);
+            if (!type_unify(actual, applied->as.func.param)) {
+                type_error(errbuf, errbuf_size,
+                           "type error: local argument %d expected %s, got %s",
+                           index + 1, type_name(applied->as.func.param),
+                           type_name(actual));
+                *ok = 0;
+                return NULL;
+            }
+            applied = applied->as.func.result;
+        }
+        return applied;
+    }
+
     if (!function || function->tag != AST_SYMBOL) return type_dynamic();
     const char *name = function->as.symbol;
 
@@ -645,7 +865,7 @@ static Type *infer_call(AstNode *expr, TypeEnv *env, TypeProgram *program,
             Type *actual = infer_program_expr(AST_CAR(arg), env, program, ok,
                                               errbuf, errbuf_size);
             if (!*ok) return NULL;
-            if (!compatible(actual, callee->params[index])) {
+            if (!type_unify(actual, callee->params[index])) {
                 type_error(errbuf, errbuf_size,
                            "type error calling %s: argument %d expected %s, got %s",
                            name, index + 1, type_name(callee->params[index]),
@@ -679,7 +899,7 @@ static Type *infer_call(AstNode *expr, TypeEnv *env, TypeProgram *program,
             if (!*ok) return NULL;
             if (actual->kind == TYPE_FLOAT) result = type_float();
             else if (actual->kind == TYPE_DYNAMIC) result = type_dynamic();
-            else if (actual->kind != TYPE_INTEGER) {
+            else if (!type_unify(actual, type_integer())) {
                 type_error(errbuf, errbuf_size,
                            "type error in %s: expected numeric operand, got %s",
                            name, type_name(actual));
@@ -692,6 +912,16 @@ static Type *infer_call(AstNode *expr, TypeEnv *env, TypeProgram *program,
     if (strcmp(name, "<") == 0 || strcmp(name, ">") == 0 ||
         strcmp(name, "=") == 0 || strcmp(name, "<=") == 0 ||
         strcmp(name, ">=") == 0) {
+        for (AstNode *arg = args; arg && !AST_IS_NIL(arg); arg = AST_CDR(arg)) {
+            Type *actual = infer_program_expr(AST_CAR(arg), env, program, ok,
+                                              errbuf, errbuf_size);
+            if (!*ok || !type_unify(actual, type_integer())) {
+                type_error(errbuf, errbuf_size,
+                           "type error in %s: expected Integer operand", name);
+                *ok = 0;
+                return NULL;
+            }
+        }
         return type_bool();
     }
     if (strcmp(name, "cons") == 0) {
@@ -737,7 +967,8 @@ static Type *infer_program_expr(AstNode *expr, TypeEnv *env,
         Type *b = infer_program_expr(AST_CAR(AST_CDR(AST_CDR(expr))), env,
                                      program, ok, errbuf, errbuf_size);
         if (!*ok) return NULL;
-        return type_equal(a, b) ? a : type_dynamic();
+        if (!type_unify(a, b)) return type_dynamic();
+        return type_resolve(a);
     }
     case AST_LET: {
         int saved = env->count;
@@ -748,7 +979,7 @@ static Type *infer_program_expr(AstNode *expr, TypeEnv *env,
             Type *value = infer_program_expr(AST_CAR(AST_CDR(binding)), env,
                                              program, ok, errbuf, errbuf_size);
             if (name && name->tag == AST_SYMBOL)
-                type_env_bind(env, name->as.symbol, value);
+                type_env_bind_generalized(env, name->as.symbol, value);
         }
         Type *result = infer_body(AST_CDR(expr), env, program, ok,
                                   errbuf, errbuf_size);
@@ -758,22 +989,31 @@ static Type *infer_program_expr(AstNode *expr, TypeEnv *env,
     case AST_BEGIN:
         return infer_body(AST_CAR(expr), env, program, ok, errbuf, errbuf_size);
     case AST_LAMBDA: {
+        TypedLambda *lambda = type_program_lambda(program, expr);
+        if (!lambda) return type_dynamic();
+        int saved = env->count;
         AstNode *params = AST_CAR(expr);
-        if (params && params->tag == AST_ANNOTATION) {
+        for (int i = 0; i < lambda->arity; i++) {
+            AstNode *name = AST_CAR(params);
+            type_env_bind(env, name->as.symbol, lambda->params[i]);
+            params = AST_CDR(params);
+        }
+        Type *actual = infer_body(lambda->body, env, program, ok,
+                                  errbuf, errbuf_size);
+        env->count = saved;
+        if (!*ok) return NULL;
+        if (!type_unify(actual, lambda->result)) {
             type_error(errbuf, errbuf_size,
-                       "type error: typed lambda is not supported in stage0");
+                       "type error in lambda: expected return %s, got %s",
+                       type_name(lambda->result), type_name(actual));
             *ok = 0;
             return NULL;
         }
-        for (AstNode *p = params; p && !AST_IS_NIL(p); p = AST_CDR(p)) {
-            if (AST_CAR(p)->tag != AST_SYMBOL) {
-                type_error(errbuf, errbuf_size,
-                           "type error: typed lambda is not supported in stage0");
-                *ok = 0;
-                return NULL;
-            }
-        }
-        return type_dynamic();
+        lambda->result = type_resolve(lambda->result);
+        Type *function_type = lambda->result;
+        for (int i = lambda->arity - 1; i >= 0; i--)
+            function_type = type_func(lambda->params[i], function_type);
+        return function_type;
     }
     case AST_QUOTE: return type_dynamic();
     case AST_DEFINE: return type_void();
@@ -792,6 +1032,7 @@ int type_analyze_program(AstNode *ast, TypeProgram *program,
     type_program_init(program);
     if (errbuf && errbuf_size) errbuf[0] = '\0';
     if (!register_definitions(ast, program, errbuf, errbuf_size)) return 0;
+    if (!register_lambdas(ast, program, errbuf, errbuf_size)) return 0;
 
     TypeEnv globals;
     type_env_init(&globals);
@@ -802,6 +1043,8 @@ int type_analyze_program(AstNode *ast, TypeProgram *program,
     int ok = 1;
     for (int i = 0; i < program->variable_count && ok; i++) {
         TypedVariable *variable = &program->variables[i];
+        if (variable->annotated)
+            mark_typed_lambdas(variable->value, program);
         Type *actual = infer_program_expr(variable->value, &globals, program,
                                           &ok, errbuf, errbuf_size);
         if (ok && variable->annotated && !compatible(actual, variable->type)) {
@@ -818,6 +1061,10 @@ int type_analyze_program(AstNode *ast, TypeProgram *program,
 
     for (int i = 0; i < program->function_count && ok; i++) {
         TypedFunction *function = &program->functions[i];
+        int typed_context = function->result_annotated;
+        for (int p = 0; p < function->arity; p++)
+            if (function->param_annotated[p]) typed_context = 1;
+        if (typed_context) mark_typed_lambdas(function->body, program);
         TypeEnv locals = globals;
 
         /* Parameter names are the normalized signature cells in program AST. */

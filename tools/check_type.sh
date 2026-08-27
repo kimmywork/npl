@@ -152,6 +152,35 @@ build_ssa "$WORK/globals1.ssa" "$WORK/globals1"
 run_expect "$WORK/globals1" 40
 pass "typed globals and lexical type shadowing agree across both compilers"
 
+cat > "$WORK/hm-poly.npl" << 'EOF'
+(define (poly (x : Integer)) : Integer
+  (let ((id (lambda (v) v)))
+    (let ((a (id x)))
+      (if (id #t) (+ a 1) 0))))
+(define (main) (poly 41))
+EOF
+"$NPLC0" --emit-qbe "$WORK/hm-poly.npl" > "$WORK/hm-poly.ssa"
+grep -Fq 'call $npl_apply' "$WORK/hm-poly.ssa" \
+    || fail "HM polymorphic closure application missing"
+build_ssa "$WORK/hm-poly.ssa" "$WORK/hm-poly"
+run_expect "$WORK/hm-poly" 168
+pass "local HM let-generalization instantiates identity at Integer and Bool"
+
+cat > "$WORK/typed-lambda.npl" << 'EOF'
+(define (use-capture (n : Integer)) : Integer
+  (let ((f (lambda ((x : Integer)) : Integer (+ x n))))
+    (f 5)))
+(define (main) (use-capture 37))
+EOF
+"$NPLC0" --emit-qbe "$WORK/typed-lambda.npl" > "$WORK/typed-lambda.ssa"
+grep -Fq 'function w $_typed_lambda_' "$WORK/typed-lambda.ssa" \
+    || fail "unboxed typed lambda body missing"
+grep -Fq 'call $npl_environment_ref' "$WORK/typed-lambda.ssa" \
+    || fail "typed lambda capture environment missing"
+build_ssa "$WORK/typed-lambda.ssa" "$WORK/typed-lambda"
+run_expect "$WORK/typed-lambda" 168
+pass "explicit typed lambda captures an Integer through a managed environment"
+
 cat > "$WORK/tail.npl" << 'EOF'
 (define (count (n : Integer) (acc : Integer)) : Integer
   (if (= n 0) acc (count (- n 1) (+ acc 1))))
@@ -165,6 +194,15 @@ if grep -Fq 'call $count__typed' "$WORK/count.ssa"; then
 fi
 build_ssa "$WORK/tail.ssa" "$WORK/tail"
 run_expect "$WORK/tail" 28
-pass "nplc0 runs 10000000 unboxed self-tail iterations without stack growth"
+emit_stage1 "$WORK/tail.npl" "$WORK/tail1.ssa"
+sed -n '/function w $count__typed/,/^}/p' "$WORK/tail1.ssa" > "$WORK/count1.ssa"
+grep -Fq 'jmp @typed_tail' "$WORK/count1.ssa" \
+    || fail "nplc1 typed self-tail loop missing"
+if grep -Fq 'call $count__typed' "$WORK/count1.ssa"; then
+    fail "nplc1 typed self-tail body still calls itself"
+fi
+build_ssa "$WORK/tail1.ssa" "$WORK/tail1"
+run_expect "$WORK/tail1" 28
+pass "both compilers run 10000000 unboxed self-tail iterations"
 
 echo "=== Type-system acceptance passed ==="

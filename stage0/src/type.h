@@ -67,6 +67,7 @@ Type *type_pair(Type *car, Type *cdr);
 
 int type_equal(Type *a, Type *b);
 int type_is_numeric(Type *t);
+Type *type_resolve(Type *t);
 
 /* ---- Type environment ---- */
 
@@ -75,12 +76,16 @@ int type_is_numeric(Type *t);
 typedef struct {
     const char *names[TYPE_ENV_MAX];
     Type       *types[TYPE_ENV_MAX];
+    uint64_t    quantified[TYPE_ENV_MAX];
     int         count;
 } TypeEnv;
 
 void type_env_init(TypeEnv *env);
 void type_env_bind(TypeEnv *env, const char *name, Type *type);
+void type_env_bind_generalized(TypeEnv *env, const char *name, Type *type);
 Type *type_env_lookup(TypeEnv *env, const char *name);
+Type *type_fresh_var(void);
+int type_unify(Type *a, Type *b);
 
 /* ---- Annotation parsing ---- */
 
@@ -144,10 +149,23 @@ typedef struct {
 } TypedVariable;
 
 typedef struct {
+    AstNode *node;
+    int arity;
+    Type *params[TYPE_MAX_PARAMS];
+    unsigned char param_annotated[TYPE_MAX_PARAMS];
+    Type *result;
+    int result_annotated;
+    int in_typed_context;
+    AstNode *body;
+} TypedLambda;
+
+typedef struct {
     TypedFunction functions[TYPE_PROGRAM_MAX];
     int function_count;
     TypedVariable variables[TYPE_PROGRAM_MAX];
     int variable_count;
+    TypedLambda lambdas[TYPE_PROGRAM_MAX];
+    int lambda_count;
 } TypeProgram;
 
 void type_program_init(TypeProgram *program);
@@ -155,6 +173,7 @@ int type_analyze_program(AstNode *ast, TypeProgram *program,
                          char *errbuf, size_t errbuf_size);
 TypedFunction *type_program_function(TypeProgram *program, const char *name);
 TypedVariable *type_program_variable(TypeProgram *program, const char *name);
+TypedLambda *type_program_lambda(TypeProgram *program, AstNode *node);
 const char *type_name(Type *type);
 
 #endif /* NPL_TYPE_H */

@@ -528,6 +528,9 @@
 (define FUNC-BUF (cell ()))
 (define FUNCS (cell ()))
 (define TYPE-FUNCS (cell ()))
+(define TYPED-CURRENT (cell ""))
+(define TYPED-CURRENT-TYPES (cell ()))
+(define TYPED-IF-SLOT (cell ""))
 (define GLOBS (cell ()))
 (define SYMS (cell ()))
 
@@ -1499,6 +1502,98 @@
             "(l %p" (number->string idx) ")"))
         (guard-params (cdr types) (+ idx 1) (cons raw acc)))))
 
+(define (typed-terminated? value) (< (tv-type value) 0))
+(define (typed-real-type value)
+  (if (typed-terminated? value) (- 0 (tv-type value)) (tv-type value)))
+
+(define (typed-self-call? e)
+  (if (pair-shape? e)
+      (if (pair-shape? (car e))
+          (if (sym-atom? (car e))
+              (string=? (cdr (car e)) (cell-get TYPED-CURRENT))
+              #f)
+          #f)
+      #f))
+
+(define (freeze-w-ops ops acc)
+  (if (null? ops)
+      (rev acc)
+      (let ((tmp (new-tmp)))
+        (func-line (string-append tmp " =w copy " (car ops)))
+        (freeze-w-ops (cdr ops) (cons tmp acc)))))
+
+(define (rebind-typed-params ops idx)
+  (if (null? ops)
+      0
+      (begin
+        (func-line
+          (string-append "%p" (number->string idx)
+                         " =w copy " (car ops)))
+        (rebind-typed-params (cdr ops) (+ idx 1)))))
+
+(define (typed-tail-self e env)
+  (let ((ops (typed-eval-args (cdr e) env
+                              (cell-get TYPED-CURRENT-TYPES) ())))
+    (let ((frozen (freeze-w-ops ops ())))
+      (rebind-typed-params frozen 0)
+      (func-line "jmp @typed_tail")
+      (typed-value (- 0 (cdr (type-func (cell-get TYPED-CURRENT)))) "0"))))
+
+(define (typed-tail-expr e env)
+  (if (typed-self-call? e)
+      (typed-tail-self e env)
+      (if (if (pair-shape? e) (= (car e) 213) #f)
+          (typed-tail-if e env)
+          (typed-expr e env))))
+
+(define (typed-tail-if e env)
+  (let ((test (typed-expr (car (cdr e)) env)))
+    (if (not (= (tv-type test) 2)) (fatal "typed if needs Bool") 0)
+    (let ((slot (cell-get TYPED-IF-SLOT)))
+      (let ((lt (new-label)))
+        (let ((lf (new-label)))
+          (let ((ld (new-label)))
+            (func-line (string-append "jnz " (tv-op test) ", " lt ", " lf))
+            (func-line lt)
+            (let ((yes (typed-tail-expr (car (cdr (cdr e))) env)))
+              (if (typed-terminated? yes)
+                  0
+                  (begin
+                    (func-line (string-append "storew " (tv-op yes) ", " slot))
+                    (func-line (string-append "jmp " ld))))
+              (func-line lf)
+              (let ((no (typed-tail-expr (car (cdr (cdr (cdr e)))) env)))
+                (if (typed-terminated? no)
+                    0
+                    (begin
+                      (func-line (string-append "storew " (tv-op no) ", " slot))
+                      (func-line (string-append "jmp " ld))))
+                (if (if (typed-terminated? yes) (typed-terminated? no) #f)
+                    (typed-value (- 0 (typed-real-type yes)) "0")
+                    (begin
+                      (if (if (typed-terminated? yes)
+                              #f
+                              (if (typed-terminated? no)
+                                  #f
+                                  (not (= (tv-type yes) (tv-type no)))))
+                          (fatal "typed if branch mismatch") 0)
+                      (func-line ld)
+                      (let ((ty (if (typed-terminated? yes)
+                                    (tv-type no) (tv-type yes))))
+                        (let ((r (new-tmp)))
+                          (func-line
+                            (string-append r " =w "
+                              (if (= ty 2) "loaduw " "loadsw ") slot))
+                          (typed-value ty r)))))))))))))
+
+(define (typed-body-tail body env)
+  (if (null? body)
+      (fatal "empty typed body")
+      (if (null? (cdr body))
+          (typed-tail-expr (car body) env)
+          (begin (typed-expr (car body) env)
+                 (typed-body-tail (cdr body) env)))))
+
 (define (emit-typed-function nm params types result-type body)
   (if (not (unboxed-spec? (cons types result-type)))
       (fatal "partially typed functions are not supported by nplc1") 0)
@@ -1525,10 +1620,23 @@
     (string-append "function w $" (sanitize nm 0 "") "__typed("
                    (render-typed-params params 0) ") {"))
   (func-line "@start")
-  (let ((value (typed-body body (typed-bind-params params types 0 ()))))
-    (if (not (= (tv-type value) result-type))
-        (fatal (string-append "typed return mismatch in " nm)) 0)
-    (func-line (string-append "ret " (tv-op value))))
+  (cell-set! TYPED-IF-SLOT (new-tmp))
+  (func-line (string-append (cell-get TYPED-IF-SLOT) " =l alloc8 8"))
+  (func-line "jmp @typed_tail")
+  (func-line "@typed_tail")
+  (let ((saved-name (cell-get TYPED-CURRENT)))
+    (let ((saved-types (cell-get TYPED-CURRENT-TYPES)))
+      (cell-set! TYPED-CURRENT nm)
+      (cell-set! TYPED-CURRENT-TYPES types)
+      (let ((value (typed-body-tail body
+                     (typed-bind-params params types 0 ()))))
+        (if (not (= (typed-real-type value) result-type))
+            (fatal (string-append "typed return mismatch in " nm)) 0)
+        (if (typed-terminated? value)
+            0
+            (func-line (string-append "ret " (tv-op value))))
+        (cell-set! TYPED-CURRENT saved-name)
+        (cell-set! TYPED-CURRENT-TYPES saved-types))))
   (func-line "}"))
 
 

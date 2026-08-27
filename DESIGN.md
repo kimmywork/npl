@@ -4,10 +4,10 @@
 >
 > **实现状态说明**：本文描述目标架构，不表示所有条目已经落地。当前证据基线为：
 > bootstrap fixpoint、mmap/mark-sweep GC、macro 核心、managed closures、
-> proper tail calls 与 escape-only `call/cc` 已完成；显式 Integer/Bool typed-unboxed
-> 与 guards 已在 nplc0/nplc1 接通，HM/Float/复合类型仍未完成；完整数值塔、NN、
-> 网络和 target tier 仍未完成。逐阶段状态以 `PLAN.md` 为准。本轮不实现并行调度
-> 与 structured concurrency。
+> proper tail calls 与 escape-only `call/cc` 已完成；显式 Integer/Bool typed-unboxed、
+> guards 和 nplc0 局部 HM/typed lambda 已接通，Float/复合类型及 self-host HM 仍未完成；
+> 完整数值塔、NN、网络和 target tier 仍未完成。逐阶段状态以 `PLAN.md` 为准。
+> 本轮不实现并行调度与 structured concurrency。
 
 ---
 
