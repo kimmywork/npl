@@ -540,6 +540,29 @@
 (define GLOBS (cell ()))
 (define SYMS (cell ()))
 
+(define (fixed-call-record source runtime arity rest)
+  (cons (cons source (cons runtime (cons arity ()))) rest))
+
+; Runtime call records replace repeated source-name dispatch branches.
+(define FIXED-CALLS
+  (fixed-call-record "string-ref" "npl_string_ref" 2
+  (fixed-call-record "substring" "npl_substring" 3
+  (fixed-call-record "int->string" "npl_int_to_string_char" 1
+  (fixed-call-record "npl_tagged_num_to_string" "npl_tagged_num_to_string" 1
+  (fixed-call-record "npl_lex_class_w" "npl_lex_class_w" 2
+  (fixed-call-record "npl_lex_scan_sym_end" "npl_lex_scan_sym_end" 2
+  (fixed-call-record "npl_lex_number" "npl_lex_number" 3
+  (fixed-call-record "npl_lex_tokens" "npl_lex_tokens" 1
+  (fixed-call-record "cons" "npl_cons" 2
+  (fixed-call-record "car" "npl_car" 1
+  (fixed-call-record "cdr" "npl_cdr" 1
+  (fixed-call-record "display" "npl_display" 1
+  (fixed-call-record "newline" "npl_newline" 0
+  (fixed-call-record "program-arguments" "npl_program_arguments" 0
+  (fixed-call-record "number->string" "npl_number_to_string" 1
+  (fixed-call-record "symbol->string" "npl_symbol_to_string" 1
+  (fixed-call-record "read-file" "npl_read_file" 1 ()))))))))))))))))))
+
 (define (new-tmp)
   (cell-set! TMPN (+ 1 (cell-get TMPN)))
   (string-append "%t" (number->string (cell-get TMPN))))
@@ -736,12 +759,6 @@
   (check-arity args n n)
   (let ((ops (eval-args-fixed args env n ())))
     (call-with-ops fn ops)))
-
-(define (zero-named fn args)
-  (check-arity args 0 0)
-  (let ((r (new-tmp)))
-    (func-line (string-append r " =l call $" fn "()"))
-    r))
 
 (define (not-builtin args env)
   (check-arity args 1 1)
@@ -1112,77 +1129,44 @@
                      (arg-tail-rest (cdr rest)))))
 
 
-(define (three-named-w qfn args env)
-  (check-arity args 3 3)
-  (let ((ops (eval-args-fixed args env 3 ())))
-    (let ((r (new-tmp)))
-      (func-line (string-append r " =l call $" qfn
-                                "(l " (car ops)
-                                ", l " (car (cdr ops))
-                                ", l " (car (cdr (cdr ops))) ")"))
-      r)))
+(define (fixed-call-spec entries nm)
+  (if (null? entries)
+      ()
+      (let ((entry (car entries)))
+        (if (string=? (car entry) nm)
+            (cdr entry)
+            (fixed-call-spec (cdr entries) nm)))))
 
 (define (route-call nm args env)
-  (if (string=? nm "string-ref")
-      (checked-call "npl_string_ref" 2 args env)
-      (if (string=? nm "substring")
-          (three-named-w "npl_substring" args env)
-          (if (string=? nm "int->string")
-              (checked-call "npl_int_to_string_char" 1 args env)
-              (if (string=? nm "npl_tagged_num_to_string")
-                  (checked-call "npl_tagged_num_to_string" 1 args env)
-                  (if (string=? nm "npl_lex_class_w")
-                      (checked-call "npl_lex_class_w" 2 args env)
-                      (if (string=? nm "npl_lex_scan_sym_end")
-                          (checked-call "npl_lex_scan_sym_end" 2 args env)
-                          (if (string=? nm "npl_lex_number")
-                              (checked-call "npl_lex_number" 3 args env)
-                              (if (string=? nm "npl_lex_tokens")
-                                  (checked-call "npl_lex_tokens" 1 args env)
-                                  (next-route nm args env))))))))))
+  (let ((spec (fixed-call-spec FIXED-CALLS nm)))
+    (if (null? spec)
+        (route-special nm args env)
+        (checked-call (car spec) (car (cdr spec)) args env))))
 
-(define (next-route nm args env)
+(define (route-special nm args env)
   (if (string=? nm "number?")
       (number-question args env)
-      (if (string=? nm "cons")
-      (checked-call "npl_cons" 2 args env)
-      (if (string=? nm "car")
-          (checked-call "npl_car" 1 args env)
-          (if (string=? nm "cdr")
-              (checked-call "npl_cdr" 1 args env)
-              (if (string=? nm "display")
-                  (checked-call "npl_display" 1 args env)
-                  (if (string=? nm "newline")
-                      (zero-named "npl_newline" args)
-                      (if (string=? nm "null?")
-                          (null-question args env)
-                          (if (string=? nm "pair?")
-                              (pair-question args env)
-                              (if (string=? nm "not")
-                                  (not-builtin args env)
-                                  (if (string=? nm "eq?")
-                                      (eq-builtin args env)
-                                      (if (string=? nm "exit")
-                                          (progn-exit args env)
-                                          (if (string=? nm "program-arguments")
-                                              (zero-named "npl_program_arguments" args)
-                                              (if (string=? nm "set-car!")
-                                                  (two-to-nil "npl_set_car" args env)
-                                                  (if (string=? nm "set-cdr!")
-                                                      (two-to-nil "npl_set_cdr" args env)
-                                                      (if (string=? nm "string-append")
-                                                          (variadic-append args env)
-                                                          (if (string=? nm "number->string")
-                                                              (checked-call "npl_number_to_string" 1 args env)
-                                                              (if (string=? nm "symbol->string")
-                                                                  (checked-call "npl_symbol_to_string" 1 args env)
-                                                                  (if (string=? nm "string-length")
-                                                                      (len-as-fixnum args env)
-                                                                      (if (string=? nm "string=?")
-                                                                          (streq-builtin args env)
-                                                                          (if (string=? nm "read-file")
-                                                                              (checked-call "npl_read_file" 1 args env)
-                                                                              (cmp-or-arith nm args env))))))))))))))))))))))
+      (if (string=? nm "null?")
+          (null-question args env)
+          (if (string=? nm "pair?")
+              (pair-question args env)
+              (if (string=? nm "not")
+                  (not-builtin args env)
+                  (if (string=? nm "eq?")
+                      (eq-builtin args env)
+                      (if (string=? nm "exit")
+                          (progn-exit args env)
+                          (if (string=? nm "set-car!")
+                              (two-to-nil "npl_set_car" args env)
+                              (if (string=? nm "set-cdr!")
+                                  (two-to-nil "npl_set_cdr" args env)
+                                  (if (string=? nm "string-append")
+                                      (variadic-append args env)
+                                      (if (string=? nm "string-length")
+                                          (len-as-fixnum args env)
+                                          (if (string=? nm "string=?")
+                                              (streq-builtin args env)
+                                              (cmp-or-arith nm args env)))))))))))))
 
 (define (user-call nm args env)
   (let ((argn (count-up args 0)))

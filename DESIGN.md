@@ -5,8 +5,8 @@
 > **实现状态说明**：本文描述目标架构，不表示所有条目已经落地。当前证据基线为：
 > bootstrap fixpoint、mmap/mark-sweep GC、macro 核心、managed closures、
 > proper tail calls 与 escape-only `call/cc` 已完成；显式 Integer/Bool typed-unboxed、
-> guards、Float 和 nplc0 局部 HM/typed lambda 已接通；typed Pair/函数指针已在
-> nplc0 落地，record/row/refinement 及 self-host HM/结构类型仍未完成；
+> guards 和 Float typed lowering 已接通；后续完整类型、R7RS、库与语言能力以
+> self-hosted compiler 为实现主体，stage0 只维持 bootstrap 所需子集；
 > 完整数值塔、NN、网络和 target tier 仍未完成。逐阶段状态以 `PLAN.md` 为准。
 > 本轮不实现并行调度与 structured concurrency。
 
@@ -268,22 +268,20 @@ L5 Flat
 | Stage | 实现 | 输入 | 输出 | 用什么编译 |
 |-------|------|------|------|-----------|
 | stage0 | C99（手写） | NPL 源 | QBE IL → asm | Apple clang |
-| stage1 | NPL 子集（用 stage0 编译） | NPL 源 | QBE IL → asm | stage0 |
-| stage2 | NPL 全集（用 stage1 编译） | NPL 源 | QBE IL → asm | stage1 |
+| stage1 | NPL self-hosted compiler（由 stage0 编译） | NPL 源 | QBE IL → asm | stage0 |
+| stage2 | stage1 编译器的再编译产物 | NPL 源 | QBE IL → asm | stage1 |
 
 - stage2 应与 stage1 字节一致（参考 cproc 的 `bootstrap` target：`make bootstrap` 验证 stage2==stage3）。
 - stage0 用 C99 写，因为：QBE 本身是 C99；cproc 也是 C99；保证有可靠宿主。
 
 ### 6.2 stage0 NPL 子集
 
-stage0 支持的 NPL 子集（足以写编译器）：
-- `define`/`lambda`/`let`/`if`/`cond`/`begin`/`quote`
-- 固定大小整数、浮点、字符串、pair、vector
-- record（映射到 C struct）
-- 类型注解（但不强制检查，仅作为元信息传递）
-- 无 macro（stage0 不需要自举宏）
-- 无 `call/cc`（编译器代码不依赖它）
-- 尾调用（self-recursion 用 jmp，跨函数用 env trampoline）
+stage0 支持的 NPL 子集只以“足以编译并运行 `src/compiler.npl`”为准：
+- 保留 compiler.npl 实际使用的基础 forms、数据操作和尾调用；
+- 类型注解只需传递 self-host compiler 所需的信息；
+- 完整 R7RS、类型系统、库和语言扩展由 self-hosted compiler 实现；
+- 不因目标语言最终功能而预先扩展 stage0；
+- 无 macro 和 `call/cc`，因为 compiler.npl 不依赖它们。
 
 ### 6.3 bootstrap 验证
 

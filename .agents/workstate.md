@@ -2,17 +2,15 @@
 
 ## Focus
 
-Implement remaining `PLAN.md` and `DESIGN.md` scope, excluding parallel scheduling and structured concurrency.
+Complete language features in the self-hosted compiler. Keep stage0 limited to compiling and running `src/compiler.npl`.
 
 ## Verified
 
-- Bootstrap fixpoint is byte-identical at 10742 lines.
+- Bootstrap Stage A passes.
+- Bootstrap fixpoint is byte-identical at 10488 lines.
+- `src/compiler.npl` uses a runtime-call record constructor and shared lookup for fixed-arity runtime calls.
 - Runtime GC, proper tail calls, managed closures, and escape-only `call/cc` pass focused acceptance.
-- nplc0 and nplc1 emit unboxed Integer/Bool/Float functions with Dynamic guards and boxing.
-- Both compilers preserve `d` values through typed self-tail loops.
-- nplc0 local HM includes unification, let-generalization, and polymorphic instantiation.
-- Explicit typed lambdas capture unboxed values through managed environments.
-- nplc0 typed Pair/function pointers use `l`, boundary kind guards, typed access, and closure apply.
+- Self-hosted Integer/Bool/Float typed emission and typed self-tail paths pass current tests.
 
 ## Remaining Gaps
 
@@ -22,11 +20,11 @@ Implement remaining `PLAN.md` and `DESIGN.md` scope, excluding parallel scheduli
 
 ## Next
 
-Implement Phase 7 numeric/base primitives that also supply the compound runtime values needed by later tensors.
+Implement missing compiler and language behavior in `src/compiler.npl`; change stage0 only when bootstrap cannot express or run the self-hosted compiler.
 
 ## References
 
 - `PLAN.md`
 - `DESIGN.md`
 - `docs/HANDOFF.md`
-- `tools/check_type.sh`
+- `tools/check_bootstrap.sh`

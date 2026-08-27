@@ -134,7 +134,8 @@ GC 后 closure 环境和 `(call/cc (lambda (k) (+ 1 (k 42)))) => 42`。
 
 **目标**：实现类型检查/推导 + typed↔untyped guards。让 `(define x : Integer 5)` 工作，typed 代码编译为 unboxed。
 
-**产物**：`stage0/src/type.c`（algorithm W + guard 生成）
+**产物**：`src/compiler.npl` 中的类型 pass、guards 与 typed emission；stage0 仅保留
+编译该 self-host compiler 所需的最小类型/代码生成支持。
 
 **动作**：
 1. 类型 AST：`Integer`/`Float`/`(-> A B)`/`(Record ...)`/`Dynamic`/type variables。
@@ -149,17 +150,10 @@ GC 后 closure 环境和 `(call/cc (lambda (k) (+ 1 (k 42)))) => 42`。
 - 类型错误编译期报错（`(: x : Integer "foo")`）
 - 10+ 类型测试用例
 
-**状态**：🟡 Integer/Bool 核心与 nplc0 局部 HM 已完成，复合类型仍未完成。
-reader/AST/driver 支持变量、参数、返回和 typed lambda 注解；nplc0 与 nplc1 为
-fully-annotated `Integer`/`Bool` 函数生成 `function w ...__typed`，typed direct calls
-保持 unboxed，Dynamic wrapper 插入 guard 并 box 返回值。nplc0 实现 fresh vars、
-occurs-check unification、let-generalization/instantiation；多态 `id` 在同一作用域实例化
-为 Integer 与 Bool。typed lambda 可通过 managed env 捕获；nplc0/nplc1 的
-10,000,000 次 unboxed self-tail 均通过。Float 函数在两编译器中使用 QBE `d`，
-包含 guard/boxing、比较和 self-tail；nplc0 还支持 `(Pair A B)` 与 `(-> A B)`
-typed pointer 参数、kind guard、typed `car`/`cdr` 和 closure apply。剩余：record/row/
-refinement、更多复合类型 lowering，以及 self-host compiler 的 HM/typed-lambda 与
-结构化类型语法。
+**状态**：🟡 自举所需的 Integer/Bool 核心、Float 边界和部分 HM 能力已在 nplc0/nplc1
+验证；这些 C 端能力只作为 bootstrap 支撑，不代表完整语言实现。下一步应将必要的
+类型解析、检查、guards 和 unboxed emission 以 self-hosted NPL 实现，并以 nplc1/nplc2
+行为和 fixpoint 作为主要验收。record/row/refinement 以及完整复合类型仍未完成。
 
 ---
 
@@ -167,7 +161,8 @@ refinement、更多复合类型 lowering，以及 self-host compiler 的 HM/type
 
 **目标**：实现 R7RS `syntax-rules` hygienic 宏。让库代码可定义语法扩展。
 
-**产物**：`stage0/src/macro.c`
+**产物**：`src/compiler.npl` 中的宏展开 pass；stage0 仅保留编译 self-hosted
+compiler 所需的语法。
 
 **动作**：
 1. macro 环境（name → rules）。
@@ -311,7 +306,7 @@ flonum codegen 和 `100!` 验收均不存在，不能视为本阶段完成。
 
 **目标**：在 IR 层定义 target tier 接口，CPU path 实装，GPU/wasm path 留 stub + 设计文档。
 
-**产物**：`stage0/src/target.c`（target classification pass），DESIGN 更新
+**产物**：`src/compiler.npl` 中的 target classification pass，DESIGN 更新
 
 **动作**：
 1. 操作的 `(target cpu|gpu|wasm)` 注解解析。

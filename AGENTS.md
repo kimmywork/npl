@@ -23,6 +23,10 @@ ninja -C build smoke && ./build/smoke/hello   # 冒烟测试
 - NPL 源文件在 `src/`，用 `.npl` 扩展名。
 - 运行时 C 文件在 `runtime/`，被 stage0 和自举产物共同链接。
 - QBE IL 文件用 `.ssa` 扩展名。
+- stage0 是自举起点，不是完整 NPL 实现：C 端只实现编译并运行
+  `src/compiler.npl` 所需的最小语言、runtime 和 QBE 路径。新增语言语义、库和
+  类型能力应优先进入 self-hosted compiler；除非缺少 bootstrap 必需能力，不扩展
+  stage0 的完整语言覆盖。
 - 原则：YAGNI + KISS + Gall's Law（从简单系统演进）。先 MVP 后迭代，不预先添加扩展点。
 
 ### 测试与验证
