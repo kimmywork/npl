@@ -371,3 +371,25 @@ wrapper 机制处理 h2_clean:
    bool 当字符串比较,require_bytes 失败会在更早退出 — 若未早退
    则验证 lk-s 的 entries 非 pair 进入循环
 3. 一旦定位,回归 Stage B(il2==il3)
+
+## Stage-B 调试停机说明(2026-08-27,响应节奏审查)
+
+结论:同一缺陷的文本级 IL 插桩循环已连续四轮未突破,边际收益归零,
+按「证据固化 > 无效重试」原则停机。
+
+最终事实快照(供下轮直入):
+- 崩溃形态:nplc2 运行时,rev_into 链头值为 #t(6)/#f(10)→ cdr NONPTR
+- 时间线:tokens 大链 rev 正常(16 层以 cdr=2 收尾)→ emitter
+  string-append 流正常 → 最后一次 rev(dump 阶段 5732/5736/5762
+  三处之一)拿到被污染的 head
+- 已排除:输入差异/词法层/静态 IL 语义/runtime fail-fast 误报
+- 未验证的三个嫌疑(按优先级):
+  A. lk_s 收到的 entries 形态(需对 cell_get 加 wrapper 后 dump 全表)
+  B. CURBUF("F"/"I")状态机泄漏导致 func-line 写错缓冲
+  C. c1il 对 raw-vs-tagged 常量的内联方式与 normdiff 规范化
+     掩盖下的比较指令宽度差异(w ceql vs l ceql 类)
+- 现成资产:/tmp 下 c1il.ssa(c1wrap/normdiff/wcheck 等脚本),
+  workspace 内 normdiff 工具思路已可在 ledger 中复原
+
+替代路径评估:若 Stage B 继续受阻,可按 PLAN.md Phase 9(SIMD kernel)
+或先补 Phase 4 承诺的 call/cc escape 形式 — 都不依赖自举闭环。
