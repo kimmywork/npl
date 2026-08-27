@@ -100,12 +100,10 @@ ninja -C build smoke && ./build/smoke/hello        # Phase 0 冒烟: "hello worl
 ## 三、接下来的规划
 
 ### P0(下一会话最优先)
-1. **完成 Phase 3 runtime/GC**：mmap arena、64-bit 安全 allocation metadata、
-   roots/mark/sweep/自动触发，以及百万级 cons 回收验收。
-2. **完成 Phase 4 剩余控制流**：跨函数 tail trampoline 与 escape-only `call/cc`。
-3. **把 Phase 5 type helper 接入 driver/codegen**，以 unboxed IL、错误注解和
+1. **完成 Phase 4 剩余控制流**：跨函数 tail trampoline 与 escape-only `call/cc`。
+2. **把 Phase 5 type helper 接入 driver/codegen**，以 unboxed IL、错误注解和
    typed↔Dynamic guard 三类证据验收。
-4. **补齐 Phase 7**：base library、vector、flonum、bignum 与 `100!`。
+3. **补齐 Phase 7**：base library、vector、flonum、bignum 与 `100!`。
 
 ### P1(Phase 9 推进)
 5. structured concurrency: spawn/await/scope(runtime pthread shim +

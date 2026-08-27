@@ -6,11 +6,6 @@
 
 NPL：用 QBE 编译到 native 的 Scheme 方言。R7RS-small 兼容核心 + 渐进式类型系统（Typed-Racket 风格）+ 自举 + 神经网络语言构造。详见 `DESIGN.md`。
 
-当前状态：**Phase 8 bootstrap fixpoint 已完成**。规范复审后，Phase 3/4/5/7
-仍有实质缺口；当前按 `PLAN.md` 的证据状态逐项补齐。self-recursive tail loop 已通过
-10,000,000 次验收，下一优先级是 runtime/GC。并行调度与 structured concurrency
-不在当前实现范围。
-
 ## 工作约定
 
 ### 构建
@@ -68,9 +63,3 @@ ninja -C build smoke && ./build/smoke/hello   # 冒烟测试
 - **Chez Scheme / Cyclone / Loko / Ribbit**：Scheme native 自举先例。
 - **Typed Racket**：渐进类型 + guard 模型。
 - **Hare**：系统语言 + QBE 后端。
-
-## 当前优先级
-
-按 `PLAN.md` 的实证状态推进：先完成 Phase 3 runtime/GC，再完成 Phase 4
-跨函数尾调用与 escape continuation，随后接入 Phase 5 typed pipeline 并补齐 Phase 7。
-每个增量必须保持 `run_tests.sh` 与 `check_bootstrap.sh` 通过。

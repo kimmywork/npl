@@ -93,10 +93,11 @@
 - 递归遍历深度 list 正确返回长度
 - `./build/stage0/nplc0 tests/gc_stress.npl` 正常退出，内存峰值合理
 
-**状态**：🟡 部分完成。tagged value、pair/string/float 构造和基础访问已工作；
-但 runtime 仍使用 `calloc`，GC allocation list 在 64-bit 上截断 next pointer，
-vector/closure mark 与可靠 sweep/自动触发均未完成，原 `gc_stress.npl` 只构造
-1000 个 cell，不能作为 GC 回收验收。
+**状态**：✅ 已完成。boxed heap 使用 64KB mmap chunks、16-byte 对齐 metadata、
+threshold 自动触发和 free-list 重用；collector 扫描显式 roots、runtime globals、
+寄存器与活动栈，迭代 mark pair/vector/closure 并 sweep。验收覆盖 1,000,000
+短命 pair（31 次 collection，收尾 3200 bytes）和跨 collection 保活的 100,000
+节点 NPL list；ASan/UBSan stress 通过。
 
 ---
 

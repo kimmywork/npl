@@ -1,13 +1,9 @@
 /*
- * alloc.c — NPL runtime memory allocator.
+ * alloc.c — NPL runtime allocation and boxed values.
  *
- * Uses malloc for Phase 3 (mmap can be added later).
- * Provides allocation for boxed values (pairs, strings, vectors, floats).
- *
- * Memory model:
- *   - All allocations go through npl_alloc()
- *   - GC handles deallocation via mark-sweep
- *   - Free list for recycled objects
+ * Managed objects live in 64KB mmap chunks. Each object has private allocator
+ * metadata immediately before its public NplHeader; sweep recycles metadata
+ * blocks through a free list while chunks remain mapped for the process life.
  */
 
 #include "npl.h"
@@ -15,40 +11,166 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
-/* ---- Global state ---- */
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
 
-/* Head of allocated object list (for GC traversal) */
-static NplHeader *g_alloc_head = NULL;
-
-/* GC thresholds */
-static size_t g_allocated = 0;
-static size_t g_threshold = 1024 * 1024;  /* 1MB initial threshold */
-
-/* GC roots */
+#define NPL_CHUNK_SIZE (64u * 1024u)
+#define NPL_ALIGN      16u
+#define NPL_META_MAGIC_LIVE UINT64_C(0x4e504c4d45544131)
+#define NPL_META_MAGIC_FREE UINT64_C(0x4e504c4d45544130)
 #define MAX_ROOTS 1024
+
+typedef struct NplChunk NplChunk;
+typedef struct NplAllocMeta NplAllocMeta;
+
+struct NplChunk {
+    NplChunk *next;
+    size_t map_size;
+    size_t used;
+    unsigned char data[];
+};
+
+struct NplAllocMeta {
+    uint64_t magic;
+    NplAllocMeta *all_next;
+    NplAllocMeta *free_next;
+    NplAllocMeta *mark_next;
+    size_t size;
+    size_t capacity;
+    uint32_t marked;
+    uint32_t reserved;
+};
+
+#define NPL_META_SIZE ((sizeof(NplAllocMeta) + NPL_ALIGN - 1) & ~(NPL_ALIGN - 1))
+
+static NplChunk *g_chunks = NULL;
+static NplAllocMeta *g_alloc_head = NULL;
+static NplAllocMeta *g_free_head = NULL;
+static NplAllocMeta *g_mark_stack = NULL;
+static size_t g_allocated = 0;
+static size_t g_threshold = 1024 * 1024;
+static size_t g_live_objects = 0;
+static size_t g_collections = 0;
 static NplVal *g_roots[MAX_ROOTS];
 static int g_root_count = 0;
+static uintptr_t g_stack_bottom = 0;
+static int g_runtime_initialized = 0;
+static int g_gc_running = 0;
 
-/* ---- Internal allocation ---- */
+static int g_argc_stored = 0;
+static char **g_argv_stored = NULL;
+static NplVal g_args_list = 2;
 
-static void *npl_alloc(size_t size) {
-    void *ptr = calloc(1, size);
-    if (!ptr) {
-        fprintf(stderr, "npl_alloc: out of memory\n");
-        exit(1);
-    }
-    g_allocated += size;
-    return ptr;
+static size_t align_up(size_t n, size_t alignment)
+{
+    return (n + alignment - 1) & ~(alignment - 1);
 }
 
-/* ---- Runtime initialization ---- */
+static void runtime_oom(void)
+{
+    static const char msg[] = "npl runtime: out of memory\n";
+    (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+    _Exit(1);
+}
 
-void npl_runtime_init(void) {
-    g_alloc_head = NULL;
-    g_allocated = 0;
+static NplChunk *map_chunk(size_t need)
+{
+    size_t header = align_up(sizeof(NplChunk), NPL_ALIGN);
+    size_t map_size = NPL_CHUNK_SIZE;
+    while (map_size < header + need) map_size += NPL_CHUNK_SIZE;
+
+    void *mem = mmap(NULL, map_size, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (mem == MAP_FAILED) runtime_oom();
+
+    NplChunk *chunk = (NplChunk *)mem;
+    chunk->next = g_chunks;
+    chunk->map_size = map_size;
+    chunk->used = header;
+    g_chunks = chunk;
+    return chunk;
+}
+
+static void *meta_object(NplAllocMeta *meta)
+{
+    return (unsigned char *)meta + NPL_META_SIZE;
+}
+
+static NplAllocMeta *find_managed_meta(const void *object)
+{
+    uintptr_t address = (uintptr_t)object;
+    if ((address & (NPL_ALIGN - 1)) != 0) return NULL;
+    for (NplChunk *chunk = g_chunks; chunk; chunk = chunk->next) {
+        uintptr_t begin = (uintptr_t)chunk;
+        uintptr_t end = begin + chunk->used;
+        if (address < begin + NPL_META_SIZE || address >= end) continue;
+        NplAllocMeta *meta = (NplAllocMeta *)(address - NPL_META_SIZE);
+        if (meta->magic == NPL_META_MAGIC_LIVE && meta_object(meta) == object)
+            return meta;
+        return NULL;
+    }
+    return NULL;
+}
+
+static NplAllocMeta *take_free_block(size_t size)
+{
+    NplAllocMeta **link = &g_free_head;
+    while (*link) {
+        if ((*link)->capacity >= size) {
+            NplAllocMeta *meta = *link;
+            *link = meta->free_next;
+            return meta;
+        }
+        link = &(*link)->free_next;
+    }
+    return NULL;
+}
+
+static void *npl_alloc(size_t size)
+{
+    size = align_up(size, NPL_ALIGN);
+    if (g_runtime_initialized && !g_gc_running &&
+        g_allocated + size >= g_threshold) {
+        npl_gc_collect();
+    }
+
+    NplAllocMeta *meta = take_free_block(size);
+    if (!meta) {
+        size_t total = NPL_META_SIZE + size;
+        NplChunk *chunk = g_chunks;
+        if (!chunk || chunk->used + total > chunk->map_size)
+            chunk = map_chunk(total);
+        meta = (NplAllocMeta *)((unsigned char *)chunk + chunk->used);
+        chunk->used += total;
+        memset(meta, 0, NPL_META_SIZE);
+        meta->capacity = size;
+    }
+
+    meta->magic = NPL_META_MAGIC_LIVE;
+    meta->size = size;
+    meta->marked = 0;
+    meta->mark_next = NULL;
+    meta->free_next = NULL;
+    meta->all_next = g_alloc_head;
+    g_alloc_head = meta;
+    memset(meta_object(meta), 0, meta->capacity);
+    g_allocated += size;
+    g_live_objects++;
+    return meta_object(meta);
+}
+
+void npl_runtime_init(void)
+{
+    uintptr_t marker = 0;
+    if (g_runtime_initialized) return;
+    g_runtime_initialized = 1;
+    g_stack_bottom = (uintptr_t)(void *)&marker + sizeof(marker);
     g_threshold = 1024 * 1024;
     g_root_count = 0;
+    g_args_list = npl_nil();
 }
 
 /* ---- Value constructors ---- */
@@ -59,11 +181,6 @@ NplVal npl_cons(NplVal car, NplVal cdr) {
     p->header.flags = 0;
     p->car = car;
     p->cdr = cdr;
-
-    /* Link into allocation list */
-    p->header.flags = (uint32_t)(uintptr_t)g_alloc_head;
-    g_alloc_head = &p->header;
-
     return (NplVal)(uintptr_t)p | TAG_PTR;
 }
 
@@ -78,11 +195,6 @@ NplVal npl_string(const char *s, uint32_t len) {
         memcpy(str->data, s, len);
     }
     str->data[len] = '\0';
-
-    /* Link into allocation list */
-    str->header.flags = (uint32_t)(uintptr_t)g_alloc_head;
-    g_alloc_head = &str->header;
-
     return (NplVal)(uintptr_t)str | TAG_PTR;
 }
 
@@ -91,11 +203,6 @@ NplVal npl_float(double v) {
     f->header.tag = BOX_FLOAT;
     f->header.flags = 0;
     f->value = v;
-
-    /* Link into allocation list */
-    f->header.flags = (uint32_t)(uintptr_t)g_alloc_head;
-    g_alloc_head = &f->header;
-
     return (NplVal)(uintptr_t)f | TAG_PTR;
 }
 
@@ -176,15 +283,19 @@ void npl_set_cdr(NplVal pair, NplVal val) {
     p->cdr = val;
 }
 
-/* ---- GC root management ---- */
+/* ---- GC root management and collector internals ---- */
 
-void npl_gc_root(NplVal *root) {
-    if (g_root_count < MAX_ROOTS) {
-        g_roots[g_root_count++] = root;
+void npl_gc_root(NplVal *root)
+{
+    if (g_root_count >= MAX_ROOTS) {
+        fprintf(stderr, "npl_gc_root: root table overflow\n");
+        exit(1);
     }
+    g_roots[g_root_count++] = root;
 }
 
-void npl_gc_unroot(NplVal *root) {
+void npl_gc_unroot(NplVal *root)
+{
     for (int i = 0; i < g_root_count; i++) {
         if (g_roots[i] == root) {
             g_roots[i] = g_roots[--g_root_count];
@@ -193,15 +304,97 @@ void npl_gc_unroot(NplVal *root) {
     }
 }
 
-/* ---- GC stats ---- */
-
-size_t npl_gc_allocated(void) {
-    return g_allocated;
+void npl_gc_begin_internal(void)
+{
+    g_gc_running = 1;
+    g_mark_stack = NULL;
 }
 
-size_t npl_gc_threshold(void) {
-    return g_threshold;
+void npl_gc_mark_candidate_internal(NplVal value)
+{
+    if (!npl_is_ptr(value)) return;
+    NplAllocMeta *meta = find_managed_meta(npl_header(value));
+    if (!meta || meta->marked) return;
+    meta->marked = 1;
+    meta->mark_next = g_mark_stack;
+    g_mark_stack = meta;
 }
+
+void npl_gc_mark_roots_internal(void)
+{
+    for (int i = 0; i < g_root_count; i++) {
+        if (g_roots[i]) npl_gc_mark_candidate_internal(*g_roots[i]);
+    }
+    npl_gc_mark_candidate_internal(g_args_list);
+}
+
+void npl_gc_drain_internal(void)
+{
+    while (g_mark_stack) {
+        NplAllocMeta *meta = g_mark_stack;
+        g_mark_stack = meta->mark_next;
+        NplHeader *header = (NplHeader *)meta_object(meta);
+        switch (header->tag) {
+        case BOX_PAIR: {
+            NplPair *pair = (NplPair *)header;
+            npl_gc_mark_candidate_internal(pair->car);
+            npl_gc_mark_candidate_internal(pair->cdr);
+            break;
+        }
+        case BOX_VECTOR: {
+            NplVector *vector = (NplVector *)header;
+            for (uint32_t i = 0; i < vector->length; i++)
+                npl_gc_mark_candidate_internal(vector->data[i]);
+            break;
+        }
+        case BOX_CLOSURE: {
+            NplClosure *closure = (NplClosure *)header;
+            npl_gc_mark_candidate_internal(closure->environment);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+}
+
+void npl_gc_sweep_internal(void)
+{
+    NplAllocMeta **link = &g_alloc_head;
+    while (*link) {
+        NplAllocMeta *meta = *link;
+        if (meta->marked) {
+            meta->marked = 0;
+            meta->mark_next = NULL;
+            link = &meta->all_next;
+            continue;
+        }
+
+        *link = meta->all_next;
+        g_allocated -= meta->size;
+        g_live_objects--;
+        meta->magic = NPL_META_MAGIC_FREE;
+        meta->all_next = NULL;
+        meta->mark_next = NULL;
+        meta->free_next = g_free_head;
+        g_free_head = meta;
+    }
+
+    g_threshold = g_allocated * 2;
+    if (g_threshold < 1024 * 1024) g_threshold = 1024 * 1024;
+    g_collections++;
+    g_gc_running = 0;
+}
+
+uintptr_t npl_gc_stack_bottom_internal(void)
+{
+    return g_stack_bottom;
+}
+
+size_t npl_gc_allocated(void) { return g_allocated; }
+size_t npl_gc_threshold(void) { return g_threshold; }
+size_t npl_gc_live_objects(void) { return g_live_objects; }
+size_t npl_gc_collections(void) { return g_collections; }
 
 /* ---- Display (for debugging) ---- */
 
@@ -273,8 +466,6 @@ static NplVal box_bytes(const char *bytes, uint32_t len, uint32_t box_tag) {
     str->capacity = len;
     if (len && bytes) memcpy(str->data, bytes, len);
     str->data[len] = '\0';
-    str->header.flags = (uint32_t)(uintptr_t)g_alloc_head;
-    g_alloc_head = &str->header;
     return (NplVal)(uintptr_t)str | TAG_PTR;
 }
 
@@ -358,10 +549,6 @@ NplVal npl_symbol_to_string(NplVal s) {
 }
 
 /* ---- bootstrap I/O & control (increment-4) ---- */
-
-static int g_argc_stored = 0;
-static char **g_argv_stored = NULL;
-static NplVal g_args_list = 2;   /* nil until first program-arguments call */
 
 void npl_store_args(int argc, char **argv) {
 #ifdef NPL_UNBUFFERED_STDOUT

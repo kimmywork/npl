@@ -1180,6 +1180,7 @@
                       (cell-set! HAS-INIT 7)
                       (cell-set! CURBUF "I")
                       (let ((v (emit-expr init ())))
+                        (func-line (string-append "call $npl_gc_root(l " slot ")"))
                         (func-line (string-append "storel " v ", " slot)))
                       (cell-set! CURBUF "F")
                       0)))))))
@@ -1214,6 +1215,7 @@
   ; store args, run global initializers, then the user body
   (func-line "export function l $main(l %argc, l %argv) {")
   (func-line "@start")
+  (func-line "call $npl_runtime_init()")
   (func-line "call $npl_store_args(l %argc, l %argv)")
   (func-line "call $npl_global_inits()")
   (let ((result (emit-body body ())))

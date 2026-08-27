@@ -74,6 +74,13 @@ typedef struct {
     NplVal data[];  /* flexible array member */
 } NplVector;
 
+/* ---- Closure ---- */
+typedef struct {
+    NplHeader header;
+    uintptr_t function;
+    NplVal environment;
+} NplClosure;
+
 /* ---- Float ---- */
 typedef struct {
     NplHeader header;
@@ -158,6 +165,7 @@ void npl_set_cdr(NplVal pair, NplVal val);
 
 /* Garbage collection */
 void npl_gc_collect(void);
+void npl_gc_maybe_collect(void);
 
 /* Register a GC root (global variable, stack slot, etc.) */
 void npl_gc_root(NplVal *root);
@@ -168,6 +176,8 @@ void npl_gc_unroot(NplVal *root);
 /* Get memory stats */
 size_t npl_gc_allocated(void);
 size_t npl_gc_threshold(void);
+size_t npl_gc_live_objects(void);
+size_t npl_gc_collections(void);
 
 /* Display a value (for debugging) */
 void npl_display(NplVal v);

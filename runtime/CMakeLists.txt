@@ -27,6 +27,16 @@ set_target_properties(npl_runtime PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime
 )
 
+add_executable(gc_stress
+  ${RUNTIME_SRC_DIR}/gc_stress.c
+)
+target_include_directories(gc_stress PRIVATE ${RUNTIME_SRC_DIR})
+target_link_libraries(gc_stress PRIVATE npl_runtime)
+target_compile_options(gc_stress PRIVATE
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+set_target_properties(gc_stress PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
+
 # ---- Phase 9 acceptance harness (correctness + >=3x speedup) ----
 add_executable(simd_bench
   ${RUNTIME_SRC_DIR}/simd_bench.c

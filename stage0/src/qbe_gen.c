@@ -1436,6 +1436,7 @@ static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstN
         /* The runtime ABI supplies argc/argv independently of source params. */
         fprintf(out, "(l %%npl_argc, l %%npl_argv) {\n");
         fprintf(out, "@start\n");
+        fprintf(out, "    call $npl_runtime_init()\n");
         fprintf(out, "    call $npl_store_args(l %%npl_argc, l %%npl_argv)\n");
         if (ctx->has_init)
             fprintf(out, "    call $npl_global_inits()\n");
@@ -1564,6 +1565,9 @@ void qbe_gen_program(QbeCtx *ctx, AstNode *program)
                             const char *vtmp = gen_expr(ctx, body, 1);
                             ctx->out = saved;
                             ctx->depth = 0;
+                            fprintf(ctx->init_out,
+                                    "    call $npl_gc_root(l $gv_%s)\n",
+                                    safe_vn);
                             fprintf(ctx->init_out, "    storel %s, $gv_%s\n",
                                     vtmp, safe_vn);
                         }
@@ -1619,6 +1623,7 @@ void qbe_gen_program(QbeCtx *ctx, AstNode *program)
     if (!has_main) {
         fprintf(ctx->out, "export function w $main() {\n");
         fprintf(ctx->out, "@start\n");
+        fprintf(ctx->out, "    call $npl_runtime_init()\n");
         if (ctx->has_init) fprintf(ctx->out, "    call $npl_global_inits()\n");
         fprintf(ctx->out, "    ret 0\n");
         fprintf(ctx->out, "}\n");

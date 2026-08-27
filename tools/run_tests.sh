@@ -14,6 +14,7 @@ QUICK="${1:-}"
 
 SUITES=(
     "stage0 reader/ast + smoke     : $SCRIPT_DIR/check_stage0.sh"
+    "runtime mmap + GC             : $SCRIPT_DIR/check_gc.sh"
     "R7RS conformance              : $SCRIPT_DIR/check_r7rs.sh"
     "core features (increment-1/2) : $SCRIPT_DIR/check_core.sh"
     "type system                   : $SCRIPT_DIR/check_type.sh"
