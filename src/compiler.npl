@@ -46,119 +46,112 @@
 ; ---------------- lexer ----------------
 ; tokens: (kind . payload); kinds 1"(" 2")" 3"'" 4sym 5num 6str 7eof
 
-(define (ch-digit? c) (if (< 47 c) (< c 58) #f))
-(define (ch-ws? c)
-  (if (= c 32) #t
-      (if (= c 9) #t
-          (if (= c 10) #t (= c 13)))))
-(define (ch-alpha-low? c) (if (< 96 c) (< c 123) #f))
-(define (ch-alpha-up? c) (if (< 64 c) (< c 91) #f))
-(define (ch-symchar? c)
-  (if (ch-digit? c) #t
-      (if (ch-alpha-low? c) #t
-          (if (ch-alpha-up? c) #t
-              (if (= c 45) #t
-                  (if (= c 95) #t
-                      (if (= c 63) #t
-                          (if (= c 33) #t
-                              (if (= c 42) #t
-                                  (if (= c 47) #t
-                                      (if (= c 43) #t
-                                          (if (= c 61) #t
-                                              (if (= c 60) #t
-                                                  (if (= c 62) #t
-                                                      (if (= c 37) #t (= c 46))))))))))))))))
+; Character classification goes through runtime hooks so the self-hosted
+; side never juggles raw byte values: c is a TAGGED fixnum byte code.
+;
+; class codes: 0 ws  1 \' ;\'  2 (  3 )  4 quote  5 str-delim
+;              6 digit  7 symchar  8 other/bad
+
+(define (lex-cls? c k)       ; is char-class == k ?
+  (npl_lex_class_w c k))
 
 (define (lex-skip-ws s i len)
-  (if (if (< i len) (if (ch-ws? (string-ref s i)) #t (= (string-ref s i) 59)) #f)
-      (lex-to-eol-or-next s i len)
+  ; advance past whitespace/comment-start position by position
+  (if (< i len)
+      (if (lex-cls? (string-ref s i) 0)
+          (+ i 1)
+          i)
       i))
 
-(define (lex-to-eol-or-next s i len)
-  (if (= (string-ref s i) 59)
-      (lex-comment s i len)
-      (+ i 1)))
+(define (scan-comment-end s i len)
+  ; at a \' ;\': walk to newline inclusive; caller resumes after it
+  (if (and2 (< i len) (not (= (string-ref s i) 10)))
+      (scan-comment-end s (+ i 1) len)
+      i))
 
-(define (lex-comment s i len)
-  (if (if (< i len) (not (= (string-ref s i) 10)) #f)
-      (lex-comment s (+ i 1) len)
-      (if (< i len) (+ i 1) len)))
+(define (sym-run-end s j)     ; end of consecutive symchars from j (tagged j)
+  (npl_lex_scan_sym_end s j))
 
-(define (lex-str-close s j len start acc)
-  (if (< j len)
+(define (num-run-end s j)     ; end of consecutive digits from j
+  (if (< j (string-length s))
+      (if (lex-cls? (string-ref s j) 6)
+          (num-run-end s (+ j 1))
+          j)
+      j))
+
+(define (push-number s i acc)
+  (let ((j (num-run-end s i)))
+    (let ((v (npl_lex_number s i j)))
+      (lex-loop s j (cons (cons 5 v) acc)))))
+
+(define (push-symbol s i acc)
+  (let ((j (sym-run-end s i)))
+    (let ((nm (substring s i j)))
+      (lex-loop s j (cons (cons 4 nm) acc)))))
+
+(define (step-token s i acc)
+  ; dispatch purely on class of the current char
+  (if (lex-cls? (string-ref s i) 0)
+      (lex-loop s (+ i 1) acc)
+      (if (lex-cls? (string-ref s i) 1)
+          (lex-comment s i acc)
+          (if (lex-cls? (string-ref s i) 2)
+              (lex-loop s (+ i 1) (cons (cons 1 ()) acc))
+              (if (lex-cls? (string-ref s i) 3)
+                  (lex-loop s (+ i 1) (cons (cons 2 ()) acc))
+                  (if (lex-cls? (string-ref s i) 4)
+                      (lex-loop s (+ i 1) (cons (cons 3 ()) acc))
+                      (if (lex-cls? (string-ref s i) 5)
+                          (lex-str-close s (+ i 1) (+ i 1) acc)
+                          (if (lex-cls? (string-ref s i) 6)
+                              (push-number s i acc)
+    (if (sym-or-neg s i)
+                                  (if (lex-cls? (string-ref s i) 7)
+                                      (push-symbol s i acc)
+                                      (push-number s i acc))
+                                  (do-bad-char (string-ref s i)))))))))))
+
+(define (sym-or-neg s i)
+  (if (lex-cls? (string-ref s i) 7) #t
+      (neg-digit s i)))
+
+(define (neg-digit s i)
+  ; a '-' immediately followed by a digit starts a number token
+  (if (< (+ i 1) (string-length s))
+      (if (lex-cls? (string-ref s (+ i 1)) 6) #t #f)
+      #f))
+
+(define (lex-comment s i acc)
+  ; i sits on the semi-colon
+  (if (and2 (< i (string-length s)) (not (= (string-ref s i) 10)))
+      (lex-comment s (+ i 1) acc)
+      (if (< i (string-length s))
+          (lex-loop s (+ i 1) acc)
+          (lex-eof acc))))
+
+
+(define (lex-eof acc)
+  ; token stream in reverse order + eof sentinel
+  (rev (cons (cons 7 ()) acc)))
+
+(define (lex-str-close s j start acc)
+  ; scan to the closing double-quote
+  (if (< j (string-length s))
       (if (= (string-ref s j) 34)
-          (lex-loop s (+ j 1) len (cons (cons 6 (substring s start j)) acc))
-          (lex-str-close s (+ j 1) len start acc))
-      (fatal "unterminated string")))
+          (let ((txt (substring s start j)))
+            (lex-loop s (+ j 1) (cons (cons 6 txt) acc)))
+          (lex-str-close s (+ j 1) start acc))
+      (fatal "unterminated string literal")))
 
-(define (digits-value s i j acc)
-  (if (< i j)
-      (digits-value s (+ i 1) j (+ (* acc 10) (- (string-ref s i) 48)))
-      acc))
-
-(define (lex-loop s i len acc)
-  (let ((i2 (lex-skip-ws s i len)))
-    (if (< i2 len)
-        (step-token s i2 len acc)
-        (rev (cons (cons 7 ()) acc)))))          ; eof then normalize once
-
-(define (step-token s i len acc)
-  (let ((c (string-ref s i)))
-    (if (= c 40)
-        (lex-loop s (+ i 1) len (cons (cons 1 ()) acc))
-        (if (= c 41)
-            (lex-loop s (+ i 1) len (cons (cons 2 ()) acc))
-            (if (= c 39)
-                (lex-loop s (+ i 1) len (cons (cons 3 ()) acc))
-                (if (= c 34)
-                    (lex-str-close s (+ i 1) len (+ i 1) acc)
-                    (if (ch-digit? c)
-                        (push-number s i len #f acc)
-                        (if (if (= c 45) (< (+ i 1) len) #f)
-                            (let ((j (scan-num-after-sign s i len)))
-                              (lex-loop s j len
-                                (cons (cons 5 (- 0 (digits-value s (+ i 1) j 0)))
-                                      acc)))
-                            (if (ch-symchar? c)
-                                (push-symbol s i len acc)
-                                (do-bad-char c))))))))))
-
-(define (scan-digits s j len)
-  ; advance while current char is a digit
-  (if (ch-digit? (string-ref s j))
-      (scan-digits s (+ j 1) len)
-      j))
-
-(define (scan-num-after-sign s i len)
-  (scan-digits s (+ i 1) len))
-
-
-
-
-(define (push-number s i len neg acc)
-  (let ((j (scan-digits s i len)))
-    (let ((v (digits-value s i j 0)))
-      (if neg
-          (lex-loop s j len (cons (cons 5 (- 0 v)) acc))
-          (lex-loop s j len (cons (cons 5 v) acc))))))
-
-(define (push-symbol s i len acc)
-  (let ((j (scan-num-pred-2 s i len)))
-    (lex-loop s j len (cons (cons 4 (substring s i j)) acc))))
-
-(define (scan-num-pred-2 s j len)
-  (if (if (< j len) (ch-symchar? (string-ref s j)) #f)
-      (scan-num-pred-2 s (+ j 1) len)
-      j))
+(define (lex-loop s i acc)
+  (if (< i (string-length s))
+      (step-token s i acc)
+      (lex-eof acc)))
 
 (define (do-bad-char c)
   (begin (display "nplc1: bad character byte ") (display c)
          (newline) (exit 20)))
 
-; ---------------- parser ----------------
-
-; cur is a cell whose content is the remaining TOKEN LIST.
-; cell -> list -> first-token -> field : three cars/cars-cdr.
 (define (peek-kind cur) (car (car (car cur))))
 (define (peek-payload cur) (cdr (car (car cur))))
 (define (advance! cur) (set-car! cur (cdr (car cur))))
@@ -244,6 +237,7 @@
       (cons (parse-expr cur) (grab-body-until-rparen cur))))
 
 (define (parse-if cur)
+  (advance! cur)   ; consume the 'if' keyword itself
   (let ((t (parse-expr cur)))
     (let ((c (parse-expr cur)))
       (let ((a (parse-expr cur)))
@@ -319,7 +313,9 @@
   (string-append "%t" (number->string (cell-get TMPN))))
 
 (define (new-label)
-  (string-append "@L" (number->string (cell-set! DATAN (+ 1 (cell-get DATAN))))))
+  (begin
+    (cell-set! DATAN (+ 1 (cell-get DATAN)))
+    (string-append "@L" (number->string (cell-get DATAN)))))
 
 (define (data-line ln) (cell-set! DATA-BUF (cons ln (cell-get DATA-BUF))))
 (define (func-line ln) (cell-set! FUNC-BUF (cons ln (cell-get FUNC-BUF))))
@@ -382,7 +378,7 @@
   (if (null? d)
       "2"
       (if (number? d)
-          (number->string (* d 4))
+          (npl_tagged_num_to_string d)
           (if (pair-shape? d)
               (walk-boxed d)
               (fatal "bad datum")))))
@@ -595,7 +591,8 @@
 (define (emit-expr e env)
   (if (number? e)
       (let ((r (new-tmp)))
-        (func-line (string-append r " =l copy " (number->string (* e 4))))
+        (func-line (string-append r " =l copy "
+                            (npl_tagged_num_to_string e)))
         r)
       (if (null? e)
           "2"
@@ -679,7 +676,36 @@
         (func-line (string-append raw " =w ceqw " low ", 0"))
         (bool-from-raw raw)))))
 
+; some C predicates return a raw int in a word register; those MUST be
+; converted to proper booleans (#f=10/#t=6) before any `if` sees them.
+(define (word-pred qfn args env)
+  (check-arity args (count-up args 0) (count-up args 0))
+  (let ((ops (eval-args-fixed args env (count-up args 0) ())))
+    (let ((raw (new-tmp)))
+      (func-line (string-append raw " =w call $" qfn "(l "
+                                (car ops)
+                                (arg-tail-rest (cdr ops))
+                                ")"))
+      (bool-from-raw raw))))
+
+(define (arg-tail-rest rest)
+  (if (null? rest)
+      ""
+      (string-append ", l " (car rest)
+                     (arg-tail-rest (cdr rest)))))
+
 (define (route-call nm args env)
+  (if (string=? nm "npl_tagged_num_to_string")
+      (checked-call "npl_tagged_num_to_string" 1 args env)
+      (if (string=? nm "npl_lex_class_w")
+          (checked-call "npl_lex_class_w" 2 args env)
+      (if (string=? nm "npl_lex_scan_sym_end")
+          (checked-call "npl_lex_scan_sym_end" 2 args env)
+          (if (string=? nm "npl_lex_number")
+              (checked-call "npl_lex_number" 3 args env)
+              (next-route nm args env))))))
+
+(define (next-route nm args env)
   (if (string=? nm "number?")
       (number-question args env)
       (if (string=? nm "cons")
@@ -806,7 +832,7 @@
   (let ((slot (string-append "$gv_" (sanitize nm 0 ""))))
     (if (number? init)
         (data-line (string-append slot " = { l "
-                                  (number->string (* init 4)) " }"))
+                                  (npl_tagged_num_to_string init) " }"))
         (if (null? init)
             (data-line (string-append slot " = { l 2 }"))
             (if (str-atom? init)
@@ -843,6 +869,7 @@
   (func-line
     (string-append "function l $" (sanitize nm 0 "")
                    "(" (render-params params 0) ") {"))
+  (func-line "@start")
   (let ((result (emit-body body (bind-params params 0 ()))))
     (func-line (string-append "ret " result)))
   (func-line "}"))
@@ -851,6 +878,7 @@
   ; emitted programs follow the same runtime ABI as stage0 output:
   ; store args, run global initializers, then the user body
   (func-line "export function l $main(l %argc, l %argv) {")
+  (func-line "@start")
   (func-line "call $npl_store_args(l %argc, l %argv)")
   (func-line "call $npl_global_inits()")
   (let ((result (emit-body body ())))
@@ -916,7 +944,7 @@
       (fatal "usage: nplc1 <input.npl>")
       (begin
         (let ((src (read-file (car args))))
-          (let ((cur (cell (lex-loop src 0 (string-length src) ()))))
+          (let ((cur (cell (lex-loop src 0 ()))))
             (let ((forms (parse-all cur ())))
               (begin
                 (pass-register-functions forms)

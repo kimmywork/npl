@@ -115,7 +115,13 @@ NplVal npl_car(NplVal v) {
 }
 
 NplVal npl_cdr(NplVal v) {
+#ifdef NPL_TRACE_APPEND
+    extern int g_trace_depth;
+#endif
     if (!npl_is_ptr(v)) {
+#ifdef NPL_TRACE_APPEND
+        fprintf(stderr, "[cdr-on-nonptr v=%lu]\n", (unsigned long)v);
+#endif
         fprintf(stderr, "npl_cdr: not a pair\n");
         exit(1);
     }
@@ -299,8 +305,11 @@ int npl_string_equal(NplVal a, NplVal b) {
 }
 
 NplVal npl_number_to_string(NplVal v) {
+#ifdef NPL_TRACE_APPEND
+    fprintf(stderr, "[num2str v=%lu]", (unsigned long)v);
+#endif
     if (!npl_is_fixnum(v)) {
-        fprintf(stderr, "number->string: not a fixnum\n");
+        fprintf(stderr, "number->string: not a fixnum (v=%lu)\n", (unsigned long)v);
         exit(1);
     }
     char buf[32];
@@ -355,6 +364,9 @@ NplVal npl_read_file(NplVal path) {
     memcpy(buf, p->data, p->length);
     buf[p->length] = '\0';
 
+#ifdef NPL_TRACE_APPEND
+    fprintf(stderr, "[readfile '%s']", buf);
+#endif
     FILE *fp = fopen(buf, "rb");
     free(buf);
     if (!fp) {
@@ -370,6 +382,9 @@ NplVal npl_read_file(NplVal path) {
     size_t got = fread(data, 1, (size_t)size, fp);
     fclose(fp);
     data[got] = '\0';
+#ifdef NPL_TRACE_APPEND
+    fprintf(stderr, "[size=%zu]", got);
+#endif
     NplVal out = npl_string(data, (uint32_t)got);
     free(data);
     return out;
@@ -394,6 +409,85 @@ NplVal npl_int_to_string_char(NplVal code) {
     }
     char one = (char)v;
     return box_bytes(&one, 1, BOX_STRING);
+}
+
+/* ---- bootstrap lexer hooks (increment-4) ----
+ * These keep the self-hosted lexer out of the tagged/raw numeric-domain
+ * swamp: character classification and decimal scanning happen here in C. */
+
+static const NplString *lex_str(NplVal s) {
+    return require_bytes(s, "lex");
+}
+
+/* Returns a PROPER tagged boolean (#f=10/#t=6) so the self-hosted caller
+ * can feed it straight into `if`; a raw int return would bypass retagging. */
+static inline NplVal npl_bool(int x) { return x ? (NplVal)6 : (NplVal)10; }
+
+NplVal npl_lex_class_w(NplVal cT, NplVal wantT) {
+    long c = (long)(cT >> 2);
+    long want = (long)(wantT >> 2);
+    int cls;
+#ifdef NPL_TRACE_APPEND
+    fprintf(stderr, "[class c=%ld want=%ld]", c, want);
+#endif
+    if (c == 32 || c == 9 || c == 10 || c == 13)      cls = 0; /* ws    */
+    else if (c == ';')                                 cls = 1;
+    else if (c == '(')                                 cls = 2;
+    else if (c == ')')                                 cls = 3;
+    else if (c == '\'')                                cls = 4;
+    else if (c == '"')                                 cls = 5;
+    else if (c >= '0' && c <= '9')                     cls = 6; /* digit */
+    else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+             (c >= '0' && c <= '9') ||
+             c=='-' || c=='_' || c=='?' || c=='!' || c=='*' ||
+             c=='/' || c=='+' || c=='=' || c=='<' || c=='>' ||
+             c=='%' || c=='.')                          cls = 7; /* symch */
+    else                                                cls = 8; /* bad  */
+    return npl_bool(cls == want);
+}
+
+/* Print the TAGGED bits of a fixnum as decimal text ("copy <v>" literal). */
+NplVal npl_tagged_num_to_string(NplVal v) {
+    if (!npl_is_fixnum(v)) {
+        fprintf(stderr, "tagged->string: not a fixnum (v=%lu)\n", (unsigned long)v);
+        exit(1);
+    }
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%lld", (long long)v);
+    return box_bytes(buf, (uint32_t)strlen(buf), BOX_STRING);
+}
+
+NplVal npl_lex_scan_sym_end(NplVal sT, NplVal jT) {
+    const NplString *s = lex_str(sT);
+    uint32_t len = s->length;
+    uint32_t j = (uint32_t)(jT >> 2);
+    while (j < len) {
+        unsigned char c = (unsigned char)s->data[j];
+        int is_sym = ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                      (c >= '0' && c <= '9') ||
+                      c=='-' || c=='_' || c=='?' || c=='!' || c=='*' ||
+                      c=='/' || c=='+' || c=='=' || c=='<' || c=='>' ||
+                      c=='%' || c=='.');
+        if (!is_sym) break;
+        j++;
+    }
+    return npl_fixnum(j);
+}
+
+NplVal npl_lex_number(NplVal sT, NplVal iT, NplVal jT) {
+    /* [i,j) may start with '-'; everything raw inside C */
+    const NplString *s = lex_str(sT);
+    uint32_t i = (uint32_t)(iT >> 2);
+    uint32_t j = (uint32_t)(jT >> 2);
+    long acc = 0;
+    int neg = 0;
+    if (i < j && s->data[i] == '-') { neg = 1; i++; }
+    while (i < j) {
+        if (s->data[i] >= '0' && s->data[i] <= '9')
+            acc = acc * 10 + (s->data[i] - '0');
+        i++;
+    }
+    return npl_fixnum(neg ? -acc : acc);
 }
 
 void npl_exit(NplVal code) {

@@ -787,12 +787,25 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         }
 
         /* ---- string & symbol builtins (increment-2) ---- */
+        /* (string-append s ...) — R7RS variadic: fold left to right */
         if (strcmp(fname, "string-append") == 0) {
-            const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);
-            const char *b = gen_expr(ctx, AST_CAR(AST_CDR(args)), depth + 1);
-            const char *result = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l call $npl_string_append(l %s, l %s)", result, a, b);
-            return result;
+            int n = 0;
+            AstNode *a0 = args;
+            while (a0 && !AST_IS_NIL(a0)) { n++; a0 = AST_CDR(a0); }
+            if (n < 2) {
+                codegen_error("string-append requires at least 2 arguments");
+            }
+            const char *acc = gen_expr(ctx, AST_CAR(args), depth + 1);
+            AstNode *rest = AST_CDR(args);
+            while (rest && !AST_IS_NIL(rest)) {
+                const char *b = gen_expr(ctx, AST_CAR(rest), depth + 1);
+                const char *result = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l call $npl_string_append(l %s, l %s)",
+                     result, acc, b);
+                acc = result;
+                rest = AST_CDR(rest);
+            }
+            return acc;
         }
         if (strcmp(fname, "string-length") == 0) {
             const char *a = gen_expr(ctx, AST_CAR(args), depth + 1);

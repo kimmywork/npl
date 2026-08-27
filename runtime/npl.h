@@ -193,6 +193,12 @@ NplVal npl_program_arguments(void);           /* list of arg strings, argv[1..] 
 NplVal npl_read_file(NplVal path);            /* whole file as string; aborts on error */
 void npl_exit(NplVal code);                   /* untagged fixnum, low byte */
 
+/* bootstrap lexer hooks — all take TAGGED values */
+NplVal npl_lex_class_w(NplVal cT, NplVal wantT);     /* PROPER bool */
+NplVal npl_lex_scan_sym_end(NplVal sT, NplVal jT);   /* tagged index */
+NplVal npl_tagged_num_to_string(NplVal v);           /* decimal of tagged bits */
+NplVal npl_lex_number(NplVal sT, NplVal iT, NplVal jT);
+
 /* Convert fixnum to string (for printing) */
 char *npl_fixnum_to_string(int64_t v);
 
