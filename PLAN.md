@@ -93,7 +93,10 @@
 - 递归遍历深度 list 正确返回长度
 - `./build/stage0/nplc0 tests/gc_stress.npl` 正常退出，内存峰值合理
 
-**状态**：✅ 已完成。runtime 基础已实现，cons/car/cdr 链接已验证，tagged pointer 算术已工作，gc_stress.npl 通过。
+**状态**：🟡 部分完成。tagged value、pair/string/float 构造和基础访问已工作；
+但 runtime 仍使用 `calloc`，GC allocation list 在 64-bit 上截断 next pointer，
+vector/closure mark 与可靠 sweep/自动触发均未完成，原 `gc_stress.npl` 只构造
+1000 个 cell，不能作为 GC 回收验收。
 
 ---
 
@@ -117,7 +120,10 @@
 - `(call/cc (lambda (k) (+ 1 (k 42))))` 返回 42（escape 形式）
 - 证据：三段程序的运行输出
 
-**状态**：✅ 已完成。closure conversion 已实现（lambda + 闭包对象），尾调用检测已实现。test_lambda (exit 88) 和 test_closure (exit 60) 通过。
+**状态**：🟡 部分完成。closure conversion 用例通过；2026-08-27 已实现真正的
+self-recursive tail lowering：参数先冻结、再重绑定并 `jmp @tail`，
+10,000,000 次三参数尾递归通过。跨函数 env-trampoline 与 escape-only
+`call/cc` 尚未实现，因此“完整 R7RS 控制流核心”仍未完成。
 
 ---
 
@@ -140,7 +146,9 @@
 - 类型错误编译期报错（`(: x : Integer "foo")`）
 - 10+ 类型测试用例
 
-**状态**：✅ 已完成。类型系统基础已实现（type.h/type.c），类型推导、类型检查、注解解析、QBE 类型映射、guard 检测已实现，10 个类型测试通过。
+**状态**：🟡 基础代码存在但未接入编译流水线。`type.c` 提供类型结构、简单推导
+和 guard 判定 helper，但 stage0 driver/codegen 没有调用它；当前测试主要验证普通
+Dynamic/tagged 程序可编译，尚不能证明 algorithm W、typed unboxed 或运行时 guard。
 
 ---
 
@@ -159,7 +167,9 @@
 - `swap!`、`and`/`or`、`while`（用 macro 定义）正确工作
 - hygiene 测试（宏内变量不捕获外层同名变量）
 
-**状态**：✅ 已完成。syntax-rules 宏系统已实现（macro.h/macro.c），模式匹配、模板展开、递归宏展开已工作，my-if 宏测试通过。
+**状态**：✅ 核心实现已接入。`syntax-rules` 包含 literal、ellipsis、模板重复与
+hygiene 重命名路径；现有 macro/and-or/hygiene 用例通过。后续 R7RS 扩展仍需增加
+嵌套 ellipsis 和错误诊断覆盖，但不阻塞当前宏核心。
 
 ---
 
@@ -179,7 +189,9 @@
 - 一组 R7RS conformance 测试通过（list/string/number）
 - bignum 计算 100! 正确
 
-**状态**：✅ 已完成。list 操作已实现（length/append/reverse/map/fold），R7RS conformance 测试 10/10 通过。
+**状态**：🟡 部分完成。现有测试在 NPL 程序内定义并验证了基础 list/map/fold
+用例，字符串/fixnum 路径可用；但 `src/base.npl`、vector API、bignum、可执行的
+flonum codegen 和 `100!` 验收均不存在，不能视为本阶段完成。
 
 ---
 
@@ -221,6 +233,9 @@
 
 ## Phase 9 — 并行化（SIMD + 线程库）
 
+> 本轮用户范围明确排除并行化与 structured concurrency。已有 SIMD kernel/bench
+> 保留并继续回归，但不推进 thread-pool、work-stealing、spawn/await/scope。
+
 **目标**：CPU 自动向量化（NEON）+ structured concurrency 库。
 
 **产物**：`runtime/simd_kernels.c`（NEON kernel），`src/thread.npl`
@@ -239,6 +254,8 @@
 ---
 
 ## Phase 10 — 张量 + NN 静态图
+
+**状态**：⬜ 未开始。`src/nn/tensor.npl`、`src/nn/module.npl` 与 NN tests 均不存在。
 
 **目标**：一等张量 + autograd + `nn-module` 静态图 DSL。
 
@@ -259,6 +276,8 @@
 
 ## Phase 11 — 网络库
 
+**状态**：⬜ 未开始。`src/net.npl`、socket runtime shim 与 echo 验收均不存在。
+
 **目标**：`(npl net)` 基于 socket syscall。
 
 **产物**：`src/net.npl`，runtime socket 封装
@@ -276,6 +295,8 @@
 ---
 
 ## Phase 12 — 多后端 offload 接口（预留，不实现 GPU/wasm）
+
+**状态**：⬜ 未开始。target annotation/parser/classification pass 均不存在。
 
 **目标**：在 IR 层定义 target tier 接口，CPU path 实装，GPU/wasm path 留 stub + 设计文档。
 

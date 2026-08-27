@@ -114,6 +114,33 @@ $NPLC0 -o "$WORK/el_bin" "$WORK/t_else.npl" >/dev/null 2>&1 \
     && fail "contract: misplaced else in cond must be an error" \
     || pass "contract: misplaced else rejected"
 
+# Proper self-tail calls must lower to a loop. The argument rotation also
+# proves all new values are frozen before parameters are rebound.
+cat > "$WORK/t_tail.npl" << 'EOF'
+(define (rotate n a b)
+  (if (= n 0)
+      (- a b)
+      (rotate (- n 1) b a)))
+(define (main)
+  (if (= (rotate 10000000 3 7) -4) 7 9))
+EOF
+$NPLC0 --emit-qbe "$WORK/t_tail.npl" > "$WORK/t_tail.ssa" \
+    2>"$WORK/t_tail.err" || fail "self-tail IL emission"
+sed -n '/function l $rotate/,/^}/p' "$WORK/t_tail.ssa" > "$WORK/rotate.ssa"
+grep -Fq 'jmp @tail' "$WORK/rotate.ssa" \
+    || fail "self-tail call did not emit loop jump"
+if grep -Fq 'call $rotate' "$WORK/rotate.ssa"; then
+    fail "self-tail function still contains recursive call"
+fi
+pass "self-tail call lowers to parameter-rebinding loop"
+
+nplc0_ok "$WORK/t_tail.npl" "$WORK/tail_bin"
+"$WORK/tail_bin" >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 28 ] \
+    && pass "10,000,000 self-tail calls complete with frozen arguments" \
+    || fail "tail recursion expected tagged 7 (28), got $rc"
+
 echo ""
 echo "=== All core feature tests passed ==="
 

@@ -6,7 +6,10 @@
 
 NPL：用 QBE 编译到 native 的 Scheme 方言。R7RS-small 兼容核心 + 渐进式类型系统（Typed-Racket 风格）+ 自举 + 神经网络语言构造。详见 `DESIGN.md`。
 
-当前状态：**Phase 8 进行中**。Phase 0-7 全部完成（43 项测试通过）。正在实现 NPL 子集编译器用于自举。
+当前状态：**Phase 8 bootstrap fixpoint 已完成**。规范复审后，Phase 3/4/5/7
+仍有实质缺口；当前按 `PLAN.md` 的证据状态逐项补齐。self-recursive tail loop 已通过
+10,000,000 次验收，下一优先级是 runtime/GC。并行调度与 structured concurrency
+不在当前实现范围。
 
 ## 工作约定
 
@@ -16,7 +19,7 @@ cmake -B build -G Ninja          # 一次
 ninja -C build qbe_build         # 构建 QBE
 ninja -C build smoke && ./build/smoke/hello   # 冒烟测试
 ```
-- 顶层 CMake 在仓库根。子项目：`tools/`（已建）、`stage0/`、`runtime/`、`tests/`（待建）。
+- 顶层 CMake 在仓库根。已建子项目：`tools/`、`stage0/`、`runtime/`。
 - 工具链：CMake ≥3.20 + Ninja + Apple clang 17 + QBE（`external/qbe-1.3`，内置）。
 - 目标架构默认 arm64（Apple Silicon）。
 
@@ -30,7 +33,7 @@ ninja -C build smoke && ./build/smoke/hello   # 冒烟测试
 ### 测试与验证
 - 每个增量必须跑验收命令并贴出输出作为证据。未贴证据不算完成（见 `PLAN.md` 约定）。
 - 冒烟测试：`ninja -C build smoke && ./build/smoke/hello`。
-- 自举验证（待建）：`tools/check_bootstrap.sh`，要求 stage1==stage2 字节一致。
+- 自举验证：`tools/check_bootstrap.sh`，要求 il2==il3 字节一致。
 
 ### 变更与提交
 - 提交约定：Conventional Commits（`feat`/`fix`/`docs`/`test`/`refactor`/`chore`）。
@@ -68,4 +71,6 @@ ninja -C build smoke && ./build/smoke/hello   # 冒烟测试
 
 ## 当前优先级
 
-按 `PLAN.md` 推进。当前 Phase 0（工具链闭环）已验证。下一步：Phase 1（stage0 reader/parser 骨架）。
+按 `PLAN.md` 的实证状态推进：先完成 Phase 3 runtime/GC，再完成 Phase 4
+跨函数尾调用与 escape continuation，随后接入 Phase 5 typed pipeline 并补齐 Phase 7。
+每个增量必须保持 `run_tests.sh` 与 `check_bootstrap.sh` 通过。

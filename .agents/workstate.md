@@ -2,28 +2,30 @@
 
 ## Focus
 
-Advance the self-hosted compiler's R7RS-small subset while preserving the Phase 8 bootstrap fixpoint.
+Implement the remaining `PLAN.md` and `DESIGN.md` scope, excluding parallel scheduling and structured concurrency.
 
-## Status
+## Verified
 
-- Stage0 reports matched delimiter errors with opening line/column locations.
-- Nplc1 preflights unmatched parentheses outside strings and comments.
-- Let-family parsing and the basic `case` subset pass Stage A.
-- Bootstrap fixpoint passes with byte-identical 7167-line il2/il3 output.
+- Stage0 self-recursive tail calls freeze arguments, rebind parameters, and jump to a loop header.
+- A three-parameter 10,000,000-iteration tail recursion test passes without stack growth.
+- Bootstrap fixpoint remains byte-identical at 7167 lines.
+- Core, stage0 QBE, R7RS, type, property, and smoke suites pass.
 
-## Remaining Gaps
+## Corrected Status
 
-- `case =>` and additional datum forms are not implemented.
-- `letrec` still uses sequential binding emission, not full location preallocation semantics.
-- Stage0 detects self-recursive tail position but still emits a normal call.
+- Phase 3 GC/mmap is incomplete.
+- Phase 4 still lacks cross-function tail calls and escape-only `call/cc`.
+- Phase 5 type helpers are not connected to the compiler pipeline.
+- Phase 7 lacks base library artifacts, vectors, bignum, and executable flonum support.
+- Phases 10-12 are not implemented.
 
 ## Next
 
-Implement and verify `do`, then decide whether `case =>` or full `letrec` semantics is the next R7RS increment.
+Implement Phase 3 allocation and GC with real collection evidence, preserving the bootstrap fixpoint.
 
 ## References
 
+- `PLAN.md`
+- `DESIGN.md`
 - `docs/HANDOFF.md`
-- `docs/r7rs-audit.md`
-- `docs/design-inc1-core.md`
-- `tools/check_bootstrap.sh`
+- `tools/check_core.sh`

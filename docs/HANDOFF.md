@@ -80,8 +80,9 @@ ninja -C build smoke && ./build/smoke/hello        # Phase 0 冒烟: "hello worl
    尚未支持标准中的 `=>` clause，quoted datum 类型仍受自举 reader 限制。
 2. **letrec 语义仍是近似** —— 当前 emitter 复用顺序 `emit-binds`，满足本轮值绑定回归，
    但不提供完整 letrec 的预分配 location/相互递归初始化语义。
-3. **stage0 尾调用优化未完成** —— `qbe_gen.c` 能识别 self-recursive tail position，
-   但参数重绑定仍是 TODO 并回退为普通 `call`；不要把该检测脚手架视为 TCO 已交付。
+3. **Phase 4 控制流仍未完整** —— stage0 的 self-recursive tail call 已通过
+   参数冻结/重绑定 + `jmp @tail` 实现，并通过 10,000,000 次验收；跨函数
+   env-trampoline 与 escape-only `call/cc` 仍未实现。
 4. **npl_cdr/npl_car fail-fast 改动** —— 现在 runtime 对非 pair 输入直接 abort(exit 1),
    不再返回 nil;若有调用方依赖旧行为需排查(git log runtime/alloc.c 有记录)。
 5. **diagnostic trace 钩子** —— npl_tracev/npl_trace2/npl_dump_addrs 留在 runtime
@@ -99,10 +100,12 @@ ninja -C build smoke && ./build/smoke/hello        # Phase 0 冒烟: "hello worl
 ## 三、接下来的规划
 
 ### P0(下一会话最优先)
-1. **完成 `do` 的 parse/emit 分支并加入 Stage A/fixpoint 回归**。
-2. **决定 `case =>` 是否进入当前 L1 子集**；未决定前保持 audit 中的 partial 标记。
-3. **实现真正的 letrec location 预分配语义**，用相互递归或 forward-reference 用例验收。
-4. **把 /tmp/w2x 内仍有价值的零散测试正式化** → 合入 tools/check_core.sh + tests/。
+1. **完成 Phase 3 runtime/GC**：mmap arena、64-bit 安全 allocation metadata、
+   roots/mark/sweep/自动触发，以及百万级 cons 回收验收。
+2. **完成 Phase 4 剩余控制流**：跨函数 tail trampoline 与 escape-only `call/cc`。
+3. **把 Phase 5 type helper 接入 driver/codegen**，以 unboxed IL、错误注解和
+   typed↔Dynamic guard 三类证据验收。
+4. **补齐 Phase 7**：base library、vector、flonum、bignum 与 `100!`。
 
 ### P1(Phase 9 推进)
 5. structured concurrency: spawn/await/scope(runtime pthread shim +

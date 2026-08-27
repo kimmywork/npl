@@ -30,8 +30,12 @@ typedef struct {
     int     next_tmp;   /* counter for temporaries */
     int     next_label; /* counter for labels */
     int     depth;      /* nesting depth for indentation */
-    int     in_tail;    /* 1 if current position is a tail position */
+    int     in_tail;    /* 1 if the expression being generated is in tail position */
+    int     expr_terminated; /* current expression ended its block with a jump */
     char    current_func[128]; /* current function name (for self-recursion detection) */
+    AstNode *current_params;  /* parameters rebound by self-tail jumps */
+    char    if_slot_base[32]; /* entry-allocated storage for branch merge values */
+    int     next_if_slot;
 } QbeCtx;
 
 /* Initialize code generation context */
