@@ -1,32 +1,13 @@
-# Current Workstate
+# Workstate
 
-## Focus
+## Current
 
-Complete language features in the self-hosted compiler. Keep stage0 limited to compiling and running `src/compiler.npl`.
+Stage0 frontend is complete: generic S-expression AST, fixnum/boolean/string/symbol/pair reader, and recursive top-level `include` expansion.
 
-## Verified
+## Evidence
 
-- Bootstrap Stage A passes.
-- Bootstrap fixpoint is byte-identical at 12060 lines.
-- Self-hosted Integer/Bool/Float typed emission and typed self-tail paths pass current tests.
-- Self-hosted Pair parameters support guards and typed construction/access.
-- Self-hosted unary `(-> A B)` and explicit typed lambdas use managed closures, lexical captures, function guards, and `npl_apply`.
-- Runtime GC, proper tail calls, managed closures, and escape-only `call/cc` pass focused acceptance.
-
-## Remaining Gaps
-
-- Phase 5 lacks self-hosted HM, record/row, and refinement support.
-- Phase 7 lacks base library artifacts, vectors, bignum, and complete numeric-tower support.
-- Phases 10-12 are not implemented.
+`./tools/check_stage0.sh` prints `stage0 frontend: PASS`.
 
 ## Next
 
-Implement local HM inference/generalization in the self-hosted typed pipeline without extending stage0.
-
-## References
-
-- `PLAN.md`
-- `DESIGN.md`
-- `docs/HANDOFF.md`
-- `tools/check_type.sh`
-- `tools/check_bootstrap.sh`
+Implement tagged QBE emission for the stage0 language in `PLAN.md` section 2.

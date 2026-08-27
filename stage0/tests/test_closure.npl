@@ -1,8 +1,0 @@
-; test_closure.npl — Phase 4 test: closure with captured variable
-
-(define (make-adder n)
-  (lambda (x) (+ x n)))
-
-(define (main)
-  (let ((add5 (make-adder 5)))
-    (add5 10)))

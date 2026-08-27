@@ -1,2 +1,0 @@
-(define (square x) (* x x))
-(define (add a b) (+ a b))
