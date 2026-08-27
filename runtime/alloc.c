@@ -103,6 +103,14 @@ unsigned long npl_runtime_anchor(void) {
     return (unsigned long)(uintptr_t)&g_alloc_head;
 }
 
+void npl_tracev(unsigned long v) {
+#ifdef NPL_TRACE_APPEND
+    fprintf(stderr, "[V=%lu]", v);
+#else
+    (void)v;
+#endif
+}
+
 /* ---- Value accessors ---- */
 
 NplVal npl_car(NplVal v) {

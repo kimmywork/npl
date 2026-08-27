@@ -272,3 +272,22 @@ ref 边界、symbol/string 互转恒等(eq? 与 string=?)。
    使用 runtime anchor 差值法定位到 rev_into+0x44)
 - 下一步:diff c1il.ssa 与 nplc1 自身产物中 $rev/$eval_args_fixed/
   user_call 三函数;嫌疑集中于 eval-args-fixed 累积方向或 env 链
+
+## Stage B 缺陷精确定位(2026-08-27 第二轮末)
+
+方法确立:
+1. runtime 注入 `void npl_tracev(unsigned long)` + QBE IL 文本级插桩
+   (`%tv =l call $npl_tracev(...)` 必须置于 @start 之后!)
+2. PIE 下 LR→符号映射用 runtime anchor(`&g_alloc_head`)差值校准
+3. ar rcs 会追加旧 .o —— 必须先 rm 再归档
+
+发现(对 h2.npl,经 nplc2):
+- rev_into 共被调 7 次,前 6 次入参为合法链指针且互差 64B,
+  第 7 次入参即 nil(10)→ tokens 链在第 7 个 cell 处断裂
+- 结论:c1il 生成的运行时里存在一处内存损坏(疑似某 storel
+  写错槽或 inits 执行次序),使 lexer 构建的 token 链短命
+- next step(cold-session ready):
+  a. c1il.ssa 中给 $cell/$npl_cons 入口同法插桩,找写路径
+  b. 重点复查 emit_global_slot 的 CURBUF/I-F 分支与
+     declare-string-box 中遗留 last-glob-slot("$FIX_ME")死代码
+  c. h2 最小化失败样例可作回归夹具
