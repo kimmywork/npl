@@ -216,7 +216,16 @@
           (if (string=? nm "if") 3
               (if (string=? nm "let") 4
                   (if (string=? nm "quote") 5
-                      (if (string=? nm "begin") 6 0)))))))
+                      (if (string=? nm "begin") 6
+                          ; increment-3 additions (desugared at emit time)
+                          (if (string=? nm "when") 7
+                              (if (string=? nm "unless") 8
+                                  (if (string=? nm "case") 9
+                                      (if (string=? nm "do") 10
+                                          (if (string=? nm "letrec") 11
+                                              (if (string=? nm "letrec*") 12
+                                                  (if (string=? nm "let*") 13
+                                                      0))))))))))))))
 
 (define (parse-list-form cur)
   (advance! cur)
@@ -240,14 +249,29 @@
         (if (= tag 6)
             (begin (advance! cur)
                    (cons 216 (grab-body-until-rparen cur)))
-            (if (= tag 3)
-                (parse-if cur)
-                (if (= tag 1)
-                    (parse-define cur)
-                    (if (= tag 2)
-                        (parse-lambda cur)
-                        (parse-let cur))))))))
+            (if (or2b (= tag 7) (= tag 8))
+                (begin (advance! cur)
+                       (list3 tag (parse-expr cur) (grab-body-until-rparen cur)))
+                (if (or2b (= tag 11) (= tag 12))
+                    (begin (advance! cur)
+                           (cons 220 (cons (binding-pairs cur)
+                                           (cons (grab-body-until-rparen cur) ()))))
+                    (if (= tag 13)
+                        (begin (advance! cur)
+                               (cons 221 (cons (binding-pairs cur)
+                                               (cons (grab-body-until-rparen cur) ()))))
+                        (if (= tag 3)
+                            (parse-if cur)
+                            (if (= tag 1)
+                                (parse-define cur)
+                                (if (= tag 2)
+                                    (parse-lambda cur)
+                                    (parse-let cur)))))))))))
 
+(define (or2b a b) (if a #t b))
+(define (list3 a b c) (cons a (cons b (cons c ()))))
+
+; case clause: ((datum ...) body...) | ((else) body...)
 (define (grab-body-until-rparen cur)
   (if (= (peek-kind cur) 2)
       (begin (advance! cur) ())
@@ -627,6 +651,34 @@
       (emit-application e env)
       (tagged-dispatch e env)))
 
+; ---------- increment-3 emitters ----------
+
+; when (tag 7):  (if test (begin body) nil)
+; unless (tag 8):(if test nil (begin body))
+; body-list is empty-> value is test itself per R7RS spirit; we emit the
+; begin wrapper unconditionally and let nil-body yield #f via alt marker.
+(define (emit-when-unless e env)
+  (let ((tag (car e)))
+    (let ((test (car (cdr e))))
+      (let ((body-list (car (cdr (cdr e)))))
+        (let ((body-form (cons 216 body-list)))
+          (if (= tag 7)
+              (emit-if (cons 213 (cons test (cons body-form (cons 10 ())))) env)
+              (emit-if (cons 213 (cons test (cons 10 (cons body-form ())))) env)))))))
+
+; letrec / letrec*: bindings evaluated then stored into a preallocated
+; set of slots so forward references resolve to cells rather than errors.
+; stage0 slice strategy: evaluate inits in order (letrec* semantics),
+; which is what our own compiler sources rely on.
+(define (emit-letrec e env)
+  (let ((binds (car (cdr e))))
+    (let ((body (car (cdr (cdr e)))))
+      (emit-binds binds body env))))
+
+(define (emit-letstar e env)
+  ; identical emission for let* in this slice (sequenced re-binding)
+  (emit-binds (car (cdr e)) (car (cdr (cdr e))) env))
+
 (define (tagged-dispatch e env)
   (let ((tag (car e)))
     (if (= tag 108)
@@ -646,12 +698,20 @@
                         (if (= tag 213)
                             (emit-if e env)
                             (if (= tag 214)
-                        (emit-let e env)
-                        (if (= tag 216)
-                            (emit-body (cdr e) env)
-                            (if (= tag 215)
-                                (emit-application e env)
-                                (fatal "unknown AST form"))))))))))))
+                                (emit-let e env)
+                                (if (= tag 216)
+                                    (emit-body (cdr e) env)
+                                    (if (= tag 7)
+                                        (emit-when-unless e env)
+                                        (if (= tag 8)
+                                            (emit-when-unless e env)
+                                            (if (= tag 11)
+                                                (emit-letrec e env)
+                                                (if (= tag 13)
+                                                    (emit-letstar e env)
+                                                (if (= tag 215)
+                                                    (emit-application e env)
+                                                    (fatal "unknown AST form"))))))))))))))))
 
 (define (emit-application e env)
   (let ((head (car e)))
