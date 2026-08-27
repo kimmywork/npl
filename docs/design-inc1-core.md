@@ -393,3 +393,25 @@ wrapper 机制处理 h2_clean:
 
 替代路径评估:若 Stage B 继续受阻,可按 PLAN.md Phase 9(SIMD kernel)
 或先补 Phase 4 承诺的 call/cc escape 形式 — 都不依赖自举闭环。
+
+## Phase 8 最终状态(2026-08-27,收官核对)
+
+全部验收项:
+- [x] Stage A(check_bootstrap.sh):nplc1 编译算术=5/递归=7/带参42/'ok'9
+- [x] il2 发射(6267 行)→ nplc2 构建成功
+- [x] **不动点:il2 == il3 逐字节一致**(bootstrap exit 0)
+- [x] 五套件回归(run_tests.sh):stage0/R7RS/core/type/PBT 全绿
+
+增量总账(对应当轮全部 commits):
+- inc1 核心特性:R7RS 布尔域统一、cond、内部 define、quote→静态 data、
+  runtime-init 全局双通道、fail-fast codegen
+- inc2 字符串/符号内建 + OOB 契约测试
+- inc3 统一测试 runner + PBT 四性质(prop_tests.py)
+- inc4 自举:nplc1 编译器本体(L1 面)+ 词法 C 钩子 + call-with-ops
+  任意参数化修复 —— 不动点闭合的最后一块
+
+已知残留(记录不阻塞):
+- letrec 解析偏移 bug(wip d8ee44c)在自举源之外仍未修;
+  when/unless 已可用
+- diag trace 钩子(npl_tracev/npl_trace2/npl_dump_addrs)留在 runtime,
+  无 #ifdef 开销,后续可按需裁撤
