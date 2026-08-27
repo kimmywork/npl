@@ -222,6 +222,41 @@ build_ssa "$WORK/compound.ssa" "$WORK/compound"
 run_expect "$WORK/compound" 168
 pass "Pair and function annotations lower through typed pointer guards"
 
+cat > "$WORK/pair-self-host.npl" << 'EOF'
+(define (first-plus (p : (Pair Integer Integer)) (n : Integer)) : Integer
+  (+ (car p) n))
+(define (typed-pair (x : Integer)) : Integer
+  (cdr (cons #t x)))
+(define (main) (+ (first-plus (cons 1 2) 39) (typed-pair 1)))
+EOF
+"$NPLC0" --emit-qbe "$WORK/pair-self-host.npl" > "$WORK/pair0.ssa"
+build_ssa "$WORK/pair0.ssa" "$WORK/pair0"
+run_expect "$WORK/pair0" 164
+emit_stage1 "$WORK/pair-self-host.npl" "$WORK/pair1.ssa"
+grep -Fq 'function w $first_plus__typed(l %p0, w %p1)' "$WORK/pair1.ssa" \
+    || fail "nplc1 Pair parameter is not a typed pointer"
+grep -Fq 'call $npl_guard_pair' "$WORK/pair1.ssa" \
+    || fail "nplc1 Pair boundary guard missing"
+grep -Fq 'call $npl_box_bool' "$WORK/pair1.ssa" \
+    || fail "nplc1 typed cons did not box its Bool element"
+grep -Fq 'call $npl_cdr' "$WORK/pair1.ssa" \
+    || fail "nplc1 typed cdr lowering missing"
+build_ssa "$WORK/pair1.ssa" "$WORK/pair1"
+run_expect "$WORK/pair1" 164
+
+cat > "$WORK/pair-mismatch.npl" << 'EOF'
+(define (first (p : (Pair Integer Integer))) : Integer (car p))
+(define (bad (x : Integer)) : Integer (first (cons #t x)))
+(define (main) 0)
+EOF
+rc=0
+"$WORK/nplc1" "$WORK/pair-mismatch.npl" > "$WORK/pair-bad.out" \
+    2> "$WORK/pair-bad.err" || rc=$?
+[ "$rc" -ne 44 ] || fail "nplc1 accepted mismatched Pair element types"
+grep -Fq 'typed call argument mismatch' "$WORK/pair-bad.out" \
+    || fail "nplc1 Pair mismatch diagnostic missing"
+pass "self-hosted Pair parsing, guards, construction, and access are typed"
+
 cat > "$WORK/tail.npl" << 'EOF'
 (define (count (n : Integer) (acc : Integer)) : Integer
   (if (= n 0) acc (count (- n 1) (+ acc 1))))
