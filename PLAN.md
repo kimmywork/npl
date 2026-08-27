@@ -155,8 +155,11 @@ fully-annotated `Integer`/`Bool` 函数生成 `function w ...__typed`，typed di
 保持 unboxed，Dynamic wrapper 插入 guard 并 box 返回值。nplc0 实现 fresh vars、
 occurs-check unification、let-generalization/instantiation；多态 `id` 在同一作用域实例化
 为 Integer 与 Bool。typed lambda 可通过 managed env 捕获；nplc0/nplc1 的
-10,000,000 次 unboxed self-tail 均通过。剩余：Float、Pair/record/函数复合类型的
-完整 unboxed lowering，以及 self-host compiler 的 HM/typed-lambda 子集。
+10,000,000 次 unboxed self-tail 均通过。Float 函数在两编译器中使用 QBE `d`，
+包含 guard/boxing、比较和 self-tail；nplc0 还支持 `(Pair A B)` 与 `(-> A B)`
+typed pointer 参数、kind guard、typed `car`/`cdr` 和 closure apply。剩余：record/row/
+refinement、更多复合类型 lowering，以及 self-host compiler 的 HM/typed-lambda 与
+结构化类型语法。
 
 ---
 

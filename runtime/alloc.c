@@ -279,8 +279,37 @@ int32_t npl_guard_bool(NplVal value)
     exit(1);
 }
 
+double npl_guard_float(NplVal value)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_FLOAT) {
+        fprintf(stderr, "type guard: expected Float\n");
+        exit(1);
+    }
+    return ((NplFloat *)npl_header(value))->value;
+}
+
+NplVal npl_guard_pair(NplVal value)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PAIR) {
+        fprintf(stderr, "type guard: expected Pair\n");
+        exit(1);
+    }
+    return value;
+}
+
+NplVal npl_guard_closure(NplVal value)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE) {
+        fprintf(stderr, "type guard: expected function\n");
+        exit(1);
+    }
+    return value;
+}
+
 NplVal npl_box_integer(int32_t value) { return npl_fixnum(value); }
 NplVal npl_box_bool(int32_t value) { return value ? npl_true() : npl_false(); }
+NplVal npl_box_float(double value) { return npl_float(value); }
+NplVal npl_box_identity(NplVal value) { return value; }
 
 unsigned long npl_runtime_anchor(void) {
     return (unsigned long)(uintptr_t)&g_alloc_head;
@@ -1009,6 +1038,7 @@ NplVal npl_lex_tokens(NplVal source)
         if ((c >= '0' && c <= '9') ||
             (c == '-' && i + 1 < length &&
              data[i + 1] >= '0' && data[i + 1] <= '9')) {
+            uint32_t start = i;
             int negative = c == '-';
             if (negative) i++;
             int64_t number = 0;
@@ -1016,8 +1046,17 @@ NplVal npl_lex_tokens(NplVal source)
                 number = number * 10 + (data[i] - '0');
                 i++;
             }
-            if (negative) number = -number;
-            tokens = npl_cons(lex_token(5, npl_fixnum(number)), tokens);
+            if (i < length && data[i] == '.' && i + 1 < length &&
+                data[i + 1] >= '0' && data[i + 1] <= '9') {
+                i++;
+                while (i < length && data[i] >= '0' && data[i] <= '9') i++;
+                NplVal text = box_bytes((const char *)data + start,
+                                        i - start, BOX_STRING);
+                tokens = npl_cons(lex_token(10, text), tokens);
+            } else {
+                if (negative) number = -number;
+                tokens = npl_cons(lex_token(5, npl_fixnum(number)), tokens);
+            }
             continue;
         }
         if (lex_symbol_char(c)) {

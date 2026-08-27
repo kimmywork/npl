@@ -27,7 +27,7 @@ ninja -C build smoke && ./build/smoke/hello        # Phase 0 冒烟: "hello worl
 | type system (10 组) | ✅ | `tools/check_type.sh` |
 | property-based tests (PBT) | ✅ | `tools/prop_tests.py` — P1 eval 正确性(200-seed)/P2 fuzz/P3 fail-fast/P4 AST 稳定|
 | **Phase 8 Stage A** | ✅ | 基线 4 程序 + let-family 6 程序 + case 3 程序 + unmatched diagnostics 2 组 |
-| **Phase 8 Stage B 不动点** | ✅ | il2==il3 **10254 行逐字节一致** |
+| **Phase 8 Stage B 不动点** | ✅ | il2==il3 **10742 行逐字节一致** |
 
 > 当前待提交改动已通过 `run_tests.sh`、`check_bootstrap.sh` 与 smoke。`case`
 > 仅承诺本轮覆盖的 datum-list/else/顺序 body 子集；完整 R7RS `case` 仍见
@@ -97,8 +97,8 @@ ninja -C build smoke && ./build/smoke/hello        # Phase 0 冒烟: "hello worl
 ## 三、接下来的规划
 
 ### P0(下一会话最优先)
-1. **完成 Phase 5 剩余类型能力**：Float 与 Pair/record/函数复合类型 unboxed，
-   并把局部 HM/typed lambda 子集移植到 self-host compiler。
+1. **完成 Phase 5 剩余类型能力**：record/row/refinement 与更多复合类型 lowering，
+   并把局部 HM/typed lambda/结构类型子集移植到 self-host compiler。
 2. **补齐 Phase 7**：base library、vector、flonum、bignum 与 `100!`。
 
 ### P1(R7RS 缺口收敛, 详见 docs/r7rs-audit.md 优先级)

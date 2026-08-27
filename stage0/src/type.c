@@ -891,36 +891,51 @@ static Type *infer_call(AstNode *expr, TypeEnv *env, TypeProgram *program,
     if (strcmp(name, "+") == 0 || strcmp(name, "-") == 0 ||
         strcmp(name, "*") == 0 || strcmp(name, "/") == 0 ||
         strcmp(name, "%") == 0) {
-        Type *result = type_integer();
+        Type *result = NULL;
         for (AstNode *arg = args; arg && !AST_IS_NIL(arg); arg = AST_CDR(arg)) {
             Type *actual = infer_program_expr(AST_CAR(arg), env, program, ok,
                                               errbuf, errbuf_size);
             actual = resolve(actual);
             if (!*ok) return NULL;
-            if (actual->kind == TYPE_FLOAT) result = type_float();
-            else if (actual->kind == TYPE_DYNAMIC) result = type_dynamic();
-            else if (!type_unify(actual, type_integer())) {
+            if (actual->kind == TYPE_DYNAMIC) return type_dynamic();
+            if (actual->kind != TYPE_VAR && actual->kind != TYPE_INTEGER &&
+                actual->kind != TYPE_FLOAT) {
                 type_error(errbuf, errbuf_size,
                            "type error in %s: expected numeric operand, got %s",
                            name, type_name(actual));
                 *ok = 0;
                 return NULL;
             }
+            if (!result) result = actual;
+            else if (!type_unify(result, actual)) {
+                type_error(errbuf, errbuf_size,
+                           "type error in %s: mixed numeric operand types", name);
+                *ok = 0;
+                return NULL;
+            }
         }
-        return result;
+        return result ? resolve(result) : type_integer();
     }
     if (strcmp(name, "<") == 0 || strcmp(name, ">") == 0 ||
         strcmp(name, "=") == 0 || strcmp(name, "<=") == 0 ||
         strcmp(name, ">=") == 0) {
+        Type *operand = NULL;
         for (AstNode *arg = args; arg && !AST_IS_NIL(arg); arg = AST_CDR(arg)) {
             Type *actual = infer_program_expr(AST_CAR(arg), env, program, ok,
                                               errbuf, errbuf_size);
-            if (!*ok || !type_unify(actual, type_integer())) {
+            actual = resolve(actual);
+            if (actual && actual->kind == TYPE_DYNAMIC) continue;
+            if (!*ok || !actual ||
+                (actual->kind != TYPE_VAR && actual->kind != TYPE_INTEGER &&
+                 actual->kind != TYPE_FLOAT) ||
+                (operand && !type_unify(operand, actual))) {
                 type_error(errbuf, errbuf_size,
-                           "type error in %s: expected Integer operand", name);
+                           "type error in %s: expected matching numeric operands",
+                           name);
                 *ok = 0;
                 return NULL;
             }
+            if (!operand) operand = actual;
         }
         return type_bool();
     }
@@ -933,6 +948,23 @@ static Type *infer_call(AstNode *expr, TypeEnv *env, TypeProgram *program,
             ? infer_program_expr(AST_CAR(rest), env, program, ok, errbuf, errbuf_size)
             : type_dynamic();
         return type_pair(car, cdr);
+    }
+    if (strcmp(name, "car") == 0 || strcmp(name, "cdr") == 0) {
+        Type *pair = args && !AST_IS_NIL(args)
+            ? infer_program_expr(AST_CAR(args), env, program, ok,
+                                 errbuf, errbuf_size)
+            : type_dynamic();
+        pair = resolve(pair);
+        if (pair && pair->kind == TYPE_PAIR)
+            return strcmp(name, "car") == 0
+                ? pair->as.pair.car : pair->as.pair.cdr;
+        if (pair && pair->kind != TYPE_DYNAMIC) {
+            type_error(errbuf, errbuf_size,
+                       "type error in %s: expected Pair", name);
+            *ok = 0;
+            return NULL;
+        }
+        return type_dynamic();
     }
     if (strcmp(name, "null?") == 0 || strcmp(name, "pair?") == 0 ||
         strcmp(name, "number?") == 0 || strcmp(name, "not") == 0)

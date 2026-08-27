@@ -235,6 +235,10 @@
   (let ((k (peek-kind cur)))
     (if (= k 5)
         (let ((v (peek-payload cur))) (advance! cur) v)
+        (if (= k 10)
+            (let ((v (peek-payload cur)))
+              (advance! cur)
+              (cons 225 v))
         (if (= k 7)
             (fatal "unexpected end of input")
             (if (= k 2)
@@ -250,7 +254,7 @@
                                 (if (= k 3)
                                     (begin (advance! cur)
                                            (cons 204 (cons (parse-quote-datum cur) ())))
-                                    (parse-list-form cur)))))))))))
+                                    (parse-list-form cur))))))))))))
 
 (define (parse-quote-datum cur)
   (let ((k (peek-kind cur)))
@@ -403,9 +407,11 @@
             1
             (if (string=? name "Bool")
                 2
-                (if (string=? name "Dynamic")
-                    0
-                    (fatal (string-append "unknown type " name))))))))
+                (if (string=? name "Float")
+                    3
+                    (if (string=? name "Dynamic")
+                        0
+                        (fatal (string-append "unknown type " name)))))))))
 
 (define (parse-optional-result-type cur)
   (if (next-symbol? cur ":")
@@ -959,7 +965,12 @@
             (let ((r (new-tmp)))
               (func-line (string-append r " =l copy 10"))
               r)
-            (if (= tag 100)
+            (if (= tag 225)
+                (let ((r (new-tmp)))
+                  (func-line
+                    (string-append r " =l call $npl_float(d d_" (cdr e) ")"))
+                  r)
+                (if (= tag 100)
                 (symbol-value (cdr e) env)
                 (if (= tag 101)
                     (fresh-string-op (cdr e))
@@ -983,7 +994,7 @@
                                                     (emit-case e env)
                                                 (if (= tag 215)
                                                     (emit-application e env)
-                                                    (fatal "unknown AST form")))))))))))))))))
+                                                    (fatal "unknown AST form"))))))))))))))))))
 
 (define (emit-application e env)
   (let ((head (car e)))
@@ -1327,17 +1338,34 @@
           (cdr (car env))
           (tenv-lookup (cdr env) nm))))
 
+(define (typed-qbe-type ty) (if (= ty 3) "d" "w"))
+(define (typed-guard-name ty)
+  (if (= ty 2) "npl_guard_bool"
+      (if (= ty 3) "npl_guard_float" "npl_guard_integer")))
+(define (typed-box-name ty)
+  (if (= ty 2) "npl_box_bool"
+      (if (= ty 3) "npl_box_float" "npl_box_integer")))
+(define (typed-store-op ty) (if (= ty 3) "stored" "storew"))
+(define (typed-load-op ty)
+  (if (= ty 3) "loadd" (if (= ty 2) "loaduw" "loadsw")))
+
 (define (typed-qop nm)
   (if (string=? nm "+") "add"
       (if (string=? nm "-") "sub"
           (if (string=? nm "*") "mul" ""))))
 
-(define (typed-cmp-op nm)
-  (if (string=? nm "<") "csltw"
-      (if (string=? nm ">") "csgtw"
-          (if (string=? nm "=") "ceqw"
-              (if (string=? nm "<=") "cslew"
-                  (if (string=? nm ">=") "csgew" ""))))))
+(define (typed-cmp-op nm ty)
+  (if (= ty 3)
+      (if (string=? nm "<") "cltd"
+          (if (string=? nm ">") "cgtd"
+              (if (string=? nm "=") "ceqd"
+                  (if (string=? nm "<=") "cled"
+                      (if (string=? nm ">=") "cged" "")))))
+      (if (string=? nm "<") "csltw"
+          (if (string=? nm ">") "csgtw"
+              (if (string=? nm "=") "ceqw"
+                  (if (string=? nm "<=") "cslew"
+                      (if (string=? nm ">=") "csgew" "")))))))
 
 (define (typed-expr e env)
   (if (number? e)
@@ -1357,7 +1385,9 @@
 
 (define (typed-tagged e env)
   (let ((tag (car e)))
-    (if (= tag 108)
+    (if (= tag 225)
+        (typed-value 3 (string-append "d_" (cdr e)))
+        (if (= tag 108)
         (typed-value 2 "1")
         (if (= tag 109)
             (typed-value 2 "0")
@@ -1367,7 +1397,7 @@
                     (typed-let e env)
                     (if (= tag 216)
                         (typed-body (cdr e) env)
-                        (fatal "unsupported construct in typed code"))))))))
+                        (fatal "unsupported construct in typed code")))))))))
 
 (define (typed-application e env)
   (let ((head (car e)))
@@ -1377,31 +1407,36 @@
           (let ((qop (typed-qop nm)))
             (if (> (string-length qop) 0)
                 (typed-binary qop (cdr e) env)
-                (let ((cmp (typed-cmp-op nm)))
+                (let ((cmp (typed-cmp-op nm 1)))
                   (if (> (string-length cmp) 0)
-                      (typed-compare cmp (cdr e) env)
+                      (typed-compare nm (cdr e) env)
                       (typed-user-call nm (cdr e) env)))))))))
 
 (define (typed-binary qop args env)
   (check-arity args 2 2)
   (let ((a (typed-expr (car args) env)))
     (let ((b (typed-expr (car (cdr args)) env)))
-      (if (not (= (tv-type a) 1)) (fatal "typed arithmetic needs Integer") 0)
-      (if (not (= (tv-type b) 1)) (fatal "typed arithmetic needs Integer") 0)
+      (if (if (not (= (tv-type a) (tv-type b)))
+              #t
+              (if (= (tv-type a) 1) #f (not (= (tv-type a) 3))))
+          (fatal "typed arithmetic needs matching numeric operands") 0)
       (let ((r (new-tmp)))
-        (func-line (string-append r " =w " qop " " (tv-op a)
-                                  ", " (tv-op b)))
-        (typed-value 1 r)))))
+        (func-line (string-append r " =" (typed-qbe-type (tv-type a))
+                                  " " qop " " (tv-op a) ", " (tv-op b)))
+        (typed-value (tv-type a) r)))))
 
-(define (typed-compare qop args env)
+(define (typed-compare nm args env)
   (check-arity args 2 2)
   (let ((a (typed-expr (car args) env)))
     (let ((b (typed-expr (car (cdr args)) env)))
-      (if (not (= (tv-type a) 1)) (fatal "typed comparison needs Integer") 0)
-      (if (not (= (tv-type b) 1)) (fatal "typed comparison needs Integer") 0)
+      (if (if (not (= (tv-type a) (tv-type b)))
+              #t
+              (if (= (tv-type a) 1) #f (not (= (tv-type a) 3))))
+          (fatal "typed comparison needs matching numeric operands") 0)
       (let ((r (new-tmp)))
-        (func-line (string-append r " =w " qop " " (tv-op a)
-                                  ", " (tv-op b)))
+        (func-line (string-append r " =w "
+                                  (typed-cmp-op nm (tv-type a)) " "
+                                  (tv-op a) ", " (tv-op b)))
         (typed-value 2 r)))))
 
 (define (typed-eval-args args env types acc)
@@ -1415,10 +1450,11 @@
                 (typed-eval-args (cdr args) env (cdr types)
                                  (cons (tv-op value) acc)))))))
 
-(define (typed-wargs ops)
+(define (typed-args ops types)
   (if (null? (cdr ops))
-      (string-append "w " (car ops))
-      (string-append "w " (car ops) ", " (typed-wargs (cdr ops)))))
+      (string-append (typed-qbe-type (car types)) " " (car ops))
+      (string-append (typed-qbe-type (car types)) " " (car ops) ", "
+                     (typed-args (cdr ops) (cdr types)))))
 
 (define (typed-user-call nm args env)
   (let ((spec (type-func nm)))
@@ -1427,9 +1463,10 @@
         (let ((ops (typed-eval-args args env (car spec) ())))
           (let ((r (new-tmp)))
             (func-line
-              (string-append r " =w call $" (lookup-func nm)
-                             "__typed("
-                             (if (null? ops) "" (typed-wargs ops)) ")"))
+              (string-append r " =" (typed-qbe-type (cdr spec))
+                             " call $" (lookup-func nm) "__typed("
+                             (if (null? ops) ""
+                                 (typed-args ops (car spec))) ")"))
             (typed-value (cdr spec) r))))))
 
 (define (typed-if e env)
@@ -1443,19 +1480,23 @@
             (func-line (string-append "jnz " (tv-op test) ", " lt ", " lf))
             (func-line lt)
             (let ((yes (typed-expr (car (cdr (cdr e))) env)))
-              (func-line (string-append "storew " (tv-op yes) ", " slot))
+              (func-line
+                (string-append (typed-store-op (tv-type yes)) " "
+                               (tv-op yes) ", " slot))
               (func-line (string-append "jmp " ld))
               (func-line lf)
               (let ((no (typed-expr (car (cdr (cdr (cdr e)))) env)))
                 (if (not (= (tv-type yes) (tv-type no)))
                     (fatal "typed if branch mismatch") 0)
-                (func-line (string-append "storew " (tv-op no) ", " slot))
+                (func-line
+                  (string-append (typed-store-op (tv-type no)) " "
+                                 (tv-op no) ", " slot))
                 (func-line (string-append "jmp " ld))
                 (func-line ld)
                 (let ((r (new-tmp)))
                   (func-line
-                    (string-append r " =w "
-                      (if (= (tv-type yes) 2) "loaduw " "loadsw ") slot))
+                    (string-append r " =" (typed-qbe-type (tv-type yes))
+                                   " " (typed-load-op (tv-type yes)) " " slot))
                   (typed-value (tv-type yes) r))))))))))
 
 (define (typed-let e env)
@@ -1485,20 +1526,22 @@
         (tenv-extend env (cdr (car params)) (car types)
                      (string-append "%p" (number->string idx))))))
 
-(define (render-typed-params params idx)
+(define (render-typed-params params types idx)
   (if (null? params)
       ""
       (string-append (if (= idx 0) "" ", ")
-                     "w %p" (number->string idx)
-                     (render-typed-params (cdr params) (+ idx 1)))))
+                     (typed-qbe-type (car types))
+                     " %p" (number->string idx)
+                     (render-typed-params (cdr params) (cdr types)
+                                          (+ idx 1)))))
 
 (define (guard-params types idx acc)
   (if (null? types)
       (rev acc)
       (let ((raw (new-tmp)))
         (func-line
-          (string-append raw " =w call $"
-            (if (= (car types) 2) "npl_guard_bool" "npl_guard_integer")
+          (string-append raw " =" (typed-qbe-type (car types)) " call $"
+            (typed-guard-name (car types))
             "(l %p" (number->string idx) ")"))
         (guard-params (cdr types) (+ idx 1) (cons raw acc)))))
 
@@ -1515,27 +1558,29 @@
           #f)
       #f))
 
-(define (freeze-w-ops ops acc)
+(define (freeze-w-ops ops types acc)
   (if (null? ops)
       (rev acc)
       (let ((tmp (new-tmp)))
-        (func-line (string-append tmp " =w copy " (car ops)))
-        (freeze-w-ops (cdr ops) (cons tmp acc)))))
+        (func-line (string-append tmp " =" (typed-qbe-type (car types))
+                                  " copy " (car ops)))
+        (freeze-w-ops (cdr ops) (cdr types) (cons tmp acc)))))
 
-(define (rebind-typed-params ops idx)
+(define (rebind-typed-params ops types idx)
   (if (null? ops)
       0
       (begin
         (func-line
           (string-append "%p" (number->string idx)
-                         " =w copy " (car ops)))
-        (rebind-typed-params (cdr ops) (+ idx 1)))))
+                         " =" (typed-qbe-type (car types))
+                         " copy " (car ops)))
+        (rebind-typed-params (cdr ops) (cdr types) (+ idx 1)))))
 
 (define (typed-tail-self e env)
   (let ((ops (typed-eval-args (cdr e) env
                               (cell-get TYPED-CURRENT-TYPES) ())))
-    (let ((frozen (freeze-w-ops ops ())))
-      (rebind-typed-params frozen 0)
+    (let ((frozen (freeze-w-ops ops (cell-get TYPED-CURRENT-TYPES) ())))
+      (rebind-typed-params frozen (cell-get TYPED-CURRENT-TYPES) 0)
       (func-line "jmp @typed_tail")
       (typed-value (- 0 (cdr (type-func (cell-get TYPED-CURRENT)))) "0"))))
 
@@ -1559,14 +1604,18 @@
               (if (typed-terminated? yes)
                   0
                   (begin
-                    (func-line (string-append "storew " (tv-op yes) ", " slot))
+                    (func-line
+                      (string-append (typed-store-op (typed-real-type yes))
+                                     " " (tv-op yes) ", " slot))
                     (func-line (string-append "jmp " ld))))
               (func-line lf)
               (let ((no (typed-tail-expr (car (cdr (cdr (cdr e)))) env)))
                 (if (typed-terminated? no)
                     0
                     (begin
-                      (func-line (string-append "storew " (tv-op no) ", " slot))
+                      (func-line
+                        (string-append (typed-store-op (typed-real-type no))
+                                       " " (tv-op no) ", " slot))
                       (func-line (string-append "jmp " ld))))
                 (if (if (typed-terminated? yes) (typed-terminated? no) #f)
                     (typed-value (- 0 (typed-real-type yes)) "0")
@@ -1582,8 +1631,8 @@
                                     (tv-type no) (tv-type yes))))
                         (let ((r (new-tmp)))
                           (func-line
-                            (string-append r " =w "
-                              (if (= ty 2) "loaduw " "loadsw ") slot))
+                            (string-append r " =" (typed-qbe-type ty) " "
+                              (typed-load-op ty) " " slot))
                           (typed-value ty r)))))))))))))
 
 (define (typed-body-tail body env)
@@ -1605,20 +1654,21 @@
   (let ((raw-args (guard-params types 0 ())))
     (let ((raw-result (new-tmp)))
       (func-line
-        (string-append raw-result " =w call $" (sanitize nm 0 "")
-                       "__typed("
-                       (if (null? raw-args) "" (typed-wargs raw-args)) ")"))
+        (string-append raw-result " =" (typed-qbe-type result-type)
+                       " call $" (sanitize nm 0 "") "__typed("
+                       (if (null? raw-args) ""
+                           (typed-args raw-args types)) ")"))
       (let ((boxed (new-tmp)))
         (func-line
-          (string-append boxed " =l call $"
-            (if (= result-type 2) "npl_box_bool" "npl_box_integer")
-            "(w " raw-result ")"))
+          (string-append boxed " =l call $" (typed-box-name result-type)
+            "(" (typed-qbe-type result-type) " " raw-result ")"))
         (func-line (string-append "ret " boxed)))))
   (func-line "}")
   ; Unboxed implementation.
   (func-line
-    (string-append "function w $" (sanitize nm 0 "") "__typed("
-                   (render-typed-params params 0) ") {"))
+    (string-append "function " (typed-qbe-type result-type) " $"
+                   (sanitize nm 0 "") "__typed("
+                   (render-typed-params params types 0) ") {"))
   (func-line "@start")
   (cell-set! TYPED-IF-SLOT (new-tmp))
   (func-line (string-append (cell-get TYPED-IF-SLOT) " =l alloc8 8"))

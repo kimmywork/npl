@@ -172,8 +172,13 @@ NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
                         int64_t arity);
 int32_t npl_guard_integer(NplVal value);
 int32_t npl_guard_bool(NplVal value);
+double npl_guard_float(NplVal value);
+NplVal npl_guard_pair(NplVal value);
+NplVal npl_guard_closure(NplVal value);
 NplVal npl_box_integer(int32_t value);
 NplVal npl_box_bool(int32_t value);
+NplVal npl_box_float(double value);
+NplVal npl_box_identity(NplVal value);
 NplVal npl_apply(NplVal closure, int64_t argc, NplVal *argv);
 void npl_tail_request_closure(NplVal closure, int64_t argc, NplVal *argv);
 NplVal npl_call_cc(NplVal procedure);

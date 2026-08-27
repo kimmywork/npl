@@ -118,6 +118,27 @@ build_ssa "$WORK/bool1.ssa" "$WORK/bool1"
 run_expect "$WORK/bool1" 28
 pass "Bool results are unboxed internally and boxed at Dynamic boundaries"
 
+cat > "$WORK/float.npl" << 'EOF'
+(define (sum (a : Float) (b : Float)) : Float (+ a b))
+(define (is-three (x : Float)) : Bool (= (sum x 1.5) 3.0))
+(define (main) (if (is-three 1.5) 7 9))
+EOF
+"$NPLC0" --emit-qbe "$WORK/float.npl" > "$WORK/float0.ssa"
+grep -Fq 'function d $sum__typed(d %a, d %b)' "$WORK/float0.ssa" \
+    || fail "nplc0 missing unboxed Float body"
+grep -Fq 'call $npl_guard_float' "$WORK/float0.ssa" \
+    || fail "nplc0 Float guard missing"
+build_ssa "$WORK/float0.ssa" "$WORK/float0"
+run_expect "$WORK/float0" 28
+emit_stage1 "$WORK/float.npl" "$WORK/float1.ssa"
+grep -Fq 'function d $sum__typed(d %p0, d %p1)' "$WORK/float1.ssa" \
+    || fail "nplc1 missing unboxed Float body"
+grep -Fq 'call $npl_guard_float' "$WORK/float1.ssa" \
+    || fail "nplc1 Float guard missing"
+build_ssa "$WORK/float1.ssa" "$WORK/float1"
+run_expect "$WORK/float1" 28
+pass "Float arithmetic, comparison, guards, and boxing agree across both compilers"
+
 cat > "$WORK/guard.npl" << 'EOF'
 (define (identity x) x)
 (define (inc (x : Integer)) : Integer (+ x 1))
@@ -181,6 +202,26 @@ build_ssa "$WORK/typed-lambda.ssa" "$WORK/typed-lambda"
 run_expect "$WORK/typed-lambda" 168
 pass "explicit typed lambda captures an Integer through a managed environment"
 
+cat > "$WORK/compound.npl" << 'EOF'
+(define (first-plus (p : (Pair Integer Integer)) (n : Integer)) : Integer
+  (+ (car p) n))
+(define (apply-one (f : (-> Integer Integer)) (x : Integer)) : Integer
+  (f x))
+(define (main)
+  (+ (first-plus (cons 1 2) 40)
+     (apply-one (lambda ((y : Integer)) : Integer (+ y 1)) 0)))
+EOF
+"$NPLC0" --emit-qbe "$WORK/compound.npl" > "$WORK/compound.ssa"
+grep -Fq 'call $npl_guard_pair' "$WORK/compound.ssa" \
+    || fail "typed Pair boundary guard missing"
+grep -Fq 'call $npl_guard_closure' "$WORK/compound.ssa" \
+    || fail "typed function boundary guard missing"
+grep -Eq 'call \$npl_(apply|tail_request_closure)' "$WORK/compound.ssa" \
+    || fail "typed function parameter application missing"
+build_ssa "$WORK/compound.ssa" "$WORK/compound"
+run_expect "$WORK/compound" 168
+pass "Pair and function annotations lower through typed pointer guards"
+
 cat > "$WORK/tail.npl" << 'EOF'
 (define (count (n : Integer) (acc : Integer)) : Integer
   (if (= n 0) acc (count (- n 1) (+ acc 1))))
@@ -204,5 +245,29 @@ fi
 build_ssa "$WORK/tail1.ssa" "$WORK/tail1"
 run_expect "$WORK/tail1" 28
 pass "both compilers run 10000000 unboxed self-tail iterations"
+
+cat > "$WORK/float-tail.npl" << 'EOF'
+(define (float-count (n : Float) (acc : Float)) : Float
+  (if (= n 0.0) acc (float-count (- n 1.0) (+ acc 1.0))))
+(define (float-ok (x : Float)) : Bool (= x 100007.0))
+(define (main) (if (float-ok (float-count 100000.0 7.0)) 7 9))
+EOF
+"$NPLC0" --emit-qbe "$WORK/float-tail.npl" > "$WORK/float-tail0.ssa"
+sed -n '/function d $float_count__typed/,/^}/p' "$WORK/float-tail0.ssa" \
+    > "$WORK/float-count0.ssa"
+grep -Fq 'jmp @typed_tail' "$WORK/float-count0.ssa" \
+    || fail "nplc0 Float self-tail loop missing"
+build_ssa "$WORK/float-tail0.ssa" "$WORK/float-tail0"
+run_expect "$WORK/float-tail0" 28
+emit_stage1 "$WORK/float-tail.npl" "$WORK/float-tail1.ssa"
+sed -n '/function d $float_count__typed/,/^}/p' "$WORK/float-tail1.ssa" \
+    > "$WORK/float-count1.ssa"
+grep -Fq 'stored ' "$WORK/float-count1.ssa" \
+    || fail "nplc1 Float tail merge does not store double"
+grep -Fq 'loadd ' "$WORK/float-count1.ssa" \
+    || fail "nplc1 Float tail merge does not load double"
+build_ssa "$WORK/float-tail1.ssa" "$WORK/float-tail1"
+run_expect "$WORK/float-tail1" 28
+pass "both compilers preserve Float values through unboxed self-tail loops"
 
 echo "=== Type-system acceptance passed ==="
