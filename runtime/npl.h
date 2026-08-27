@@ -23,6 +23,7 @@
 
 /* ---- Tagged pointer type ---- */
 typedef uintptr_t NplVal;
+typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 
 /* ---- Tag bits (low 2 bits) ---- */
 #define TAG_FIXNUM  0   /* fixnum: value in upper 62 bits */
@@ -77,8 +78,9 @@ typedef struct {
 /* ---- Closure ---- */
 typedef struct {
     NplHeader header;
-    uintptr_t function;
+    NplGenericFunction function;
     NplVal environment;
+    int64_t arity;
 } NplClosure;
 
 /* ---- Float ---- */
@@ -162,6 +164,19 @@ NplVal npl_cdr(NplVal v);
 /* Set car/cdr of a pair */
 void npl_set_car(NplVal pair, NplVal val);
 void npl_set_cdr(NplVal pair, NplVal val);
+
+/* Generic NPL call ABI used by closures and the tail trampoline. */
+NplVal npl_make_environment(int64_t argc, NplVal *argv);
+NplVal npl_environment_ref(NplVal environment, int64_t index);
+NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
+                        int64_t arity);
+NplVal npl_apply(NplVal closure, int64_t argc, NplVal *argv);
+void npl_tail_request_closure(NplVal closure, int64_t argc, NplVal *argv);
+NplVal npl_call_cc(NplVal procedure);
+NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
+                      int64_t argc, NplVal *argv);
+void npl_tail_request(NplGenericFunction function, NplVal environment,
+                      int64_t argc, NplVal *argv);
 
 /* Garbage collection */
 void npl_gc_collect(void);

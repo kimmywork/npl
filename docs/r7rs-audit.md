@@ -3,7 +3,7 @@
 > 数据来源:`docs/reference/r7rs.html`(R7RS-small 官方 HTML,全库条目
 > 头部机械化抽取)。R7RS-small 共定义 **319 个独立标识符**(base 库
 > ≈239,其余分布在 char/inexact/file/lazy/cxr 等 14 个标准库)。
-> 与 stage0/nplc1 当前 emit 面比对:直接可用约 40 个。下列分组是
+> 与 stage0/nplc1 当前 emit 面比对:直接可用约 42 个。下列分组是
 > 标识符盘点与落地成本分类；具体实现状态以“当前实现覆盖”一节为准。
 >
 > **审计结论执行口径**:DESIGN.md §1.1 的目标一直是"R7RS-small 兼容核心 +
@@ -16,9 +16,9 @@
 - (process-context) 1: exit
 - (write) 1: display
 
-## B-stage0(编译器自用) — 15
+## B-stage0 direct — 17
 
-- base(15): /, =, and, begin, cond, define-syntax, else, if, lambda, let, number?, or, quote, set!, string-ref
+- base(17): /, =, and, begin, call-with-current-continuation, call/cc, cond, define-syntax, else, if, lambda, let, number?, or, quote, set!, string-ref
 
 ## C-macro易(syntax-rules可写) — 5
 
@@ -52,9 +52,9 @@
 - base(10): define-library, define-record-type, define-values, include, include-ci, let*-values, let-syntax, let-values, letrec-syntax, syntax-error
 - (case-lambda) 1: case-lambda
 
-## C-runtime(C函数) — 190
+## C-runtime(C函数) — 188
 
-- base(113): ..., =>, _, apply, binary-port?, boolean=?, bytevector, bytevector-append, bytevector-copy, bytevector-copy!, bytevector-length, bytevector-u8-ref, bytevector-u8-set!, bytevector?, caar, cadr, call-with-current-continuation, call-with-port, call-with-values, call/cc, cdar, cddr, char->integer, char-ready?, char<=?, char>=?, char?, close-input-port, close-output-port, close-port, complex?, current-error-port, current-input-port, current-output-port, denominator, dynamic-wind, eof-object, eof-object?, equal?, eqv?, error, error-object-irritants, error-object-message, error-object?, exact-integer?, features, file-error?, flush-output-port, get-output-bytevector, get-output-string, guard, input-port-open?, input-port?, integer->char, list->vector, list?, make-bytevector, make-parameter, make-string, make-vector, numerator, open-input-bytevector, open-input-string, open-output-bytevector, open-output-string, output-port-open?, output-port?, parameterize, peek-char, peek-u8, port?, procedure?, raise, raise-continuable, rationalize, read-bytevector, read-bytevector!, read-char, read-error?, read-line, read-string, read-u8, string, string->number, string->symbol, string->utf8, string->vector, string-copy!, string-fill!, string-set!, string<=?, string<?, string>=?, string>?, string?, symbol=?, symbol?, syntax-rules, template, textual-port?, u8-ready?, utf8->string, values, vector, vector->list, vector->string, vector-copy!, vector?, with-exception-handler, write-bytevector, write-char, write-string, write-u8
+- base(111): ..., =>, _, apply, binary-port?, boolean=?, bytevector, bytevector-append, bytevector-copy, bytevector-copy!, bytevector-length, bytevector-u8-ref, bytevector-u8-set!, bytevector?, caar, cadr, call-with-port, call-with-values, cdar, cddr, char->integer, char-ready?, char<=?, char>=?, char?, close-input-port, close-output-port, close-port, complex?, current-error-port, current-input-port, current-output-port, denominator, dynamic-wind, eof-object, eof-object?, equal?, eqv?, error, error-object-irritants, error-object-message, error-object?, exact-integer?, features, file-error?, flush-output-port, get-output-bytevector, get-output-string, guard, input-port-open?, input-port?, integer->char, list->vector, list?, make-bytevector, make-parameter, make-string, make-vector, numerator, open-input-bytevector, open-input-string, open-output-bytevector, open-output-string, output-port-open?, output-port?, parameterize, peek-char, peek-u8, port?, procedure?, raise, raise-continuable, rationalize, read-bytevector, read-bytevector!, read-char, read-error?, read-line, read-string, read-u8, string, string->number, string->symbol, string->utf8, string->vector, string-copy!, string-fill!, string-set!, string<=?, string<?, string>=?, string>?, string?, symbol=?, symbol?, syntax-rules, template, textual-port?, u8-ready?, utf8->string, values, vector, vector->list, vector->string, vector-copy!, vector?, with-exception-handler, write-bytevector, write-char, write-string, write-u8
 - (char) 22: char-alphabetic?, char-ci<=?, char-ci<?, char-ci=?, char-ci>=?, char-ci>?, char-downcase, char-foldcase, char-lower-case?, char-numeric?, char-upcase, char-upper-case?, char-whitespace?, digit-value, string-ci<=?, string-ci<?, string-ci=?, string-ci>=?, string-ci>?, string-downcase, string-foldcase, string-upcase
 - (inexact) 12: acos, asin, atan, cos, exp, finite?, infinite?, log, nan?, sin, sqrt, tan
 - (file) 10: call-with-input-file, call-with-output-file, delete-file, file-exists?, open-binary-input-file, open-binary-output-file, open-input-file, open-output-file, with-input-from-file, with-output-to-file
@@ -76,9 +76,9 @@
 | 状态 | 数量 | 占比(总 319 标识符) |
 |------|------|------|
 | A. nplc1 内建可直接发射 | 25 | ~8% |
-| B. stage0 编译器自用面 | 15 | ~5% |
+| B. stage0 direct | 17 | ~5% |
 | C. syntax-rules 可派生 | 5 | ~2% |
-| D/E/F/G 未实现 | 274 | ~85% |
+| D/E/F/G 未实现 | 272 | ~85% |
 
 ### 差距解读与优先级建议
 
@@ -96,8 +96,8 @@ char/inexact/file/…等标准库)。当前实现的战略定位(DESIGN.md §6.2
    cond-expand 和完整 `case =>`;
 4. **letrec 家族**:let* 与简单值绑定已可用;完整 letrec location
    预分配/相互递归语义仍需实现;
-5. **异常+call/cc escape**(error/raise/guard/dynamic-wind):
-   对应 Phase 4 遗留的 escape continuation 形式 — R7RS §3.5/§6.11;
+5. **异常族**(error/raise/guard/dynamic-wind):escape-only `call/cc` 与
+   `call-with-current-continuation` 已完成；异常对象、handler 与 dynamic-wind 仍缺;
 6. **模块系统**(define-library/syntax-error/include)与 bytevector/port:
    体量大、独立性强,建议排后。
 
@@ -105,5 +105,5 @@ char/inexact/file/…等标准库)。当前实现的战略定位(DESIGN.md §6.2
 
 C 剩余(do/cond-expand/`case =>`)→ E 完整 letrec 语义→
 F-NPL 层(list/map 先行,依赖闭包)→ 数值塔 NPL 层 →
-D(quasiquote;可先用 syntax-rules 简化版)→ 异常族(先做 escape-only
-call/cc 即满足 DESIGN v1 承诺)→ G(module;后续演进)。
+D(quasiquote;可先用 syntax-rules 简化版)→ 异常族(error/raise/guard)→
+G(module;后续演进)。

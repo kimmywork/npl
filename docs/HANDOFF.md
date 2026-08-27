@@ -80,14 +80,11 @@ ninja -C build smoke && ./build/smoke/hello        # Phase 0 冒烟: "hello worl
    尚未支持标准中的 `=>` clause，quoted datum 类型仍受自举 reader 限制。
 2. **letrec 语义仍是近似** —— 当前 emitter 复用顺序 `emit-binds`，满足本轮值绑定回归，
    但不提供完整 letrec 的预分配 location/相互递归初始化语义。
-3. **Phase 4 控制流仍未完整** —— stage0 的 self-recursive tail call 已通过
-   参数冻结/重绑定 + `jmp @tail` 实现，并通过 10,000,000 次验收；跨函数
-   env-trampoline 与 escape-only `call/cc` 仍未实现。
-4. **npl_cdr/npl_car fail-fast 改动** —— 现在 runtime 对非 pair 输入直接 abort(exit 1),
+3. **npl_cdr/npl_car fail-fast 改动** —— 现在 runtime 对非 pair 输入直接 abort(exit 1),
    不再返回 nil;若有调用方依赖旧行为需排查(git log runtime/alloc.c 有记录)。
-5. **diagnostic trace 钩子** —— npl_tracev/npl_trace2/npl_dump_addrs 留在 runtime
+4. **diagnostic trace 钩子** —— npl_tracev/npl_trace2/npl_dump_addrs 留在 runtime
    (fprintf 到 stderr), 编译器主路径零影响, 后续可加 #ifdef 或删除。
-6. **structured concurrency(spawn/await/scope)** —— 用户指示降级未实施(PLAN Phase 9 后半段)。
+5. **structured concurrency(spawn/await/scope)** —— 用户指示降级未实施(PLAN Phase 9 后半段)。
 
 ### 已知限制(设计层面接受)
 - 自举语言面 L1 故意**不含闭包/高阶函数**调用(limiting but deliberate),
@@ -100,22 +97,16 @@ ninja -C build smoke && ./build/smoke/hello        # Phase 0 冒烟: "hello worl
 ## 三、接下来的规划
 
 ### P0(下一会话最优先)
-1. **完成 Phase 4 剩余控制流**：跨函数 tail trampoline 与 escape-only `call/cc`。
-2. **把 Phase 5 type helper 接入 driver/codegen**，以 unboxed IL、错误注解和
+1. **把 Phase 5 type helper 接入 driver/codegen**，以 unboxed IL、错误注解和
    typed↔Dynamic guard 三类证据验收。
-3. **补齐 Phase 7**：base library、vector、flonum、bignum 与 `100!`。
+2. **补齐 Phase 7**：base library、vector、flonum、bignum 与 `100!`。
 
-### P1(Phase 9 推进)
-5. structured concurrency: spawn/await/scope(runtime pthread shim +
-   work-stealing 简版), PLAN.md 原文要求
-6. NEON: matmul kernel(PLAN 说 SIMD 3x+ 达标, 可继续扩展 NN 需要的算子)
-
-### P2(R7RS 缺口收敛, 详见 docs/r7rs-audit.md 优先级)
-7. C 组剩余派生形式(`do`/`cond-expand`)与 `case =>`
-8. E 组完整 letrec 语义,D(quasiquote 简化版)
-9. F 组(list/map/reverse 等 NPL 层可写的 library function)
-10. 数值塔(abs/floor/gcd/lcm 等),异常族(error/raise/guard;先做 escape-only call/cc
-   即满足 DESIGN v1 承诺), G(define-library 等大特性最后)
+### P1(R7RS 缺口收敛, 详见 docs/r7rs-audit.md 优先级)
+3. C 组剩余派生形式(`do`/`cond-expand`)与 `case =>`
+4. E 组完整 letrec 语义,D(quasiquote 简化版)
+5. F 组(list/map/reverse 等 NPL 层可写的 library function)
+6. 数值塔(abs/floor/gcd/lcm 等)与异常族(error/raise/guard)，
+   G(define-library 等大特性最后)
 
 ### 验收口径提醒(团队约定)
 - 每次提交前跑 `./tools/run_tests.sh`(全绿)+ `./tools/check_bootstrap.sh`(exit 0)

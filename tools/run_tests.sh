@@ -17,6 +17,7 @@ SUITES=(
     "runtime mmap + GC             : $SCRIPT_DIR/check_gc.sh"
     "R7RS conformance              : $SCRIPT_DIR/check_r7rs.sh"
     "core features (increment-1/2) : $SCRIPT_DIR/check_core.sh"
+    "closures + control flow       : $SCRIPT_DIR/check_control.sh"
     "type system                   : $SCRIPT_DIR/check_type.sh"
 )
 

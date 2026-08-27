@@ -32,6 +32,7 @@ typedef struct {
     int     depth;      /* nesting depth for indentation */
     int     in_tail;    /* 1 if the expression being generated is in tail position */
     int     expr_terminated; /* current expression ended its block with a jump */
+    int     trampoline_body; /* current function body can return tail requests */
     char    current_func[128]; /* current function name (for self-recursion detection) */
     AstNode *current_params;  /* parameters rebound by self-tail jumps */
     char    if_slot_base[32]; /* entry-allocated storage for branch merge values */

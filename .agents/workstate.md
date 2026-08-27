@@ -7,25 +7,25 @@ Implement remaining `PLAN.md` and `DESIGN.md` scope, excluding parallel scheduli
 ## Verified
 
 - Bootstrap fixpoint is byte-identical at 7192 lines.
-- Self-recursive calls lower to parameter-rebinding loops; 10,000,000 iterations pass.
-- Runtime uses 64KB mmap chunks and iterative stop-the-world mark-sweep.
-- GC acceptance covers 1,000,000 short-lived pairs and a retained 100,000-node NPL list.
-- GC stress passes ASan/UBSan; all project suites and smoke pass.
+- Runtime mmap/mark-sweep GC passes million-allocation and live-graph acceptance.
+- Self tail calls use in-function loops; cross-function and closure tails use a generic runtime trampoline.
+- Managed closures preserve captured environments across automatic GC.
+- Escape-only `call/cc` supports nested dynamic escapes and rejects expired continuations.
+- Control acceptance covers 10,000,000 mutual tail calls and a 100,000-element map.
 
 ## Remaining Gaps
 
-- Phase 4 lacks cross-function tail calls and escape-only `call/cc`.
 - Phase 5 type helpers are not connected to the compiler pipeline.
 - Phase 7 lacks base library artifacts, vectors, bignum, and executable flonum support.
 - Phases 10-12 are not implemented.
 
 ## Next
 
-Implement Phase 4 cross-function tail transfer and escape-only continuations while preserving bootstrap fixpoint.
+Connect Phase 5 type inference, annotations, unboxed lowering, and Dynamic guards to stage0.
 
 ## References
 
 - `PLAN.md`
 - `DESIGN.md`
 - `docs/HANDOFF.md`
-- `tools/check_gc.sh`
+- `tools/check_control.sh`

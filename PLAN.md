@@ -121,10 +121,12 @@ threshold 自动触发和 free-list 重用；collector 扫描显式 roots、runt
 - `(call/cc (lambda (k) (+ 1 (k 42))))` 返回 42（escape 形式）
 - 证据：三段程序的运行输出
 
-**状态**：🟡 部分完成。closure conversion 用例通过；2026-08-27 已实现真正的
-self-recursive tail lowering：参数先冻结、再重绑定并 `jmp @tail`，
-10,000,000 次三参数尾递归通过。跨函数 env-trampoline 与 escape-only
-`call/cc` 尚未实现，因此“完整 R7RS 控制流核心”仍未完成。
+**状态**：✅ 已完成。closure/environment 已迁移到 GC-managed generic ABI；
+固定参数 wrapper 进入可嵌套 runtime trampoline，self tail 使用参数重绑定 +
+`jmp @tail`，跨函数与 closure tail 使用同步复制的 tail request。escape-only
+`call/cc`/`call-with-current-continuation` 支持正常返回、非尾逃逸和嵌套边界，
+并拒绝动态范围外调用。验收覆盖 10,000,000 次 mutual tail、100,000 元素 map、
+GC 后 closure 环境和 `(call/cc (lambda (k) (+ 1 (k 42)))) => 42`。
 
 ---
 

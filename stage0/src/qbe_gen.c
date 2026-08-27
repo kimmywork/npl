@@ -67,6 +67,7 @@ void qbe_ctx_init(QbeCtx *ctx, FILE *out, SymTab *symtab)
     ctx->depth = 0;
     ctx->in_tail = 0;
     ctx->expr_terminated = 0;
+    ctx->trampoline_body = 0;
     ctx->current_func[0] = '\0';
     ctx->current_params = NULL;
     ctx->if_slot_base[0] = '\0';
@@ -170,6 +171,8 @@ static int is_builtin_name(const char *name)
             strcmp(name, "substring") == 0 ||
             strcmp(name, "int->string") == 0 ||
             strcmp(name, "program-arguments") == 0 ||
+            strcmp(name, "call/cc") == 0 ||
+            strcmp(name, "call-with-current-continuation") == 0 ||
             strcmp(name, "read-file") == 0 || strcmp(name, "exit") == 0 ||
             strcmp(name, "set-car!") == 0 || strcmp(name, "set-cdr!") == 0);
 }
@@ -452,6 +455,48 @@ static const char *gen_body_at(QbeCtx *ctx, AstNode *body, int depth, int tail)
     return result;
 }
 
+static const char *gen_closure_call(QbeCtx *ctx, const char *closure,
+                                    AstNode *args, int depth, int tail)
+{
+    int argc = 0;
+    char values[16][64];
+    AstNode *arg = args;
+    while (arg && !AST_IS_NIL(arg)) {
+        if (argc >= 16) codegen_error("closure call supports at most 16 arguments");
+        const char *value = gen_expr_at(ctx, AST_CAR(arg), depth + 1, 0);
+        snprintf(values[argc], sizeof(values[argc]), "%s", value);
+        argc++;
+        arg = AST_CDR(arg);
+    }
+
+    const char *argv = "0";
+    if (argc > 0) {
+        argv = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =l alloc8 %d", argv, argc * 8);
+        for (int i = 0; i < argc; i++) {
+            const char *slot = argv;
+            if (i > 0) {
+                slot = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l add %s, %d", slot, argv, i * 8);
+            }
+            emit(ctx, "storel %s, %s", values[i], slot);
+        }
+    }
+
+    if (tail && ctx->trampoline_body) {
+        emit(ctx, "call $npl_tail_request_closure(l %s, l %d, l %s)",
+             closure, argc, argv);
+        emit(ctx, "ret 2");
+        ctx->expr_terminated = 1;
+        return "2";
+    }
+
+    const char *result = qbe_gen_tmp(ctx);
+    emit(ctx, "%s =l call $npl_apply(l %s, l %d, l %s)",
+         result, closure, argc, argv);
+    return result;
+}
+
 /* Nested lambdas own their slots and are emitted as separate functions. */
 static int count_if_nodes(AstNode *node)
 {
@@ -491,6 +536,17 @@ static void next_if_slot(QbeCtx *ctx, char *slot, size_t slot_size)
         snprintf(slot, slot_size, "%s", tmp);
         emit(ctx, "%s =l add %s, %d", slot, ctx->if_slot_base, index * 8);
     }
+}
+
+static Symbol *lookup_global_function(QbeCtx *ctx, const char *name)
+{
+    const char *interned = sym_intern(name);
+    for (int i = ctx->symtab->count - 1; i >= 0; i--) {
+        Symbol *symbol = &ctx->symtab->entries[i];
+        if (symbol->kind == SYM_GLOBAL_FUNC && symbol->name == interned)
+            return symbol;
+    }
+    return NULL;
 }
 
 /* Generate QBE IL for a body sequence with internal defines.
@@ -563,17 +619,17 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             return sym->as.local.qbe_name;
         }
         if (sym && sym->kind == SYM_GLOBAL_FUNC) {
-            /* Global function reference — create a closure object */
             char safe_name[128];
             qbe_sanitize_name(expr->as.symbol, safe_name, sizeof(safe_name));
+            int arity = 0;
+            for (AstNode *p = sym->as.func.params;
+                 p && !AST_IS_NIL(p); p = AST_CDR(p)) {
+                arity++;
+            }
             const char *closure = qbe_gen_tmp(ctx);
-            const char *func_ptr = qbe_gen_tmp(ctx);
-            const char *env_slot = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l alloc8 16", closure);
-            emit(ctx, "%s =l copy $%s", func_ptr, safe_name);
-            emit(ctx, "storel %s, %s", func_ptr, closure);
-            emit(ctx, "%s =l add %s, 8", env_slot, closure);
-            emit(ctx, "storel 0, %s", env_slot);
+            emit(ctx,
+                 "%s =l call $npl_make_closure(l $%s__body, l 2, l %d)",
+                 closure, safe_name, arity);
             return closure;
         }
         if (sym && sym->kind == SYM_GLOBAL_VAR) {
@@ -653,45 +709,10 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         AstNode *args = AST_CDR(expr);
 
         if (func->tag != AST_SYMBOL) {
-            /* Lambda application or complex expression */
-            /* Generate the function expression first */
-            const char *func_val = gen_expr(ctx, func, depth + 1);
+            const char *func_val = gen_expr_at(ctx, func, depth + 1, 0);
             if (!func_val || strcmp(func_val, "0") == 0) return "0";
-
-            /* Generate arguments */
-            int ac = 0;
-            char av[16][64];
-            AstNode *al = args;
-            while (al && !AST_IS_NIL(al) && ac < 16) {
-                const char *v = gen_expr(ctx, AST_CAR(al), depth + 1);
-                strncpy(av[ac], v, 63);
-                av[ac][63] = '\0';
-                ac++;
-                al = AST_CDR(al);
-            }
-
-            /* Extract func_ptr and env from closure */
-            const char *fp = qbe_gen_tmp(ctx);
-            const char *ep = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l loadl %s", fp, func_val);
-            const char *es = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l add %s, 8", es, func_val);
-            emit(ctx, "%s =l loadl %s", ep, es);
-
-            /* Call */
-            const char *result = qbe_gen_tmp(ctx);
-            if (ac == 0) {
-                emit(ctx, "%s =l call %s(l %s)", result, fp, ep);
-            } else if (ac == 1) {
-                emit(ctx, "%s =l call %s(l %s, l %s)", result, fp, ep, av[0]);
-            } else if (ac == 2) {
-                emit(ctx, "%s =l call %s(l %s, l %s, l %s)", result, fp, ep, av[0], av[1]);
-            } else {
-                emit_raw(ctx, "%s =l call %s(l %s, l %s", result, fp, ep, av[0]);
-                for (int i = 1; i < ac; i++) fprintf(ctx->out, ", l %s", av[i]);
-                fprintf(ctx->out, ")\n");
-            }
-            return result;
+            return gen_closure_call(ctx, func_val, args, depth,
+                                    expr_is_tail);
         }
 
         const char *fname = func->as.symbol;
@@ -946,6 +967,17 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             emit(ctx, "call $npl_exit(l %s)", a);
             return "2";
         }
+        if (strcmp(fname, "call/cc") == 0 ||
+            strcmp(fname, "call-with-current-continuation") == 0) {
+            if (!args || AST_IS_NIL(args) ||
+                !AST_IS_NIL(AST_CDR(args)))
+                codegen_error("%s expects exactly one argument", fname);
+            const char *procedure = gen_expr_at(
+                ctx, AST_CAR(args), depth + 1, 0);
+            const char *result = qbe_gen_tmp(ctx);
+            emit(ctx, "%s =l call $npl_call_cc(l %s)", result, procedure);
+            return result;
+        }
         if (strcmp(fname, "set-car!") == 0) {
             const char *p = gen_expr(ctx, AST_CAR(args), depth + 1);
             const char *v = gen_expr(ctx, AST_CAR(AST_CDR(args)), depth + 1);
@@ -958,6 +990,11 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             emit(ctx, "call $npl_set_cdr(l %s, l %s)", p, v);
             return "2";
         }
+
+        Symbol *callee = symtab_lookup(ctx->symtab, fname);
+        if (callee && callee->kind == SYM_LOCAL)
+            return gen_closure_call(ctx, callee->as.local.qbe_name, args,
+                                    depth, expr_is_tail);
 
         /* A direct self-call in tail position becomes parameter rebinding
          * followed by a jump to the function's loop header. */
@@ -1001,8 +1038,56 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             }
         }
 
+        /* Any other direct tail call transfers to the generic dispatcher.
+         * npl_tail_request copies argv synchronously before this frame returns. */
+        Symbol *tail_target = lookup_global_function(ctx, fname);
+        if (expr_is_tail && ctx->trampoline_body && tail_target) {
+            int argc = 0;
+            char values[16][64];
+            AstNode *al = args;
+            while (al && !AST_IS_NIL(al)) {
+                if (argc >= 16)
+                    codegen_error("tail call supports at most 16 arguments");
+                const char *value = gen_expr_at(ctx, AST_CAR(al), depth + 1, 0);
+                snprintf(values[argc], sizeof(values[argc]), "%s", value);
+                argc++;
+                al = AST_CDR(al);
+            }
+
+            int expected = 0;
+            for (AstNode *p = tail_target->as.func.params;
+                 p && !AST_IS_NIL(p); p = AST_CDR(p)) {
+                expected++;
+            }
+            if (argc != expected)
+                codegen_error("tail call to '%s' expects %d arguments, got %d",
+                              fname, expected, argc);
+
+            const char *argv = "0";
+            if (argc > 0) {
+                argv = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l alloc8 %d", argv, argc * 8);
+                for (int i = 0; i < argc; i++) {
+                    const char *slot = argv;
+                    if (i > 0) {
+                        slot = qbe_gen_tmp(ctx);
+                        emit(ctx, "%s =l add %s, %d", slot, argv, i * 8);
+                    }
+                    emit(ctx, "storel %s, %s", values[i], slot);
+                }
+            }
+
+            char safe_fname[128];
+            qbe_sanitize_name(fname, safe_fname, sizeof(safe_fname));
+            emit(ctx,
+                 "call $npl_tail_request(l $%s__body, l 2, l %d, l %s)",
+                 safe_fname, argc, argv);
+            emit(ctx, "ret 2");
+            ctx->expr_terminated = 1;
+            return "2";
+        }
+
         const char *result = qbe_gen_tmp(ctx);
-        /* Collect arguments */
         AstNode *arg_list = args;
         int arg_count = 0;
         char arg_bufs[16][64];
@@ -1122,37 +1207,55 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             AstNode *fv = free_vars;
             while (fv && !AST_IS_NIL(fv)) { n_free++; fv = AST_CDR(fv); }
         }
+        if (n_free > 16)
+            codegen_error("lambda captures at most 16 variables");
 
         /* ---- Generate the lambda function into lambda buffer ---- */
         FILE *saved_out = ctx->out;
+        FILE *definition_out = tmpfile();
+        if (!definition_out) codegen_error("cannot create lambda buffer");
         int saved_depth = ctx->depth;
         char saved_func[128];
         char saved_if_slot_base[32];
         int saved_next_if_slot = ctx->next_if_slot;
+        int saved_trampoline_body = ctx->trampoline_body;
+        int saved_symtab_count = ctx->symtab->count;
+        int saved_next_local = ctx->symtab->next_local;
         AstNode *saved_params = ctx->current_params;
         snprintf(saved_func, sizeof(saved_func), "%s", ctx->current_func);
         snprintf(saved_if_slot_base, sizeof(saved_if_slot_base), "%s",
                  ctx->if_slot_base);
-        ctx->out = ctx->lambda_out;
+        ctx->out = definition_out;
 
-        /* Function header: env pointer + regular params */
-        fprintf(ctx->out, "function l $%s(l %%env", lambda_name);
-
-        /* Add regular parameters */
-        AstNode *p = params;
-        while (p && !AST_IS_NIL(p)) {
-            AstNode *param = AST_CAR(p);
-            fprintf(ctx->out, ", l %s", param_qbe_name(param));
-            if (param->tag == AST_SYMBOL) {
-                symtab_add_local(ctx->symtab, param->as.symbol);
-            }
-            p = AST_CDR(p);
-        }
-        fprintf(ctx->out, ") {\n@start\n");
+        /* Lambdas use the same generic (env, argc, argv) ABI as the
+         * cross-function dispatcher. */
+        fprintf(ctx->out,
+                "function l $%s(l %%npl_env, l %%npl_argc, l %%npl_argv) {\n",
+                lambda_name);
+        fprintf(ctx->out, "@start\n");
         ctx->depth = 1;
+        ctx->trampoline_body = 1;
         prepare_if_slots(ctx, body, ctx->out);
 
-        /* Load captured variables from env */
+        AstNode *p = params;
+        int param_index = 0;
+        while (p && !AST_IS_NIL(p)) {
+            AstNode *param = AST_CAR(p);
+            if (!param || param->tag != AST_SYMBOL)
+                codegen_error("malformed lambda parameter");
+            symtab_add_local(ctx->symtab, param->as.symbol);
+            const char *address = "%npl_argv";
+            if (param_index > 0) {
+                address = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l add %%npl_argv, %d",
+                     address, param_index * 8);
+            }
+            emit(ctx, "%s =l loadl %s", param_qbe_name(param), address);
+            param_index++;
+            p = AST_CDR(p);
+        }
+
+        /* Load captured variables from the managed environment vector. */
         {
             AstNode *fv = free_vars;
             int idx = 0;
@@ -1161,14 +1264,9 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
                 if (var->tag == AST_SYMBOL) {
                     Symbol *sym = symtab_add_local(ctx->symtab, var->as.symbol);
                     const char *tmp = qbe_gen_tmp(ctx);
-                    /* Load from env + idx*8 */
-                    if (idx == 0) {
-                        emit(ctx, "%s =l loadl %%env", tmp);
-                    } else {
-                        const char *addr = qbe_gen_tmp(ctx);
-                        emit(ctx, "%s =l add %%env, %d", addr, idx * 8);
-                        emit(ctx, "%s =l loadl %s", tmp, addr);
-                    }
+                    emit(ctx,
+                         "%s =l call $npl_environment_ref(l %%npl_env, l %d)",
+                         tmp, idx);
                     emit(ctx, "%s =l copy %s", sym->as.local.qbe_name, tmp);
                 }
                 idx++;
@@ -1187,68 +1285,60 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             emit(ctx, "ret %s", result ? result : "2");
 
         fprintf(ctx->out, "}\n\n");
+        fflush(definition_out);
+        rewind(definition_out);
+        {
+            char line[4096];
+            while (fgets(line, sizeof(line), definition_out))
+                fputs(line, ctx->lambda_out);
+        }
+        fclose(definition_out);
         ctx->out = saved_out;
+        ctx->symtab->count = saved_symtab_count;
+        ctx->symtab->next_local = saved_next_local;
         ctx->depth = saved_depth;
         snprintf(ctx->current_func, sizeof(ctx->current_func), "%s", saved_func);
         ctx->current_params = saved_params;
         snprintf(ctx->if_slot_base, sizeof(ctx->if_slot_base), "%s",
                  saved_if_slot_base);
         ctx->next_if_slot = saved_next_if_slot;
+        ctx->trampoline_body = saved_trampoline_body;
         ctx->expr_terminated = 0;
 
-        /* ---- Create closure object at the call site ---- */
-        /* Always create a closure object: [func_ptr, env_ptr] */
+        /* Build a managed environment and closure at the call site. */
         {
-            const char *env_ptr = qbe_gen_tmp(ctx);
+            const char *captures = "0";
             if (n_free > 0) {
-                emit(ctx, "%s =l alloc8 %d", env_ptr, n_free * 8);
-
-                /* Store captured values into env */
+                captures = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l alloc8 %d", captures, n_free * 8);
                 AstNode *fv = free_vars;
                 int idx = 0;
                 while (fv && !AST_IS_NIL(fv)) {
                     AstNode *var = AST_CAR(fv);
+                    const char *value = "2";
                     if (var->tag == AST_SYMBOL) {
-                        /* Look up the variable in current scope */
                         Symbol *sym = symtab_lookup(ctx->symtab, var->as.symbol);
-                        if (sym && sym->kind == SYM_LOCAL) {
-                            if (idx == 0) {
-                                emit(ctx, "storel %s, %s", sym->as.local.qbe_name, env_ptr);
-                            } else {
-                                const char *addr = qbe_gen_tmp(ctx);
-                                emit(ctx, "%s =l add %s, %d", addr, env_ptr, idx * 8);
-                                emit(ctx, "storel %s, %s", sym->as.local.qbe_name, addr);
-                            }
-                        } else {
-                            /* Free var not found — store 0 */
-                            if (idx == 0) {
-                                emit(ctx, "storel 0, %s", env_ptr);
-                            } else {
-                                const char *addr = qbe_gen_tmp(ctx);
-                                emit(ctx, "%s =l add %s, %d", addr, env_ptr, idx * 8);
-                                emit(ctx, "storel 0, %s", addr);
-                            }
-                        }
+                        if (sym && sym->kind == SYM_LOCAL)
+                            value = sym->as.local.qbe_name;
                     }
+                    const char *slot = captures;
+                    if (idx > 0) {
+                        slot = qbe_gen_tmp(ctx);
+                        emit(ctx, "%s =l add %s, %d", slot, captures, idx * 8);
+                    }
+                    emit(ctx, "storel %s, %s", value, slot);
                     idx++;
                     fv = AST_CDR(fv);
                 }
-            } else {
-                /* No free variables — store 0 as env */
-                emit(ctx, "%s =l copy 0", env_ptr);
             }
 
-            /* Create closure object: [func_ptr, env_ptr] */
+            const char *environment = qbe_gen_tmp(ctx);
+            emit(ctx,
+                 "%s =l call $npl_make_environment(l %d, l %s)",
+                 environment, n_free, captures);
             const char *closure = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l alloc8 16", closure);
-            const char *func_ptr = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l copy $%s", func_ptr, lambda_name);
-            emit(ctx, "storel %s, %s", func_ptr, closure);
-            const char *env_slot = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l add %s, 8", env_slot, closure);
-            emit(ctx, "storel %s, %s", env_ptr, env_slot);
-
-            /* Return closure pointer */
+            emit(ctx, "%s =l call $npl_make_closure(l $%s, l %s, l %d)",
+                 closure, lambda_name, environment, param_index);
             return closure;
         }
     }
@@ -1374,10 +1464,14 @@ static AstNode *collect_free_vars_impl(AstNode *expr, SymTab *symtab, AstNode *e
         return vars;
     }
     case AST_LAMBDA: {
-        /* For nested lambda, exclude its own parameters */
+        /* A nested lambda can reference bindings from every enclosing lambda.
+         * Exclude all enclosing and nested parameters when determining what
+         * the enclosing closure itself must capture. */
+        AstNode *combined = exclude_params;
         AstNode *nested_params = AST_CAR(expr);
-        AstNode *nested_body = AST_CDR(expr);
-        return collect_free_vars_impl(nested_body, symtab, nested_params);
+        for (AstNode *p = nested_params; p && !AST_IS_NIL(p); p = AST_CDR(p))
+            combined = ast_pair(AST_CAR(p), combined);
+        return collect_free_vars_seq(AST_CDR(expr), symtab, combined);
     }
     default:
         return ast_nil();
@@ -1404,75 +1498,129 @@ static AstNode *collect_free_vars_seq(AstNode *exprs, SymTab *symtab, AstNode *e
     return vars;
 }
 
-/* Sanitize a name for use as a QBE function/variable name */
-static void qbe_emit_name(QbeCtx *ctx, const char *name)
+/* Generate a fixed-ABI wrapper plus a generic trampoline body. */
+static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params,
+                            AstNode *body, FILE *out)
 {
-    char buf[128];
-    qbe_sanitize_name(name, buf, sizeof(buf));
-    fprintf(ctx->out, "%s", buf);
-}
-
-/* Generate a function definition */
-static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params, AstNode *body, FILE *out)
-{
+    char safe_name[128];
     char saved_func[128];
     char saved_if_slot_base[32];
     AstNode *saved_params = ctx->current_params;
+    int saved_symtab_count = ctx->symtab->count;
+    int saved_next_local = ctx->symtab->next_local;
     int saved_next_if_slot = ctx->next_if_slot;
     int saved_depth = ctx->depth;
     int saved_tail = ctx->in_tail;
+    int saved_trampoline_body = ctx->trampoline_body;
     snprintf(saved_func, sizeof(saved_func), "%s", ctx->current_func);
     snprintf(saved_if_slot_base, sizeof(saved_if_slot_base), "%s",
              ctx->if_slot_base);
-    qbe_sanitize_name(name, ctx->current_func, sizeof(ctx->current_func));
+    qbe_sanitize_name(name, safe_name, sizeof(safe_name));
+    snprintf(ctx->current_func, sizeof(ctx->current_func), "%s", safe_name);
     ctx->current_params = strcmp(name, "main") == 0 ? NULL : params;
     ctx->expr_terminated = 0;
 
-    if (strcmp(name, "main") == 0) fprintf(out, "export ");
-    fprintf(out, "function l $");
-    qbe_emit_name(ctx, name);
+    int param_count = 0;
+    for (AstNode *p = params; p && !AST_IS_NIL(p); p = AST_CDR(p))
+        param_count++;
+    if (param_count > 16)
+        codegen_error("function '%s' supports at most 16 arguments", name);
 
+    /* Public wrappers retain the source-level fixed arity ABI. */
     if (strcmp(name, "main") == 0) {
-        /* The runtime ABI supplies argc/argv independently of source params. */
-        fprintf(out, "(l %%npl_argc, l %%npl_argv) {\n");
+        fprintf(out, "export function l $main(l %%npl_argc, l %%npl_argv) {\n");
         fprintf(out, "@start\n");
         fprintf(out, "    call $npl_runtime_init()\n");
         fprintf(out, "    call $npl_store_args(l %%npl_argc, l %%npl_argv)\n");
-        if (ctx->has_init)
-            fprintf(out, "    call $npl_global_inits()\n");
-        prepare_if_slots(ctx, body, out);
-        fprintf(out, "    jmp @tail\n");
-        fprintf(out, "@tail\n");
+        if (ctx->has_init) fprintf(out, "    call $npl_global_inits()\n");
+        const char *result = qbe_gen_tmp(ctx);
+        fprintf(out,
+                "    %s =l call $npl_trampoline(l $main__body, l 2, l 0, l 0)\n",
+                result);
+        fprintf(out, "    ret %s\n}\n\n", result);
     } else {
-        fprintf(out, "(");
+        fprintf(out, "function l $%s(", safe_name);
         AstNode *p = params;
         int first = 1;
         while (p && !AST_IS_NIL(p)) {
             AstNode *param = AST_CAR(p);
             if (!first) fprintf(out, ", ");
             fprintf(out, "l %s", param_qbe_name(param));
-            if (param->tag == AST_SYMBOL)
-                symtab_add_local(ctx->symtab, param->as.symbol);
             first = 0;
             p = AST_CDR(p);
         }
-        fprintf(out, ") {\n");
-        fprintf(out, "@start\n");
-        prepare_if_slots(ctx, body, out);
-        fprintf(out, "    jmp @tail\n");
-        fprintf(out, "@tail\n");
+        fprintf(out, ") {\n@start\n");
+
+        const char *argv = "0";
+        if (param_count > 0) {
+            argv = qbe_gen_tmp(ctx);
+            fprintf(out, "    %s =l alloc8 %d\n", argv, param_count * 8);
+            p = params;
+            int index = 0;
+            while (p && !AST_IS_NIL(p)) {
+                AstNode *param = AST_CAR(p);
+                if (index == 0) {
+                    fprintf(out, "    storel %s, %s\n",
+                            param_qbe_name(param), argv);
+                } else {
+                    const char *slot = qbe_gen_tmp(ctx);
+                    fprintf(out, "    %s =l add %s, %d\n", slot, argv, index * 8);
+                    fprintf(out, "    storel %s, %s\n",
+                            param_qbe_name(param), slot);
+                }
+                index++;
+                p = AST_CDR(p);
+            }
+        }
+        const char *result = qbe_gen_tmp(ctx);
+        fprintf(out,
+                "    %s =l call $npl_trampoline(l $%s__body, l 2, l %d, l %s)\n",
+                result, safe_name, param_count, argv);
+        fprintf(out, "    ret %s\n}\n\n", result);
     }
 
+    /* Generic bodies are the only functions entered by the dispatcher. */
+    fprintf(out,
+            "function l $%s__body(l %%npl_env, l %%npl_argc, l %%npl_argv) {\n",
+            safe_name);
+    fprintf(out, "@start\n");
+    prepare_if_slots(ctx, body, out);
+
+    if (strcmp(name, "main") != 0) {
+        AstNode *p = params;
+        int index = 0;
+        while (p && !AST_IS_NIL(p)) {
+            AstNode *param = AST_CAR(p);
+            if (!param || param->tag != AST_SYMBOL)
+                codegen_error("malformed parameter in '%s'", name);
+            symtab_add_local(ctx->symtab, param->as.symbol);
+            const char *address = "%npl_argv";
+            if (index > 0) {
+                address = qbe_gen_tmp(ctx);
+                fprintf(out, "    %s =l add %%npl_argv, %d\n",
+                        address, index * 8);
+            }
+            fprintf(out, "    %s =l loadl %s\n",
+                    param_qbe_name(param), address);
+            index++;
+            p = AST_CDR(p);
+        }
+    }
+
+    fprintf(out, "    jmp @tail\n@tail\n");
     ctx->depth = 1;
+    ctx->trampoline_body = 1;
     const char *result = gen_body_at(ctx, body, 1, 1);
-    if (!ctx->expr_terminated)
-        emit(ctx, "ret %s", result ? result : "2");
+    if (!ctx->expr_terminated) emit(ctx, "ret %s", result ? result : "2");
     fprintf(out, "}\n\n");
 
     ctx->depth = saved_depth;
     ctx->in_tail = saved_tail;
     ctx->expr_terminated = 0;
+    ctx->trampoline_body = saved_trampoline_body;
     ctx->current_params = saved_params;
+    ctx->symtab->count = saved_symtab_count;
+    ctx->symtab->next_local = saved_next_local;
     snprintf(ctx->if_slot_base, sizeof(ctx->if_slot_base), "%s",
              saved_if_slot_base);
     ctx->next_if_slot = saved_next_if_slot;

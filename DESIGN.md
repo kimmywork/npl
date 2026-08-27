@@ -3,10 +3,10 @@
 > 设计方案 v1。语言暂名 **NPL**（Native Programmable Language）。本文是设计文档，配套 `PLAN.md`（增量执行计划）与项目骨架。
 >
 > **实现状态说明**：本文描述目标架构，不表示所有条目已经落地。当前证据基线为：
-> bootstrap fixpoint 与 mmap/mark-sweep GC 已完成；macro 核心与
-> self-recursive tail loop 已验证；typed-unboxed/guards、完整数值塔、跨函数尾调用、
-> escape `call/cc`、NN、网络和 target tier 仍未完成。逐阶段状态以 `PLAN.md`
-> 为准。本轮不实现并行调度与 structured concurrency。
+> bootstrap fixpoint、mmap/mark-sweep GC、macro 核心、managed closures、
+> proper tail calls 与 escape-only `call/cc` 已完成；typed-unboxed/guards、完整数值塔、
+> NN、网络和 target tier 仍未完成。逐阶段状态以 `PLAN.md` 为准。本轮不实现
+> 并行调度与 structured concurrency。
 
 ---
 

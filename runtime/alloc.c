@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <setjmp.h>
 #include <unistd.h>
 #include <sys/mman.h>
 
@@ -22,6 +23,7 @@
 #define NPL_META_MAGIC_LIVE UINT64_C(0x4e504c4d45544131)
 #define NPL_META_MAGIC_FREE UINT64_C(0x4e504c4d45544130)
 #define MAX_ROOTS 1024
+#define NPL_MAX_CALL_ARGS 16
 
 typedef struct NplChunk NplChunk;
 typedef struct NplAllocMeta NplAllocMeta;
@@ -204,6 +206,54 @@ NplVal npl_float(double v) {
     f->header.flags = 0;
     f->value = v;
     return (NplVal)(uintptr_t)f | TAG_PTR;
+}
+
+NplVal npl_make_environment(int64_t argc, NplVal *argv)
+{
+    if (argc < 0 || argc > NPL_MAX_CALL_ARGS) {
+        fprintf(stderr, "npl_make_environment: unsupported size %lld\n",
+                (long long)argc);
+        exit(1);
+    }
+    NplVector *environment = (NplVector *)npl_alloc(
+        sizeof(NplVector) + (size_t)argc * sizeof(NplVal));
+    environment->header.tag = BOX_VECTOR;
+    environment->header.flags = 0;
+    environment->length = (uint32_t)argc;
+    environment->capacity = (uint32_t)argc;
+    for (int64_t i = 0; i < argc; i++) environment->data[i] = argv[i];
+    return (NplVal)(uintptr_t)environment | TAG_PTR;
+}
+
+NplVal npl_environment_ref(NplVal value, int64_t index)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_VECTOR) {
+        fprintf(stderr, "npl_environment_ref: not an environment\n");
+        exit(1);
+    }
+    NplVector *environment = (NplVector *)npl_header(value);
+    if (index < 0 || (uint64_t)index >= environment->length) {
+        fprintf(stderr, "npl_environment_ref: index out of range\n");
+        exit(1);
+    }
+    return environment->data[index];
+}
+
+NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
+                        int64_t arity)
+{
+    if (arity < 0 || arity > NPL_MAX_CALL_ARGS) {
+        fprintf(stderr, "npl_make_closure: unsupported arity %lld\n",
+                (long long)arity);
+        exit(1);
+    }
+    NplClosure *closure = (NplClosure *)npl_alloc(sizeof(NplClosure));
+    closure->header.tag = BOX_CLOSURE;
+    closure->header.flags = 0;
+    closure->function = function;
+    closure->environment = environment;
+    closure->arity = arity;
+    return (NplVal)(uintptr_t)closure | TAG_PTR;
 }
 
 unsigned long npl_runtime_anchor(void) {
@@ -395,6 +445,154 @@ size_t npl_gc_allocated(void) { return g_allocated; }
 size_t npl_gc_threshold(void) { return g_threshold; }
 size_t npl_gc_live_objects(void) { return g_live_objects; }
 size_t npl_gc_collections(void) { return g_collections; }
+
+/* ---- Proper tail-call trampoline ---- */
+
+typedef struct NplTailContext {
+    struct NplTailContext *previous;
+    NplGenericFunction function;
+    NplVal environment;
+    int64_t argc;
+    NplVal argv[NPL_MAX_CALL_ARGS];
+    int pending;
+} NplTailContext;
+
+static NplTailContext *g_tail_context = NULL;
+
+void npl_tail_request(NplGenericFunction function, NplVal environment,
+                      int64_t argc, NplVal *argv)
+{
+    if (!g_tail_context) {
+        fprintf(stderr, "npl_tail_request: no active trampoline\n");
+        exit(1);
+    }
+    if (argc < 0 || argc > NPL_MAX_CALL_ARGS) {
+        fprintf(stderr, "npl_tail_request: unsupported arity %lld\n",
+                (long long)argc);
+        exit(1);
+    }
+
+    g_tail_context->function = function;
+    g_tail_context->environment = environment;
+    g_tail_context->argc = argc;
+    for (int64_t i = 0; i < argc; i++) g_tail_context->argv[i] = argv[i];
+    g_tail_context->pending = 1;
+}
+
+void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE) {
+        fprintf(stderr, "npl_tail_request_closure: not a closure\n");
+        exit(1);
+    }
+    NplClosure *closure = (NplClosure *)npl_header(value);
+    if (argc != closure->arity) {
+        fprintf(stderr,
+                "npl_tail_request_closure: expected %lld arguments, got %lld\n",
+                (long long)closure->arity, (long long)argc);
+        exit(1);
+    }
+    npl_tail_request(closure->function, closure->environment, argc, argv);
+}
+
+NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
+                      int64_t argc, NplVal *argv)
+{
+    NplTailContext context;
+    context.previous = g_tail_context;
+    g_tail_context = &context;
+
+    NplVal result = npl_nil();
+    for (;;) {
+        context.pending = 0;
+        result = function(environment, argc, argv);
+        if (!context.pending) break;
+        function = context.function;
+        environment = context.environment;
+        argc = context.argc;
+        argv = context.argv;
+    }
+
+    g_tail_context = context.previous;
+    return result;
+}
+
+NplVal npl_apply(NplVal value, int64_t argc, NplVal *argv)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE) {
+        fprintf(stderr, "npl_apply: not a closure\n");
+        exit(1);
+    }
+    NplClosure *closure = (NplClosure *)npl_header(value);
+    if (argc != closure->arity) {
+        fprintf(stderr, "npl_apply: expected %lld arguments, got %lld\n",
+                (long long)closure->arity, (long long)argc);
+        exit(1);
+    }
+    return npl_trampoline(closure->function, closure->environment, argc, argv);
+}
+
+/* ---- Escape-only continuations ---- */
+
+#define NPL_MAX_ESCAPE_DEPTH 64
+
+typedef struct {
+    jmp_buf jump;
+    uint64_t id;
+    NplVal value;
+    NplTailContext *saved_tail_context;
+} NplEscapeFrame;
+
+static NplEscapeFrame g_escape_frames[NPL_MAX_ESCAPE_DEPTH];
+static int g_escape_depth = 0;
+static uint64_t g_next_escape_id = 1;
+
+static NplVal escape_continuation(NplVal environment, int64_t argc,
+                                  NplVal *argv)
+{
+    if (argc != 1 || !npl_is_fixnum(environment)) {
+        fprintf(stderr, "continuation: expected one argument\n");
+        exit(1);
+    }
+    uint64_t id = (uint64_t)npl_fixnum_value(environment);
+    for (int i = g_escape_depth - 1; i >= 0; i--) {
+        NplEscapeFrame *frame = &g_escape_frames[i];
+        if (frame->id == id) {
+            frame->value = argv[0];
+            g_tail_context = frame->saved_tail_context;
+            g_escape_depth = i + 1;
+            longjmp(frame->jump, 1);
+        }
+    }
+    fprintf(stderr, "continuation: invoked outside its dynamic extent\n");
+    exit(1);
+}
+
+NplVal npl_call_cc(NplVal procedure)
+{
+    if (g_escape_depth >= NPL_MAX_ESCAPE_DEPTH) {
+        fprintf(stderr, "call/cc: escape nesting limit exceeded\n");
+        exit(1);
+    }
+
+    int index = g_escape_depth++;
+    NplEscapeFrame *frame = &g_escape_frames[index];
+    frame->id = g_next_escape_id++;
+    frame->saved_tail_context = g_tail_context;
+
+    NplVal result;
+    if (setjmp(frame->jump) == 0) {
+        NplVal continuation = npl_make_closure(
+            escape_continuation, npl_fixnum((int64_t)frame->id), 1);
+        NplVal argv[1] = { continuation };
+        result = npl_apply(procedure, 1, argv);
+    } else {
+        result = frame->value;
+    }
+
+    g_escape_depth = index;
+    return result;
+}
 
 /* ---- Display (for debugging) ---- */
 
