@@ -104,11 +104,21 @@ unsigned long npl_runtime_anchor(void) {
 }
 
 void npl_tracev(unsigned long v) {
-#ifdef NPL_TRACE_APPEND
     fprintf(stderr, "[V=%lu]", v);
-#else
-    (void)v;
-#endif
+}
+
+void npl_trace2(unsigned long tag, unsigned long v) {
+    fprintf(stderr, "[T%lu=%lu]", tag, v);
+}
+
+#include <execinfo.h>
+
+void npl_dump_addrs(void) {
+    void *bt[32];
+    int n = backtrace(bt, 32);
+    fprintf(stderr, "BACKTRACE:\n");
+    for (int i = 0; i < n; i++)
+        fprintf(stderr, "  #%d %p\n", i, bt[i]);
 }
 
 /* ---- Value accessors ---- */
@@ -134,11 +144,11 @@ NplVal npl_cdr(NplVal v) {
 #ifdef NPL_TRACE_APPEND
         fprintf(stderr, "[cdr-on-nonptr v=%lu]\n", (unsigned long)v);
 #endif
-        void *lr1 = __builtin_return_address(0);
-        extern unsigned long npl_runtime_anchor(void);
-        fprintf(stderr, "npl_cdr: v=%lu from=%p anchor=%p\n",
-                (unsigned long)v, lr1,
-                (void *)npl_runtime_anchor());
+        fprintf(stderr, "npl_cdr: NONPTR v=%lu\n", (unsigned long)v);
+        {
+            extern void npl_dump_addrs(void);
+            npl_dump_addrs();
+        }
         exit(1);
     }
     NplPair *p = npl_pair_ptr(v);

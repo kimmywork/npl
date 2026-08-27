@@ -203,3 +203,7 @@ NplVal npl_lex_number(NplVal sT, NplVal iT, NplVal jT);
 char *npl_fixnum_to_string(int64_t v);
 
 #endif /* NPL_RUNTIME_H */
+
+/* debug hooks (bootstrap diagnosis) */
+void npl_tracev(unsigned long v);
+void npl_trace2(unsigned long tag, unsigned long v);

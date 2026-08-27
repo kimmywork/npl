@@ -927,7 +927,11 @@
         (if (null? init)
             (data-line (string-append slot " = { l 2 }"))
             (if (str-atom? init)
-                (pre-tagged-string-slot nm init slot)
+                (begin
+                  (declare-string-box init 1)
+                  (data-line (string-append "data " slot " = { l $s_"
+                                            (number->string (cell-get DATAN))
+                                            "+1 }")))
                 (if (sym-atom? init)
                     (data-line (string-append slot " = { l "
                                               (intern-sym (cdr init))
@@ -942,11 +946,6 @@
                         (func-line (string-append "storel " v ", " slot)))
                       (cell-set! CURBUF "F")
                       0)))))))
-
-(define (pre-tagged-string-slot nm init slot)
-  ; declare box, then store its tagged reference into slot
-  (declare-string-box init 1)
-  0)
 
 ; declares just the box at the *current* DATAN id, matching fresh-string-op
 (define (declare-string-box init k)
@@ -963,8 +962,6 @@
                        ", b 0 }")))))
 
 
-(define (append-line-to-data ln) (data-line ln))
-(define (last-glob-slot) "$FIX_ME")
 
 (define (emit-function nm params body)
   (func-line
