@@ -79,6 +79,12 @@ static int compile(const char *filename, const char *output)
     /* Desugar core forms (cond -> if chains etc.) */
     ast = desugar_program(ast);
 
+    TypeProgram types;
+    if (!type_analyze_program(ast, &types, errbuf, sizeof(errbuf))) {
+        fprintf(stderr, "Error: %s\n", errbuf);
+        return 1;
+    }
+
     /* Generate QBE IL */
     char ssa_path[1024];
     snprintf(ssa_path, sizeof(ssa_path), "%s.ssa", output);
@@ -94,6 +100,7 @@ static int compile(const char *filename, const char *output)
 
     QbeCtx ctx;
     qbe_ctx_init(&ctx, ssa_file, &symtab);
+    qbe_ctx_set_types(&ctx, &types);
     qbe_gen_program(&ctx, ast);
     fclose(ssa_file);
 
@@ -160,11 +167,18 @@ static int emit_qbe(const char *filename)
     /* Desugar core forms (cond -> if chains etc.) */
     ast = desugar_program(ast);
 
+    TypeProgram types;
+    if (!type_analyze_program(ast, &types, errbuf, sizeof(errbuf))) {
+        fprintf(stderr, "Error: %s\n", errbuf);
+        return 1;
+    }
+
     SymTab symtab;
     symtab_init(&symtab);
 
     QbeCtx ctx;
     qbe_ctx_init(&ctx, stdout, &symtab);
+    qbe_ctx_set_types(&ctx, &types);
     qbe_gen_program(&ctx, ast);
 
     return 0;

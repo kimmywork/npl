@@ -50,11 +50,25 @@ Symbol *symtab_add_local(SymTab *tab, const char *name)
     sym->name = sym_intern(name);
     sym->kind = SYM_LOCAL;
     sym->as.local.index = tab->next_local++;
-    /* Generate QBE-compatible local name */
+    /* Keep the first binding readable; shadowed bindings need distinct QBE
+     * names because QBE temporaries cannot model lexical restoration. */
     char sanitized[64];
     qbe_sanitize_name(name, sanitized, sizeof(sanitized));
-    snprintf(sym->as.local.qbe_name, sizeof(sym->as.local.qbe_name),
-             "%%%s", sanitized);
+    int shadowed = 0;
+    for (int i = tab->count - 2; i >= 0; i--) {
+        if (tab->entries[i].kind == SYM_LOCAL &&
+            strcmp(tab->entries[i].name, name) == 0) {
+            shadowed = 1;
+            break;
+        }
+    }
+    if (shadowed) {
+        snprintf(sym->as.local.qbe_name, sizeof(sym->as.local.qbe_name),
+                 "%%%s_%d", sanitized, sym->as.local.index);
+    } else {
+        snprintf(sym->as.local.qbe_name, sizeof(sym->as.local.qbe_name),
+                 "%%%s", sanitized);
+    }
     return sym;
 }
 

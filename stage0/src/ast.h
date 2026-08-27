@@ -35,6 +35,7 @@ typedef enum {
     AST_BEGIN,      /* (begin exprs...) */
     AST_QUOTE,      /* (quote datum) */
     AST_SET,        /* (set! name value) */
+    AST_ANNOTATION, /* typed target: target : Type */
 } AstTag;
 
 /* ---- forward decl ---- */
@@ -74,6 +75,7 @@ AstNode *ast_let(AstNode *bindings, AstNode *body);
 AstNode *ast_begin(AstNode *exprs);
 AstNode *ast_quote(AstNode *datum);
 AstNode *ast_set(AstNode *name, AstNode *value);
+AstNode *ast_annotation(AstNode *target, AstNode *type);
 
 /* ---- symbol table ---- */
 
@@ -100,7 +102,8 @@ void ast_print(const AstNode *node);
                             (n)->tag == AST_LET || \
                             (n)->tag == AST_BEGIN || \
                             (n)->tag == AST_QUOTE || \
-                            (n)->tag == AST_SET)
+                            (n)->tag == AST_SET || \
+                            (n)->tag == AST_ANNOTATION)
 
 #define AST_CAR(n)         ((n)->as.pair.car)
 #define AST_CDR(n)         ((n)->as.pair.cdr)

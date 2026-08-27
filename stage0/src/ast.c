@@ -204,6 +204,15 @@ AstNode *ast_set(AstNode *name, AstNode *value)
     return n;
 }
 
+AstNode *ast_annotation(AstNode *target, AstNode *type)
+{
+    AstNode *n = ast_alloc();
+    n->tag = AST_ANNOTATION;
+    n->as.pair.car = target;
+    n->as.pair.cdr = type;
+    return n;
+}
+
 /* ---------- pretty printer ---------- */
 
 static void print_list_contents(const AstNode *node)
@@ -270,18 +279,24 @@ void ast_print(const AstNode *node)
     case AST_DEFINE:
         printf("(define ");
         ast_print(AST_CAR(node));  /* name or signature */
-        if (node->as.pair.car->tag == AST_PAIR) {
-            /* function define: (define (f args...) body...) — flat body */
-            const AstNode *cur = AST_CDR(node);
-            while (cur && !AST_IS_NIL(cur)) {
+        {
+            const AstNode *target = AST_CAR(node);
+            int function_define = target->tag == AST_PAIR;
+            if (target->tag == AST_ANNOTATION)
+                function_define = AST_CAR(target)->tag == AST_PAIR;
+            if (function_define) {
+                /* function define: (define (f args...) body...) */
+                const AstNode *cur = AST_CDR(node);
+                while (cur && !AST_IS_NIL(cur)) {
+                    printf(" ");
+                    ast_print(cur->as.pair.car);
+                    cur = cur->as.pair.cdr;
+                }
+            } else {
+                /* variable define: (define x value) */
                 printf(" ");
-                ast_print(cur->as.pair.car);
-                cur = cur->as.pair.cdr;
+                ast_print(AST_CDR(node));
             }
-        } else {
-            /* variable define: (define x value) */
-            printf(" ");
-            ast_print(AST_CDR(node));
         }
         printf(")");
         break;
@@ -334,6 +349,13 @@ void ast_print(const AstNode *node)
         printf("(set! ");
         ast_print(AST_CAR(node));
         printf(" ");
+        ast_print(AST_CDR(node));
+        printf(")");
+        break;
+    case AST_ANNOTATION:
+        printf("(");
+        ast_print(AST_CAR(node));
+        printf(" : ");
         ast_print(AST_CDR(node));
         printf(")");
         break;

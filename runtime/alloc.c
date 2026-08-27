@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <setjmp.h>
+#include <limits.h>
 #include <unistd.h>
 #include <sys/mman.h>
 
@@ -255,6 +256,31 @@ NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
     closure->arity = arity;
     return (NplVal)(uintptr_t)closure | TAG_PTR;
 }
+
+int32_t npl_guard_integer(NplVal value)
+{
+    if (!npl_is_fixnum(value)) {
+        fprintf(stderr, "type guard: expected Integer\n");
+        exit(1);
+    }
+    int64_t integer = npl_fixnum_value(value);
+    if (integer < INT32_MIN || integer > INT32_MAX) {
+        fprintf(stderr, "type guard: Integer outside unboxed range\n");
+        exit(1);
+    }
+    return (int32_t)integer;
+}
+
+int32_t npl_guard_bool(NplVal value)
+{
+    if (value == npl_true()) return 1;
+    if (value == npl_false()) return 0;
+    fprintf(stderr, "type guard: expected Bool\n");
+    exit(1);
+}
+
+NplVal npl_box_integer(int32_t value) { return npl_fixnum(value); }
+NplVal npl_box_bool(int32_t value) { return value ? npl_true() : npl_false(); }
 
 unsigned long npl_runtime_anchor(void) {
     return (unsigned long)(uintptr_t)&g_alloc_head;
@@ -855,7 +881,7 @@ NplVal npl_lex_class_w(NplVal cT, NplVal wantT) {
              (c >= '0' && c <= '9') ||
              c=='-' || c=='_' || c=='?' || c=='!' || c=='*' ||
              c=='/' || c=='+' || c=='=' || c=='<' || c=='>' ||
-             c=='%' || c=='.')                          cls = 7; /* symch */
+             c=='%' || c=='.' || c==':')                 cls = 7; /* symch */
     else if (c == '#')                                 cls = 9; /* hash */
     else if (c == '+')                                 cls = 10;
     else                                               cls = 8; /* bad  */
@@ -883,7 +909,7 @@ NplVal npl_lex_scan_sym_end(NplVal sT, NplVal jT) {
                       (c >= '0' && c <= '9') ||
                       c=='-' || c=='_' || c=='?' || c=='!' || c=='*' ||
                       c=='/' || c=='+' || c=='=' || c=='<' || c=='>' ||
-                      c=='%' || c=='.');
+                      c=='%' || c=='.' || c==':');
         if (!is_sym) break;
         j++;
     }
@@ -904,6 +930,112 @@ NplVal npl_lex_number(NplVal sT, NplVal iT, NplVal jT) {
         i++;
     }
     return npl_fixnum(neg ? -acc : acc);
+}
+
+static int lex_symbol_char(unsigned char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '?' ||
+           c == '!' || c == '*' || c == '/' || c == '+' || c == '=' ||
+           c == '<' || c == '>' || c == '%' || c == '.' || c == ':';
+}
+
+static NplVal lex_token(int kind, NplVal payload)
+{
+    return npl_cons(npl_fixnum(kind), payload);
+}
+
+static NplVal reverse_token_stream(NplVal stream)
+{
+    NplVal result = npl_nil();
+    while (!npl_is_nil(stream)) {
+        NplVal next = npl_cdr(stream);
+        npl_set_cdr(stream, result);
+        result = stream;
+        stream = next;
+    }
+    return result;
+}
+
+NplVal npl_lex_tokens(NplVal source)
+{
+    const NplString *string = lex_str(source);
+    const unsigned char *data = (const unsigned char *)string->data;
+    uint32_t length = string->length;
+    uint32_t i = 0;
+    NplVal tokens = npl_nil();
+
+    while (i < length) {
+        unsigned char c = data[i];
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            i++;
+            continue;
+        }
+        if (c == ';') {
+            while (i < length && data[i] != '\n') i++;
+            continue;
+        }
+        if (c == '(' || c == ')' || c == '\'') {
+            int kind = c == '(' ? 1 : (c == ')' ? 2 : 3);
+            tokens = npl_cons(lex_token(kind, npl_nil()), tokens);
+            i++;
+            continue;
+        }
+        if (c == '"') {
+            uint32_t start = ++i;
+            while (i < length && data[i] != '"') i++;
+            if (i == length) {
+                fprintf(stdout, "nplc1: unterminated string literal\n");
+                fflush(stdout);
+                _Exit(20);
+            }
+            NplVal text = box_bytes((const char *)data + start,
+                                    i - start, BOX_STRING);
+            tokens = npl_cons(lex_token(6, text), tokens);
+            i++;
+            continue;
+        }
+        if (c == '#') {
+            if (i + 1 >= length || (data[i + 1] != 't' && data[i + 1] != 'f')) {
+                fprintf(stdout, "nplc1: bad boolean literal\n");
+                fflush(stdout);
+                _Exit(20);
+            }
+            int kind = data[i + 1] == 't' ? 8 : 9;
+            tokens = npl_cons(lex_token(kind, npl_nil()), tokens);
+            i += 2;
+            continue;
+        }
+        if ((c >= '0' && c <= '9') ||
+            (c == '-' && i + 1 < length &&
+             data[i + 1] >= '0' && data[i + 1] <= '9')) {
+            int negative = c == '-';
+            if (negative) i++;
+            int64_t number = 0;
+            while (i < length && data[i] >= '0' && data[i] <= '9') {
+                number = number * 10 + (data[i] - '0');
+                i++;
+            }
+            if (negative) number = -number;
+            tokens = npl_cons(lex_token(5, npl_fixnum(number)), tokens);
+            continue;
+        }
+        if (lex_symbol_char(c)) {
+            uint32_t start = i++;
+            while (i < length && lex_symbol_char(data[i])) i++;
+            NplVal symbol = box_bytes((const char *)data + start,
+                                      i - start, BOX_STRING);
+            tokens = npl_cons(lex_token(4, symbol), tokens);
+            continue;
+        }
+
+        fprintf(stdout, "nplc1: bad character byte %u\n", (unsigned)c);
+        fflush(stdout);
+        _Exit(20);
+    }
+
+    tokens = npl_cons(lex_token(7, npl_nil()), tokens);
+    return reverse_token_stream(tokens);
 }
 
 void npl_exit(NplVal code) {

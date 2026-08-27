@@ -149,9 +149,13 @@ GC 后 closure 环境和 `(call/cc (lambda (k) (+ 1 (k 42)))) => 42`。
 - 类型错误编译期报错（`(: x : Integer "foo")`）
 - 10+ 类型测试用例
 
-**状态**：🟡 基础代码存在但未接入编译流水线。`type.c` 提供类型结构、简单推导
-和 guard 判定 helper，但 stage0 driver/codegen 没有调用它；当前测试主要验证普通
-Dynamic/tagged 程序可编译，尚不能证明 algorithm W、typed unboxed 或运行时 guard。
+**状态**：🟡 核心显式类型路径已接通，HM 仍未完成。reader/AST/driver 现支持
+变量、参数和返回注解；nplc0 与 nplc1 都为 fully-annotated `Integer`/`Bool`
+函数生成 `function w ...__typed`，typed direct calls 保持 unboxed，Dynamic wrapper
+插入 guard 并 box 返回值。编译期矛盾注解、runtime guard、Bool、typed globals、
+词法 shadow 和 nplc0 的 10,000,000 次 unboxed self-tail 均有验收。剩余：
+algorithm W/let-polymorphism、typed lambda、Float/复合类型 unboxed，以及 nplc1
+的 typed tail lowering。
 
 ---
 

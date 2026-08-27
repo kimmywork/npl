@@ -353,30 +353,96 @@
 
 (define (parse-define cur)
   (begin
-    ; consume the define keyword itself (parse-special dispatched on it)
     (advance! cur)
     (if (= (peek-kind cur) 1)
-      (begin
-        (advance! cur)
-        (let ((nm (peek-payload cur)))
-          (if (not (= (peek-kind cur) 4)) (fatal "bad define name"))
+        (parse-function-define cur)
+        (parse-variable-define cur))))
+
+(define (parse-function-define cur)
+  (begin
+    (advance! cur)
+    (if (not (= (peek-kind cur) 4)) (fatal "bad define name"))
+    (let ((nm (peek-payload cur)))
+      (advance! cur)
+      (let ((spec (parameter-specs cur)))
+        (let ((params (car spec)))
+          (let ((types (car (cdr spec))))
+            (let ((result-type (parse-optional-result-type cur)))
+              (let ((body (grab-body-until-rparen cur)))
+                (let ((sig (cons (cons 100 nm) params)))
+                  (if (or2b (any-concrete-type? types) (> result-type 0))
+                      (cons 223
+                        (cons sig
+                          (cons types (cons result-type (cons body ())))))
+                      (cons 211 (cons sig (cons body ())))))))))))))
+
+(define (parse-variable-define cur)
+  (let ((nm-e (parse-expr cur)))
+    (if (next-symbol? cur ":")
+        (begin
           (advance! cur)
-          (let ((params (param-names cur)))
-            (let ((body (grab-body-until-rparen cur)))
-              (cons 211 (cons (cons (cons 100 nm) params) (cons body ())))))))
-      (let ((nm-e (parse-expr cur)))
+          (let ((ty (parse-type-name cur)))
+            (let ((val (parse-expr cur)))
+              (expect-rparen cur "typed define")
+              (cons 224 (cons nm-e (cons ty (cons val ())))))))
         (let ((val (parse-expr cur)))
           (expect-rparen cur "define")
-          (cons 200 (cons nm-e (cons val ()))))))))
+          (cons 200 (cons nm-e (cons val ())))))))
 
-(define (param-names cur)
+(define (next-symbol? cur name)
+  (if (= (peek-kind cur) 4)
+      (string=? (peek-payload cur) name)
+      #f))
+
+(define (parse-type-name cur)
+  (if (not (= (peek-kind cur) 4))
+      (fatal "expected type name")
+      (let ((name (peek-payload cur)))
+        (advance! cur)
+        (if (or2b (string=? name "Integer") (string=? name "Int"))
+            1
+            (if (string=? name "Bool")
+                2
+                (if (string=? name "Dynamic")
+                    0
+                    (fatal (string-append "unknown type " name))))))))
+
+(define (parse-optional-result-type cur)
+  (if (next-symbol? cur ":")
+      (begin (advance! cur) (parse-type-name cur))
+      0))
+
+; Returns (parameter-names parameter-type-codes).
+(define (parameter-specs cur)
   (if (= (peek-kind cur) 2)
-      (begin (advance! cur) ())
-      (if (= (peek-kind cur) 4)
-          (let ((nm (peek-payload cur)))
+      (begin (advance! cur) (cons () (cons () ())))
+      (let ((one (parameter-spec cur)))
+        (let ((rest (parameter-specs cur)))
+          (cons (cons (car one) (car rest))
+                (cons (cons (cdr one) (car (cdr rest))) ()))))))
+
+(define (parameter-spec cur)
+  (if (= (peek-kind cur) 4)
+      (let ((nm (peek-payload cur)))
+        (advance! cur)
+        (cons (cons 100 nm) 0))
+      (if (= (peek-kind cur) 1)
+          (begin
             (advance! cur)
-            (cons (cons 100 nm) (param-names cur)))
+            (if (not (= (peek-kind cur) 4)) (fatal "bad typed parameter"))
+            (let ((nm (peek-payload cur)))
+              (advance! cur)
+              (if (not (next-symbol? cur ":")) (fatal "typed parameter needs :"))
+              (advance! cur)
+              (let ((ty (parse-type-name cur)))
+                (expect-rparen cur "typed parameter")
+                (cons (cons 100 nm) ty))))
           (fatal "bad parameter name"))))
+
+(define (any-concrete-type? types)
+  (if (null? types)
+      #f
+      (if (> (car types) 0) #t (any-concrete-type? (cdr types)))))
 
 (define (parse-lambda cur)
   (fatal "lambda unsupported in slice"))
@@ -461,6 +527,7 @@
 (define DATA-BUF (cell ()))
 (define FUNC-BUF (cell ()))
 (define FUNCS (cell ()))
+(define TYPE-FUNCS (cell ()))
 (define GLOBS (cell ()))
 (define SYMS (cell ()))
 
@@ -502,6 +569,32 @@
 
 (define (lookup-func nm) (lk-s (cell-get FUNCS) nm))
 (define (lookup-glob nm) (lk-s (cell-get GLOBS) nm))
+
+(define (register-type-func nm types result)
+  (cell-set! TYPE-FUNCS
+    (cons (cons nm (cons types result)) (cell-get TYPE-FUNCS))))
+
+(define (lookup-type-func entries nm)
+  (if (null? entries)
+      ()
+      (if (string=? (car (car entries)) nm)
+          (cdr (car entries))
+          (lookup-type-func (cdr entries) nm))))
+
+(define (type-func nm)
+  (lookup-type-func (cell-get TYPE-FUNCS) nm))
+
+(define (all-concrete-types? types)
+  (if (null? types)
+      #t
+      (if (> (car types) 0)
+          (all-concrete-types? (cdr types))
+          #f)))
+
+(define (unboxed-spec? spec)
+  (if (null? spec)
+      #f
+      (if (> (cdr spec) 0) (all-concrete-types? (car spec)) #f)))
 
 ; ---------------- static data ----------------
 
@@ -1022,15 +1115,17 @@
           (three-named-w "npl_substring" args env)
           (if (string=? nm "int->string")
               (checked-call "npl_int_to_string_char" 1 args env)
-      (if (string=? nm "npl_tagged_num_to_string")
-      (checked-call "npl_tagged_num_to_string" 1 args env)
-      (if (string=? nm "npl_lex_class_w")
-          (checked-call "npl_lex_class_w" 2 args env)
-      (if (string=? nm "npl_lex_scan_sym_end")
-          (checked-call "npl_lex_scan_sym_end" 2 args env)
-          (if (string=? nm "npl_lex_number")
-              (checked-call "npl_lex_number" 3 args env)
-              (next-route nm args env)))))))))
+              (if (string=? nm "npl_tagged_num_to_string")
+                  (checked-call "npl_tagged_num_to_string" 1 args env)
+                  (if (string=? nm "npl_lex_class_w")
+                      (checked-call "npl_lex_class_w" 2 args env)
+                      (if (string=? nm "npl_lex_scan_sym_end")
+                          (checked-call "npl_lex_scan_sym_end" 2 args env)
+                          (if (string=? nm "npl_lex_number")
+                              (checked-call "npl_lex_number" 3 args env)
+                              (if (string=? nm "npl_lex_tokens")
+                                  (checked-call "npl_lex_tokens" 1 args env)
+                                  (next-route nm args env))))))))))
 
 (define (next-route nm args env)
   (if (string=? nm "number?")
@@ -1131,7 +1226,12 @@
 ; ---------------- top-level ----------------
 
 (define (fun-def? f)
-  (if (pair-shape? f) (= (car f) 211) #f))
+  (if (pair-shape? f)
+      (if (= (car f) 211) #t (= (car f) 223))
+      #f))
+
+(define (typed-fun-def? f)
+  (if (pair-shape? f) (= (car f) 223) #f))
 
 (define (defined-name e) (cdr (car (car (cdr e)))))
 
@@ -1140,7 +1240,14 @@
       0
       (begin
         (if (fun-def? (car forms))
-            (register-func (defined-name (car forms)))
+            (begin
+              (register-func (defined-name (car forms)))
+              (if (typed-fun-def? (car forms))
+                  (register-type-func
+                    (defined-name (car forms))
+                    (car (cdr (cdr (car forms))))
+                    (car (cdr (cdr (cdr (car forms))))))
+                  0))
             0)
         (pass-register-functions (cdr forms)))))
 
@@ -1199,6 +1306,230 @@
                        (quoted txt)
                        ", b 0 }")))))
 
+; ---------------- typed emitter ----------------
+
+; Typed values are (type-code . qbe-operand), where 1=Integer, 2=Bool.
+(define (typed-value ty op) (cons ty op))
+(define (tv-type value) (car value))
+(define (tv-op value) (cdr value))
+
+; Typed env entries are (name . (type-code . qbe-operand)).
+(define (tenv-extend env nm ty op)
+  (cons (cons nm (typed-value ty op)) env))
+
+(define (tenv-lookup env nm)
+  (if (null? env)
+      ()
+      (if (string=? (car (car env)) nm)
+          (cdr (car env))
+          (tenv-lookup (cdr env) nm))))
+
+(define (typed-qop nm)
+  (if (string=? nm "+") "add"
+      (if (string=? nm "-") "sub"
+          (if (string=? nm "*") "mul" ""))))
+
+(define (typed-cmp-op nm)
+  (if (string=? nm "<") "csltw"
+      (if (string=? nm ">") "csgtw"
+          (if (string=? nm "=") "ceqw"
+              (if (string=? nm "<=") "cslew"
+                  (if (string=? nm ">=") "csgew" ""))))))
+
+(define (typed-expr e env)
+  (if (number? e)
+      (typed-value 1 (number->string e))
+      (if (null? e)
+          (fatal "nil is Dynamic in typed code")
+          (if (sym-atom? e)
+              (let ((found (tenv-lookup env (cdr e))))
+                (if (null? found)
+                    (fatal (string-append "typed unbound " (cdr e)))
+                    found))
+              (if (not (pair-shape? e))
+                  (fatal "bad typed expression")
+                  (if (pair-shape? (car e))
+                      (typed-application e env)
+                      (typed-tagged e env)))))))
+
+(define (typed-tagged e env)
+  (let ((tag (car e)))
+    (if (= tag 108)
+        (typed-value 2 "1")
+        (if (= tag 109)
+            (typed-value 2 "0")
+            (if (= tag 213)
+                (typed-if e env)
+                (if (= tag 214)
+                    (typed-let e env)
+                    (if (= tag 216)
+                        (typed-body (cdr e) env)
+                        (fatal "unsupported construct in typed code"))))))))
+
+(define (typed-application e env)
+  (let ((head (car e)))
+    (if (not (sym-atom? head))
+        (fatal "typed call head must be a symbol")
+        (let ((nm (cdr head)))
+          (let ((qop (typed-qop nm)))
+            (if (> (string-length qop) 0)
+                (typed-binary qop (cdr e) env)
+                (let ((cmp (typed-cmp-op nm)))
+                  (if (> (string-length cmp) 0)
+                      (typed-compare cmp (cdr e) env)
+                      (typed-user-call nm (cdr e) env)))))))))
+
+(define (typed-binary qop args env)
+  (check-arity args 2 2)
+  (let ((a (typed-expr (car args) env)))
+    (let ((b (typed-expr (car (cdr args)) env)))
+      (if (not (= (tv-type a) 1)) (fatal "typed arithmetic needs Integer") 0)
+      (if (not (= (tv-type b) 1)) (fatal "typed arithmetic needs Integer") 0)
+      (let ((r (new-tmp)))
+        (func-line (string-append r " =w " qop " " (tv-op a)
+                                  ", " (tv-op b)))
+        (typed-value 1 r)))))
+
+(define (typed-compare qop args env)
+  (check-arity args 2 2)
+  (let ((a (typed-expr (car args) env)))
+    (let ((b (typed-expr (car (cdr args)) env)))
+      (if (not (= (tv-type a) 1)) (fatal "typed comparison needs Integer") 0)
+      (if (not (= (tv-type b) 1)) (fatal "typed comparison needs Integer") 0)
+      (let ((r (new-tmp)))
+        (func-line (string-append r " =w " qop " " (tv-op a)
+                                  ", " (tv-op b)))
+        (typed-value 2 r)))))
+
+(define (typed-eval-args args env types acc)
+  (if (null? types)
+      (if (null? args) (rev acc) (fatal "too many typed arguments"))
+      (if (null? args)
+          (fatal "missing typed argument")
+          (let ((value (typed-expr (car args) env)))
+            (if (not (= (tv-type value) (car types)))
+                (fatal "typed call argument mismatch")
+                (typed-eval-args (cdr args) env (cdr types)
+                                 (cons (tv-op value) acc)))))))
+
+(define (typed-wargs ops)
+  (if (null? (cdr ops))
+      (string-append "w " (car ops))
+      (string-append "w " (car ops) ", " (typed-wargs (cdr ops)))))
+
+(define (typed-user-call nm args env)
+  (let ((spec (type-func nm)))
+    (if (not (unboxed-spec? spec))
+        (fatal (string-append "typed call to Dynamic function " nm))
+        (let ((ops (typed-eval-args args env (car spec) ())))
+          (let ((r (new-tmp)))
+            (func-line
+              (string-append r " =w call $" (lookup-func nm)
+                             "__typed("
+                             (if (null? ops) "" (typed-wargs ops)) ")"))
+            (typed-value (cdr spec) r))))))
+
+(define (typed-if e env)
+  (let ((test (typed-expr (car (cdr e)) env)))
+    (if (not (= (tv-type test) 2)) (fatal "typed if needs Bool") 0)
+    (let ((slot (new-tmp)))
+      (func-line (string-append slot " =l alloc8 8"))
+      (let ((lt (new-label)))
+        (let ((lf (new-label)))
+          (let ((ld (new-label)))
+            (func-line (string-append "jnz " (tv-op test) ", " lt ", " lf))
+            (func-line lt)
+            (let ((yes (typed-expr (car (cdr (cdr e))) env)))
+              (func-line (string-append "storew " (tv-op yes) ", " slot))
+              (func-line (string-append "jmp " ld))
+              (func-line lf)
+              (let ((no (typed-expr (car (cdr (cdr (cdr e)))) env)))
+                (if (not (= (tv-type yes) (tv-type no)))
+                    (fatal "typed if branch mismatch") 0)
+                (func-line (string-append "storew " (tv-op no) ", " slot))
+                (func-line (string-append "jmp " ld))
+                (func-line ld)
+                (let ((r (new-tmp)))
+                  (func-line
+                    (string-append r " =w "
+                      (if (= (tv-type yes) 2) "loaduw " "loadsw ") slot))
+                  (typed-value (tv-type yes) r))))))))))
+
+(define (typed-let e env)
+  (typed-binds (car (cdr e)) (car (cdr (cdr e))) env))
+
+(define (typed-binds binds body env)
+  (if (null? binds)
+      (typed-body body env)
+      (let ((binding (car binds)))
+        (let ((value (typed-expr (cdr binding) env)))
+          (typed-binds (cdr binds) body
+            (tenv-extend env (cdr (car binding))
+                         (tv-type value) (tv-op value)))))))
+
+(define (typed-body body env)
+  (if (null? body)
+      (fatal "empty typed body")
+      (if (null? (cdr body))
+          (typed-expr (car body) env)
+          (begin (typed-expr (car body) env)
+                 (typed-body (cdr body) env)))))
+
+(define (typed-bind-params params types idx env)
+  (if (null? params)
+      env
+      (typed-bind-params (cdr params) (cdr types) (+ idx 1)
+        (tenv-extend env (cdr (car params)) (car types)
+                     (string-append "%p" (number->string idx))))))
+
+(define (render-typed-params params idx)
+  (if (null? params)
+      ""
+      (string-append (if (= idx 0) "" ", ")
+                     "w %p" (number->string idx)
+                     (render-typed-params (cdr params) (+ idx 1)))))
+
+(define (guard-params types idx acc)
+  (if (null? types)
+      (rev acc)
+      (let ((raw (new-tmp)))
+        (func-line
+          (string-append raw " =w call $"
+            (if (= (car types) 2) "npl_guard_bool" "npl_guard_integer")
+            "(l %p" (number->string idx) ")"))
+        (guard-params (cdr types) (+ idx 1) (cons raw acc)))))
+
+(define (emit-typed-function nm params types result-type body)
+  (if (not (unboxed-spec? (cons types result-type)))
+      (fatal "partially typed functions are not supported by nplc1") 0)
+  ; Dynamic-facing fixed ABI wrapper.
+  (func-line
+    (string-append "function l $" (sanitize nm 0 "")
+                   "(" (render-params params 0) ") {"))
+  (func-line "@start")
+  (let ((raw-args (guard-params types 0 ())))
+    (let ((raw-result (new-tmp)))
+      (func-line
+        (string-append raw-result " =w call $" (sanitize nm 0 "")
+                       "__typed("
+                       (if (null? raw-args) "" (typed-wargs raw-args)) ")"))
+      (let ((boxed (new-tmp)))
+        (func-line
+          (string-append boxed " =l call $"
+            (if (= result-type 2) "npl_box_bool" "npl_box_integer")
+            "(w " raw-result ")"))
+        (func-line (string-append "ret " boxed)))))
+  (func-line "}")
+  ; Unboxed implementation.
+  (func-line
+    (string-append "function w $" (sanitize nm 0 "") "__typed("
+                   (render-typed-params params 0) ") {"))
+  (func-line "@start")
+  (let ((value (typed-body body (typed-bind-params params types 0 ()))))
+    (if (not (= (tv-type value) result-type))
+        (fatal (string-append "typed return mismatch in " nm)) 0)
+    (func-line (string-append "ret " (tv-op value))))
+  (func-line "}"))
 
 
 (define (emit-function nm params body)
@@ -1240,19 +1571,52 @@
                      (render-params (cdr params) (+ idx 1)))))
 
 (define (var-def? f)
-  (if (pair-shape? f) (= (car f) 200) #f))
+  (if (pair-shape? f)
+      (if (= (car f) 200) #t (= (car f) 224))
+      #f))
+
+(define (typed-var-def? f)
+  (if (pair-shape? f) (= (car f) 224) #f))
+
+(define (typed-variable-def e)
+  (let ((nm-e (car (cdr e))))
+    (let ((ty (car (cdr (cdr e)))))
+      (let ((value (car (cdr (cdr (cdr e))))))
+        (if (not (sym-atom? nm-e)) (fatal "bad typed variable name") 0)
+        (if (not (= ty 1))
+            (fatal "nplc1 typed globals currently require Integer") 0)
+        (if (not (number? value))
+            (fatal "typed Integer global needs an Integer literal") 0)
+        (cell-set! GLOBS
+          (cons (cons (cdr nm-e)
+                      (string-append "$gv_" (sanitize (cdr nm-e) 0 "")))
+                (cell-get GLOBS)))
+        (data-line
+          (string-append "$gv_" (sanitize (cdr nm-e) 0 "")
+                         " = { l " (npl_tagged_num_to_string value) " }"))))))
 
 (define (emit-top-level f)
-  (if (fun-def? f)
-      ; sig = ((100 . nm) . params); body-list = (car (cdr (cdr f)))
+  (if (typed-fun-def? f)
       (if (string=? (defined-name f) "main")
-          (emit-main (cdr (car (cdr f))) (car (cdr (cdr f))))
-          (emit-function (defined-name f)
-                         (cdr (car (cdr f)))
-                         (car (cdr (cdr f)))))
-      (if (var-def? f)
-          (variable-def f)
-          (fatal "top level must contain definitions"))))
+          (fatal "typed main is not supported by nplc1")
+          (emit-typed-function
+            (defined-name f)
+            (cdr (car (cdr f)))
+            (car (cdr (cdr f)))
+            (car (cdr (cdr (cdr f))))
+            (car (cdr (cdr (cdr (cdr f)))))))
+      (if (fun-def? f)
+          ; sig = ((100 . nm) . params); body-list = (car (cdr (cdr f)))
+          (if (string=? (defined-name f) "main")
+              (emit-main (cdr (car (cdr f))) (car (cdr (cdr f))))
+              (emit-function (defined-name f)
+                             (cdr (car (cdr f)))
+                             (car (cdr (cdr f)))))
+          (if (var-def? f)
+              (if (typed-var-def? f)
+                  (typed-variable-def f)
+                  (variable-def f))
+              (fatal "top level must contain definitions")))))
 
 (define INIT-EMITTED (cell 0))
 
@@ -1301,7 +1665,7 @@
       (begin
         (let ((src (read-file (car args))))
           (check-parens src 0 1 1 () 0)
-          (let ((cur (cell (lex-loop src 0 ()))))
+          (let ((cur (cell (npl_lex_tokens src))))
             (let ((forms (parse-all cur ())))
               (begin
                 (pass-register-functions forms)

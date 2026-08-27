@@ -348,6 +348,14 @@ static AstTag special_form_tag(const char *sym)
 /* Forward decl */
 static AstNode *parse_expr(Parser *p);
 
+static int consume_symbol(Parser *p, const char *name)
+{
+    if (!check(p, TOK_SYMBOL) || strcmp(cur(p).text, name) != 0) return 0;
+    Token token = consume(p);
+    free(token.text);
+    return 1;
+}
+
 /* Parse a list of expressions without consuming its matching closer. */
 static AstNode *parse_list(Parser *p, Token open)
 {
@@ -434,15 +442,22 @@ static AstNode *parse_list_form(Parser *p)
                     /* Read parameter list */
                     AstNode *params = parse_list(p, sig_open);
                     if (!consume_closer(p, sig_open)) return ast_nil();
+                    AstNode *sig = ast_pair(name, params);
+                    if (consume_symbol(p, ":")) {
+                        AstNode *type = parse_expr(p);
+                        sig = ast_annotation(sig, type);
+                    }
                     /* Body — R7RS: sequence of expressions, stored as a list */
                     AstNode *body_items = parse_list(p, open);
-                    AstNode *sig = ast_pair(name, params);
                     consume_closer(p, open);
                     return ast_define(sig, body_items);
                 } else {
-                    /* Simple: (define name value) */
+                    /* Simple: (define name [: Type] value) */
                     AstNode *name = parse_expr(p);
-                    AstNode *val  = parse_expr(p);
+                    AstNode *type = NULL;
+                    if (consume_symbol(p, ":")) type = parse_expr(p);
+                    AstNode *val = parse_expr(p);
+                    if (type) name = ast_annotation(name, type);
                     consume_closer(p, open);
                     return ast_define(name, val);
                 }
@@ -458,6 +473,10 @@ static AstNode *parse_list_form(Parser *p)
                 } else {
                     parse_error(p, "expected parameter list after lambda");
                     return ast_nil();
+                }
+                if (consume_symbol(p, ":")) {
+                    AstNode *type = parse_expr(p);
+                    params = ast_annotation(params, type);
                 }
                 /* Body — R7RS: sequence of expressions, stored as a list */
                 AstNode *body_items = parse_list(p, open);

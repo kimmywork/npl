@@ -121,4 +121,40 @@ const char *qbe_type_for(Type *type);
  */
 int type_needs_guard(Type *from, Type *to);
 
+/* ---- Program annotations ---- */
+
+#define TYPE_PROGRAM_MAX 256
+#define TYPE_MAX_PARAMS 16
+
+typedef struct {
+    const char *name;
+    int arity;
+    Type *params[TYPE_MAX_PARAMS];
+    unsigned char param_annotated[TYPE_MAX_PARAMS];
+    Type *result;
+    int result_annotated;
+    AstNode *body;
+} TypedFunction;
+
+typedef struct {
+    const char *name;
+    Type *type;
+    int annotated;
+    AstNode *value;
+} TypedVariable;
+
+typedef struct {
+    TypedFunction functions[TYPE_PROGRAM_MAX];
+    int function_count;
+    TypedVariable variables[TYPE_PROGRAM_MAX];
+    int variable_count;
+} TypeProgram;
+
+void type_program_init(TypeProgram *program);
+int type_analyze_program(AstNode *ast, TypeProgram *program,
+                         char *errbuf, size_t errbuf_size);
+TypedFunction *type_program_function(TypeProgram *program, const char *name);
+TypedVariable *type_program_variable(TypeProgram *program, const char *name);
+const char *type_name(Type *type);
+
 #endif /* NPL_TYPE_H */

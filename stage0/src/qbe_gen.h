@@ -3,6 +3,7 @@
 
 #include "ast.h"
 #include "symtab.h"
+#include "type.h"
 #include <stdio.h>
 
 /*
@@ -27,12 +28,15 @@ typedef struct {
     FILE   *init_out;   /* buffer for the synthesized global-init function */
     int     has_init;
     SymTab *symtab;     /* symbol table */
+    TypeProgram *types; /* normalized annotation/signature table */
     int     next_tmp;   /* counter for temporaries */
     int     next_label; /* counter for labels */
     int     depth;      /* nesting depth for indentation */
     int     in_tail;    /* 1 if the expression being generated is in tail position */
     int     expr_terminated; /* current expression ended its block with a jump */
     int     trampoline_body; /* current function body can return tail requests */
+    TypedFunction *current_typed; /* current unboxed function, if any */
+    AstNode *current_typed_params;
     char    current_func[128]; /* current function name (for self-recursion detection) */
     AstNode *current_params;  /* parameters rebound by self-tail jumps */
     char    if_slot_base[32]; /* entry-allocated storage for branch merge values */
@@ -41,6 +45,7 @@ typedef struct {
 
 /* Initialize code generation context */
 void qbe_ctx_init(QbeCtx *ctx, FILE *out, SymTab *symtab);
+void qbe_ctx_set_types(QbeCtx *ctx, TypeProgram *types);
 
 /* Generate QBE IL for an entire program (list of top-level expressions) */
 void qbe_gen_program(QbeCtx *ctx, AstNode *program);

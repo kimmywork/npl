@@ -1,94 +1,170 @@
 #!/bin/bash
-# check_type.sh — Verify Phase 5 (type system) works correctly.
-# Usage: ./tools/check_type.sh
-# Exit 0 on success, non-zero on failure.
+# check_type.sh — Phase 5 annotation, unboxed codegen, and guard acceptance.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-BUILD_DIR="$PROJECT_DIR/build"
-NPLC0="$BUILD_DIR/stage0/nplc0"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUILD="$ROOT/build"
+NPLC0="$BUILD/stage0/nplc0"
+QBE="$BUILD/qbe/qbe"
+RUNTIME="$BUILD/runtime/libnpl_runtime.a"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
+fail() { echo "FAIL: $1" >&2; exit 1; }
+pass() { echo "PASS: $1"; }
 
-pass() { echo -e "${GREEN}PASS${NC}: $1"; }
-fail() { echo -e "${RED}FAIL${NC}: $1"; exit 1; }
+ninja -C "$BUILD" nplc0 qbe_build >/dev/null
+"$NPLC0" "$ROOT/src/compiler.npl" -o "$WORK/nplc1" >/dev/null
+
+emit_stage1() {
+    local source="$1" output="$2" rc=0
+    "$WORK/nplc1" "$source" > "$output" 2> "$output.err" || rc=$?
+    [ "$rc" -eq 44 ] || {
+        cat "$output" "$output.err" >&2
+        fail "nplc1 emission returned $rc"
+    }
+}
+
+build_ssa() {
+    local ssa="$1" output="$2"
+    "$QBE" -o "$output.s" "$ssa"
+    cc -o "$output" "$output.s" "$RUNTIME"
+}
+
+run_expect() {
+    local binary="$1" expected="$2" rc=0
+    "$binary" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq "$expected" ] || fail "$binary expected $expected, got $rc"
+}
 
 echo "=== NPL Type System Tests ==="
-echo ""
 
-# Test 1: Type inference for literals
-echo "Test 1: Type inference for fixnum"
-output=$($NPLC0 --emit-qbe stage0/tests/hello.npl 2>&1)
-echo "$output" | grep -q "function l" && pass "fixnum functions use l type" || fail "type inference"
-
-# Test 2: Typed factorial compiles
-echo "Test 2: Typed factorial"
-output=$($NPLC0 --emit-qbe stage0/tests/test_type.npl 2>&1)
-echo "$output" | grep -q "function" && pass "typed factorial compiles" || fail "typed factorial"
-
-# Test 3: Closure test still works
-echo "Test 3: Closure with types"
-$NPLC0 -o /tmp/test_closure stage0/tests/test_closure.npl 2>&1
-result=$(/tmp/test_closure; echo $?)
-[ "$result" -eq 60 ] && pass "closure with types, exit 60" || fail "expected 60, got $result"
-
-# Test 4: Lambda test still works
-echo "Test 4: Lambda with types"
-$NPLC0 -o /tmp/test_lambda stage0/tests/test_lambda.npl 2>&1
-result=$(/tmp/test_lambda; echo $?)
-[ "$result" -eq 88 ] && pass "lambda with types, exit 88" || fail "expected 88, got $result"
-
-# Test 5: Arithmetic test
-echo "Test 5: Arithmetic"
-$NPLC0 -o /tmp/test_arith stage0/tests/hello.npl 2>&1
-result=$(/tmp/test_arith; echo $?)
-[ "$result" -eq 144 ] && pass "42*42 exit 144" || fail "expected 144, got $result"
-
-# Test 6: If expression
-echo "Test 6: If expression"
-cat > /tmp/test_if_type.npl << 'EOF'
-(define (abs x)
-  (if (< x 0) (- 0 x) x))
-(define (main) (abs -5))
+cat > "$WORK/shape.npl" << 'EOF'
+(define x : Integer 5)
+(define (add (a : Integer) (b : Integer)) : Integer (+ a b))
 EOF
-$NPLC0 -o /tmp/test_if_type /tmp/test_if_type.npl 2>&1
-result=$(/tmp/test_if_type; echo $?)
-[ "$result" -eq 20 ] && pass "abs(-5) exit 20" || fail "expected 20, got $result"
+shape=$("$NPLC0" --print-ast "$WORK/shape.npl")
+printf '%s' "$shape" | grep -Fq '(x : Integer)' || fail "variable annotation AST"
+printf '%s' "$shape" | grep -Fq '((add (a : Integer) (b : Integer)) : Integer)' \
+    || fail "function annotation AST"
+pass "reader preserves variable, parameter, and return annotations"
 
-# Test 7: Let expression with types
-echo "Test 7: Let expression"
-cat > /tmp/test_let_type.npl << 'EOF'
-(define (main)
-  (let ((x 10) (y 20))
-    (+ x y)))
+cat > "$WORK/bad-return.npl" << 'EOF'
+(define (bad (x : Integer)) : Bool (+ x 1))
+(define (main) 0)
 EOF
-$NPLC0 -o /tmp/test_let_type /tmp/test_let_type.npl 2>&1
-result=$(/tmp/test_let_type; echo $?)
-[ "$result" -eq 120 ] && pass "let expression exit 120" || fail "expected 120, got $result"
+rc=0
+"$NPLC0" --emit-qbe "$WORK/bad-return.npl" >"$WORK/bad0.out" 2>"$WORK/bad0.err" || rc=$?
+[ "$rc" -ne 0 ] || fail "nplc0 accepted an invalid return annotation"
+[ ! -s "$WORK/bad0.out" ] || fail "nplc0 emitted IL before type failure"
+grep -Fq 'expected return Bool, got Integer' "$WORK/bad0.err" \
+    || fail "nplc0 return mismatch diagnostic"
+rc=0
+"$WORK/nplc1" "$WORK/bad-return.npl" >"$WORK/bad1.out" 2>"$WORK/bad1.err" || rc=$?
+[ "$rc" -ne 44 ] || fail "nplc1 accepted an invalid return annotation"
+grep -Fq 'typed return mismatch in bad' "$WORK/bad1.out" \
+    || fail "nplc1 return mismatch diagnostic"
+pass "nplc0 and nplc1 reject contradictory annotations"
 
-# Test 8: Fibonacci
-echo "Test 8: Fibonacci"
-$NPLC0 -o /tmp/test_fib stage0/tests/test_special.npl 2>&1
-# Just check it compiles
-pass "fibonacci compiles"
+cat > "$WORK/add.npl" << 'EOF'
+(define (add (a : Integer) (b : Integer)) : Integer (+ a b))
+(define (main) (add 20 22))
+EOF
+"$NPLC0" --emit-qbe "$WORK/add.npl" > "$WORK/add0.ssa"
+grep -Fq 'function w $add__typed(w %a, w %b)' "$WORK/add0.ssa" \
+    || fail "nplc0 missing unboxed add body"
+grep -Fq '=w add %a, %b' "$WORK/add0.ssa" || fail "nplc0 add is not unboxed"
+grep -Fq 'call $npl_guard_integer' "$WORK/add0.ssa" || fail "nplc0 guard missing"
+build_ssa "$WORK/add0.ssa" "$WORK/add0"
+run_expect "$WORK/add0" 168
 
-# Test 9: GC stress test
-echo "Test 9: GC stress"
-$NPLC0 -o /tmp/test_gc stage0/tests/gc_stress.npl 2>&1
-result=$(/tmp/test_gc; echo $?)
-[ "$result" -eq 160 ] && pass "gc stress exit 160" || fail "expected 160, got $result"
+emit_stage1 "$WORK/add.npl" "$WORK/add1.ssa"
+grep -Fq 'function w $add__typed(w %p0, w %p1)' "$WORK/add1.ssa" \
+    || fail "nplc1 missing unboxed add body"
+grep -Fq '=w add %p0, %p1' "$WORK/add1.ssa" || fail "nplc1 add is not unboxed"
+grep -Fq 'call $npl_guard_integer' "$WORK/add1.ssa" || fail "nplc1 guard missing"
+build_ssa "$WORK/add1.ssa" "$WORK/add1"
+run_expect "$WORK/add1" 168
+pass "nplc0 and nplc1 emit and run the same unboxed Integer function"
 
-# Test 10: Cons/car/cdr
-echo "Test 10: Cons/car/cdr"
-$NPLC0 -o /tmp/test_cons stage0/tests/test_cons.npl 2>&1
-result=$(/tmp/test_cons; echo $?)
-[ "$result" -eq 4 ] && pass "cons/car exit 4" || fail "expected 4, got $result"
+cat > "$WORK/direct.npl" << 'EOF'
+(define (double (x : Integer)) : Integer (+ x x))
+(define (plus-one-double (x : Integer)) : Integer (+ (double x) 1))
+(define (main) (plus-one-double 20))
+EOF
+"$NPLC0" --emit-qbe "$WORK/direct.npl" > "$WORK/direct0.ssa"
+grep -Fq 'call $double__typed(w ' "$WORK/direct0.ssa" \
+    || fail "nplc0 typed-to-typed call was boxed"
+build_ssa "$WORK/direct0.ssa" "$WORK/direct0"
+run_expect "$WORK/direct0" 164
+emit_stage1 "$WORK/direct.npl" "$WORK/direct1.ssa"
+grep -Fq 'call $double__typed(w ' "$WORK/direct1.ssa" \
+    || fail "nplc1 typed-to-typed call was boxed"
+build_ssa "$WORK/direct1.ssa" "$WORK/direct1"
+run_expect "$WORK/direct1" 164
+pass "typed-to-typed direct calls remain unboxed in both compilers"
 
-rm -f /tmp/test_*_type.npl /tmp/test_if_type /tmp/test_let_type
+cat > "$WORK/bool.npl" << 'EOF'
+(define (positive (x : Integer)) : Bool (> x 0))
+(define (main) (if (positive 3) 7 9))
+EOF
+"$NPLC0" --emit-qbe "$WORK/bool.npl" > "$WORK/bool0.ssa"
+build_ssa "$WORK/bool0.ssa" "$WORK/bool0"
+run_expect "$WORK/bool0" 28
+emit_stage1 "$WORK/bool.npl" "$WORK/bool1.ssa"
+build_ssa "$WORK/bool1.ssa" "$WORK/bool1"
+run_expect "$WORK/bool1" 28
+pass "Bool results are unboxed internally and boxed at Dynamic boundaries"
 
-echo ""
-echo "=== All type system tests passed ==="
+cat > "$WORK/guard.npl" << 'EOF'
+(define (identity x) x)
+(define (inc (x : Integer)) : Integer (+ x 1))
+(define (main) (inc (identity "bad")))
+EOF
+"$NPLC0" -o "$WORK/guard0" "$WORK/guard.npl" >/dev/null
+rc=0
+"$WORK/guard0" >"$WORK/guard0.out" 2>"$WORK/guard0.err" || rc=$?
+[ "$rc" -eq 1 ] || fail "nplc0 Dynamic guard expected exit 1, got $rc"
+grep -Fq 'type guard: expected Integer' "$WORK/guard0.err" \
+    || fail "nplc0 Dynamic guard diagnostic"
+emit_stage1 "$WORK/guard.npl" "$WORK/guard1.ssa"
+build_ssa "$WORK/guard1.ssa" "$WORK/guard1"
+rc=0
+"$WORK/guard1" >"$WORK/guard1.out" 2>"$WORK/guard1.err" || rc=$?
+[ "$rc" -eq 1 ] || fail "nplc1 Dynamic guard expected exit 1, got $rc"
+grep -Fq 'type guard: expected Integer' "$WORK/guard1.err" \
+    || fail "nplc1 Dynamic guard diagnostic"
+pass "Dynamic-to-Integer boundaries fail fast in both compilers"
+
+cat > "$WORK/globals-shadow.npl" << 'EOF'
+(define answer : Integer 5)
+(define (after-shadow (x : Integer)) : Integer
+  (begin (let ((x #t)) x) (+ x 1)))
+(define (main) (+ answer (after-shadow 4)))
+EOF
+"$NPLC0" --emit-qbe "$WORK/globals-shadow.npl" > "$WORK/globals0.ssa"
+build_ssa "$WORK/globals0.ssa" "$WORK/globals0"
+run_expect "$WORK/globals0" 40
+emit_stage1 "$WORK/globals-shadow.npl" "$WORK/globals1.ssa"
+build_ssa "$WORK/globals1.ssa" "$WORK/globals1"
+run_expect "$WORK/globals1" 40
+pass "typed globals and lexical type shadowing agree across both compilers"
+
+cat > "$WORK/tail.npl" << 'EOF'
+(define (count (n : Integer) (acc : Integer)) : Integer
+  (if (= n 0) acc (count (- n 1) (+ acc 1))))
+(define (main) (count 10000000 7))
+EOF
+"$NPLC0" --emit-qbe "$WORK/tail.npl" > "$WORK/tail.ssa"
+sed -n '/function w $count__typed/,/^}/p' "$WORK/tail.ssa" > "$WORK/count.ssa"
+grep -Fq 'jmp @typed_tail' "$WORK/count.ssa" || fail "typed self-tail loop missing"
+if grep -Fq 'call $count__typed' "$WORK/count.ssa"; then
+    fail "typed self-tail body still calls itself"
+fi
+build_ssa "$WORK/tail.ssa" "$WORK/tail"
+run_expect "$WORK/tail" 28
+pass "nplc0 runs 10000000 unboxed self-tail iterations without stack growth"
+
+echo "=== Type-system acceptance passed ==="

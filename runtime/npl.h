@@ -96,7 +96,7 @@ static inline NplVal npl_fixnum(int64_t v) {
 }
 
 static inline int64_t npl_fixnum_value(NplVal v) {
-    return (int64_t)((uint64_t)v >> 2);
+    return ((int64_t)v) >> 2;
 }
 
 static inline NplVal npl_nil(void) {
@@ -170,6 +170,10 @@ NplVal npl_make_environment(int64_t argc, NplVal *argv);
 NplVal npl_environment_ref(NplVal environment, int64_t index);
 NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
                         int64_t arity);
+int32_t npl_guard_integer(NplVal value);
+int32_t npl_guard_bool(NplVal value);
+NplVal npl_box_integer(int32_t value);
+NplVal npl_box_bool(int32_t value);
 NplVal npl_apply(NplVal closure, int64_t argc, NplVal *argv);
 void npl_tail_request_closure(NplVal closure, int64_t argc, NplVal *argv);
 NplVal npl_call_cc(NplVal procedure);
@@ -223,6 +227,7 @@ NplVal npl_lex_class_w(NplVal cT, NplVal wantT);     /* PROPER bool */
 NplVal npl_lex_scan_sym_end(NplVal sT, NplVal jT);   /* tagged index */
 NplVal npl_tagged_num_to_string(NplVal v);           /* decimal of tagged bits */
 NplVal npl_lex_number(NplVal sT, NplVal iT, NplVal jT);
+NplVal npl_lex_tokens(NplVal source);
 
 /* Convert fixnum to string (for printing) */
 char *npl_fixnum_to_string(int64_t v);

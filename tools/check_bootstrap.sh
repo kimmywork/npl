@@ -9,8 +9,7 @@
 #   il2 = nplc1(compiler.npl)
 #   nplc2 = qbe+clang(il2)
 #   il3 = nplc2(compiler.npl)
-#   il2 == il3 must hold byte-for-byte when stage B passes fully;
-#   current known-limitation failures are reported distinctly.
+#   il2 == il3 must hold byte-for-byte.
 #
 # Exit 0 iff every enabled check passes.
 
@@ -25,10 +24,9 @@ RUNTIME="$BUILD/runtime/libnpl_runtime.a"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-GREEN='\033[0;32m'; RED='\033[0;31m'; YEL='\033[0;33m'; NC='\033[0m'
+GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 pass() { echo -e "${GREEN}PASS${NC}: $1"; }
 fail() { echo -e "${RED}FAIL${NC}: $1"; return 1; }
-skip() { echo -e "${YEL}SKIP${NC}: $1"; }
 
 compile_via() { # <compiler-binary> <src.npl> <out.ssa>
     "$1" "$2" > "$3" 2>"$3.err"
@@ -154,8 +152,8 @@ if [ "$il3_rc" = 44 ] && [ -s "$WORK/il3.ssa" ]; then
         exit 1
     fi
 else
-    skip "il3 emission failed (known limitation, tracked in ledger): $(grep '^nplc1:' "$WORK/il3.ssa" 2>/dev/null | tail -1)"
-    exit 2
+    fail "il3 emission failed (exit=$il3_rc)"
+    exit 1
 fi
 
 echo ""

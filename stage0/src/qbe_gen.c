@@ -62,16 +62,24 @@ void qbe_ctx_init(QbeCtx *ctx, FILE *out, SymTab *symtab)
     ctx->init_out = tmpfile();    /* buffer for runtime global initializers */
     ctx->has_init = 0;
     ctx->symtab = symtab;
+    ctx->types = NULL;
     ctx->next_tmp = 0;
     ctx->next_label = 0;
     ctx->depth = 0;
     ctx->in_tail = 0;
     ctx->expr_terminated = 0;
     ctx->trampoline_body = 0;
+    ctx->current_typed = NULL;
+    ctx->current_typed_params = NULL;
     ctx->current_func[0] = '\0';
     ctx->current_params = NULL;
     ctx->if_slot_base[0] = '\0';
     ctx->next_if_slot = 0;
+}
+
+void qbe_ctx_set_types(QbeCtx *ctx, TypeProgram *types)
+{
+    ctx->types = types;
 }
 
 /* Pool of buffers for temporaries and labels (to avoid static buffer reuse) */
@@ -577,8 +585,8 @@ static const char *gen_body(QbeCtx *ctx, AstNode *body, int depth)
             if (name_or_sig->tag == AST_PAIR) {
                 /* (define (f args...) body...) inside a body is not
                  * supported at stage0; use (define f (lambda ...)). */
-                codegen_error("internal function shorthand (define (f ...) ...) "
-                              "is only valid at top level");
+                codegen_error("internal function shorthand in '%s' is only "
+                              "valid at top level", ctx->current_func);
             }
             if (!name_or_sig || name_or_sig->tag != AST_SYMBOL) {
                 codegen_error("malformed internal define");
@@ -1498,6 +1506,341 @@ static AstNode *collect_free_vars_seq(AstNode *exprs, SymTab *symtab, AstNode *e
     return vars;
 }
 
+typedef struct {
+    const char *value;
+    Type *type;
+} TypedValue;
+
+static int unboxed_type(Type *type)
+{
+    return type && (type->kind == TYPE_INTEGER || type->kind == TYPE_BOOL);
+}
+
+static int unboxed_function(TypedFunction *function)
+{
+    if (!function || !function->result_annotated ||
+        !unboxed_type(function->result)) return 0;
+    for (int i = 0; i < function->arity; i++) {
+        if (!function->param_annotated[i] ||
+            !unboxed_type(function->params[i])) return 0;
+    }
+    return 1;
+}
+
+static TypedValue gen_typed_expr_at(QbeCtx *ctx, AstNode *expr,
+                                          TypeEnv *env, int tail,
+                                          int *terminated);
+
+static TypedValue gen_typed_expr(QbeCtx *ctx, AstNode *expr, TypeEnv *env)
+{
+    int terminated = 0;
+    return gen_typed_expr_at(ctx, expr, env, 0, &terminated);
+}
+
+static TypedValue typed_value(const char *value, Type *type)
+{
+    TypedValue result = { value, type };
+    return result;
+}
+
+static TypedValue gen_typed_call(QbeCtx *ctx, AstNode *expr, TypeEnv *env,
+                                 int tail, int *terminated)
+{
+    AstNode *head = AST_CAR(expr);
+    AstNode *args = AST_CDR(expr);
+    if (!head || head->tag != AST_SYMBOL)
+        codegen_error("typed code requires a direct call");
+    const char *name = head->as.symbol;
+
+    if (is_arith_op(name)) {
+        if (!args || AST_IS_NIL(args) || !AST_CDR(args) ||
+            AST_IS_NIL(AST_CDR(args)) ||
+            !AST_IS_NIL(AST_CDR(AST_CDR(args))))
+            codegen_error("typed arithmetic '%s' expects two arguments", name);
+        TypedValue a = gen_typed_expr(ctx, AST_CAR(args), env);
+        TypedValue b = gen_typed_expr(ctx, AST_CAR(AST_CDR(args)), env);
+        if (!type_equal(a.type, type_integer()) ||
+            !type_equal(b.type, type_integer()))
+            codegen_error("typed arithmetic '%s' requires Integer operands", name);
+        const char *result = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =w %s %s, %s", result, qbe_arith_op(name),
+             a.value, b.value);
+        return typed_value(result, type_integer());
+    }
+
+    if (is_cmp_op(name)) {
+        if (!args || AST_IS_NIL(args) || !AST_CDR(args) ||
+            AST_IS_NIL(AST_CDR(args)) ||
+            !AST_IS_NIL(AST_CDR(AST_CDR(args))))
+            codegen_error("typed comparison '%s' expects two arguments", name);
+        TypedValue a = gen_typed_expr(ctx, AST_CAR(args), env);
+        TypedValue b = gen_typed_expr(ctx, AST_CAR(AST_CDR(args)), env);
+        if (!type_equal(a.type, type_integer()) ||
+            !type_equal(b.type, type_integer()))
+            codegen_error("typed comparison '%s' requires Integer operands", name);
+        const char *result = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =w %s %s, %s", result, qbe_cmp_op(name),
+             a.value, b.value);
+        return typed_value(result, type_bool());
+    }
+
+    TypedFunction *callee = ctx->types
+        ? type_program_function(ctx->types, name) : NULL;
+    if (!unboxed_function(callee))
+        codegen_error("typed function cannot call Dynamic function '%s' yet", name);
+
+    int argc = 0;
+    char values[16][64];
+    for (AstNode *arg = args; arg && !AST_IS_NIL(arg); arg = AST_CDR(arg)) {
+        if (argc >= callee->arity)
+            codegen_error("typed call to '%s' has too many arguments", name);
+        TypedValue value = gen_typed_expr(ctx, AST_CAR(arg), env);
+        if (!type_equal(value.type, callee->params[argc]))
+            codegen_error("typed call to '%s' has incompatible argument %d",
+                          name, argc + 1);
+        snprintf(values[argc], sizeof(values[argc]), "%s", value.value);
+        argc++;
+    }
+    if (argc != callee->arity)
+        codegen_error("typed call to '%s' expects %d arguments", name,
+                      callee->arity);
+
+    char safe_name[128];
+    qbe_sanitize_name(name, safe_name, sizeof(safe_name));
+
+    if (tail) {
+        if (ctx->current_typed == callee) {
+            char frozen[16][64];
+            for (int i = 0; i < argc; i++) {
+                const char *copy = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =w copy %s", copy, values[i]);
+                snprintf(frozen[i], sizeof(frozen[i]), "%s", copy);
+            }
+            AstNode *param = ctx->current_typed_params;
+            for (int i = 0; i < argc; i++) {
+                Symbol *symbol = symtab_lookup(
+                    ctx->symtab, AST_CAR(param)->as.symbol);
+                emit(ctx, "%s =w copy %s", symbol->as.local.qbe_name,
+                     frozen[i]);
+                param = AST_CDR(param);
+            }
+            emit(ctx, "jmp @typed_tail");
+        } else {
+            char boxed[16][64];
+            for (int i = 0; i < argc; i++) {
+                const char *value = qbe_gen_tmp(ctx);
+                const char *box = callee->params[i]->kind == TYPE_BOOL
+                    ? "npl_box_bool" : "npl_box_integer";
+                emit(ctx, "%s =l call $%s(w %s)", value, box, values[i]);
+                snprintf(boxed[i], sizeof(boxed[i]), "%s", value);
+            }
+            const char *argv = "0";
+            if (argc > 0) {
+                argv = qbe_gen_tmp(ctx);
+                emit(ctx, "%s =l alloc8 %d", argv, argc * 8);
+                for (int i = 0; i < argc; i++) {
+                    const char *slot = argv;
+                    if (i > 0) {
+                        slot = qbe_gen_tmp(ctx);
+                        emit(ctx, "%s =l add %s, %d", slot, argv, i * 8);
+                    }
+                    emit(ctx, "storel %s, %s", boxed[i], slot);
+                }
+            }
+            emit(ctx,
+                 "call $npl_tail_request(l $%s__body, l 2, l %d, l %s)",
+                 safe_name, argc, argv);
+            emit(ctx, "ret 0");
+        }
+        *terminated = 1;
+        return typed_value("0", callee->result);
+    }
+
+    const char *result = qbe_gen_tmp(ctx);
+    if (argc == 0) {
+        emit(ctx, "%s =w call $%s__typed()", result, safe_name);
+    } else {
+        emit_raw(ctx, "%s =w call $%s__typed(w %s", result, safe_name,
+                 values[0]);
+        for (int i = 1; i < argc; i++)
+            fprintf(ctx->out, ", w %s", values[i]);
+        fprintf(ctx->out, ")\n");
+    }
+    return typed_value(result, callee->result);
+}
+
+static TypedValue gen_typed_expr_at(QbeCtx *ctx, AstNode *expr,
+                                    TypeEnv *env, int tail,
+                                    int *terminated)
+{
+    *terminated = 0;
+    if (!expr) codegen_error("missing typed expression");
+    switch (expr->tag) {
+    case AST_FIXNUM: {
+        char *literal = tmp_pool[tmp_idx % MAX_TMP];
+        tmp_idx++;
+        snprintf(literal, 32, "%lld", (long long)expr->as.fixnum);
+        return typed_value(literal, type_integer());
+    }
+    case AST_BOOL:
+        return typed_value(expr->as.bool_val ? "1" : "0", type_bool());
+    case AST_SYMBOL: {
+        Type *type = type_env_lookup(env, expr->as.symbol);
+        Symbol *symbol = symtab_lookup(ctx->symtab, expr->as.symbol);
+        if (!unboxed_type(type) || !symbol || symbol->kind != SYM_LOCAL)
+            codegen_error("typed code references Dynamic value '%s'",
+                          expr->as.symbol);
+        return typed_value(symbol->as.local.qbe_name, type);
+    }
+    case AST_PAIR:
+        return gen_typed_call(ctx, expr, env, tail, terminated);
+    case AST_IF: {
+        TypedValue test = gen_typed_expr(ctx, AST_CAR(expr), env);
+        if (!type_equal(test.type, type_bool()))
+            codegen_error("typed if requires a Bool test");
+        char slot_buf[32];
+        next_if_slot(ctx, slot_buf, sizeof(slot_buf));
+        const char *ltrue = qbe_gen_label(ctx);
+        const char *lfalse = qbe_gen_label(ctx);
+        const char *ldone = qbe_gen_label(ctx);
+        emit(ctx, "jnz %s, %s, %s", test.value, ltrue, lfalse);
+
+        fprintf(ctx->out, "%s\n", ltrue);
+        int yes_terminated = 0;
+        TypedValue yes = gen_typed_expr_at(
+            ctx, AST_CAR(AST_CDR(expr)), env, tail, &yes_terminated);
+        if (!yes_terminated) {
+            emit(ctx, "storew %s, %s", yes.value, slot_buf);
+            emit(ctx, "jmp %s", ldone);
+        }
+
+        fprintf(ctx->out, "%s\n", lfalse);
+        int no_terminated = 0;
+        TypedValue no = gen_typed_expr_at(
+            ctx, AST_CAR(AST_CDR(AST_CDR(expr))), env, tail,
+            &no_terminated);
+        if (!no_terminated) {
+            emit(ctx, "storew %s, %s", no.value, slot_buf);
+            emit(ctx, "jmp %s", ldone);
+        }
+
+        if (yes_terminated && no_terminated) {
+            *terminated = 1;
+            return typed_value("0", ctx->current_typed->result);
+        }
+        Type *result_type = yes_terminated ? no.type : yes.type;
+        if (!yes_terminated && !no_terminated &&
+            !type_equal(yes.type, no.type))
+            codegen_error("typed if branches have different types");
+        fprintf(ctx->out, "%s\n", ldone);
+        const char *result = qbe_gen_tmp(ctx);
+        emit(ctx, "%s =w %s %s", result,
+             result_type->kind == TYPE_BOOL ? "loaduw" : "loadsw", slot_buf);
+        return typed_value(result, result_type);
+    }
+    case AST_LET: {
+        int saved = env->count;
+        int saved_symtab_count = ctx->symtab->count;
+        int saved_next_local = ctx->symtab->next_local;
+        for (AstNode *bindings = AST_CAR(expr);
+             bindings && !AST_IS_NIL(bindings); bindings = AST_CDR(bindings)) {
+            AstNode *binding = AST_CAR(bindings);
+            AstNode *name = AST_CAR(binding);
+            TypedValue value = gen_typed_expr(
+                ctx, AST_CAR(AST_CDR(binding)), env);
+            if (!name || name->tag != AST_SYMBOL)
+                codegen_error("malformed typed let binding");
+            Symbol *symbol = symtab_add_local(ctx->symtab, name->as.symbol);
+            emit(ctx, "%s =w copy %s", symbol->as.local.qbe_name,
+                 value.value);
+            type_env_bind(env, name->as.symbol, value.type);
+        }
+        TypedValue result = typed_value("0", type_void());
+        for (AstNode *body = AST_CDR(expr); body && !AST_IS_NIL(body);
+             body = AST_CDR(body)) {
+            int is_last = AST_IS_NIL(AST_CDR(body));
+            result = gen_typed_expr_at(ctx, AST_CAR(body), env,
+                                       tail && is_last, terminated);
+            if (*terminated) break;
+        }
+        env->count = saved;
+        ctx->symtab->count = saved_symtab_count;
+        ctx->symtab->next_local = saved_next_local;
+        return result;
+    }
+    case AST_BEGIN: {
+        TypedValue result = typed_value("0", type_void());
+        for (AstNode *body = AST_CAR(expr); body && !AST_IS_NIL(body);
+             body = AST_CDR(body)) {
+            int is_last = AST_IS_NIL(AST_CDR(body));
+            result = gen_typed_expr_at(ctx, AST_CAR(body), env,
+                                       tail && is_last, terminated);
+            if (*terminated) break;
+        }
+        return result;
+    }
+    default:
+        codegen_error("construct is not supported in unboxed typed code");
+    }
+    return typed_value("0", type_dynamic());
+}
+
+static void gen_typed_function(QbeCtx *ctx, TypedFunction *function,
+                               AstNode *params, AstNode *body, FILE *out)
+{
+    char safe_name[128];
+    qbe_sanitize_name(function->name, safe_name, sizeof(safe_name));
+    fprintf(out, "function w $%s__typed(", safe_name);
+    AstNode *param = params;
+    for (int i = 0; i < function->arity; i++) {
+        if (i > 0) fprintf(out, ", ");
+        fprintf(out, "w %s", param_qbe_name(AST_CAR(param)));
+        param = AST_CDR(param);
+    }
+    fprintf(out, ") {\n@start\n");
+
+    char saved_if_slot_base[32];
+    int saved_next_if_slot = ctx->next_if_slot;
+    snprintf(saved_if_slot_base, sizeof(saved_if_slot_base), "%s",
+             ctx->if_slot_base);
+    prepare_if_slots(ctx, body, out);
+
+    TypeEnv env;
+    type_env_init(&env);
+    param = params;
+    for (int i = 0; i < function->arity; i++) {
+        AstNode *name = AST_CAR(param);
+        type_env_bind(&env, name->as.symbol, function->params[i]);
+        symtab_add_local(ctx->symtab, name->as.symbol);
+        param = AST_CDR(param);
+    }
+    fprintf(out, "    jmp @typed_tail\n@typed_tail\n");
+    TypedFunction *saved_typed = ctx->current_typed;
+    AstNode *saved_typed_params = ctx->current_typed_params;
+    ctx->current_typed = function;
+    ctx->current_typed_params = params;
+
+    TypedValue result = typed_value("0", type_void());
+    int terminated = 0;
+    for (AstNode *item = body; item && !AST_IS_NIL(item);
+         item = AST_CDR(item)) {
+        int is_last = AST_IS_NIL(AST_CDR(item));
+        result = gen_typed_expr_at(ctx, AST_CAR(item), &env,
+                                   is_last, &terminated);
+        if (terminated) break;
+    }
+    if (!type_equal(result.type, function->result))
+        codegen_error("typed codegen result mismatch in '%s'", function->name);
+    if (!terminated) emit(ctx, "ret %s", result.value);
+    fprintf(out, "}\n\n");
+    ctx->current_typed = saved_typed;
+    ctx->current_typed_params = saved_typed_params;
+
+    snprintf(ctx->if_slot_base, sizeof(ctx->if_slot_base), "%s",
+             saved_if_slot_base);
+    ctx->next_if_slot = saved_next_if_slot;
+}
+
 /* Generate a fixed-ABI wrapper plus a generic trampoline body. */
 static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params,
                             AstNode *body, FILE *out)
@@ -1516,6 +1859,9 @@ static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params,
     snprintf(saved_if_slot_base, sizeof(saved_if_slot_base), "%s",
              ctx->if_slot_base);
     qbe_sanitize_name(name, safe_name, sizeof(safe_name));
+    TypedFunction *typed = ctx->types
+        ? type_program_function(ctx->types, name) : NULL;
+    int use_unboxed = unboxed_function(typed);
     snprintf(ctx->current_func, sizeof(ctx->current_func), "%s", safe_name);
     ctx->current_params = strcmp(name, "main") == 0 ? NULL : params;
     ctx->expr_terminated = 0;
@@ -1579,12 +1925,15 @@ static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params,
         fprintf(out, "    ret %s\n}\n\n", result);
     }
 
+    if (use_unboxed)
+        gen_typed_function(ctx, typed, params, body, out);
+
     /* Generic bodies are the only functions entered by the dispatcher. */
     fprintf(out,
             "function l $%s__body(l %%npl_env, l %%npl_argc, l %%npl_argv) {\n",
             safe_name);
     fprintf(out, "@start\n");
-    prepare_if_slots(ctx, body, out);
+    if (!use_unboxed) prepare_if_slots(ctx, body, out);
 
     if (strcmp(name, "main") != 0) {
         AstNode *p = params;
@@ -1607,11 +1956,40 @@ static void gen_function_to(QbeCtx *ctx, const char *name, AstNode *params,
         }
     }
 
-    fprintf(out, "    jmp @tail\n@tail\n");
-    ctx->depth = 1;
-    ctx->trampoline_body = 1;
-    const char *result = gen_body_at(ctx, body, 1, 1);
-    if (!ctx->expr_terminated) emit(ctx, "ret %s", result ? result : "2");
+    if (use_unboxed) {
+        char raw_args[16][64];
+        AstNode *p = params;
+        for (int i = 0; i < typed->arity; i++) {
+            const char *raw = qbe_gen_tmp(ctx);
+            const char *guard = typed->params[i]->kind == TYPE_BOOL
+                ? "npl_guard_bool" : "npl_guard_integer";
+            emit(ctx, "%s =w call $%s(l %s)", raw, guard,
+                 param_qbe_name(AST_CAR(p)));
+            snprintf(raw_args[i], sizeof(raw_args[i]), "%s", raw);
+            p = AST_CDR(p);
+        }
+        const char *raw_result = qbe_gen_tmp(ctx);
+        if (typed->arity == 0) {
+            emit(ctx, "%s =w call $%s__typed()", raw_result, safe_name);
+        } else {
+            emit_raw(ctx, "%s =w call $%s__typed(w %s", raw_result,
+                     safe_name, raw_args[0]);
+            for (int i = 1; i < typed->arity; i++)
+                fprintf(ctx->out, ", w %s", raw_args[i]);
+            fprintf(ctx->out, ")\n");
+        }
+        const char *boxed = qbe_gen_tmp(ctx);
+        const char *box = typed->result->kind == TYPE_BOOL
+            ? "npl_box_bool" : "npl_box_integer";
+        emit(ctx, "%s =l call $%s(w %s)", boxed, box, raw_result);
+        emit(ctx, "ret %s", boxed);
+    } else {
+        fprintf(out, "    jmp @tail\n@tail\n");
+        ctx->depth = 1;
+        ctx->trampoline_body = 1;
+        const char *result = gen_body_at(ctx, body, 1, 1);
+        if (!ctx->expr_terminated) emit(ctx, "ret %s", result ? result : "2");
+    }
     fprintf(out, "}\n\n");
 
     ctx->depth = saved_depth;
