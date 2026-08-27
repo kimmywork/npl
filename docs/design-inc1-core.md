@@ -324,3 +324,25 @@ ref 边界、symbol/string 互转恒等(eq? 与 string=?)。
 3. declare-string-box 内遗留的 last-glob-slot/"$FIX_ME"/fresh-string-
    op-declare 死代码清理(str-atom 全局初始化器从未启用)
 4. 目标验收不变:check_bootstrap.sh Stage B — il2==il3 字节一致
+
+## Stage B 诊断 III(2026-08-27 第四轮,最终定位层)
+
+新增确证(trace w4,含 readfile/class 全事件流):
+- read-file 正确读到输入文件;'('/symchar/quote/str 各类字符分类
+  全部按 class 码命中预期分支;tokens kind 字面量(tagged 16/24/20)
+  与定义一致;字符串字面量 box 构造正常
+- 反例排除:b_min/h1 无恙,凡多 token/多参定义即触发 —
+  崩溃条件与「签名参数列表/多实参构造」强相关
+- fresh-cons 全部发生在 lexer/parser 正常路径上,未见越界写入;
+  #f(10)/#t(6) 作为链元素出现于 rev_into 遍历中途
+- 由于执行体(stage0-built nplc1 vs self-hosted nplc2)静态 IL 已证
+  等价,剩余自由度仅剩:全局 cell 初值/pair 内存复用冲突,或
+  c1il 对某处 raw-vs-tagged 比较的微妙差异(normdiff 归一化掩盖)
+
+遗留疑点聚焦(下轮首选验证):
+A. $binding_pairs/$collect_chain 在 arg-list 多元素时的 token 消耗
+B. FUNCS/GLOBS/SYMS alists 与 CURBUF 单字节状态机交错
+C. delete declare-string-box 死代码(last-glob-slot "$FIX_ME")
+   并审计 pre-tagged-string-slot 是否被意外路径触达
+D. 复验手段:w2 wrapper 增加 set_car_/cell_get 包装,
+   对 FUNCS/GLOBS 写入打 tag 流
