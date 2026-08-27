@@ -156,7 +156,8 @@ GC 后 closure 环境和 `(call/cc (lambda (k) (+ 1 (k 42)))) => 42`。
 行为和 fixpoint 作为主要验收。self-hosted `(Pair A B)` 参数现已支持结构类型解析、
 typed pointer、Dynamic guard、typed `cons/car/cdr` 和元素类型检查。self-hosted
 `(-> A B)` 与 unary、显式、非捕获 typed lambda 现通过 managed closure/function guard/
-`npl_apply`；捕获 lambda、HM、record/row/refinement 仍未完成。
+`npl_apply`；typed lambda capture 会对可见 lexical env 去重、box 进 managed environment
+并在 lambda body 中 guard/unbox。HM、record/row/refinement 仍未完成。
 
 ---
 

@@ -225,18 +225,23 @@ build_ssa "$WORK/self-lambda.ssa" "$WORK/self-lambda"
 run_expect "$WORK/self-lambda" 168
 
 cat > "$WORK/self-lambda-capture.npl" << 'EOF'
-(define (bad-capture (n : Integer)) : Integer
+(define (use-capture (n : Integer)) : Integer
   (let ((f (lambda ((x : Integer)) : Integer (+ x n))))
-    (f 1)))
-(define (main) 0)
+    (f 5)))
+(define (shadow-capture (n : Integer)) : Integer
+  (let ((n (+ n 1)))
+    (let ((f (lambda ((x : Integer)) : Integer (+ x n))))
+      (f 4))))
+(define (main) (+ (use-capture 37) (shadow-capture 37)))
 EOF
-rc=0
-"$WORK/nplc1" "$WORK/self-lambda-capture.npl" \
-    > "$WORK/self-lambda-capture.out" 2> "$WORK/self-lambda-capture.err" || rc=$?
-[ "$rc" -ne 44 ] || fail "nplc1 silently accepted a typed lambda capture"
-grep -Fq 'typed unbound n' "$WORK/self-lambda-capture.out" \
-    || fail "nplc1 typed lambda capture diagnostic missing"
-pass "self-hosted unary typed lambdas and function parameters use managed closures"
+emit_stage1 "$WORK/self-lambda-capture.npl" "$WORK/self-lambda-capture.ssa"
+grep -Fq 'call $npl_environment_ref' "$WORK/self-lambda-capture.ssa" \
+    || fail "nplc1 typed lambda does not load its capture"
+grep -Fq 'call $npl_make_environment(l 1' "$WORK/self-lambda-capture.ssa" \
+    || fail "nplc1 typed lambda capture environment missing"
+build_ssa "$WORK/self-lambda-capture.ssa" "$WORK/self-lambda-capture"
+run_expect "$WORK/self-lambda-capture" 80
+pass "self-hosted unary typed lambdas preserve managed lexical captures"
 
 cat > "$WORK/compound.npl" << 'EOF'
 (define (first-plus (p : (Pair Integer Integer)) (n : Integer)) : Integer

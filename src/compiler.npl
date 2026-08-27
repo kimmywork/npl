@@ -1112,7 +1112,7 @@
                                                 (if (= tag 215)
                                                     (emit-application e env)
                                                 (if (= tag 226)
-                                                    (tv-op (emit-typed-lambda e))
+                                                    (tv-op (emit-typed-lambda e ()))
                                                     (fatal "unknown AST form")))))))))))))))))))
 
 (define (emit-application e env)
@@ -1496,14 +1496,84 @@
                     (if (= tag 216)
                         (typed-body (cdr e) env)
                         (if (= tag 226)
-                            (emit-typed-lambda e)
+                            (emit-typed-lambda e env)
                             (fatal "unsupported construct in typed code"))))))))))
 
-(define (emit-typed-lambda e)
+(define (tenv-name-seen? names name)
+  (if (null? names)
+      #f
+      (if (string=? (car names) name)
+          #t
+          (tenv-name-seen? (cdr names) name))))
+
+; Input is newest-first. Accumulating unseen bindings produces oldest-first,
+; so replaying captures with tenv-extend restores lexical shadowing.
+(define (visible-tenv entries names acc)
+  (if (null? entries)
+      acc
+      (let ((entry (car entries)))
+        (if (tenv-name-seen? names (car entry))
+            (visible-tenv (cdr entries) names acc)
+            (visible-tenv (cdr entries)
+                          (cons (car entry) names)
+                          (cons entry acc))))))
+
+(define (bind-lambda-captures captures index env)
+  (if (null? captures)
+      env
+      (let ((entry (car captures)))
+        (let ((value (cdr entry)))
+          (let ((tagged (new-tmp)))
+            (func-line
+              (string-append tagged
+                " =l call $npl_environment_ref(l %typed_env, l "
+                (number->string index) ")"))
+            (let ((raw (new-tmp)))
+              (func-line
+                (string-append raw " =" (typed-qbe-type (tv-type value))
+                  " call $" (typed-guard-name (tv-type value))
+                  "(l " tagged ")"))
+              (bind-lambda-captures
+                (cdr captures) (+ index 1)
+                (tenv-extend env (car entry) (tv-type value) raw))))))))
+
+(define (store-lambda-captures captures index base)
+  (if (null? captures)
+      0
+      (let ((boxed (typed-box-op (cdr (car captures)))))
+        (if (= index 0)
+            (func-line (string-append "storel " boxed ", " base))
+            (let ((slot (new-tmp)))
+              (func-line
+                (string-append slot " =l add " base ", "
+                               (number->string (* index 8))))
+              (func-line (string-append "storel " boxed ", " slot))))
+        (store-lambda-captures (cdr captures) (+ index 1) base))))
+
+(define (emit-lambda-environment captures)
+  (let ((count (count-up captures 0)))
+    (if (> count 16) (fatal "typed lambda captures more than 16 values") 0)
+    (let ((argv
+            (if (= count 0)
+                "0"
+                (let ((storage (new-tmp)))
+                  (func-line
+                    (string-append storage " =l alloc8 "
+                                   (number->string (* count 8))))
+                  (store-lambda-captures captures 0 storage)
+                  storage))))
+      (let ((environment (new-tmp)))
+        (func-line
+          (string-append environment " =l call $npl_make_environment(l "
+                         (number->string count) ", l " argv ")"))
+        environment))))
+
+(define (emit-typed-lambda e outer-env)
   (let ((params (car (cdr e))))
     (let ((types (car (cdr (cdr e)))))
       (let ((result-type (car (cdr (cdr (cdr e))))))
         (let ((body (car (cdr (cdr (cdr (cdr e)))))))
+          (let ((captures (visible-tenv outer-env () ())))
           (cell-set! LAMBDA-N (+ 1 (cell-get LAMBDA-N)))
           (let ((name
                   (string-append "_typed_lambda_"
@@ -1538,24 +1608,24 @@
                   " $" name "__typed(l %typed_env, "
                   (typed-qbe-type (car types)) " %lp0) {"))
               (func-line "@start")
-              (let ((lambda-env
-                      (tenv-extend () (cdr (car params)) (car types) "%lp0")))
-                (let ((value (typed-body body lambda-env)))
-                  (if (not (type=? (tv-type value) result-type))
-                      (fatal "typed lambda result mismatch") 0)
-                  (func-line (string-append "ret " (tv-op value)))))
+              (let ((captured-env
+                      (bind-lambda-captures captures 0 ())))
+                (let ((lambda-env
+                        (tenv-extend captured-env (cdr (car params))
+                                     (car types) "%lp0")))
+                  (let ((value (typed-body body lambda-env)))
+                    (if (not (type=? (tv-type value) result-type))
+                        (fatal "typed lambda result mismatch") 0)
+                    (func-line (string-append "ret " (tv-op value))))))
               (func-line "}")
               (cell-set! CURBUF saved-buffer)
-              (let ((environment (new-tmp)))
-                (func-line
-                  (string-append environment
-                    " =l call $npl_make_environment(l 0, l 0)"))
+              (let ((environment (emit-lambda-environment captures)))
                 (let ((closure (new-tmp)))
                   (func-line
                     (string-append closure " =l call $npl_make_closure(l $"
                       name ", l " environment ", l 1)"))
                   (typed-value
-                    (function-type (car types) result-type) closure))))))))))
+                    (function-type (car types) result-type) closure)))))))))))
 
 (define (typed-application e env)
   (let ((head (car e)))
