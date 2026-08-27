@@ -225,3 +225,28 @@ ref 边界、symbol/string 互转恒等(eq? 与 string=?)。
   set-car! 可变单元;env 为关联表(局部名 → QBE %temp 名符串)。
 - 生成的 IL 与 stage0 不比对(命名私有);只保行为。
 
+
+---
+
+## 增量 4 状态 ledger(2026-08-27 checkpoint)
+
+已完成(nplc1 可构建可运行):
+- parser 输出形态经 TREE 探针验证正确:`(211 ((100 . main)) (5))`
+- 三层 peek 修正;tag 211 全链统一;application 判别走 pair-head;
+  runtime 全局 cell + `$npl_global_inits` 双端(main 与空体兜底)接通
+
+遗留清单(按依赖序):
+1. **词法数值域清理**(根因:string-ref 返回 tagged 字码,而字面码
+   47/58 等为 raw;digit 循环 `(* acc 10)` 跨域)。方案=三个 C 钩子:
+   - `npl_lex_class_w(cT, kind) → :w 0/1` —— 字符分类(is digit/ws/
+     symchar/';'/'('/')'/quote),签名仿 string=?
+   - `npl_lex_scan_sym_end(sT, jT) → tagged j`(连续 symchar 扫描)
+   - `npl_lex_number(sT, iT, jT, isNegL) → tagged fixnum`(含符号,
+     内部 strtol,全 raw 域)
+2. emit-function 补 `@start` 行(当前产物缺该行,QBE 无法消费);
+3. IL 拼接完成度断言:每条 func-line 必须含非空操作数(fail-fast
+   自检,防"copy 空/call 空"再次静默出现);
+4. tools/check_bootstrap.sh:
+   a. 功能验收 — nplc1 boot_hello.npl > x.ssa;qbe+clang 链接运行;
+   b. 不动点验收 — il2=nplc1 compiler.npl;nplc2 由 il2 构建;
+      il3=nplc2 compiler.npl;diff il2 il3 必须 0 字节差。
