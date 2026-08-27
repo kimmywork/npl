@@ -1,0 +1,6 @@
+; hello.npl — Phase 2 test: minimal program
+; Defines a function and a main entry point
+
+(define (square x) (* x x))
+
+(define (main) (square 42))

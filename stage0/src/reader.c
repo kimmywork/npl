@@ -1,326 +1,678 @@
-#include "reader.h"
+/*
+ * reader.c — Lexer + recursive-descent parser for NPL S-expressions.
+ *
+ * Reads from a string buffer and produces AST nodes.  Handles:
+ *   - Parentheses: ( ) [ ]
+ *   - Quote: '
+ *   - Symbols, integers, floats, strings
+ *   - Booleans: #t, #f
+ *   - Comments: ; to end of line
+ *   - Special forms: define, lambda, let, if, begin, quote, set!
+ *
+ * The reader is intentionally simple: one token of lookahead, no
+ * backtracking.  Special forms are detected after parsing a list.
+ */
 
-#include <ctype.h>
-#include <errno.h>
+#include "reader.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <assert.h>
+
+/* ---------- token types ---------- */
 
 typedef enum {
-    TOKEN_LEFT,
-    TOKEN_RIGHT,
-    TOKEN_QUOTE,
-    TOKEN_ATOM,
-    TOKEN_STRING,
-    TOKEN_EOF,
-    TOKEN_ERROR
-} TokenKind;
+    TOK_LPAREN,   /* ( */
+    TOK_RPAREN,   /* ) */
+    TOK_LBRACKET, /* [ */
+    TOK_RBRACKET, /* ] */
+    TOK_QUOTE,    /* ' */
+    TOK_SYMBOL,
+    TOK_NUMBER,   /* integer or float */
+    TOK_STRING,
+    TOK_BOOL,
+    TOK_EOF,
+    TOK_ERROR,
+} TokType;
 
 typedef struct {
-    TokenKind kind;
-    char *text;
-    int line;
-    int column;
+    TokType  type;
+    char    *text;    /* heap-allocated token text */
+    int      line;
+    int      col;
 } Token;
 
+/* ---------- lexer state ---------- */
+
 typedef struct {
-    const char *source;
-    size_t offset;
-    int line;
-    int column;
+    const char *input;
+    size_t      pos;
+    int         line;
+    int         col;
+    Token       current;  /* one-token lookahead */
 } Lexer;
 
-typedef struct {
-    Lexer lexer;
-    Token current;
-    char *error;
-    size_t error_size;
-    int failed;
-} Parser;
-
-static char *copy_text(const char *start, size_t length)
+static void lexer_init(Lexer *lex, const char *input)
 {
-    char *text = malloc(length + 1);
-    if (!text) {
-        perror("malloc");
-        exit(1);
-    }
-    memcpy(text, start, length);
-    text[length] = '\0';
-    return text;
+    lex->input  = input;
+    lex->pos    = 0;
+    lex->line   = 1;
+    lex->col    = 1;
+    memset(&lex->current, 0, sizeof(lex->current));
 }
 
-static char lexer_peek(const Lexer *lexer)
+static char peek(Lexer *lex)
 {
-    return lexer->source[lexer->offset];
+    return lex->input[lex->pos];
 }
 
-static char lexer_advance(Lexer *lexer)
+static char advance(Lexer *lex)
 {
-    char value = lexer->source[lexer->offset++];
-    if (value == '\n') {
-        lexer->line++;
-        lexer->column = 1;
-    } else {
-        lexer->column++;
-    }
-    return value;
+    char c = lex->input[lex->pos++];
+    if (c == '\n') { lex->line++; lex->col = 1; }
+    else { lex->col++; }
+    return c;
 }
 
-static void skip_space(Lexer *lexer)
+static void skip_whitespace_and_comments(Lexer *lex)
 {
     for (;;) {
-        while (isspace((unsigned char)lexer_peek(lexer))) {
-            lexer_advance(lexer);
+        char c = peek(lex);
+        if (c == '\0') return;
+        if (isspace((unsigned char)c)) { advance(lex); continue; }
+        if (c == ';') {
+            /* line comment — skip to end of line */
+            while (peek(lex) != '\0' && peek(lex) != '\n')
+                advance(lex);
+            continue;
         }
-        if (lexer_peek(lexer) != ';') {
-            return;
-        }
-        while (lexer_peek(lexer) && lexer_peek(lexer) != '\n') {
-            lexer_advance(lexer);
-        }
+        return;
     }
 }
 
-static Token make_token(TokenKind kind, char *text, int line, int column)
+/* Read a string literal (after the opening '"').  Returns a malloc'd copy. */
+static char *read_string_lit(Lexer *lex)
 {
-    Token token = { kind, text, line, column };
-    return token;
-}
+    /* skip opening quote */
+    advance(lex);
+    size_t cap = 64, len = 0;
+    char *buf = (char *)malloc(cap);
+    if (!buf) { perror("read_string_lit"); exit(1); }
 
-static Token read_string(Lexer *lexer, int line, int column)
-{
-    lexer_advance(lexer);
-    size_t capacity = 32;
-    size_t length = 0;
-    char *text = malloc(capacity);
-    if (!text) {
-        perror("malloc");
-        exit(1);
-    }
-
-    while (lexer_peek(lexer) && lexer_peek(lexer) != '"') {
-        char value = lexer_advance(lexer);
-        if (value == '\\') {
-            if (!lexer_peek(lexer)) {
-                free(text);
-                return make_token(TOKEN_ERROR,
-                                  copy_text("unterminated string", 19),
-                                  line, column);
+    for (;;) {
+        char c = peek(lex);
+        if (c == '\0') {
+            free(buf);
+            return NULL; /* unterminated string */
+        }
+        if (c == '"') {
+            advance(lex);
+            break;
+        }
+        if (c == '\\') {
+            advance(lex);
+            char esc = advance(lex);
+            switch (esc) {
+            case 'n': c = '\n'; break;
+            case 't': c = '\t'; break;
+            case '\\': c = '\\'; break;
+            case '"': c = '"'; break;
+            default: c = esc; break;
             }
-            value = lexer_advance(lexer);
-            if (value == 'n') value = '\n';
-            else if (value == 't') value = '\t';
-        }
-        if (length + 1 == capacity) {
-            capacity *= 2;
-            text = realloc(text, capacity);
-            if (!text) {
-                perror("realloc");
-                exit(1);
-            }
-        }
-        text[length++] = value;
-    }
-
-    if (!lexer_peek(lexer)) {
-        free(text);
-        return make_token(TOKEN_ERROR, copy_text("unterminated string", 19),
-                          line, column);
-    }
-    lexer_advance(lexer);
-    text[length] = '\0';
-    return make_token(TOKEN_STRING, text, line, column);
-}
-
-static int atom_delimiter(char value)
-{
-    return value == '\0' || isspace((unsigned char)value) || value == '(' ||
-           value == ')' || value == '\'' || value == '"' || value == ';';
-}
-
-static Token lexer_next(Lexer *lexer)
-{
-    skip_space(lexer);
-    int line = lexer->line;
-    int column = lexer->column;
-    char value = lexer_peek(lexer);
-
-    if (!value) return make_token(TOKEN_EOF, NULL, line, column);
-    if (value == '(') {
-        lexer_advance(lexer);
-        return make_token(TOKEN_LEFT, NULL, line, column);
-    }
-    if (value == ')') {
-        lexer_advance(lexer);
-        return make_token(TOKEN_RIGHT, NULL, line, column);
-    }
-    if (value == '\'') {
-        lexer_advance(lexer);
-        return make_token(TOKEN_QUOTE, NULL, line, column);
-    }
-    if (value == '"') return read_string(lexer, line, column);
-
-    size_t start = lexer->offset;
-    while (!atom_delimiter(lexer_peek(lexer))) {
-        lexer_advance(lexer);
-    }
-    return make_token(TOKEN_ATOM,
-                      copy_text(lexer->source + start, lexer->offset - start),
-                      line, column);
-}
-
-static void parser_error(Parser *parser, int line, int column,
-                         const char *message)
-{
-    if (parser->failed) return;
-    parser->failed = 1;
-    if (parser->error && parser->error_size) {
-        snprintf(parser->error, parser->error_size,
-                 "line %d col %d: %s", line, column, message);
-    }
-}
-
-static void parser_advance(Parser *parser)
-{
-    free(parser->current.text);
-    parser->current = lexer_next(&parser->lexer);
-    if (parser->current.kind == TOKEN_ERROR) {
-        parser_error(parser, parser->current.line, parser->current.column,
-                     parser->current.text);
-    }
-}
-
-static AstNode *parse_expression(Parser *parser);
-
-static AstNode *parse_list(Parser *parser, int line, int column)
-{
-    AstNode *head = ast_nil();
-    AstNode *tail = NULL;
-
-    while (!parser->failed && parser->current.kind != TOKEN_RIGHT) {
-        if (parser->current.kind == TOKEN_EOF) {
-            parser_error(parser, line, column,
-                         "unmatched '('; expected ')' before end of input");
-            return NULL;
-        }
-        AstNode *item = parse_expression(parser);
-        if (!item) return NULL;
-        AstNode *cell = ast_pair(item, ast_nil());
-        if (tail) AST_CDR(tail) = cell;
-        else head = cell;
-        tail = cell;
-    }
-
-    if (!parser->failed) parser_advance(parser);
-    return head;
-}
-
-static AstNode *parse_atom(Parser *parser)
-{
-    const char *text = parser->current.text;
-    AstNode *node;
-
-    if (strcmp(text, "#t") == 0 || strcmp(text, "#f") == 0) {
-        node = ast_bool(text[1] == 't');
-    } else {
-        char *end = NULL;
-        errno = 0;
-        long long value = strtoll(text, &end, 10);
-        if (text[0] && *end == '\0' && errno != ERANGE) {
-            node = ast_fixnum((int64_t)value);
         } else {
-            node = ast_symbol(text);
+            advance(lex);
+        }
+        if (len + 1 >= cap) {
+            cap *= 2;
+            buf = (char *)realloc(buf, cap);
+            if (!buf) { perror("read_string_lit"); exit(1); }
+        }
+        buf[len++] = c;
+    }
+    buf[len] = '\0';
+    return buf;
+}
+
+/* Read a token.  Does NOT skip whitespace — caller must do that. */
+static Token next_token(Lexer *lex)
+{
+    Token tok;
+    memset(&tok, 0, sizeof(tok));
+    tok.line = lex->line;
+    tok.col  = lex->col;
+
+    skip_whitespace_and_comments(lex);
+
+    char c = peek(lex);
+    if (c == '\0') {
+        tok.type = TOK_EOF;
+        tok.text = strdup("");
+        return tok;
+    }
+
+    /* single-char tokens */
+    if (c == '(') { advance(lex); tok.type = TOK_LPAREN; tok.text = strdup("("); return tok; }
+    if (c == ')') { advance(lex); tok.type = TOK_RPAREN; tok.text = strdup(")"); return tok; }
+    if (c == '[') { advance(lex); tok.type = TOK_LBRACKET; tok.text = strdup("["); return tok; }
+    if (c == ']') { advance(lex); tok.type = TOK_RBRACKET; tok.text = strdup("]"); return tok; }
+    if (c == '\'') { advance(lex); tok.type = TOK_QUOTE; tok.text = strdup("'"); return tok; }
+
+    /* string literal */
+    if (c == '"') {
+        tok.type = TOK_STRING;
+        tok.text = read_string_lit(lex);
+        if (!tok.text) { tok.type = TOK_ERROR; tok.text = strdup("unterminated string"); }
+        return tok;
+    }
+
+    /* boolean or character */
+    if (c == '#') {
+        advance(lex);
+        char next = peek(lex);
+        if (next == 't' || next == 'T') {
+            advance(lex);
+            tok.type = TOK_BOOL;
+            tok.text = strdup("#t");
+        } else if (next == 'f' || next == 'F') {
+            advance(lex);
+            tok.type = TOK_BOOL;
+            tok.text = strdup("#f");
+        } else {
+            tok.type = TOK_ERROR;
+            tok.text = strdup("bad #-literal");
+        }
+        return tok;
+    }
+
+    /* number or symbol */
+    if (isdigit((unsigned char)c) || c == '-' || c == '+') {
+        /* Peek ahead to see if it's a number or a symbol like +, -, +foo */
+        int is_num = 0;
+        if (isdigit((unsigned char)c)) {
+            is_num = 1;
+        } else if ((c == '-' || c == '+') && lex->input[lex->pos + 1] != '\0' &&
+                   isdigit((unsigned char)lex->input[lex->pos + 1])) {
+            is_num = 1;
+        }
+
+        if (is_num) {
+            size_t start = lex->pos;
+            if (c == '-' || c == '+') advance(lex);
+            while (isdigit((unsigned char)peek(lex))) advance(lex);
+            if (peek(lex) == '.') advance(lex);
+            while (isdigit((unsigned char)peek(lex))) advance(lex);
+
+            size_t len = lex->pos - start;
+            tok.text = (char *)malloc(len + 1);
+            memcpy(tok.text, lex->input + start, len);
+            tok.text[len] = '\0';
+            tok.type = TOK_NUMBER;
+            return tok;
         }
     }
-    parser_advance(parser);
-    return node;
+
+    /* symbol (identifiers, operators like +, -, *, etc.) */
+    {
+        size_t start = lex->pos;
+        /* Symbols can contain: letters, digits, -, _, *, /, ?, !, =, <, >, $, %, &, @, . */
+        while (peek(lex) != '\0' && !isspace((unsigned char)peek(lex)) &&
+               peek(lex) != '(' && peek(lex) != ')' &&
+               peek(lex) != '[' && peek(lex) != ']' &&
+               peek(lex) != '\'' && peek(lex) != '"' &&
+               peek(lex) != ';')
+        {
+            advance(lex);
+        }
+        size_t len = lex->pos - start;
+        if (len == 0) {
+            /* shouldn't happen, but just in case */
+            advance(lex);
+            tok.type = TOK_ERROR;
+            tok.text = strdup("unexpected char");
+            return tok;
+        }
+        tok.text = (char *)malloc(len + 1);
+        memcpy(tok.text, lex->input + start, len);
+        tok.text[len] = '\0';
+        tok.type = TOK_SYMBOL;
+        return tok;
+    }
 }
 
-static AstNode *parse_expression(Parser *parser)
+/* ---------- parser ---------- */
+
+typedef struct {
+    Lexer  lexer;
+    int    had_error;
+    char   error_msg[256];
+} Parser;
+
+static void parser_init(Parser *p, const char *input)
 {
-    Token token = parser->current;
-    switch (token.kind) {
-    case TOKEN_LEFT:
-        parser_advance(parser);
-        return parse_list(parser, token.line, token.column);
-    case TOKEN_RIGHT:
-        parser_error(parser, token.line, token.column,
-                     "unexpected closing delimiter");
-        return NULL;
-    case TOKEN_QUOTE: {
-        parser_advance(parser);
-        AstNode *datum = parse_expression(parser);
-        if (!datum) return NULL;
-        return ast_pair(ast_symbol("quote"),
-                        ast_pair(datum, ast_nil()));
-    }
-    case TOKEN_ATOM:
-        return parse_atom(parser);
-    case TOKEN_STRING: {
-        char *text = parser->current.text;
-        parser->current.text = NULL;
-        AstNode *node = ast_string(text);
-        parser_advance(parser);
-        return node;
-    }
-    case TOKEN_EOF:
-        parser_error(parser, token.line, token.column,
-                     "unexpected end of input");
-        return NULL;
-    case TOKEN_ERROR:
-        return NULL;
-    }
-    return NULL;
+    lexer_init(&p->lexer, input);
+    p->had_error = 0;
+    p->error_msg[0] = '\0';
+    /* prime the lookahead */
+    p->lexer.current = next_token(&p->lexer);
 }
 
-AstNode *reader_read_all(const char *source, char *error, size_t error_size)
+static Token cur(Parser *p)
 {
-    Parser parser;
-    memset(&parser, 0, sizeof(parser));
-    parser.lexer.source = source;
-    parser.lexer.line = 1;
-    parser.lexer.column = 1;
-    parser.error = error;
-    parser.error_size = error_size;
-    parser.current = lexer_next(&parser.lexer);
-
-    AstNode *head = ast_nil();
-    AstNode *tail = NULL;
-    while (!parser.failed && parser.current.kind != TOKEN_EOF) {
-        AstNode *expression = parse_expression(&parser);
-        if (!expression) break;
-        AstNode *cell = ast_pair(expression, ast_nil());
-        if (tail) AST_CDR(tail) = cell;
-        else head = cell;
-        tail = cell;
-    }
-
-    free(parser.current.text);
-    return parser.failed ? NULL : head;
+    return p->lexer.current;
 }
 
+static Token consume(Parser *p)
+{
+    Token t = p->lexer.current;
+    p->lexer.current = next_token(&p->lexer);
+    return t;
+}
+
+static int check(Parser *p, TokType type)
+{
+    return cur(p).type == type;
+}
+
+static void parse_error(Parser *p, const char *msg)
+{
+    if (!p->had_error) {
+        p->had_error = 1;
+        snprintf(p->error_msg, sizeof(p->error_msg),
+                 "parse error at line %d col %d: %s (got '%s')",
+                 cur(p).line, cur(p).col, msg, cur(p).text);
+    }
+}
+
+/* Check if a symbol is a special form keyword */
+static AstTag special_form_tag(const char *sym)
+{
+    if (strcmp(sym, "if") == 0)     return AST_IF;
+    if (strcmp(sym, "define") == 0) return AST_DEFINE;
+    if (strcmp(sym, "lambda") == 0) return AST_LAMBDA;
+    if (strcmp(sym, "let") == 0)    return AST_LET;
+    if (strcmp(sym, "begin") == 0)  return AST_BEGIN;
+    if (strcmp(sym, "quote") == 0)  return AST_QUOTE;
+    if (strcmp(sym, "set!") == 0)   return AST_SET;
+    return AST_PAIR; /* not a special form */
+}
+
+/* Forward decl */
+static AstNode *parse_expr(Parser *p);
+
+/* Parse a list of expressions until closing paren */
+static AstNode *parse_list(Parser *p)
+{
+    if (check(p, TOK_RPAREN) || check(p, TOK_RBRACKET)) {
+        return ast_nil();
+    }
+    if (check(p, TOK_EOF)) {
+        parse_error(p, "unexpected end of input in list");
+        return ast_nil();
+    }
+
+    AstNode *car = parse_expr(p);
+    if (p->had_error) return ast_nil();
+
+    AstNode *cdr = parse_list(p);
+    return ast_pair(car, cdr);
+}
+
+/* Parse bindings list for let: ((name val) ...) */
+static AstNode *parse_let_bindings(Parser *p)
+{
+    if (check(p, TOK_RPAREN)) {
+        return ast_nil();
+    }
+    if (check(p, TOK_EOF)) {
+        parse_error(p, "unexpected end of input in let bindings");
+        return ast_nil();
+    }
+
+    /* Each binding is (name val) */
+    if (!check(p, TOK_LPAREN)) {
+        parse_error(p, "expected '(' to start let binding");
+        return ast_nil();
+    }
+    consume(p); /* consume '(' */
+
+    AstNode *name = parse_expr(p);
+    AstNode *val  = parse_expr(p);
+
+    if (!check(p, TOK_RPAREN)) {
+        parse_error(p, "expected ')' to close let binding");
+        return ast_nil();
+    }
+    consume(p); /* consume ')' */
+
+    AstNode *binding = ast_pair(name, ast_pair(val, ast_nil()));
+    AstNode *rest = parse_let_bindings(p);
+    return ast_pair(binding, rest);
+}
+
+/* Parse a (possibly special) list form */
+static AstNode *parse_list_form(Parser *p)
+{
+    Token open = consume(p); /* consume '(' or '[' */
+    int is_bracket = (open.type == TOK_LBRACKET);
+
+    if (check(p, TOK_RPAREN) || check(p, TOK_RBRACKET)) {
+        consume(p);
+        return ast_nil();
+    }
+
+    /* Check if first element is a special form keyword */
+    if (check(p, TOK_SYMBOL)) {
+        AstTag tag = special_form_tag(cur(p).text);
+        if (tag != AST_PAIR) {
+            consume(p); /* consume keyword */
+
+            if (tag == AST_IF) {
+                AstNode *test   = parse_expr(p);
+                AstNode *conseq = parse_expr(p);
+                AstNode *alt    = ast_nil();
+                if (!check(p, TOK_RPAREN) && !check(p, TOK_RBRACKET)) {
+                    alt = parse_expr(p);
+                }
+                /* consume closing paren */
+                if (is_bracket) {
+                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
+                    else consume(p);
+                } else {
+                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
+                    else consume(p);
+                }
+                return ast_if(test, conseq, alt);
+            }
+
+            if (tag == AST_DEFINE) {
+                /* Could be (define name value) or (define (name args...) body) */
+                if (check(p, TOK_LPAREN)) {
+                    /* Function shorthand: (define (name args...) body) */
+                    consume(p); /* ( */
+                    AstNode *name = parse_expr(p);  /* function name */
+                    /* Read parameter list */
+                    AstNode *params = parse_list(p);
+                    if (!check(p, TOK_RPAREN)) { parse_error(p, "expected ')'"); return ast_nil(); }
+                    consume(p); /* ) */
+                    /* Body — R7RS: sequence of expressions, stored as a list */
+                    AstNode *body_items = parse_list(p);
+                    AstNode *sig = ast_pair(name, params);
+                    /* consume closing paren */
+                    if (is_bracket) {
+                        if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
+                        else consume(p);
+                    } else {
+                        if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
+                        else consume(p);
+                    }
+                    return ast_define(sig, body_items);
+                } else {
+                    /* Simple: (define name value) */
+                    AstNode *name = parse_expr(p);
+                    AstNode *val  = parse_expr(p);
+                    /* consume closing paren */
+                    if (is_bracket) {
+                        if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
+                        else consume(p);
+                    } else {
+                        if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
+                        else consume(p);
+                    }
+                    return ast_define(name, val);
+                }
+            }
+
+            if (tag == AST_LAMBDA) {
+                /* (lambda (params...) body) */
+                AstNode *params;
+                if (check(p, TOK_LPAREN) || check(p, TOK_LBRACKET)) {
+                    consume(p); /* open */
+                    params = parse_list(p);
+                    if (!check(p, TOK_RPAREN) && !check(p, TOK_RBRACKET)) {
+                        parse_error(p, "expected ')' or ']' to close lambda params");
+                        return ast_nil();
+                    }
+                    consume(p); /* close */
+                } else {
+                    parse_error(p, "expected parameter list after lambda");
+                    return ast_nil();
+                }
+                /* Body — R7RS: sequence of expressions, stored as a list */
+                AstNode *body_items = parse_list(p);
+                /* consume closing paren */
+                if (is_bracket) {
+                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
+                    else consume(p);
+                } else {
+                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
+                    else consume(p);
+                }
+                return ast_lambda(params, body_items);
+            }
+
+            if (tag == AST_LET) {
+                /* (let ((name val) ...) body) */
+                if (!check(p, TOK_LPAREN)) {
+                    parse_error(p, "expected '(' to start let bindings");
+                    return ast_nil();
+                }
+                consume(p); /* consume '(' */
+                AstNode *bindings = parse_let_bindings(p);
+                if (!check(p, TOK_RPAREN)) {
+                    parse_error(p, "expected ')' to close let bindings");
+                    return ast_nil();
+                }
+                consume(p); /* consume ')' */
+                /* Body — R7RS: sequence of expressions, stored as a list */
+                AstNode *body_items = parse_list(p);
+                if (is_bracket) {
+                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
+                    else consume(p);
+                } else {
+                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
+                    else consume(p);
+                }
+                return ast_let(bindings, body_items);
+            }
+
+            if (tag == AST_BEGIN) {
+                /* (begin exprs...) */
+                AstNode *exprs = parse_list(p);
+                /* consume closing paren */
+                if (is_bracket) {
+                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
+                    else consume(p);
+                } else {
+                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
+                    else consume(p);
+                }
+                return ast_begin(exprs);
+            }
+
+            if (tag == AST_QUOTE) {
+                /* (quote datum) */
+                AstNode *datum = parse_expr(p);
+                /* consume closing paren */
+                if (is_bracket) {
+                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
+                    else consume(p);
+                } else {
+                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
+                    else consume(p);
+                }
+                return ast_quote(datum);
+            }
+
+            if (tag == AST_SET) {
+                /* (set! name value) */
+                AstNode *name = parse_expr(p);
+                AstNode *val  = parse_expr(p);
+                /* consume closing paren */
+                if (is_bracket) {
+                    if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
+                    else consume(p);
+                } else {
+                    if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
+                    else consume(p);
+                }
+                return ast_set(name, val);
+            }
+        }
+    }
+
+    /* Regular list (application form) */
+    AstNode *items = parse_list(p);
+    /* consume closing paren */
+    if (is_bracket) {
+        if (!check(p, TOK_RBRACKET)) parse_error(p, "expected ']'");
+        else consume(p);
+    } else {
+        if (!check(p, TOK_RPAREN)) parse_error(p, "expected ')'");
+        else consume(p);
+    }
+    return items;
+}
+
+/* Parse one expression */
+static AstNode *parse_expr(Parser *p)
+{
+    if (p->had_error) return ast_nil();
+
+    Token t = cur(p);
+
+    switch (t.type) {
+    case TOK_EOF:
+        parse_error(p, "unexpected end of input");
+        return ast_nil();
+
+    case TOK_RPAREN:
+    case TOK_RBRACKET:
+        parse_error(p, "unexpected closing bracket");
+        return ast_nil();
+
+    case TOK_LPAREN:
+    case TOK_LBRACKET:
+        return parse_list_form(p);
+
+    case TOK_QUOTE:
+        consume(p);
+        return ast_quote(parse_expr(p));
+
+    case TOK_BOOL:
+        consume(p);
+        return ast_bool(t.text[1] == 't');
+
+    case TOK_NUMBER: {
+        consume(p);
+        /* Try integer first */
+        char *end;
+        long long ival = strtoll(t.text, &end, 10);
+        if (*end == '\0') {
+            free(t.text);
+            return ast_fixnum((int64_t)ival);
+        }
+        /* Try float */
+        double fval = strtod(t.text, &end);
+        if (*end == '\0') {
+            free(t.text);
+            return ast_flonum(fval);
+        }
+        free(t.text);
+        parse_error(p, "invalid number");
+        return ast_nil();
+    }
+
+    case TOK_STRING: {
+        consume(p);
+        /* ast_string takes ownership of the malloc'd text */
+        return ast_string(t.text);
+    }
+
+    case TOK_SYMBOL: {
+        consume(p);
+        AstNode *sym = ast_symbol(t.text);
+        free(t.text);
+        return sym;
+    }
+
+    case TOK_ERROR:
+        consume(p);
+        parse_error(p, t.text);
+        free(t.text);
+        return ast_nil();
+    }
+
+    return ast_nil(); /* unreachable */
+}
+
+/* ---------- public API ---------- */
+
+AstNode *reader_read(const char *input, char *errbuf, size_t errbuf_size)
+{
+    Parser p;
+    parser_init(&p, input);
+
+    if (check(&p, TOK_EOF)) {
+        return ast_nil();
+    }
+
+    AstNode *result = parse_expr(&p);
+
+    if (p.had_error) {
+        if (errbuf && errbuf_size > 0) {
+            strncpy(errbuf, p.error_msg, errbuf_size - 1);
+            errbuf[errbuf_size - 1] = '\0';
+        }
+        return NULL;
+    }
+
+    return result;
+}
+
+AstNode *reader_read_all(const char *input, char *errbuf, size_t errbuf_size)
+{
+    Parser p;
+    parser_init(&p, input);
+
+    /* Read all top-level expressions into a list */
+    AstNode *result = ast_nil();
+    AstNode **tail = &result;
+
+    while (!check(&p, TOK_EOF) && !p.had_error) {
+        AstNode *expr = parse_expr(&p);
+        if (p.had_error) break;
+        /* Prepend (we'll reverse later if needed — but for now, build in order) */
+        *tail = ast_pair(expr, ast_nil());
+        tail = &((*tail)->as.pair.cdr);
+    }
+
+    if (p.had_error) {
+        if (errbuf && errbuf_size > 0) {
+            strncpy(errbuf, p.error_msg, errbuf_size - 1);
+            errbuf[errbuf_size - 1] = '\0';
+        }
+        return NULL;
+    }
+
+    return result;
+}
+
+/* Convenience: read from file */
 char *reader_read_file(const char *path)
 {
-    FILE *file = fopen(path, "rb");
-    if (!file) return NULL;
-    if (fseek(file, 0, SEEK_END) != 0) {
-        fclose(file);
-        return NULL;
-    }
-    long size = ftell(file);
-    if (size < 0 || fseek(file, 0, SEEK_SET) != 0) {
-        fclose(file);
-        return NULL;
-    }
+    FILE *f = fopen(path, "r");
+    if (!f) return NULL;
 
-    char *source = malloc((size_t)size + 1);
-    if (!source) {
-        fclose(file);
-        return NULL;
-    }
-    size_t read_size = fread(source, 1, (size_t)size, file);
-    fclose(file);
-    source[read_size] = '\0';
-    return source;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char *buf = (char *)malloc(sz + 1);
+    if (!buf) { fclose(f); return NULL; }
+
+    size_t nread = fread(buf, 1, sz, f);
+    buf[nread] = '\0';
+    fclose(f);
+    return buf;
 }

@@ -1,0 +1,34 @@
+; test_and_or.npl — Phase 6: and/or macros
+
+(define-syntax my-and
+  (syntax-rules ()
+    ((my-and a b)
+     (if a b #f))))
+
+(define-syntax my-or
+  (syntax-rules ()
+    ((my-or a b)
+     (if a #t b))))
+
+(define (test-and-true)
+  (my-and (> 5 3) (> 10 1)))
+
+(define (test-and-false)
+  (my-and (> 5 3) (< 10 1)))
+
+(define (test-or-true)
+  (my-or (> 5 3) (< 10 1)))
+
+(define (test-or-false)
+  (my-or (< 5 3) (< 10 1)))
+
+(define (main)
+  (if (test-and-true)
+    (if (test-and-false)
+      99  ; should not reach
+      (if (test-or-true)
+        (if (test-or-false)
+          99  ; should not reach
+          1)  ; all pass
+        99))
+    99))

@@ -1,0 +1,30 @@
+; test_strings.npl — increment-2: string/symbol builtins
+
+(define (main)
+  ; append & length conservation
+  (display (string-append "foo" "bar"))
+  (newline)
+  (display (string-length (string-append "ab" "cdef")))
+  (newline)
+  ; empty-ish edge: appending to a 1-char string
+  (display (string-length (string-append "z" "")))
+  (newline)
+  ; string-ref (byte as fixnum): char 'A' is 65
+  (display (string-ref "ABC" 0))
+  (newline)
+  ; number->string round trip via display
+  (display (number->string 12345))
+  (newline)
+  ; string=?
+  (display (if (string=? (number->string 100) "100") 1 0))
+  (newline)
+  ; symbol -> string
+  (display (symbol->string 'hello))
+  (newline)
+  (display (string=? (symbol->string 'hello) "hello"))
+  (newline)
+  ; composition for codegen-style name mangling
+  (display (string-append "%" (number->string 42)))
+  (newline)
+
+  11)

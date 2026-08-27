@@ -1,0 +1,388 @@
+; compiler.npl — NPL-in-NPL compiler, vertical slice (increment-4 / Phase 8)
+;
+; Usage : nplc1 <input.npl>       ; prints QBE IL of the input to stdout
+;
+; Supports (v0 slice):
+;   top    : (define (name params...) body...)   multi-expr bodies
+;            (define name const)                 num / string / 'sym only
+;   forms  : if (3 arms), begin, let ((n v)...), quote -> static data
+;   atoms  : fixnums, strings, nil, #t/#f ignored in datum walk
+;   builtins: cons car cdr null? eq? not display newline exit
+;             + - * < =  program-arguments read-file
+;             string-length string-append number->string string=?
+; NO closures/higher-order functions anywhere in this file.
+
+(define (fatal msg)
+  (begin (display "nplc1: ") (display msg) (newline) (exit 21)))
+
+(define (cell v) (cons v ()))
+(define (cell-get c) (car c))
+(define (cell-set! c v) (set-car! c v))
+
+(define (and2 a b) (if a b #f))
+(define (or2 a b) (if a #t b))
+
+(define (rev lst) (rev-into lst ()))
+
+(define (rev-into lst acc)
+  (if (null? lst) acc (rev-into (cdr lst) (cons (car lst) acc))))
+
+(define (ch-digit-q2 c) (if (< 47 c) (< c 58) #f))
+(define (ch-alpha-up-e c) (if (< 64 c) (< c 91) #f))
+(define (ch-alpha-low-e c) (if (< 96 c) (< c 123) #f))
+
+(define (sanitize s i out)
+  (if (< i (string-length s))
+      (let ((c (string-ref s i)))
+        (if (if (ch-digit-q2 c)
+                #t
+                (if (ch-alpha-up-e c)
+                    #t
+                    (if (ch-alpha-low-e c)
+                        #t
+                        (= c 95))))
+            (sanitize s (+ i 1) (string-append out (int->string c)))
+            (sanitize s (+ i 1) (string-append out "_"))))
+      out))
+
+; ---------------- lexer ----------------
+; tokens: (kind . payload); kinds 1"(" 2")" 3"'" 4sym 5num 6str 7eof
+
+; Character classification goes through runtime hooks so the self-hosted
+; side never juggles raw byte values: c is a TAGGED fixnum byte code.
+;
+; class codes: 0 ws  1 \' ;\'  2 (  3 )  4 quote  5 str-delim
+;              6 digit  7 symchar  8 other/bad
+
+(define (lex-cls? c k)       ; is char-class == k ?
+  (npl_lex_class_w c k))
+
+(define (lex-skip-ws s i len)
+  ; advance past whitespace/comment-start position by position
+  (if (< i len)
+      (if (lex-cls? (string-ref s i) 0)
+          (+ i 1)
+          i)
+      i))
+
+(define (scan-comment-end s i len)
+  ; at a \' ;\': walk to newline inclusive; caller resumes after it
+  (if (and2 (< i len) (not (= (string-ref s i) 10)))
+      (scan-comment-end s (+ i 1) len)
+      i))
+
+(define (sym-run-end s j)     ; end of consecutive symchars from j (tagged j)
+  (npl_lex_scan_sym_end s j))
+
+(define (num-run-end s j)     ; end of consecutive digits from j
+  (if (< j (string-length s))
+      (if (lex-cls? (string-ref s j) 6)
+          (num-run-end s (+ j 1))
+          j)
+      j))
+
+(define (push-number s i acc)
+  (let ((j (num-run-end s i)))
+    (let ((v (npl_lex_number s i j)))
+      (lex-loop s j (cons (cons 5 v) acc)))))
+
+(define (push-symbol s i acc)
+  (let ((j (sym-run-end s i)))
+    (let ((nm (substring s i j)))
+      (lex-loop s j (cons (cons 4 nm) acc)))))
+
+(define (step-token s i acc)
+  ; dispatch purely on class of the current char
+  (if (lex-cls? (string-ref s i) 0)
+      (lex-loop s (+ i 1) acc)
+      (if (lex-cls? (string-ref s i) 1)
+          (lex-comment s i acc)
+          (if (lex-cls? (string-ref s i) 2)
+              (lex-loop s (+ i 1) (cons (cons 1 ()) acc))
+              (if (lex-cls? (string-ref s i) 3)
+                  (lex-loop s (+ i 1) (cons (cons 2 ()) acc))
+                  (if (lex-cls? (string-ref s i) 4)
+                      (lex-loop s (+ i 1) (cons (cons 3 ()) acc))
+                      (if (lex-cls? (string-ref s i) 5)
+                          (lex-str-close s (+ i 1) (+ i 1) acc)
+                          (if (lex-cls? (string-ref s i) 9)
+                              (lex-hash s (+ i 1) acc)
+                              (if (lex-cls? (string-ref s i) 6)
+                                  (push-number s i acc)
+    (if (sym-or-neg s i)
+                                  (if (lex-cls? (string-ref s i) 7)
+                                      (push-symbol s i acc)
+                                      (push-number s i acc))
+                                  (do-bad-char (string-ref s i))))))))))))
+
+(define (lex-hash s j acc)
+  ; saw '#': next char must be t or f -> proper-boolean tokens (8 / 9)
+  (let ((c (string-ref s j)))
+    (if (= c 116)
+        (lex-loop s (+ j 1) (cons (cons 8 ()) acc))
+        (if (= c 102)
+            (lex-loop s (+ j 1) (cons (cons 9 ()) acc))
+            (do-bad-char c)))))
+
+(define (sym-or-neg s i)
+  (if (lex-cls? (string-ref s i) 7) #t
+      (neg-digit s i)))
+
+(define (neg-digit s i)
+  ; a '-' immediately followed by a digit starts a number token
+  (if (< (+ i 1) (string-length s))
+      (if (lex-cls? (string-ref s (+ i 1)) 6) #t #f)
+      #f))
+
+(define (lex-comment s i acc)
+  ; i sits on the semi-colon
+  (if (and2 (< i (string-length s)) (not (= (string-ref s i) 10)))
+      (lex-comment s (+ i 1) acc)
+      (if (< i (string-length s))
+          (lex-loop s (+ i 1) acc)
+          (lex-eof acc))))
+
+
+(define (lex-eof acc)
+  ; token stream in reverse order + eof sentinel
+  (rev (cons (cons 7 ()) acc)))
+
+(define (lex-str-close s j start acc)
+  ; scan to the closing double-quote
+  (if (< j (string-length s))
+      (if (= (string-ref s j) 34)
+          (let ((txt (substring s start j)))
+            (lex-loop s (+ j 1) (cons (cons 6 txt) acc)))
+          (lex-str-close s (+ j 1) start acc))
+      (fatal "unterminated string literal")))
+
+(define (lex-loop s i acc)
+  (if (< i (string-length s))
+      (step-token s i acc)
+      (lex-eof acc)))
+
+(define (do-bad-char c)
+  (begin (display "nplc1: bad character byte ") (display c)
+         (newline) (exit 20)))
+
+(define (peek-kind cur) (car (car (car cur))))
+(define (peek-payload cur) (cdr (car (car cur))))
+(define (advance! cur) (set-car! cur (cdr (car cur))))
+
+(define (expect-rparen cur what)
+  (if (= (peek-kind cur) 2) (advance! cur) (fatal (string-append "expected ) after " what))))
+
+(define (parse-expr cur)
+  (let ((k (peek-kind cur)))
+    (if (= k 5)
+        (let ((v (peek-payload cur))) (advance! cur) v)
+        (if (= k 7)
+            (fatal "unexpected end of input")
+            (if (= k 2)
+                (fatal "unexpected )")
+                (if (= k 8)
+                    (begin (advance! cur) (cons 108 ()))
+                    (if (= k 9)
+                        (begin (advance! cur) (cons 109 ()))
+                        (if (= k 4)
+                            (let ((nm (peek-payload cur))) (advance! cur) (cons 100 nm))
+                            (if (= k 6)
+                                (let ((tx (peek-payload cur))) (advance! cur) (cons 101 tx))
+                                (if (= k 3)
+                                    (begin (advance! cur)
+                                           (cons 204 (cons (parse-quote-datum cur) ())))
+                                    (parse-list-form cur)))))))))))
+
+(define (parse-quote-datum cur)
+  (let ((k (peek-kind cur)))
+    (if (= k 5)
+        (let ((v (peek-payload cur))) (advance! cur) v)
+        (if (= k 4)
+            (let ((nm (peek-payload cur))) (advance! cur) (cons 100 nm))
+            (if (= k 6)
+                (let ((tx (peek-payload cur))) (advance! cur) (cons 101 tx))
+                (if (= k 1)
+                    (begin (advance! cur) (datum-items cur))
+                    (fatal "bad quoted datum")))))))
+
+(define (datum-items cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (cons (parse-quote-datum cur) (datum-items cur))))
+
+(define (head-tag nm)
+  (if (string=? nm "define") 1
+      (if (string=? nm "lambda") 2
+          (if (string=? nm "if") 3
+              (if (string=? nm "let") 4
+                  (if (string=? nm "quote") 5
+                      (if (string=? nm "begin") 6 0)))))))
+
+(define (parse-list-form cur)
+  (advance! cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (if (not (= (peek-kind cur) 4))
+          (collect-chain cur)
+          (if (not (= (head-tag (peek-payload cur)) 0))
+              (parse-special cur)
+              (collect-chain cur)))))
+
+(define (collect-chain cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (cons (parse-expr cur) (collect-chain cur))))
+
+(define (parse-special cur)
+  (let ((tag (head-tag (peek-payload cur))))
+    (if (= tag 5)
+        (begin (advance! cur) (cons 204 (cons (parse-quote-datum cur) ())))
+        (if (= tag 6)
+            (begin (advance! cur)
+                   (cons 216 (grab-body-until-rparen cur)))
+            (if (= tag 3)
+                (parse-if cur)
+                (if (= tag 1)
+                    (parse-define cur)
+                    (if (= tag 2)
+                        (parse-lambda cur)
+                        (parse-let cur))))))))
+
+(define (grab-body-until-rparen cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (cons (parse-expr cur) (grab-body-until-rparen cur))))
+
+(define (parse-if cur)
+  ; supports both (if t c) and (if t c a); missing alt defaults to #f
+  (advance! cur)
+  (let ((t (parse-expr cur)))
+    (let ((c (parse-expr cur)))
+      (if (= (peek-kind cur) 2)
+          (begin
+            (advance! cur)
+            (cons 213 (cons t (cons c (cons 10 ())))))
+          (let ((a (parse-expr cur)))
+            (expect-rparen cur "if")
+            (cons 213 (cons t (cons c (cons a ())))))))))
+
+(define (parse-define cur)
+  (begin
+    ; consume the define keyword itself (parse-special dispatched on it)
+    (advance! cur)
+    (if (= (peek-kind cur) 1)
+      (begin
+        (advance! cur)
+        (let ((nm (peek-payload cur)))
+          (if (not (= (peek-kind cur) 4)) (fatal "bad define name"))
+          (advance! cur)
+          (let ((params (param-names cur)))
+            (let ((body (grab-body-until-rparen cur)))
+              (cons 211 (cons (cons (cons 100 nm) params) (cons body ())))))))
+      (let ((nm-e (parse-expr cur)))
+        (let ((val (parse-expr cur)))
+          (expect-rparen cur "define")
+          (cons 200 (cons nm-e (cons val ()))))))))
+
+(define (param-names cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (if (= (peek-kind cur) 4)
+          (let ((nm (peek-payload cur)))
+            (advance! cur)
+            (cons (cons 100 nm) (param-names cur)))
+          (fatal "bad parameter name"))))
+
+(define (parse-lambda cur)
+  (fatal "lambda unsupported in slice"))
+
+(define (parse-let cur)
+  (advance! cur)   ; consume the 'let' keyword itself
+  (if (not (= (peek-kind cur) 1)) (fatal "let needs bindings"))
+  (advance! cur)
+  (let ((binds (binding-pairs cur)))
+    (let ((body (grab-body-until-rparen cur)))
+      (cons 214 (cons binds (cons body ()))))))
+
+(define (binding-pairs cur)
+  (if (= (peek-kind cur) 2)
+      (begin (advance! cur) ())
+      (if (not (= (peek-kind cur) 1))
+          (fatal "malformed let binding")
+          (begin
+            (advance! cur)
+            (let ((nm (parse-expr cur)))
+              (let ((vx (parse-expr cur)))
+                (expect-rparen cur "binding")
+                (cons (cons nm vx) (binding-pairs cur))))))))
+
+(define (parse-all cur acc)
+  (if (= (peek-kind cur) 7)
+      (rev acc)
+      (parse-all cur (cons (parse-expr cur) acc))))
+
+(define (include-form? form)
+  (if (pair-shape? form)
+      (if (sym-atom? (car form))
+          (string=? (cdr (car form)) "include")
+          #f)
+      #f))
+
+(define (append-forms left right)
+  (if (null? left)
+      right
+      (cons (car left) (append-forms (cdr left) right))))
+
+(define (path-dir-at path index)
+  (if (< index 0)
+      ""
+      (if (= (string-ref path index) 47)
+          (substring path 0 (+ index 1))
+          (path-dir-at path (- index 1)))))
+
+(define (path-dir path)
+  (path-dir-at path (- (string-length path) 1)))
+
+(define (absolute-path? path)
+  (if (= (string-length path) 0)
+      #f
+      (= (string-ref path 0) 47)))
+
+(define (resolve-include-path base path)
+  (if (absolute-path? path) path (string-append base path)))
+
+(define (path-on-stack? path stack)
+  (if (null? stack)
+      #f
+      (if (string=? path (car stack))
+          #t
+          (path-on-stack? path (cdr stack)))))
+
+(define (parse-source-file path)
+  (let ((source (read-file path)))
+    (let ((cur (cell (lex-loop source 0 ()))))
+      (parse-all cur ()))))
+
+(define (expand-include-paths paths base stack)
+  (if (null? paths)
+      ()
+      (if (str-atom? (car paths))
+          (let ((path (resolve-include-path base (cdr (car paths)))))
+            (if (path-on-stack? path stack)
+                (fatal (string-append "include cycle: " path)))
+            (append-forms
+              (expand-includes (parse-source-file path)
+                               (path-dir path)
+                               (cons path stack))
+              (expand-include-paths (cdr paths) base stack)))
+          (fatal "include path must be a string"))))
+
+(define (expand-includes forms base stack)
+  (if (null? forms)
+      ()
+      (if (include-form? (car forms))
+          (append-forms
+            (expand-include-paths (cdr (car forms)) base stack)
+            (expand-includes (cdr forms) base stack))
+          (cons (car forms)
+                (expand-includes (cdr forms) base stack)))))

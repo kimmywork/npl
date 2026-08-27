@@ -2,12 +2,18 @@
 
 ## Current
 
-Stage0 frontend is complete: generic S-expression AST, fixnum/boolean/string/symbol/pair reader, and recursive top-level `include` expansion.
+The three compiler codebases and SSA recovery chain are established.
+
+- `stage0/`: untyped C99 compiler with QBE and executable output.
+- `bootstrap/compiler/`: permanent modular NPL bootstrap compiler.
+- `src/compiler/`: evolving full compiler baseline.
+- `bootstrap/bootstrap.ssa`: reproducible bootstrap fixed point.
+- `bootstrap/current.ssa`: reproducible full compiler artifact.
 
 ## Evidence
 
-`./tools/check_stage0.sh` prints `stage0 frontend: PASS`.
+`./tools/run_tests.sh` reports `all suites: PASS`.
 
 ## Next
 
-Implement tagged QBE emission for the stage0 language in `PLAN.md` section 2.
+Implement the first missing R7RS core increment in `src/compiler/`, regenerate `bootstrap/current.ssa`, and leave the permanent bootstrap compiler unchanged.

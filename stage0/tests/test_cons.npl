@@ -1,0 +1,5 @@
+; test_cons.npl — Simple test for cons/car/cdr
+
+(define (main)
+  (let ((pair (cons 1 2)))
+    (car pair)))
