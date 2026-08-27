@@ -196,16 +196,17 @@
 4. `il3 = nplc2(compiler.npl)`；断言 il2==il3（cproc 式不动点）
 
 **验收**：
-- [x] Stage A（功能）：check_bootstrap.sh Stage A 全绿 —
-      nplc1 编译算术(exit=5)/自递归(7)/带参调用 add(20,22)=42/
-      字符串+begin(display 'ok',exit=9)，qbe+clang 链接运行全部正确
-- [x] il2 可发射（5734 行）并可构建出可运行的 nplc2 二进制
-- [ ] Stage B（不动点）：nplc2 自举时剩一个已知运行缺陷
-      （rev_into 对 nil-cdr, v=10；仅影响带 body 计算的被调函数），
-      诊断范围已定位，见 docs/design-inc1-core.md ledger
-- 证据：`./tools/check_bootstrap.sh`（SKIP 状态即当前缺口）
+- [x] Stage A（功能）：nplc1 编译算术/递归/带参调用/字符串程序，
+      qbe+clang 链接运行全部正确
+- [x] il2 可发射并可构建出可运行的 nplc2 二进制
+- [x] Stage B（不动点）：il2==il3 **5866 行逐字节一致**
+- 证据：`./tools/check_bootstrap.sh` 全 PASS（exit 0）
 
-**状态**：🔶 进行中（Stage A 完成；Stage B 最后一个缺陷收敛中）
+**关键修复**（达到不动点的最后一环）：call-with-ops 原先硬编码最多
+3 个实参，>=4 参的调用在自举 driver 与所有产物中被静默截断；
+泛化为 args-join 折叠后一次通过。
+
+**状态**：✅ 已完成。Stage A 与 Stage B 全部验收标准满足。
 
 附带增量（2026-08-27）：
 - 核心特性补齐：R7RS 布尔域统一 / cond / 内部 define / quote→静态 data /
@@ -213,6 +214,8 @@
 - 字符串/符号内建全组 + OOB 契约测试
 - 测试工具化：run_tests.sh 五套件统一入口；prop_tests.py 四性质 PBT
   （eval 正确性 200-seed / fuzz 鲁棒 / fail-fast / AST 稳定）
+- 自举诊断基建：IL 级 wrapper 插桩生成器、normdiff/ctrldiff/calldiff、
+  runtime trace2/backtrace/anchor 符号化
 
 ---
 
