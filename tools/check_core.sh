@@ -94,14 +94,16 @@ $NPLC0 -o "$WORK/unb_bin" "$WORK/t_unbound.npl" >/dev/null 2>&1 \
     && fail "contract: unbound symbol must be a compile error" \
     || pass "contract: unbound symbol rejected at compile time"
 
-# non-constant global initializer -> compile must fail
+# computed global initializer -> legal since increment-4 (runtime inits);
+# contract now checks the VALUE at runtime instead of rejection
 cat > "$WORK/t_gvar.npl" << 'EOF'
 (define bad (+ 1 2))
-(define (main) 1)
+(define (main) (display bad))
 EOF
-$NPLC0 -o "$WORK/gv_bin" "$WORK/t_gvar.npl" >/dev/null 2>&1 \
-    && fail "contract: computed global initializer must be rejected" \
-    || pass "contract: computed global initializer rejected"
+nplc0_ok "$WORK/t_gvar.npl" "$WORK/gv_bin"
+out=$("$WORK/gv_bin" | tail -1)
+[ "$out" = "3" ] && pass "contract: computed global evaluates via init fn" \
+    || fail "contract: computed global expected 3, got '$out'"
 
 # misplaced else in cond -> compile must fail
 cat > "$WORK/t_else.npl" << 'EOF'

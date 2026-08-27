@@ -201,7 +201,7 @@ def pbt_fuzz(seeds, work):
 UNSUPPORTED = [
     ('set!', "(define x 1)\n(define (main) (set! x 2))\n"),
     ('unbound var', "(define (main) (+ ghostly 1))\n"),
-    ('computed global', "(define g (+ 1 2))\n(define (main) 0)\n"),
+
     ('misplaced else', "(define (main) (cond (else 1) (#t 2)))\n"),
     ('quoted lambda', "(define (main) (quote (lambda (x) x)))\n"),
 ]
