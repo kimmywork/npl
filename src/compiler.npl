@@ -863,6 +863,7 @@
                       (func-line lf)
                       (let ((av (emit-expr a env)))
                         (func-line (string-append "storel " av ", " slot))
+                        (func-line (string-append "jmp " ld))
                         (func-line ld)
                         (let ((rr (new-tmp)))
                           (func-line (string-append rr " =l loadl " slot))
