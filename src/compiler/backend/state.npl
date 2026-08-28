@@ -1,0 +1,73 @@
+; QBE emitter buffers and symbol registries.
+
+; ---------------- emitter state ----------------
+
+(define TMPN (cell 0))
+(define DATAN (cell 0))
+(define DATA-BUF (cell ()))
+(define FUNC-BUF (cell ()))
+(define FUNCS (cell ()))
+(define FUNC-ARITIES (cell ()))
+(define GLOBS (cell ()))
+(define SYMS (cell ()))
+
+(define (new-tmp)
+  (cell-set! TMPN (+ 1 (cell-get TMPN)))
+  (string-append "%t" (number->string (cell-get TMPN))))
+
+(define (new-label)
+  (begin
+    (cell-set! DATAN (+ 1 (cell-get DATAN)))
+    (string-append "@L" (number->string (cell-get DATAN)))))
+
+; every entry in DATA-BUF is a QBE data definition — prepend the keyword
+; here so all construction sites share one contract
+(define (data-line ln)
+  (if (string=? "$" (substring ln 0 1))
+      (cell-set! DATA-BUF (cons (string-append "data " ln) (cell-get DATA-BUF)))
+      (cell-set! DATA-BUF (cons ln (cell-get DATA-BUF)))))
+; single writer for code lines: honours CURBUF ("I" -> global inits body)
+(define INIT-BUF (cell ()))
+(define LAMBDA-BUF (cell ()))
+(define LOCAL-BUF (cell ()))
+(define LAMBDA-N (cell 0))
+(define CURBUF  (cell "F"))
+(define HAS-INIT (cell 0))
+(define CURRENT-FUNC (cell ""))
+(define CURRENT-PARAM-CELLS (cell ()))
+
+(define (func-line ln)
+  (cond ((string=? (cell-get CURBUF) "I")
+         (cell-set! INIT-BUF (cons ln (cell-get INIT-BUF))))
+        ((string=? (cell-get CURBUF) "X")
+         (cell-set! LOCAL-BUF (cons ln (cell-get LOCAL-BUF))))
+        (else
+         (cell-set! FUNC-BUF (cons ln (cell-get FUNC-BUF))))))
+
+(define (append-list left right)
+  (if (null? left) right (cons (car left) (append-list (cdr left) right))))
+
+; registry stores the BARE sanitized name; callers prepend '$' themselves
+(define (register-func nm arity)
+  (cell-set! FUNCS (cons (cons nm (sanitize nm 0 ""))
+                         (cell-get FUNCS)))
+  (cell-set! FUNC-ARITIES (cons (cons nm arity)
+                                (cell-get FUNC-ARITIES))))
+
+(define (lk-s entries nm)
+  (if (null? entries)
+      ""
+      (if (string=? (car (car entries)) nm)
+          (cdr (car entries))
+          (lk-s (cdr entries) nm))))
+
+(define (lookup-func nm) (lk-s (cell-get FUNCS) nm))
+(define (lookup-func-arity-in entries nm)
+  (if (null? entries)
+      0
+      (if (string=? (car (car entries)) nm)
+          (cdr (car entries))
+          (lookup-func-arity-in (cdr entries) nm))))
+(define (lookup-func-arity nm)
+  (lookup-func-arity-in (cell-get FUNC-ARITIES) nm))
+(define (lookup-glob nm) (lk-s (cell-get GLOBS) nm))

@@ -37,44 +37,14 @@ build_ssa "$ROOT/bootstrap/bootstrap.ssa" "$WORK/bootstrap-compiler"
 emit "$WORK/bootstrap-compiler" "$BOOTSTRAP_SOURCE" "$WORK/bootstrap.self.ssa"
 cmp "$ROOT/bootstrap/bootstrap.ssa" "$WORK/bootstrap.self.ssa"
 
-emit "$WORK/bootstrap-compiler" "$FULL_SOURCE" "$WORK/current.candidate.ssa"
+emit "$WORK/bootstrap-compiler" "$FULL_SOURCE" "$WORK/current.seed.ssa"
+build_ssa "$WORK/current.seed.ssa" "$WORK/current-seed"
+emit "$WORK/current-seed" "$FULL_SOURCE" "$WORK/current.candidate.ssa"
 cmp "$ROOT/bootstrap/current.ssa" "$WORK/current.candidate.ssa"
 
 build_ssa "$ROOT/bootstrap/current.ssa" "$WORK/current-compiler"
 emit "$WORK/current-compiler" "$FULL_SOURCE" "$WORK/current.self.ssa"
 cmp "$ROOT/bootstrap/current.ssa" "$WORK/current.self.ssa"
-
-cat > "$WORK/program.npl" <<'EOF'
-(define (sum n acc)
-  (if (< n 1) acc (sum (- n 1) (+ acc n))))
-(define (main) (exit (sum 9 0)))
-EOF
-emit "$WORK/current-compiler" "$WORK/program.npl" "$WORK/program.ssa"
-build_ssa "$WORK/program.ssa" "$WORK/program"
-set +e
-"$WORK/program"
-program_rc=$?
-set -e
-[ "$program_rc" -eq 45 ]
-
-cat > "$WORK/derived.npl" <<'EOF'
-(define (classify x)
-  (case x
-    ((1) 10)
-    ((2 3) 40)
-    (else 0)))
-(define (main)
-  (exit (+ (classify 2)
-           (cond ((= 1 0) 0)
-                 (else 2)))))
-EOF
-emit "$WORK/current-compiler" "$WORK/derived.npl" "$WORK/derived.ssa"
-build_ssa "$WORK/derived.ssa" "$WORK/derived"
-set +e
-"$WORK/derived"
-derived_rc=$?
-set -e
-[ "$derived_rc" -eq 42 ]
 
 echo "bootstrap fixed point: PASS ($(wc -l < "$ROOT/bootstrap/bootstrap.ssa") SSA lines)"
 echo "current compiler recovery: PASS ($(wc -l < "$ROOT/bootstrap/current.ssa") SSA lines)"

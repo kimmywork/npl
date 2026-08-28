@@ -209,6 +209,250 @@ NplVal npl_float(double v) {
     return (NplVal)(uintptr_t)f | TAG_PTR;
 }
 
+static NplVector *require_vector(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_VECTOR) {
+        fprintf(stderr, "%s: not a vector\n", who);
+        exit(1);
+    }
+    return (NplVector *)npl_header(value);
+}
+
+NplVal npl_make_vector(int64_t argc, NplVal *argv)
+{
+    if (argc < 0 || (uint64_t)argc > UINT32_MAX) {
+        fprintf(stderr, "vector: unsupported length\n");
+        exit(1);
+    }
+    NplVector *vector = (NplVector *)npl_alloc(
+        sizeof(NplVector) + (size_t)argc * sizeof(NplVal));
+    vector->header.tag = BOX_VECTOR;
+    vector->header.flags = 0;
+    vector->length = (uint32_t)argc;
+    vector->capacity = (uint32_t)argc;
+    for (int64_t i = 0; i < argc; i++) vector->data[i] = argv[i];
+    return (NplVal)(uintptr_t)vector | TAG_PTR;
+}
+
+NplVal npl_vector_length(NplVal value)
+{
+    return npl_fixnum(require_vector(value, "vector-length")->length);
+}
+
+NplVal npl_vector_ref(NplVal value, NplVal index)
+{
+    NplVector *vector = require_vector(value, "vector-ref");
+    if (!npl_is_fixnum(index)) {
+        fprintf(stderr, "vector-ref: index is not an integer\n");
+        exit(1);
+    }
+    int64_t i = npl_fixnum_value(index);
+    if (i < 0 || (uint64_t)i >= vector->length) {
+        fprintf(stderr, "vector-ref: index out of range\n");
+        exit(1);
+    }
+    return vector->data[i];
+}
+
+NplVal npl_vector_set(NplVal value, NplVal index, NplVal element)
+{
+    NplVector *vector = require_vector(value, "vector-set!");
+    if (vector->header.flags & NPL_FLAG_LITERAL) {
+        fprintf(stderr, "vector-set!: cannot mutate a literal\n");
+        exit(1);
+    }
+    if (!npl_is_fixnum(index)) {
+        fprintf(stderr, "vector-set!: index is not an integer\n");
+        exit(1);
+    }
+    int64_t i = npl_fixnum_value(index);
+    if (i < 0 || (uint64_t)i >= vector->length) {
+        fprintf(stderr, "vector-set!: index out of range\n");
+        exit(1);
+    }
+    vector->data[i] = element;
+    return npl_nil();
+}
+
+NplVal npl_vector_p(NplVal value)
+{
+    return (npl_is_ptr(value) && npl_header(value)->tag == BOX_VECTOR)
+        ? npl_true() : npl_false();
+}
+
+NplVal npl_list_to_vector(NplVal list)
+{
+    int64_t length = 0;
+    for (NplVal rest = list; !npl_is_nil(rest); rest = npl_cdr(rest)) {
+        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR) {
+            fprintf(stderr, "list->vector: not a proper list\n");
+            exit(1);
+        }
+        if ((uint64_t)length == UINT32_MAX) {
+            fprintf(stderr, "list->vector: vector is too long\n");
+            exit(1);
+        }
+        length++;
+    }
+
+    npl_gc_root(&list);
+    NplVector *vector = (NplVector *)npl_alloc(
+        sizeof(NplVector) + (size_t)length * sizeof(NplVal));
+    vector->header.tag = BOX_VECTOR;
+    vector->header.flags = 0;
+    vector->length = (uint32_t)length;
+    vector->capacity = (uint32_t)length;
+    NplVal rest = list;
+    for (int64_t i = 0; i < length; i++) {
+        vector->data[i] = npl_car(rest);
+        rest = npl_cdr(rest);
+    }
+    npl_gc_unroot(&list);
+    return (NplVal)(uintptr_t)vector | TAG_PTR;
+}
+
+static NplBytevector *require_bytevector(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_BYTEVECTOR) {
+        fprintf(stderr, "%s: not a bytevector\n", who);
+        exit(1);
+    }
+    return (NplBytevector *)npl_header(value);
+}
+
+NplVal npl_make_bytevector(int64_t argc, NplVal *argv)
+{
+    if (argc < 0 || (uint64_t)argc > UINT32_MAX) {
+        fprintf(stderr, "bytevector: unsupported length\n");
+        exit(1);
+    }
+    NplBytevector *vector = (NplBytevector *)npl_alloc(
+        sizeof(NplBytevector) + (size_t)argc);
+    vector->header.tag = BOX_BYTEVECTOR;
+    vector->header.flags = 0;
+    vector->length = (uint32_t)argc;
+    vector->capacity = (uint32_t)argc;
+    for (int64_t i = 0; i < argc; i++) {
+        int64_t byte = npl_fixnum_value(argv[i]);
+        if (!npl_is_fixnum(argv[i]) || byte < 0 || byte > 255) {
+            fprintf(stderr, "bytevector: byte out of range\n");
+            exit(1);
+        }
+        vector->data[i] = (uint8_t)byte;
+    }
+    return (NplVal)(uintptr_t)vector | TAG_PTR;
+}
+
+NplVal npl_bytevector_length(NplVal value)
+{
+    return npl_fixnum(require_bytevector(value, "bytevector-length")->length);
+}
+
+NplVal npl_bytevector_ref(NplVal value, NplVal index)
+{
+    NplBytevector *vector = require_bytevector(value, "bytevector-u8-ref");
+    if (!npl_is_fixnum(index)) {
+        fprintf(stderr, "bytevector-u8-ref: index is not an integer\n");
+        exit(1);
+    }
+    int64_t i = npl_fixnum_value(index);
+    if (i < 0 || (uint64_t)i >= vector->length) {
+        fprintf(stderr, "bytevector-u8-ref: index out of range\n");
+        exit(1);
+    }
+    return npl_fixnum(vector->data[i]);
+}
+
+NplVal npl_bytevector_set(NplVal value, NplVal index, NplVal element)
+{
+    NplBytevector *vector = require_bytevector(value, "bytevector-u8-set!");
+    if (vector->header.flags & NPL_FLAG_LITERAL) {
+        fprintf(stderr, "bytevector-u8-set!: cannot mutate a literal\n");
+        exit(1);
+    }
+    if (!npl_is_fixnum(index) || !npl_is_fixnum(element)) {
+        fprintf(stderr, "bytevector-u8-set!: index and byte must be integers\n");
+        exit(1);
+    }
+    int64_t i = npl_fixnum_value(index);
+    int64_t byte = npl_fixnum_value(element);
+    if (i < 0 || (uint64_t)i >= vector->length ||
+        byte < 0 || byte > 255) {
+        fprintf(stderr, "bytevector-u8-set!: invalid index or byte\n");
+        exit(1);
+    }
+    vector->data[i] = (uint8_t)byte;
+    return npl_nil();
+}
+
+NplVal npl_bytevector_p(NplVal value)
+{
+    return (npl_is_ptr(value) && npl_header(value)->tag == BOX_BYTEVECTOR)
+        ? npl_true() : npl_false();
+}
+
+NplVal npl_char_p(NplVal value)
+{
+    return npl_is_char(value) ? npl_true() : npl_false();
+}
+
+NplVal npl_char_to_integer(NplVal value)
+{
+    if (!npl_is_char(value)) {
+        fprintf(stderr, "char->integer: not a character\n");
+        exit(1);
+    }
+    return npl_fixnum(npl_char_value(value));
+}
+
+NplVal npl_integer_to_char(NplVal value)
+{
+    if (!npl_is_fixnum(value)) {
+        fprintf(stderr, "integer->char: not an integer\n");
+        exit(1);
+    }
+    int64_t code = npl_fixnum_value(value);
+    if (code < 0 || code > 127) {
+        fprintf(stderr, "integer->char: outside supported ASCII repertoire\n");
+        exit(1);
+    }
+    return npl_char((uint32_t)code);
+}
+
+NplVal npl_append(NplVal left, NplVal right)
+{
+    if (npl_is_nil(left)) return right;
+    if (!npl_is_ptr(left) || npl_header(left)->tag != BOX_PAIR) {
+        fprintf(stderr, "append: left operand is not a list\n");
+        exit(1);
+    }
+
+    NplVal head = npl_nil();
+    NplVal tail = npl_nil();
+    NplVal rest = left;
+    npl_gc_root(&head);
+    npl_gc_root(&tail);
+    npl_gc_root(&rest);
+    npl_gc_root(&right);
+    while (!npl_is_nil(rest)) {
+        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR) {
+            fprintf(stderr, "append: left operand is not a proper list\n");
+            exit(1);
+        }
+        NplVal item = npl_cons(npl_car(rest), npl_nil());
+        if (npl_is_nil(head)) head = item;
+        else npl_pair_ptr(tail)->cdr = item;
+        tail = item;
+        rest = npl_cdr(rest);
+    }
+    npl_pair_ptr(tail)->cdr = right;
+    npl_gc_unroot(&right);
+    npl_gc_unroot(&rest);
+    npl_gc_unroot(&tail);
+    npl_gc_unroot(&head);
+    return head;
+}
+
 NplVal npl_make_environment(int64_t argc, NplVal *argv)
 {
     if (argc < 0 || argc > NPL_MAX_CALL_ARGS) {
@@ -378,6 +622,10 @@ void npl_set_car(NplVal pair, NplVal val) {
     if (!npl_is_ptr(pair)) return;
     NplPair *p = npl_pair_ptr(pair);
     if (p->header.tag != BOX_PAIR) return;
+    if (p->header.flags & NPL_FLAG_LITERAL) {
+        fprintf(stderr, "set-car!: cannot mutate a literal\n");
+        exit(1);
+    }
     p->car = val;
 }
 
@@ -385,6 +633,10 @@ void npl_set_cdr(NplVal pair, NplVal val) {
     if (!npl_is_ptr(pair)) return;
     NplPair *p = npl_pair_ptr(pair);
     if (p->header.tag != BOX_PAIR) return;
+    if (p->header.flags & NPL_FLAG_LITERAL) {
+        fprintf(stderr, "set-cdr!: cannot mutate a literal\n");
+        exit(1);
+    }
     p->cdr = val;
 }
 
@@ -651,7 +903,7 @@ NplVal npl_call_cc(NplVal procedure)
 
 /* ---- Display (for debugging) ---- */
 
-void npl_display(NplVal v) {
+NplVal npl_display(NplVal v) {
     if (npl_is_fixnum(v)) {
         printf("%lld", (long long)npl_fixnum_value(v));
     } else if (npl_is_nil(v)) {
@@ -660,6 +912,10 @@ void npl_display(NplVal v) {
         printf("#t");
     } else if (v == npl_false()) {
         printf("#f");
+    } else if (npl_is_char(v)) {
+        uint32_t code = npl_char_value(v);
+        if (code < 128) putchar((int)code);
+        else printf("#\\x%x", code);
     } else if (npl_is_ptr(v)) {
         NplHeader *h = npl_header(v);
         switch (h->tag) {
@@ -682,18 +938,38 @@ void npl_display(NplVal v) {
         }
         case BOX_STRING: {
             NplString *s = (NplString *)h;
-            /* R7RS display prints strings without quotes */
-            printf("%.*s", (int)s->length, s->data);
+            /* R7RS display prints string contents without quotes. */
+            fwrite(s->data, 1, s->length, stdout);
             break;
         }
         case BOX_SYMBOL: {
             NplSymbolLike *s = (NplSymbolLike *)h;
-            printf("%.*s", (int)s->length, s->data);
+            fwrite(s->data, 1, s->length, stdout);
             break;
         }
         case BOX_FLOAT: {
             NplFloat *f = (NplFloat *)h;
             printf("%g", f->value);
+            break;
+        }
+        case BOX_VECTOR: {
+            NplVector *vector = (NplVector *)h;
+            printf("#(");
+            for (uint32_t i = 0; i < vector->length; i++) {
+                if (i) putchar(' ');
+                npl_display(vector->data[i]);
+            }
+            putchar(')');
+            break;
+        }
+        case BOX_BYTEVECTOR: {
+            NplBytevector *vector = (NplBytevector *)h;
+            printf("#u8(");
+            for (uint32_t i = 0; i < vector->length; i++) {
+                if (i) putchar(' ');
+                printf("%u", (unsigned)vector->data[i]);
+            }
+            putchar(')');
             break;
         }
         default:
@@ -702,10 +978,12 @@ void npl_display(NplVal v) {
     } else {
         printf("<unknown>");
     }
+    return npl_nil();
 }
 
-void npl_newline(void) {
+NplVal npl_newline(void) {
     printf("\n");
+    return npl_nil();
 }
 
 /* ---- String & symbol builtins (increment-2) ---- */
@@ -872,7 +1150,7 @@ NplVal npl_substring(NplVal s, NplVal i, NplVal j) {
 
 NplVal npl_int_to_string_char(NplVal code) {
     int64_t v = (int64_t)(code >> 2);
-    if (v < 1 || v > 255) {
+    if (v < 0 || v > 255) {
         fprintf(stderr, "int->string: byte out of range\n");
         exit(1);
     }
@@ -912,7 +1190,8 @@ NplVal npl_lex_class_w(NplVal cT, NplVal wantT) {
              c=='/' || c=='+' || c=='=' || c=='<' || c=='>' ||
              c=='%' || c=='.' || c==':')                 cls = 7; /* symch */
     else if (c == '#')                                 cls = 9; /* hash */
-    else if (c == '+')                                 cls = 10;
+    else if (c == '`')                                 cls = 11;
+    else if (c == ',')                                 cls = 12;
     else                                               cls = 8; /* bad  */
     return npl_bool(cls == want);
 }

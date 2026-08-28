@@ -37,6 +37,10 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_SYMBOL  3
 #define BOX_CLOSURE 4
 #define BOX_FLOAT   5
+#define BOX_BYTEVECTOR 6
+
+#define NPL_FLAG_LITERAL 1
+#define IMM_CHAR_TAG 14
 
 /* ---- Immediate values ---- */
 #define IMM_NIL     0
@@ -74,6 +78,13 @@ typedef struct {
     uint32_t capacity;
     NplVal data[];  /* flexible array member */
 } NplVector;
+
+typedef struct {
+    NplHeader header;
+    uint32_t length;
+    uint32_t capacity;
+    uint8_t data[];
+} NplBytevector;
 
 /* ---- Closure ---- */
 typedef struct {
@@ -113,6 +124,18 @@ static inline NplVal npl_false(void) {
 
 static inline int npl_is_fixnum(NplVal v) {
     return (v & 3) == TAG_FIXNUM;
+}
+
+static inline int npl_is_char(NplVal v) {
+    return (v & 0xff) == IMM_CHAR_TAG;
+}
+
+static inline NplVal npl_char(uint32_t codepoint) {
+    return ((NplVal)codepoint << 8) | IMM_CHAR_TAG;
+}
+
+static inline uint32_t npl_char_value(NplVal v) {
+    return (uint32_t)(v >> 8);
 }
 
 static inline int npl_is_ptr(NplVal v) {
@@ -156,6 +179,22 @@ NplVal npl_string(const char *s, uint32_t len);
 
 /* Allocate a float */
 NplVal npl_float(double v);
+
+NplVal npl_make_vector(int64_t argc, NplVal *argv);
+NplVal npl_vector_length(NplVal vector);
+NplVal npl_vector_ref(NplVal vector, NplVal index);
+NplVal npl_vector_set(NplVal vector, NplVal index, NplVal value);
+NplVal npl_vector_p(NplVal value);
+NplVal npl_list_to_vector(NplVal list);
+NplVal npl_make_bytevector(int64_t argc, NplVal *argv);
+NplVal npl_bytevector_length(NplVal vector);
+NplVal npl_bytevector_ref(NplVal vector, NplVal index);
+NplVal npl_bytevector_set(NplVal vector, NplVal index, NplVal value);
+NplVal npl_bytevector_p(NplVal value);
+NplVal npl_char_p(NplVal value);
+NplVal npl_char_to_integer(NplVal value);
+NplVal npl_integer_to_char(NplVal value);
+NplVal npl_append(NplVal left, NplVal right);
 
 /* Get car/cdr of a pair */
 NplVal npl_car(NplVal v);
@@ -203,11 +242,11 @@ size_t npl_gc_threshold(void);
 size_t npl_gc_live_objects(void);
 size_t npl_gc_collections(void);
 
-/* Display a value (for debugging) */
-void npl_display(NplVal v);
+/* Display a value and return the unspecified value. */
+NplVal npl_display(NplVal v);
 
-/* Print a single newline */
-void npl_newline(void);
+/* Print a single newline and return the unspecified value. */
+NplVal npl_newline(void);
 
 /* ---- String & symbol builtins ---- */
 NplVal npl_string_append(NplVal a, NplVal b);

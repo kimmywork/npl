@@ -1,0 +1,106 @@
+; Tail-position analysis and trampoline request emission.
+
+(define (tail-call-application? e env)
+  (if (not (pair-shape? (car e)))
+      #f
+      (let ((head (car e)))
+        (if (sym-atom? head)
+            (if (> (string-length (env-lookup env (cdr head))) 0)
+                #t
+                (> (string-length (lookup-func (cdr head))) 0))
+            #t))))
+
+(define (emit-tail-request e env)
+  (let ((head (car e)))
+    (let ((args (cdr e)))
+      (let ((count (count-up args 0)))
+        (let ((ops (eval-args-fixed args env count ())))
+          (let ((argv (argv-op ops)))
+            (if (sym-atom? head)
+                (let ((local (env-lookup env (cdr head))))
+                  (if (> (string-length local) 0)
+                      (let ((closure (read-cell-op local)))
+                        (func-line
+                          (string-append
+                            "call $npl_tail_request_closure(l " closure
+                            ", l " (number->string count) ", l " argv ")")))
+                      (func-line
+                        (string-append "call $npl_tail_request(l $"
+                          (lookup-func (cdr head)) ", l 2, l "
+                          (number->string count) ", l " argv ")"))))
+                (let ((closure (emit-expr head env)))
+                  (func-line
+                    (string-append "call $npl_tail_request_closure(l " closure
+                      ", l " (number->string count) ", l " argv ")"))))
+            (func-line "ret 2")))))))
+
+(define (emit-tail-if e env)
+  (let ((true-label (new-label)))
+    (let ((false-label (new-label)))
+      (let ((test (emit-expr (car (cdr e)) env)))
+        (let ((truthy (new-tmp)))
+          (func-line (string-append truthy " =w cnel " test ", 10"))
+          (func-line
+            (string-append "jnz " truthy ", " true-label ", " false-label))
+          (func-line true-label)
+          (emit-tail-expr (car (cdr (cdr e))) env)
+          (func-line false-label)
+          (emit-tail-expr (car (cdr (cdr (cdr e)))) env))))))
+
+(define (emit-tail-let e env mode)
+  (let ((binds (car (cdr e))))
+    (let ((body (car (cdr (cdr e)))))
+      (case mode
+        ((0) (emit-tail-body body
+               (bind-values binds (binding-values binds env) env)))
+        ((1) (emit-tail-letstar-binds binds body env))
+        ((2)
+          (let ((recursive-env (allocate-bindings binds env)))
+            (write-bindings binds (binding-values binds recursive-env)
+                            recursive-env)
+            (emit-tail-body body recursive-env)))
+        (else
+          (let ((recursive-env (allocate-bindings binds env)))
+            (initialize-bindings binds recursive-env)
+            (emit-tail-body body recursive-env)))))))
+
+(define (emit-tail-letstar-binds binds body env)
+  (if (null? binds)
+      (emit-tail-body body env)
+      (let ((binding (car binds)))
+        (let ((value (emit-expr (cdr binding) env)))
+          (emit-tail-letstar-binds
+            (cdr binds) body
+            (env-extend env (cdr (car binding)) (make-cell-op value)))))))
+
+(define (emit-tail-expr expression env)
+  (if (if (pair-shape? expression) (number? (car expression)) #f)
+      (case (car expression)
+        ((213) (emit-tail-if expression env))
+        ((214) (emit-tail-let expression env 0))
+        ((216) (emit-tail-sequence (cdr expression) env))
+        ((220) (emit-tail-let expression env 1))
+        ((221) (emit-tail-let expression env 2))
+        ((222) (emit-tail-let expression env 3))
+        (else
+          (let ((result (emit-expr expression env)))
+            (func-line (string-append "ret " result)))))
+      (if (if (pair-shape? expression)
+              (tail-call-application? expression env)
+              #f)
+          (emit-tail-request expression env)
+          (let ((result (emit-expr expression env)))
+            (func-line (string-append "ret " result))))))
+
+(define (emit-tail-sequence body env)
+  (if (null? body)
+      (func-line "ret 2")
+      (if (null? (cdr body))
+          (emit-tail-expr (car body) env)
+          (begin
+            (emit-expr (car body) env)
+            (emit-tail-sequence (cdr body) env)))))
+
+(define (emit-tail-body body env)
+  (let ((body-env (allocate-internal body env)))
+    (emit-tail-sequence (initialize-internal body body-env) body-env)))

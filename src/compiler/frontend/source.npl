@@ -1,0 +1,76 @@
+; Top-level parsing and recursive relative include expansion.
+
+(define (parse-all cur acc)
+  (if (= (peek-kind cur) 7)
+      (rev acc)
+      (begin
+        (cell-set! DATUM-LABELS ())
+        (cell-set! ACTIVE-DATUM-LABELS ())
+        (parse-all cur (cons (parse-expr cur) acc)))))
+
+(define (include-form? form)
+  (if (pair-shape? form)
+      (if (sym-atom? (car form))
+          (string=? (cdr (car form)) "include")
+          #f)
+      #f))
+
+(define (append-forms left right)
+  (if (null? left)
+      right
+      (cons (car left) (append-forms (cdr left) right))))
+
+(define (path-dir-at path index)
+  (if (< index 0)
+      ""
+      (if (= (string-ref path index) 47)
+          (substring path 0 (+ index 1))
+          (path-dir-at path (- index 1)))))
+
+(define (path-dir path)
+  (path-dir-at path (- (string-length path) 1)))
+
+(define (absolute-path? path)
+  (if (= (string-length path) 0)
+      #f
+      (= (string-ref path 0) 47)))
+
+(define (resolve-include-path base path)
+  (if (absolute-path? path) path (string-append base path)))
+
+(define (path-on-stack? path stack)
+  (if (null? stack)
+      #f
+      (if (string=? path (car stack))
+          #t
+          (path-on-stack? path (cdr stack)))))
+
+(define (parse-source-file path)
+  (let ((source (read-file path)))
+    (check-parens source 0 1 1 () 0)
+    (let ((cur (cell (lex-loop source 0 ()))))
+      (parse-all cur ()))))
+
+(define (expand-include-paths paths base stack)
+  (if (null? paths)
+      ()
+      (if (str-atom? (car paths))
+          (let ((path (resolve-include-path base (cdr (car paths)))))
+            (if (path-on-stack? path stack)
+                (fatal (string-append "include cycle: " path)))
+            (append-forms
+              (expand-includes (parse-source-file path)
+                               (path-dir path)
+                               (cons path stack))
+              (expand-include-paths (cdr paths) base stack)))
+          (fatal "include path must be a string"))))
+
+(define (expand-includes forms base stack)
+  (if (null? forms)
+      ()
+      (if (include-form? (car forms))
+          (append-forms
+            (expand-include-paths (cdr (car forms)) base stack)
+            (expand-includes (cdr forms) base stack))
+          (cons (car forms)
+                (expand-includes (cdr forms) base stack)))))

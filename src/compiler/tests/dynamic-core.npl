@@ -1,0 +1,42 @@
+(include "framework.npl")
+
+(define (apply-one procedure value)
+  (procedure value))
+
+(define (closure-mutation-result)
+  (let ((base 10))
+    (define (bump value)
+      (set! base (+ base 1))
+      (+ base value))
+    (+ (apply-one bump 9) (bump 10))))
+
+(define (letrec-star-result)
+  (letrec* ((base 20)
+            (offset (+ base 1))
+            (answer (+ offset 21)))
+    answer))
+
+(define (mutual-tail-result n)
+  (letrec ((even-loop
+             (lambda (left)
+               (if (= left 0) #t (odd-loop (- left 1)))))
+           (odd-loop
+             (lambda (left)
+               (if (= left 0) #f (even-loop (- left 1))))))
+    (if (even-loop n) 1 0)))
+
+(define (truth-result)
+  (if 0
+      (if () 42 1)
+      2))
+
+(define (main)
+  (test-equal "closure capture and mutation"
+              (lambda () (closure-mutation-result)) 42)
+  (test-equal "letrec* initialization"
+              (lambda () (letrec-star-result)) 42)
+  (test-equal "cross-closure proper tail call"
+              (lambda () (mutual-tail-result 10000000)) 1)
+  (test-equal "only false is false"
+              (lambda () (truth-result)) 42)
+  (finish-tests "dynamic-core"))

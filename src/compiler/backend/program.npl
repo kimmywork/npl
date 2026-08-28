@@ -1,0 +1,211 @@
+; Top-level registration, global initialization, and compiler entry point.
+
+; ---------------- top-level ----------------
+
+(define (fun-def? f)
+  (if (pair-shape? f) (= (car f) 211) #f))
+
+(define (defined-name e) (cdr (car (car (cdr e)))))
+
+(define (pass-register-functions forms)
+  (if (null? forms)
+      0
+      (begin
+        (if (fun-def? (car forms))
+            (register-func
+              (defined-name (car forms))
+              (count-up (cdr (car (cdr (car forms)))) 0))
+            0)
+        (pass-register-functions (cdr forms)))))
+
+(define (variable-def e)
+  (let ((nm-e (car (cdr e))))
+    (let ((init (car (cdr (cdr e)))))
+      (if (not (sym-atom? nm-e))
+          (fatal "bad define-variable name")
+          (begin
+            (cell-set! GLOBS
+              (cons (cons (cdr nm-e)
+                          (string-append "$gv_" (sanitize (cdr nm-e) 0 "")))
+                    (cell-get GLOBS)))
+            (emit-global-slot (cdr nm-e) init))))))
+
+(define (emit-global-slot nm init)
+  (let ((slot (string-append "$gv_" (sanitize nm 0 ""))))
+    (if (number? init)
+        (data-line (string-append slot " = { l "
+                                  (npl_tagged_num_to_string init) " }"))
+        (if (null? init)
+            (data-line (string-append slot " = { l 2 }"))
+            (if (str-atom? init)
+                (begin
+                  (declare-string-box init 1)
+                  (data-line (string-append "data " slot " = { l $s_"
+                                            (number->string (cell-get DATAN))
+                                            "+1 }")))
+                (if (sym-atom? init)
+                    (data-line (string-append slot " = { l "
+                                              (intern-sym (cdr init))
+                                              "+1 }"))
+                    ; runtime-computed initializer: placeholder slot now,
+                    ; real value stored by $npl_global_inits at startup
+                    (begin
+                      (data-line (string-append "data " slot " = { l 2 }"))
+                      (cell-set! HAS-INIT 7)
+                      (cell-set! CURBUF "I")
+                      (let ((v (emit-expr init ())))
+                        (func-line (string-append "storel " v ", " slot)))
+                      (cell-set! CURBUF "F")
+                      0)))))))
+
+; declares just the box at the *current* DATAN id, matching fresh-string-op
+(define (declare-string-box init k)
+  (let ((txt (cdr init)))
+    (cell-set! DATAN (+ 1 (cell-get DATAN)))
+    (let ((lab (string-append "$s_" (number->string (cell-get DATAN)))))
+      (data-line
+        (string-append lab " = { w 1, w 0, w "
+                       (number->string (string-length txt))
+                       ", w "
+                       (number->string (+ 1 (string-length txt)))
+                       (byte-data txt 0)
+                       ", b 0 }")))))
+
+
+
+(define (emit-function nm params body)
+  (func-line
+    (string-append "function l $" (sanitize nm 0 "")
+                   "(l %npl_env, l %npl_argc, l %npl_argv) {"))
+  (func-line "@start")
+  (let ((saved-func (cell-get CURRENT-FUNC)))
+    (let ((saved-cells (cell-get CURRENT-PARAM-CELLS)))
+      (cell-set! CURRENT-FUNC nm)
+      (let ((function-env (bind-generic-params params 0 ())))
+        (cell-set! CURRENT-PARAM-CELLS (parameter-cells params function-env))
+        (emit-tail-body body function-env))
+      (cell-set! CURRENT-PARAM-CELLS saved-cells)
+      (cell-set! CURRENT-FUNC saved-func)))
+  (func-line "}"))
+
+(define (parameter-cells params env)
+  (if (null? params)
+      ()
+      (cons (env-lookup env (cdr (car params)))
+            (parameter-cells (cdr params) env))))
+
+(define (emit-main params body)
+  ; emitted programs follow the same runtime ABI as stage0 output:
+  ; store args, run global initializers, then the user body
+  (func-line "export function l $main(l %argc, l %argv) {")
+  (func-line "@start")
+  (func-line "call $npl_store_args(l %argc, l %argv)")
+  (func-line "call $npl_global_inits()")
+  (let ((result (emit-body body ())))
+    (func-line (string-append "ret " result)))
+  (func-line "}"))
+
+(define (has-runtime-globals forms)
+  0)
+
+(define (bind-params params idx acc)
+  (if (null? params)
+      acc
+      (bind-params (cdr params) (+ idx 1)
+                   (env-extend acc (cdr (car params))
+                               (string-append "%p" (number->string idx))))))
+
+(define (render-params params idx)
+  (if (null? params)
+      ""
+      (string-append (if (= idx 0) "" ", ")
+                     "l %p" (number->string idx)
+                     (render-params (cdr params) (+ idx 1)))))
+
+(define (var-def? f)
+  (if (pair-shape? f) (= (car f) 200) #f))
+
+(define (emit-top-level f)
+  (if (fun-def? f)
+      ; sig = ((100 . nm) . params); body-list = (car (cdr (cdr f)))
+      (if (string=? (defined-name f) "main")
+          (emit-main (cdr (car (cdr f))) (car (cdr (cdr f))))
+          (emit-function (defined-name f)
+                         (cdr (car (cdr f)))
+                         (car (cdr (cdr f)))))
+      (if (var-def? f)
+          (variable-def f)
+          (fatal "top level must contain definitions"))))
+
+(define INIT-EMITTED (cell 0))
+
+(define (emit-empty-global-inits)
+  ; target programs have static-only globals; provide the no-op that the
+  ; $main prologue references so linking always succeeds
+  (func-line "function l $npl_global_inits() {")
+  (func-line "@start")
+  (func-line "ret 2")
+  (func-line "}"))
+
+(define (dump-and-print)
+  ; $npl_global_inits: with a real body when any global had a runtime-
+  ; computed initializer, else the empty stub (main always calls it)
+  (print-lines (rev (cell-get DATA-BUF)))
+  (print-lines (rev (cell-get LAMBDA-BUF)))
+  (print-lines (rev (cell-get FUNC-BUF)))
+  (if (= (cell-get HAS-INIT) 7)
+      (begin
+        (display "function l $npl_global_inits() {")
+        (newline)
+        (display "@start")
+        (newline)
+        (print-lines (rev (cell-get INIT-BUF)))
+        (display "ret 2")
+        (newline)
+        (display "}")
+        (newline))
+      (begin
+        (display "function l $npl_global_inits() {")
+        (newline)
+        (display "@start")
+        (newline)
+        (display "ret 2")
+        (newline)
+        (display "}")
+        (newline))))
+
+(define (print-lines xs)
+  (if (null? xs)
+      0
+      (begin (display (car xs)) (newline) (print-lines (cdr xs)))))
+
+(define (compiler-input args)
+  (if (null? args)
+      (fatal "usage: npl-bootstrap [--emit-qbe] <input.npl>")
+      (if (string=? (car args) "--emit-qbe")
+          (if (null? (cdr args))
+              (fatal "--emit-qbe needs an input file")
+              (car (cdr args)))
+          (car args))))
+
+(define (run args)
+  (let ((path (compiler-input args)))
+    (let ((forms
+            (expand-includes (parse-source-file path)
+                             (path-dir path)
+                             (cons path ()))))
+      (begin
+        (pass-register-functions forms)
+        (emit-all-forms forms)
+        (dump-and-print)))))
+
+(define (emit-all-forms forms)
+  (if (null? forms)
+      0
+      (begin (emit-top-level (car forms))
+             (emit-all-forms (cdr forms)))))
+
+(define (main)
+  (begin
+    (run (program-arguments))
+    11))

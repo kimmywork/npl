@@ -1,0 +1,38 @@
+(define TESTS-RUN 0)
+(define TESTS-FAILED 0)
+
+(define (record-test name passed)
+  (set! TESTS-RUN (+ TESTS-RUN 1))
+  (if passed
+      0
+      (begin
+        (set! TESTS-FAILED (+ TESTS-FAILED 1))
+        (display "FAIL ")
+        (display name)
+        (newline)
+        0)))
+
+(define (test-equal name thunk expected)
+  (record-test name (= (thunk) expected)))
+
+(define (test-identity name thunk expected)
+  (record-test name (eq? (thunk) expected)))
+
+(define (finish-tests suite)
+  (if (= TESTS-FAILED 0)
+      (begin
+        (display "PASS ")
+        (display suite)
+        (display " ")
+        (display TESTS-RUN)
+        (newline)
+        (exit 0))
+      (begin
+        (display "FAILED ")
+        (display suite)
+        (display " ")
+        (display TESTS-FAILED)
+        (display "/")
+        (display TESTS-RUN)
+        (newline)
+        (exit 1))))

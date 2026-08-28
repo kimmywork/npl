@@ -1,1 +1,13 @@
-(include "frontend.npl" "backend.npl")
+(include
+  "common/base.npl"
+  "reader/lexer.npl"
+  "reader/datum.npl"
+  "frontend/forms.npl"
+  "frontend/source.npl"
+  "backend/state.npl"
+  "backend/data.npl"
+  "backend/environment.npl"
+  "backend/expression.npl"
+  "backend/tail.npl"
+  "backend/bindings.npl"
+  "backend/program.npl")

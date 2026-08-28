@@ -1,0 +1,113 @@
+; Lexical environments, capture analysis, and closure construction.
+
+; ---------------- expression emission ----------------
+
+(define (env-extend env nm tmp) (cons (cons nm tmp) env))
+
+(define (env-lookup env nm)
+  (if (null? env)
+      ""
+      (if (string=? (car (car env)) nm)
+          (cdr (car env))
+          (env-lookup (cdr env) nm))))
+
+(define (env-name-seen? name seen)
+  (if (null? seen)
+      #f
+      (if (string=? name (car seen))
+          #t
+          (env-name-seen? name (cdr seen)))))
+
+(define (visible-env env seen)
+  (if (null? env)
+      ()
+      (let ((entry (car env)))
+        (if (env-name-seen? (car entry) seen)
+            (visible-env (cdr env) seen)
+            (cons entry
+                  (visible-env (cdr env) (cons (car entry) seen)))))))
+
+(define (load-argv index)
+  (let ((address
+          (if (= index 0)
+              "%npl_argv"
+              (let ((slot (new-tmp)))
+                (func-line
+                  (string-append slot " =l add %npl_argv, "
+                                 (number->string (* index 8))))
+                slot))))
+    (let ((value (new-tmp)))
+      (func-line (string-append value " =l loadl " address))
+      value)))
+
+(define (bind-generic-params params index env)
+  (if (null? params)
+      env
+      (let ((value (load-argv index)))
+        (let ((binding (make-cell-op value)))
+          (bind-generic-params
+            (cdr params) (+ index 1)
+            (env-extend env (cdr (car params)) binding))))))
+
+(define (bind-captures captures index env)
+  (if (null? captures)
+      env
+      (let ((binding (new-tmp)))
+        (func-line
+          (string-append binding
+                         " =l call $npl_environment_ref(l %npl_env, l "
+                         (number->string index) ")"))
+        (bind-captures
+          (cdr captures) (+ index 1)
+          (env-extend env (car (car captures)) binding)))))
+
+(define (capture-ops captures)
+  (if (null? captures)
+      ()
+      (cons (cdr (car captures)) (capture-ops (cdr captures)))))
+
+(define (emit-capture-environment captures)
+  (let ((ops (capture-ops captures)))
+    (let ((argv (argv-op ops)))
+      (let ((environment (new-tmp)))
+        (func-line
+          (string-append environment " =l call $npl_make_environment(l "
+                         (number->string (count-up ops 0)) ", l " argv ")"))
+        environment))))
+
+(define (emit-lambda e env)
+  (let ((params (car (cdr e))))
+    (let ((body (car (cdr (cdr e)))))
+      (let ((captures (visible-env env ())))
+        (cell-set! LAMBDA-N (+ 1 (cell-get LAMBDA-N)))
+        (let ((name
+                (string-append "_lambda_"
+                               (number->string (cell-get LAMBDA-N)))))
+          (let ((saved-mode (cell-get CURBUF)))
+            (let ((saved-local (cell-get LOCAL-BUF)))
+              (cell-set! LOCAL-BUF ())
+              (cell-set! CURBUF "X")
+              (func-line
+                (string-append "function l $" name
+                               "(l %npl_env, l %npl_argc, l %npl_argv) {"))
+              (func-line "@start")
+              (let ((capture-env (bind-captures captures 0 ())))
+                (let ((lambda-env
+                        (bind-generic-params params 0 capture-env)))
+                  (let ((saved-func (cell-get CURRENT-FUNC)))
+                    (cell-set! CURRENT-FUNC "")
+                    (emit-tail-body body lambda-env)
+                    (cell-set! CURRENT-FUNC saved-func))))
+              (func-line "}")
+              (cell-set! LAMBDA-BUF
+                (append-list (cell-get LOCAL-BUF) (cell-get LAMBDA-BUF)))
+              (cell-set! LOCAL-BUF saved-local)
+              (cell-set! CURBUF saved-mode)
+              (let ((environment (emit-capture-environment captures)))
+                (let ((closure (new-tmp)))
+                  (func-line
+                    (string-append closure
+                      " =l call $npl_make_closure(l $" name ", l "
+                      environment ", l "
+                      (number->string (count-up params 0)) ")"))
+                  closure)))))))))

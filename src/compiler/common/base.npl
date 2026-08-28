@@ -1,0 +1,34 @@
+; Shared compiler state, list helpers, and QBE name sanitization.
+
+(define (fatal msg)
+  (begin (display "nplc1: ") (display msg) (newline) (exit 21)))
+
+(define (cell v) (cons v ()))
+(define (cell-get c) (car c))
+(define (cell-set! c v) (set-car! c v))
+
+(define (and2 a b) (if a b #f))
+(define (or2 a b) (if a #t b))
+
+(define (rev lst) (rev-into lst ()))
+
+(define (rev-into lst acc)
+  (if (null? lst) acc (rev-into (cdr lst) (cons (car lst) acc))))
+
+(define (ch-digit-q2 c) (if (< 47 c) (< c 58) #f))
+(define (ch-alpha-up-e c) (if (< 64 c) (< c 91) #f))
+(define (ch-alpha-low-e c) (if (< 96 c) (< c 123) #f))
+
+(define (sanitize s i out)
+  (if (< i (string-length s))
+      (let ((c (string-ref s i)))
+        (if (if (ch-digit-q2 c)
+                #t
+                (if (ch-alpha-up-e c)
+                    #t
+                    (if (ch-alpha-low-e c)
+                        #t
+                        (= c 95))))
+            (sanitize s (+ i 1) (string-append out (int->string c)))
+            (sanitize s (+ i 1) (string-append out "_"))))
+      out))

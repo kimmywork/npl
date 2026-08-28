@@ -1,0 +1,149 @@
+; Local binding, mutation, sequencing, and internal definition emission.
+
+(define (emit-if e env)
+  (let ((t (car (cdr e))))
+    (let ((c (car (cdr (cdr e)))))
+      (let ((a (car (cdr (cdr (cdr e))))))
+        (let ((slot (new-tmp)))
+          (func-line (string-append slot " =l alloc8 8"))
+          (let ((lt (new-label)))
+            (let ((lf (new-label)))
+              (let ((ld (new-label)))
+                (let ((tv (emit-expr t env)))
+                  (let ((tt (new-tmp)))
+                    (func-line (string-append tt " =w cnel " tv ", 10"))
+                    (func-line (string-append "jnz " tt ", " lt ", " lf))
+                    (func-line lt)
+                    (let ((cv (emit-expr c env)))
+                      (func-line (string-append "storel " cv ", " slot))
+                      (func-line (string-append "jmp " ld))
+                      (func-line lf)
+                      (let ((av (emit-expr a env)))
+                        (func-line (string-append "storel " av ", " slot))
+                        (func-line (string-append "jmp " ld))
+                        (func-line ld)
+                        (let ((rr (new-tmp)))
+                          (func-line (string-append rr " =l loadl " slot))
+                          rr)))))))))))))
+
+(define (emit-set e env)
+  (let ((name (cdr (car (cdr e)))))
+    (let ((value (emit-expr (car (cdr (cdr e))) env)))
+      (let ((local (env-lookup env name)))
+        (if (> (string-length local) 0)
+            (write-cell-op local value)
+            (let ((global (lookup-glob name)))
+              (if (> (string-length global) 0)
+                  (func-line (string-append "storel " value ", " global))
+                  (fatal (string-append "set!: unbound " name))))))
+      "2")))
+
+(define (binding-values binds env)
+  (if (null? binds)
+      ()
+      (cons (emit-expr (cdr (car binds)) env)
+            (binding-values (cdr binds) env))))
+
+(define (bind-values binds values env)
+  (if (null? binds)
+      env
+      (bind-values
+        (cdr binds) (cdr values)
+        (env-extend env (cdr (car (car binds)))
+                    (make-cell-op (car values))))))
+
+(define (emit-let e env)
+  (let ((binds (car (cdr e))))
+    (let ((body (car (cdr (cdr e)))))
+      (emit-body body (bind-values binds (binding-values binds env) env)))))
+
+(define (emit-letstar e env)
+  (let ((binds (car (cdr e))))
+    (let ((body (car (cdr (cdr e)))))
+      (emit-letstar-binds binds body env))))
+
+(define (emit-letstar-binds binds body env)
+  (if (null? binds)
+      (emit-body body env)
+      (let ((binding (car binds)))
+        (let ((value (emit-expr (cdr binding) env)))
+          (emit-letstar-binds
+            (cdr binds) body
+            (env-extend env (cdr (car binding)) (make-cell-op value)))))))
+
+(define (allocate-bindings binds env)
+  (if (null? binds)
+      env
+      (allocate-bindings
+        (cdr binds)
+        (env-extend env (cdr (car (car binds))) (make-cell-op "2")))))
+
+(define (write-bindings binds values env)
+  (if (null? binds)
+      0
+      (begin
+        (write-cell-op (env-lookup env (cdr (car (car binds))))
+                       (car values))
+        (write-bindings (cdr binds) (cdr values) env))))
+
+(define (initialize-bindings binds env)
+  (if (null? binds)
+      0
+      (let ((binding (car binds)))
+        (let ((value (emit-expr (cdr binding) env)))
+          (write-cell-op (env-lookup env (cdr (car binding))) value)
+          (initialize-bindings (cdr binds) env)))))
+
+(define (emit-letrec e env sequential)
+  (let ((binds (car (cdr e))))
+    (let ((body (car (cdr (cdr e)))))
+      (let ((recursive-env (allocate-bindings binds env)))
+        (if sequential
+            (initialize-bindings binds recursive-env)
+            (write-bindings binds (binding-values binds recursive-env)
+                            recursive-env))
+        (emit-body body recursive-env)))))
+
+(define (internal-def? form)
+  (if (pair-shape? form)
+      (if (= (car form) 200) #t (= (car form) 211))
+      #f))
+
+(define (internal-name form)
+  (if (= (car form) 200)
+      (cdr (car (cdr form)))
+      (defined-name form)))
+
+(define (internal-value form)
+  (if (= (car form) 200)
+      (car (cdr (cdr form)))
+      (cons 212
+            (cons (cdr (car (cdr form)))
+                  (cons (car (cdr (cdr form))) ())))))
+
+(define (allocate-internal body env)
+  (if (if (null? body) #f (internal-def? (car body)))
+      (allocate-internal
+        (cdr body)
+        (env-extend env (internal-name (car body)) (make-cell-op "2")))
+      env))
+
+(define (initialize-internal body env)
+  (if (if (null? body) #f (internal-def? (car body)))
+      (let ((value (emit-expr (internal-value (car body)) env)))
+        (write-cell-op (env-lookup env (internal-name (car body))) value)
+        (initialize-internal (cdr body) env))
+      body))
+
+(define (emit-sequence body env)
+  (if (null? body)
+      "2"
+      (if (null? (cdr body))
+          (emit-expr (car body) env)
+          (begin
+            (emit-expr (car body) env)
+            (emit-sequence (cdr body) env)))))
+
+(define (emit-body body env)
+  (let ((body-env (allocate-internal body env)))
+    (emit-sequence (initialize-internal body body-env) body-env)))

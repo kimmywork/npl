@@ -1,0 +1,90 @@
+(include "framework.npl")
+
+(define (second value)
+  (car (cdr value)))
+
+(define (mutable-vector-result)
+  (let ((value (vector 4 5)))
+    (vector-set! value 1 13)
+    (vector-ref value 1)))
+
+(define (mutable-bytevector-result)
+  (let ((value (bytevector 6 7)))
+    (bytevector-u8-set! value 0 14)
+    (bytevector-u8-ref value 0)))
+
+(define (pair-cycle-result)
+  (let ((value '#1=(8 . #1#)))
+    (if (eq? value (cdr value)) 1 0)))
+
+(define (vector-cycle-result)
+  (let ((value '#2=#(#2#)))
+    (if (eq? value (vector-ref value 0)) 1 0)))
+
+(define (named-character-sum)
+  (+ (+ (+ (+ (char->integer #\alarm)
+              (char->integer #\backspace))
+           (+ (char->integer #\delete)
+              (char->integer #\escape)))
+        (+ (char->integer #\newline)
+           (char->integer #\null)))
+     (+ (+ (char->integer #\return)
+           (char->integer #\space))
+        (char->integer #\tab))))
+
+(define (nested-quasiquote)
+  `(a `(b ,,(* 3 3))))
+
+(define (nested-quasiquote-value)
+  (second (second (second (second (nested-quasiquote))))))
+
+(define (main)
+  (test-equal "dotted pair"
+              (lambda () (+ (car '(1 . 2)) (cdr '(1 . 2)))) 3)
+  (test-equal "literal vector"
+              (lambda () (vector-ref #(4 5) 1)) 5)
+  (test-equal "mutable vector"
+              (lambda () (mutable-vector-result)) 13)
+  (test-equal "literal bytevector"
+              (lambda () (bytevector-u8-ref #u8(6 7) 1)) 7)
+  (test-equal "mutable bytevector"
+              (lambda () (mutable-bytevector-result)) 14)
+  (test-equal "quasiquoted vector length"
+              (lambda () (vector-length `#(1 ,(+ 1 1) ,@'(3 4)))) 4)
+  (test-equal "quasiquoted vector splice"
+              (lambda () (vector-ref `#(1 ,(+ 1 1) ,@'(3 4)) 3)) 4)
+  (test-equal "explicit quasiquote"
+              (lambda ()
+                (let ((value (quasiquote (5 (unquote (+ 3 3))))))
+                  (+ (car value) (second value))))
+              11)
+  (test-equal "cyclic pair label"
+              (lambda () (pair-cycle-result)) 1)
+  (test-equal "cyclic vector label"
+              (lambda () (vector-cycle-result)) 1)
+  (test-equal "escaped string length"
+              (lambda () (string-length "\x41;\a\b\|")) 4)
+  (test-equal "hex string escape"
+              (lambda () (string-ref "\x41;" 0)) 65)
+  (test-equal "NUL string length"
+              (lambda () (string-length "\x00;")) 1)
+  (test-equal "NUL string value"
+              (lambda () (string-ref "\x00;" 0)) 0)
+  (test-equal "continued string"
+              (lambda () (string-length "ab\
+                  cd")) 4)
+  (test-equal "left parenthesis character"
+              (lambda () (char->integer #\()) 40)
+  (test-equal "right parenthesis character"
+              (lambda () (char->integer #\))) 41)
+  (test-equal "hex character"
+              (lambda () (char->integer #\x41)) 65)
+  (test-equal "named characters"
+              (lambda () (named-character-sum)) 233)
+  (test-identity "quoted boolean"
+                 (lambda () '#t) #t)
+  (test-identity "nested quasiquote head"
+                 (lambda () (car (nested-quasiquote))) 'a)
+  (test-equal "nested quasiquote depth"
+              (lambda () (nested-quasiquote-value)) 9)
+  (finish-tests "reader-datum"))

@@ -1,69 +1,65 @@
 # NPL Plan
 
-## 1. Stage0 Executable Compiler
+## Bootstrap Baseline
+
+Complete.
+
+- `stage0/` builds executable programs and emits QBE SSA.
+- `bootstrap/compiler/` is the permanent NPL bootstrap compiler.
+- `bootstrap/bootstrap.ssa` is its byte-identical fixed point.
+- `src/compiler/` is the evolving full compiler.
+- `bootstrap/current.ssa` restores the current full compiler.
+
+## 1. Dynamic Core
 
 Status: complete.
 
-- Keep stage0 untyped.
-- Support `cond`, `case`, and relative top-level `include` through direct desugaring.
-- Emit QBE SSA with `--emit-qbe`.
-- Build executables with `-o` through QBE and the runtime.
+Implemented in the full compiler:
 
-Acceptance: reader, include, arithmetic, recursion, closure, tail-call, and executable tests pass.
+- `lambda`, lexical captures, first-class procedure calls, and `set!`;
+- `let*`, `letrec`, `letrec*`, and internal `define`;
+- proper self and cross-function tail calls;
+- R7RS truth semantics.
 
-Evidence: `tools/check_stage0.sh` and `tools/check_stage0_qbe.sh` pass.
+Acceptance: closure, mutation, recursive binding, internal definition, and ten-million-iteration cross-function tail-call tests pass through the restored full compiler.
 
-## 2. Permanent Bootstrap Compiler
+Evidence: `src/compiler/tests/dynamic-core.npl` passes through `tools/check_full_compiler.sh`.
 
-Status: complete.
+## 2. Reader and Datum
 
-- Keep sources under `bootstrap/compiler/`.
-- Support the fixed bootstrap language and source inclusion.
-- Generate `bootstrap/bootstrap.ssa`.
-- Rebuild from that SSA and reproduce it byte for byte.
+Status: complete for the R7RS ASCII repertoire.
 
-Acceptance: `tools/check_bootstrap.sh` verifies the seed build, canonical SSA, fixed point, and bootstrap fixture programs.
+Implemented in the full compiler:
 
-Evidence: the checked-in 6,251-line `bootstrap/bootstrap.ssa` is reproduced byte for byte.
+- dotted lists and escaped strings;
+- characters, vectors, and bytevectors;
+- quasiquote, unquote, and unquote-splicing;
+- datum labels and source-located reader errors.
 
-## 3. Current Full Compiler Baseline
+Acceptance: read, quote, construct, compare, nested quasiquote, shared/cyclic datum, and malformed-input tests pass through the restored full compiler.
 
-Status: complete.
+Evidence: `src/compiler/tests/reader-datum.npl` and the negative fixtures under `src/compiler/tests/reader-errors/` pass through `tools/check_full_compiler.sh`.
 
-- Keep evolving sources under `src/compiler/`.
-- Generate `bootstrap/current.ssa` with the permanent bootstrap compiler.
-- Rebuild the full compiler from canonical SSA.
+The supported character repertoire is ASCII, which is the R7RS-required minimum. Broader Unicode string semantics remain part of the standard-library work.
 
-Acceptance: the restored full compiler emits and runs the bootstrap fixture programs.
+## 3. Macros and Derived Forms
 
-Evidence: the checked-in 6,251-line `bootstrap/current.ssa` is reproducible and restores the current compiler.
+Status: next.
 
-## 4. R7RS Core
+Implement hygienic `syntax-rules`, ellipsis, `and`, `or`, `when`, `unless`, `do`, and complete `cond` and `case`.
 
-Implement lexical forms, proper tail calls, hygienic `syntax-rules`, multiple values, full continuations, exceptions, parameters, promises, records, bytevectors, ports, and the R7RS library system.
+## 4. Control and Exceptions
 
-Acceptance: focused conformance tests for each feature and library pass through the full compiler.
+Implement multiple values, full `call/cc`, `dynamic-wind`, exceptions, `guard`, parameters, and promises.
 
-## 5. Gradual Types
+## 5. R7RS Library System
 
-Implement annotations, local HM inference, Dynamic boundaries, unboxed scalar lowering, function and collection types, records with row polymorphism, and restricted refinements.
+Implement `define-library`, `import`, `export`, import-set modifiers, `include-ci`, and `cond-expand`.
 
-Acceptance: inference, rejection, guard, and QBE lowering tests pass through the full compiler.
+## 6. Standard Libraries
 
-## 6. Libraries and Numeric Tower
+Implement the R7RS-small libraries, ports, file I/O, strings, vectors, bytevectors, and the numeric tower.
 
-Implement NPL base libraries, vectors and strings, exact bignums, rationals, complex numbers, and floating-point operations.
+## Gate
 
-Acceptance: R7RS library tests pass and exact `100!` produces the expected integer.
-
-## 7. Tensors and Neural Networks
-
-Implement typed tensors, broadcasting, matrix multiplication, reductions, reverse-mode autograd, and static `nn-module` expansion on the CPU backend.
-
-Acceptance: tensor shape tests, gradient checks, dense-layer forward evaluation, and XOR training pass.
-
-## 8. Release Gate
-
-- Reproduce `bootstrap/bootstrap.ssa` and `bootstrap/current.ssa`.
-- Restore both NPL compilers using only QBE SSA and runtime sources.
-- Run all language and runtime suites from a fresh build directory.
+Each increment regenerates `bootstrap/current.ssa`, restores the full compiler from that SSA, and runs focused tests. `tools/check_bootstrap.sh` owns compiler recovery checks; `tools/check_full_compiler.sh` owns full-language suites and contracts. `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` remain unchanged.

@@ -1,0 +1,327 @@
+; Tokenization, string/character escapes, and delimiter validation.
+
+; ---------------- lexer ----------------
+; tokens: (kind . payload)
+
+; Character classification goes through runtime hooks so the self-hosted
+; side never juggles raw byte values: c is a TAGGED fixnum byte code.
+;
+; class codes: 0 ws  1 \' ;\'  2 (  3 )  4 quote  5 str-delim
+;              6 digit  7 symchar  8 other/bad
+
+(define (lex-cls? c k)       ; is char-class == k ?
+  (npl_lex_class_w c k))
+
+(define (lex-skip-ws s i len)
+  ; advance past whitespace/comment-start position by position
+  (if (< i len)
+      (if (lex-cls? (string-ref s i) 0)
+          (+ i 1)
+          i)
+      i))
+
+(define (scan-comment-end s i len)
+  ; at a \' ;\': walk to newline inclusive; caller resumes after it
+  (if (and2 (< i len) (not (= (string-ref s i) 10)))
+      (scan-comment-end s (+ i 1) len)
+      i))
+
+(define (sym-run-end s j)     ; end of consecutive symchars from j (tagged j)
+  (npl_lex_scan_sym_end s j))
+
+(define (num-run-end s j)     ; end of consecutive digits from j
+  (if (< j (string-length s))
+      (if (lex-cls? (string-ref s j) 6)
+          (num-run-end s (+ j 1))
+          j)
+      j))
+
+(define (push-number s i acc)
+  (let ((j (num-run-end s i)))
+    (let ((v (npl_lex_number s i j)))
+      (lex-loop s j (cons (cons 5 v) acc)))))
+
+(define (push-symbol s i acc)
+  (let ((j (sym-run-end s i)))
+    (let ((nm (substring s i j)))
+      (lex-loop s j (cons (cons 4 nm) acc)))))
+
+(define (step-token s i acc)
+  (cond
+    ((lex-cls? (string-ref s i) 0) (lex-loop s (+ i 1) acc))
+    ((lex-cls? (string-ref s i) 1) (lex-comment s i acc))
+    ((lex-cls? (string-ref s i) 2)
+     (lex-loop s (+ i 1) (cons (cons 1 ()) acc)))
+    ((lex-cls? (string-ref s i) 3)
+     (lex-loop s (+ i 1) (cons (cons 2 ()) acc)))
+    ((lex-cls? (string-ref s i) 4)
+     (lex-loop s (+ i 1) (cons (cons 3 ()) acc)))
+    ((lex-cls? (string-ref s i) 5) (lex-string s (+ i 1) "" acc))
+    ((lex-cls? (string-ref s i) 9) (lex-hash s (+ i 1) acc))
+    ((lex-cls? (string-ref s i) 11)
+     (lex-loop s (+ i 1) (cons (cons 10 ()) acc)))
+    ((lex-cls? (string-ref s i) 12)
+     (if (if (< (+ i 1) (string-length s))
+             (= (string-ref s (+ i 1)) 64)
+             #f)
+         (lex-loop s (+ i 2) (cons (cons 12 ()) acc))
+         (lex-loop s (+ i 1) (cons (cons 11 ()) acc))))
+    ((lex-cls? (string-ref s i) 6) (push-number s i acc))
+    ((sym-or-neg s i)
+     (if (lex-cls? (string-ref s i) 7)
+         (push-symbol s i acc)
+         (push-number s i acc)))
+    (else (do-bad-char (string-ref s i)))))
+
+(define (lex-hash s j acc)
+  (case (string-ref s j)
+    ((116) (lex-loop s (+ j 1) (cons (cons 8 ()) acc)))
+    ((102) (lex-loop s (+ j 1) (cons (cons 9 ()) acc)))
+    ((92) (lex-char s (+ j 1) acc))
+    ((40) (lex-loop s (+ j 1) (cons (cons 14 ()) acc)))
+    ((117) (lex-bytevector-open s j acc))
+    (else
+      (if (lex-cls? (string-ref s j) 6)
+          (lex-datum-label s j acc)
+          (do-bad-char (string-ref s j))))))
+
+(define (lex-datum-label s j acc)
+  (let ((end (num-run-end s j)))
+    (if (not (< end (string-length s))) (fatal "bad datum label"))
+    (let ((label (npl_lex_number s j end)))
+      (case (string-ref s end)
+        ((61) (lex-loop s (+ end 1) (cons (cons 16 label) acc)))
+        ((35) (lex-loop s (+ end 1) (cons (cons 17 label) acc)))
+        (else (fatal "bad datum label"))))))
+
+(define (lex-bytevector-open s j acc)
+  (if (if (< (+ j 2) (string-length s))
+          (if (= (string-ref s (+ j 1)) 56)
+              (= (string-ref s (+ j 2)) 40)
+              #f)
+          #f)
+      (lex-loop s (+ j 3) (cons (cons 15 ()) acc))
+      (do-bad-char (string-ref s j))))
+
+(define (hex-digit-value code)
+  (cond ((if (< 47 code) (< code 58) #f) (- code 48))
+        ((if (< 64 code) (< code 71) #f) (+ 10 (- code 65)))
+        ((if (< 96 code) (< code 103) #f) (+ 10 (- code 97)))
+        (else 100)))
+
+(define (hex-value s index end value)
+  (if (= index end)
+      value
+      (let ((digit (hex-digit-value (string-ref s index))))
+        (if (= digit 100) (fatal "invalid hexadecimal escape"))
+        (hex-value s (+ index 1) end (+ (* value 16) digit)))))
+
+(define (ascii-scalar value)
+  (if (> value 127)
+      (fatal "character is outside the supported ASCII repertoire")
+      value))
+
+(define (character-code name)
+  (cond ((string=? name "alarm") 7)
+        ((string=? name "backspace") 8)
+        ((string=? name "delete") 127)
+        ((string=? name "escape") 27)
+        ((string=? name "newline") 10)
+        ((string=? name "null") 0)
+        ((string=? name "return") 13)
+        ((string=? name "space") 32)
+        ((string=? name "tab") 9)
+        ((= (string-length name) 1) (string-ref name 0))
+        ((= (string-ref name 0) 120)
+         (ascii-scalar (hex-value name 1 (string-length name) 0)))
+        (else (fatal "unknown character name"))))
+
+(define (lex-char s j acc)
+  (if (not (< j (string-length s))) (fatal "empty character literal"))
+  (let ((end (sym-run-end s j)))
+    (let ((actual-end (if (= end j) (+ j 1) end)))
+      (let ((name (substring s j actual-end)))
+        (lex-loop s actual-end
+          (cons (cons 13 (character-code name)) acc))))))
+
+(define (sym-or-neg s i)
+  (if (lex-cls? (string-ref s i) 7) #t
+      (neg-digit s i)))
+
+(define (neg-digit s i)
+  ; a '-' immediately followed by a digit starts a number token
+  (if (< (+ i 1) (string-length s))
+      (if (lex-cls? (string-ref s (+ i 1)) 6) #t #f)
+      #f))
+
+(define (lex-comment s i acc)
+  ; i sits on the semi-colon
+  (if (and2 (< i (string-length s)) (not (= (string-ref s i) 10)))
+      (lex-comment s (+ i 1) acc)
+      (if (< i (string-length s))
+          (lex-loop s (+ i 1) acc)
+          (lex-eof acc))))
+
+
+(define (lex-eof acc)
+  ; token stream in reverse order + eof sentinel
+  (rev (cons (cons 7 ()) acc)))
+
+(define (skip-intraline s index)
+  (if (< index (string-length s))
+      (let ((code (string-ref s index)))
+        (if (if (= code 32) #t (= code 9))
+            (skip-intraline s (+ index 1))
+            index))
+      index))
+
+(define (finish-line-ending s index)
+  (if (not (< index (string-length s)))
+      (fatal "string continuation needs a line ending"))
+  (let ((code (string-ref s index)))
+    (cond ((= code 10) (+ index 1))
+          ((= code 13)
+           (if (if (< (+ index 1) (string-length s))
+                   (= (string-ref s (+ index 1)) 10)
+                   #f)
+               (+ index 2)
+               (+ index 1)))
+          (else (fatal "string continuation needs a line ending")))))
+
+(define (string-hex-end s index)
+  (if (not (< index (string-length s)))
+      (fatal "unterminated hexadecimal string escape"))
+  (if (= (string-ref s index) 59)
+      index
+      (string-hex-end s (+ index 1))))
+
+(define (lex-string-escape s index out acc)
+  (if (not (< index (string-length s)))
+      (fatal "unterminated string escape"))
+  (let ((code (string-ref s index)))
+    (case code
+      ((97) (lex-string s (+ index 1) (string-append out (int->string 7)) acc))
+      ((98) (lex-string s (+ index 1) (string-append out (int->string 8)) acc))
+      ((116) (lex-string s (+ index 1) (string-append out (int->string 9)) acc))
+      ((110) (lex-string s (+ index 1) (string-append out (int->string 10)) acc))
+      ((114) (lex-string s (+ index 1) (string-append out (int->string 13)) acc))
+      ((34 92 124)
+       (lex-string s (+ index 1) (string-append out (int->string code)) acc))
+      ((120)
+       (let ((end (string-hex-end s (+ index 1))))
+         (if (= end (+ index 1))
+             (fatal "hexadecimal string escape needs a digit"))
+         (let ((value (ascii-scalar (hex-value s (+ index 1) end 0))))
+           (lex-string s (+ end 1)
+             (string-append out (int->string value)) acc))))
+      ((10 13)
+       (lex-string s (skip-intraline s (finish-line-ending s index)) out acc))
+      ((32 9)
+       (let ((line-start (skip-intraline s index)))
+         (lex-string s
+           (skip-intraline s (finish-line-ending s line-start)) out acc)))
+      (else (fatal "unknown string escape")))))
+
+(define (lex-string s j out acc)
+  (if (not (< j (string-length s))) (fatal "unterminated string literal"))
+  (let ((code (string-ref s j)))
+    (cond
+      ((= code 34)
+       (lex-loop s (+ j 1) (cons (cons 6 out) acc)))
+      ((= code 92)
+       (lex-string-escape s (+ j 1) out acc))
+      (else
+       (lex-string s (+ j 1)
+         (string-append out (int->string code)) acc)))))
+
+(define (lex-loop s i acc)
+  (if (< i (string-length s))
+      (step-token s i acc)
+      (lex-eof acc)))
+
+(define (check-parens s i line col opens mode)
+  (if (< i (string-length s))
+      (let ((state (check-parens-block s i line col opens mode 256)))
+        (check-parens s (car state)
+                      (car (cdr state))
+                      (car (cdr (cdr state)))
+                      (car (cdr (cdr (cdr state))))
+                      (car (cdr (cdr (cdr (cdr state)))))))
+      (if (null? opens)
+          0
+          (paren-open-error (car (car opens)) (cdr (car opens))))))
+
+(define (paren-state i line col opens mode)
+  (cons i (cons line (cons col (cons opens (cons mode ()))))))
+
+(define (check-parens-block s i line col opens mode left)
+  (if (or2 (< left 1) (not (< i (string-length s))))
+      (paren-state i line col opens mode)
+      (let ((code (string-ref s i)))
+        (case mode
+          ((2)
+           (if (= code 10)
+               (check-parens-block s (+ i 1) (+ line 1) 1 opens 0 (- left 1))
+               (check-parens-block s (+ i 1) line (+ col 1) opens 2 (- left 1))))
+          ((1)
+           (cond ((= code 92)
+                  (check-parens-block s (+ i 2) line (+ col 2) opens 1 (- left 2)))
+                 ((= code 34)
+                  (check-parens-block s (+ i 1) line (+ col 1) opens 0 (- left 1)))
+                 ((= code 10)
+                  (check-parens-block s (+ i 1) (+ line 1) 1 opens 1 (- left 1)))
+                 (else
+                  (check-parens-block s (+ i 1) line (+ col 1) opens 1 (- left 1)))))
+          (else
+           (cond ((= code 59)
+                  (check-parens-block s (+ i 1) line (+ col 1) opens 2 (- left 1)))
+                 ((= code 34)
+                  (check-parens-block s (+ i 1) line (+ col 1) opens 1 (- left 1)))
+                 ((if (= code 35)
+                      (if (< (+ i 1) (string-length s))
+                          (= (string-ref s (+ i 1)) 92)
+                          #f)
+                      #f)
+                  (let ((char-index (+ i 2)))
+                    (if (not (< char-index (string-length s)))
+                        (fatal "empty character literal"))
+                    (let ((char-code (string-ref s char-index)))
+                      (if (= char-code 10)
+                          (check-parens-block s (+ char-index 1)
+                            (+ line 1) 1 opens 0 (- left 3))
+                          (let ((char-end (sym-run-end s char-index)))
+                            (let ((next
+                                    (if (= char-end char-index)
+                                        (+ char-index 1)
+                                        char-end)))
+                              (check-parens-block s next line
+                                (+ col (- next i)) opens 0
+                                (- left (- next i)))))))))
+                 ((= code 40)
+                  (check-parens-block s (+ i 1) line (+ col 1)
+                    (cons (cons line col) opens) 0 (- left 1)))
+                 ((= code 41)
+                  (if (null? opens)
+                      (paren-close-error line col)
+                      (check-parens-block s (+ i 1) line (+ col 1)
+                        (cdr opens) 0 (- left 1))))
+                 ((= code 10)
+                  (check-parens-block s (+ i 1) (+ line 1) 1 opens 0 (- left 1)))
+                 (else
+                  (check-parens-block s (+ i 1) line (+ col 1) opens 0 (- left 1)))))))))
+
+(define (paren-close-error line col)
+  (begin
+    (display "npl: unmatched ) at line ") (display line)
+    (display " col ") (display col) (newline) (exit 20)))
+
+(define (paren-open-error line col)
+  (begin
+    (display "npl: unmatched ( at line ") (display line)
+    (display " col ") (display col)
+    (display "; expected ) before end of input")
+    (newline) (exit 20)))
+
+(define (do-bad-char c)
+  (begin (display "nplc1: bad character byte ") (display c)
+         (newline) (exit 20)))

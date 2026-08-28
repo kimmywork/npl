@@ -20,8 +20,9 @@ run() {
 run "stage0 reader/executable" "$ROOT/tools/check_stage0.sh"
 run "stage0 QBE" "$ROOT/tools/check_stage0_qbe.sh"
 run "bootstrap SSA" "$ROOT/tools/check_bootstrap.sh"
+run "full compiler language" "$ROOT/tools/check_full_compiler.sh"
 run "runtime GC" "$ROOT/tools/check_gc.sh"
-run "dynamic core" "$ROOT/tools/check_core.sh"
+run "stage0 dynamic core" "$ROOT/tools/check_core.sh"
 run "R7RS baseline" "$ROOT/tools/check_r7rs.sh"
 run "properties" python3 "$ROOT/tools/prop_tests.py"
 

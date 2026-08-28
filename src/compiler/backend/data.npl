@@ -1,0 +1,176 @@
+; Static datum and literal data emission.
+
+; ---------------- static data ----------------
+
+(define DATUM-OBJS (cell ()))
+
+(define (byte-data text index)
+  (if (= index (string-length text))
+      ""
+      (string-append ", b "
+        (string-append (number->string (string-ref text index))
+                       (byte-data text (+ index 1))))))
+
+(define (intern-sym nm)
+  (let ((found (lk-s (cell-get SYMS) nm)))
+    (if (> (string-length found) 0)
+        found
+        (begin
+          (cell-set! DATAN (+ 1 (cell-get DATAN)))
+          (let ((lab (string-append "$sym_" (number->string (cell-get DATAN)))))
+            (cell-set! SYMS (cons (cons nm lab) (cell-get SYMS)))
+            (data-line
+              (string-append "data " lab " = { w 3, w 0, w "
+                             (number->string (string-length nm))
+                             ", w "
+                             (number->string (+ 1 (string-length nm)))
+                             (byte-data nm 0)
+                             ", b 0 }"))
+            lab)))))
+
+(define (fresh-string-label text)
+  (cell-set! DATAN (+ 1 (cell-get DATAN)))
+  (let ((lab (string-append "$s_" (number->string (cell-get DATAN)))))
+    (data-line
+      (string-append "data " lab " = { w 1, w 0, w "
+                     (number->string (string-length text))
+                     ", w "
+                     (number->string (+ 1 (string-length text)))
+                     (byte-data text 0)
+                     ", b 0 }"))
+    lab))
+
+(define (fresh-string-op text)
+  (label-ref-op (fresh-string-label text)))
+
+(define (label-constant lab)
+  (string-append lab "+1"))
+
+(define (label-ref-op lab)
+  (let ((address (new-tmp)))
+    (func-line (string-append address " =l copy " lab))
+    (let ((tagged (new-tmp)))
+      (func-line (string-append tagged " =l add " address ", 1"))
+      tagged)))
+
+(define (datum-object-label entries object)
+  (if (null? entries)
+      ""
+      (if (eq? (car (car entries)) object)
+          (cdr (car entries))
+          (datum-object-label (cdr entries) object))))
+
+(define (walk-datum d)
+  (if (null? d)
+      "2"
+      (if (number? d)
+          (npl_tagged_num_to_string d)
+          (if (pair-shape? d)
+              (let ((known (datum-object-label (cell-get DATUM-OBJS) d)))
+                (if (> (string-length known) 0)
+                    (label-ref-op known)
+                    (walk-boxed d)))
+              (fatal "bad datum")))))
+
+(define (walk-boxed d)
+  (case (car d)
+    ((100) (label-ref-op (intern-sym (cdr d))))
+    ((101) (fresh-string-op (cdr d)))
+    ((102) (number->string (+ (* (cdr d) 256) 14)))
+    ((103) (label-ref-op (ensure-static-vector d)))
+    ((104) (label-ref-op (ensure-static-bytevector d)))
+    ((106) "6")
+    ((107) "10")
+    (else (build-static-pair d))))
+
+(define (walk-static-datum datum)
+  (if (null? datum)
+      "2"
+      (if (number? datum)
+          (npl_tagged_num_to_string datum)
+          (let ((known (datum-object-label (cell-get DATUM-OBJS) datum)))
+            (if (> (string-length known) 0)
+                (label-constant known)
+                (case (car datum)
+                  ((100) (label-constant (intern-sym (cdr datum))))
+                  ((101) (label-constant (fresh-string-label (cdr datum))))
+                  ((102) (number->string (+ (* (cdr datum) 256) 14)))
+                  ((103) (label-constant (ensure-static-vector datum)))
+                  ((104) (label-constant (ensure-static-bytevector datum)))
+                  ((106) "6")
+                  ((107) "10")
+                  (else (label-constant (ensure-static-pair datum)))))))))
+
+(define (static-vector-items items)
+  (if (null? items)
+      ""
+      (string-append ", l " (walk-static-datum (car items))
+                     (static-vector-items (cdr items)))))
+
+(define (ensure-static-vector datum)
+  (let ((known (datum-object-label (cell-get DATUM-OBJS) datum)))
+    (if (> (string-length known) 0)
+        known
+        (begin
+          (cell-set! DATAN (+ 1 (cell-get DATAN)))
+          (let ((lab (string-append "$v_" (number->string (cell-get DATAN)))))
+            (cell-set! DATUM-OBJS
+              (cons (cons datum lab) (cell-get DATUM-OBJS)))
+            (let ((items (car (cdr datum))))
+              (let ((count (count-up items 0)))
+                (data-line
+                  (string-append lab " = { w 2, w 1, w "
+                    (number->string count) ", w " (number->string count)
+                    (static-vector-items items) " }"))
+                lab)))))))
+
+(define (bytevector-items items)
+  (if (null? items)
+      ""
+      (let ((value (car items)))
+        (if (not (number? value))
+            (fatal "bytevector literal needs exact integer bytes"))
+        (if (if (< value 0) #t (> value 255))
+            (fatal "bytevector literal byte out of range"))
+        (string-append ", b " (number->string value)
+                       (bytevector-items (cdr items))))))
+
+(define (ensure-static-bytevector datum)
+  (let ((known (datum-object-label (cell-get DATUM-OBJS) datum)))
+    (if (> (string-length known) 0)
+        known
+        (begin
+          (cell-set! DATAN (+ 1 (cell-get DATAN)))
+          (let ((lab (string-append "$bv_" (number->string (cell-get DATAN)))))
+            (cell-set! DATUM-OBJS
+              (cons (cons datum lab) (cell-get DATUM-OBJS)))
+            (let ((items (car (cdr datum))))
+              (let ((count (count-up items 0)))
+                (data-line
+                  (string-append lab " = { w 6, w 1, w "
+                    (number->string count) ", w " (number->string count)
+                    (bytevector-items items) " }"))
+                lab)))))))
+
+(define (ensure-static-pair datum)
+  (cell-set! DATAN (+ 1 (cell-get DATAN)))
+  (let ((lab (string-append "$q_" (number->string (cell-get DATAN)))))
+    (cell-set! DATUM-OBJS (cons (cons datum lab) (cell-get DATUM-OBJS)))
+    (let ((car-op (walk-static-datum (car datum))))
+      (let ((cdr-op (walk-static-datum (cdr datum))))
+        (data-line
+          (string-append lab " = { w 0, w 1, l " car-op
+                         ", l " cdr-op " }"))
+        lab))))
+
+(define (build-static-pair d)
+  (label-ref-op (ensure-static-pair d)))
+
+(define (pair-shape? x)
+  (if (number? x) #f (not (null? x))))
+
+(define (sym-atom? x)
+  (if (pair-shape? x) (= (car x) 100) #f))
+
+(define (str-atom? x)
+  (if (pair-shape? x) (= (car x) 101) #f))
