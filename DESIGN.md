@@ -18,7 +18,7 @@ The repository permanently contains three compiler implementations.
 
 `stage0/` is a C99 compiler for a small untyped NPL language. It reads source files, emits QBE SSA, and can invoke QBE and the C linker to produce an executable.
 
-Its language contains the dynamic values and forms needed by the bootstrap compiler: fixnums, booleans, strings, symbols, pairs, lexical functions, definitions, mutation, conditionals, `cond`, local bindings, quotation, file input, and top-level source inclusion.
+Its language contains the dynamic values and forms needed by the bootstrap compiler: fixnums, booleans, strings, symbols, pairs, lexical functions, definitions, mutation, conditionals, `cond`, `case`, local bindings, quotation, file input, and top-level source inclusion. Derived bootstrap forms are directly desugared; stage0 has no general macro expander.
 
 ### Bootstrap Compiler
 

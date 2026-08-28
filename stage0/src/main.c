@@ -18,7 +18,6 @@
 #include "reader.h"
 #include "symtab.h"
 #include "qbe_gen.h"
-#include "macro.h"
 #include "desugar.h"
 
 typedef struct IncludeStack IncludeStack;
@@ -180,12 +179,6 @@ static int compile(const char *filename, const char *output)
         return 1;
     }
 
-    /* Expand macros */
-    MacroEnv macro_env;
-    macro_env_init(&macro_env);
-    ast = macro_expand_program(&macro_env, ast);
-
-    /* Desugar core forms (cond -> if chains etc.) */
     ast = desugar_program(ast);
 
     /* Generate QBE IL */
@@ -253,12 +246,6 @@ static int emit_qbe(const char *filename)
         return 1;
     }
 
-    /* Expand macros */
-    MacroEnv macro_env;
-    macro_env_init(&macro_env);
-    ast = macro_expand_program(&macro_env, ast);
-
-    /* Desugar core forms (cond -> if chains etc.) */
     ast = desugar_program(ast);
 
     SymTab symtab;

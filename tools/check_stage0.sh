@@ -98,7 +98,11 @@ cat > "$work/lib/functions.npl" << 'EOF'
 EOF
 cat > "$work/main.npl" << 'EOF'
 (include "lib/functions.npl")
-(define (main) (choose 2))
+(define (main)
+  (case 2
+    ((1) 0)
+    ((2 3) (choose 2))
+    (else 9)))
 EOF
 "$NPLC0" -o "$work/program" "$work/main.npl"
 set +e

@@ -538,12 +538,14 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
         /* The result crosses basic blocks (assigned in both branches,
          * read after the merge). Per doc/il.txt ~ Phi we pass it through
          * a stack slot instead of relying on cross-block temporaries. */
-        const char *slot = qbe_gen_tmp(ctx);
+        char slot[32];
+        snprintf(slot, sizeof(slot), "%s", qbe_gen_tmp(ctx));
         emit(ctx, "%s =l alloc8 8", slot);
 
-        const char *ltrue  = qbe_gen_label(ctx);
-        const char *lfalse = qbe_gen_label(ctx);
-        const char *ldone  = qbe_gen_label(ctx);
+        char ltrue[32], lfalse[32], ldone[32];
+        snprintf(ltrue, sizeof(ltrue), "%s", qbe_gen_label(ctx));
+        snprintf(lfalse, sizeof(lfalse), "%s", qbe_gen_label(ctx));
+        snprintf(ldone, sizeof(ldone), "%s", qbe_gen_label(ctx));
 
         /* Generate test condition */
         const char *test_val = gen_expr(ctx, test, depth + 1);

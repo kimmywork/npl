@@ -68,7 +68,78 @@ static AstNode *expand_cond_clauses(AstNode *clauses)
     return ast_if(test, result_expr, rest_value);
 }
 
-/* Rewrite every (cond ...) inside an expression tree.
+static AstNode *body_expression(AstNode *body, const char *form)
+{
+    if (!body || AST_IS_NIL(body)) {
+        desugar_error(form);
+    }
+    if (AST_IS_NIL(AST_CDR(body))) {
+        return AST_CAR(body);
+    }
+    return ast_begin(body);
+}
+
+static unsigned case_number;
+
+static AstNode *case_equal(AstNode *key, AstNode *datum)
+{
+    return ast_pair(ast_symbol("eq?"),
+                    ast_pair(key,
+                             ast_pair(ast_quote(datum), ast_nil())));
+}
+
+static AstNode *expand_case_datums(AstNode *key, AstNode *datums,
+                                   AstNode *result, AstNode *alternate)
+{
+    if (!datums || AST_IS_NIL(datums)) return alternate;
+    if (!AST_IS_PAIR(datums)) {
+        desugar_error("case: datum list must be a proper list");
+    }
+    return ast_if(case_equal(key, AST_CAR(datums)), result,
+                  expand_case_datums(key, AST_CDR(datums),
+                                     result, alternate));
+}
+
+static AstNode *expand_case_clauses(AstNode *key, AstNode *clauses)
+{
+    if (!clauses || AST_IS_NIL(clauses)) return ast_bool(0);
+    if (!AST_IS_PAIR(clauses) || !AST_IS_PAIR(AST_CAR(clauses))) {
+        desugar_error("case: malformed clause");
+    }
+
+    AstNode *clause = AST_CAR(clauses);
+    AstNode *head = AST_CAR(clause);
+    AstNode *body = AST_CDR(clause);
+    AstNode *rest = AST_CDR(clauses);
+    AstNode *result = body_expression(body, "case: clause needs a body");
+
+    if (head->tag == AST_SYMBOL && strcmp(head->as.symbol, "else") == 0) {
+        if (!AST_IS_NIL(rest)) desugar_error("case: else clause must be last");
+        return result;
+    }
+    if (!AST_IS_PAIR(head) && !AST_IS_NIL(head)) {
+        desugar_error("case: clause needs a datum list");
+    }
+
+    return expand_case_datums(key, head, result,
+                              expand_case_clauses(key, rest));
+}
+
+static AstNode *expand_case(AstNode *args)
+{
+    if (!args || !AST_IS_PAIR(args)) desugar_error("case: missing key");
+
+    char name[48];
+    snprintf(name, sizeof(name), "_case_key_%u", ++case_number);
+    AstNode *symbol = ast_symbol(name);
+    AstNode *binding = ast_pair(symbol,
+                                ast_pair(AST_CAR(args), ast_nil()));
+    AstNode *bindings = ast_pair(binding, ast_nil());
+    AstNode *selection = expand_case_clauses(symbol, AST_CDR(args));
+    return ast_let(bindings, ast_pair(selection, ast_nil()));
+}
+
+/* Rewrite every derived form inside an expression tree.
  * CRITICAL: structured nodes (AST_IF/AST_BEGIN/...) must keep their tags —
  * only real AST_PAIR lists may be rebuilt via ast_pair(). */
 AstNode *desugar_expr(AstNode *expr)
@@ -151,7 +222,11 @@ AstNode *desugar_expr(AstNode *expr)
         }
         if (head && head->tag == AST_SYMBOL &&
             strcmp(head->as.symbol, "cond") == 0) {
-            return expand_cond_clauses(AST_CDR(expr));
+            return desugar_expr(expand_cond_clauses(AST_CDR(expr)));
+        }
+        if (head && head->tag == AST_SYMBOL &&
+            strcmp(head->as.symbol, "case") == 0) {
+            return desugar_expr(expand_case(AST_CDR(expr)));
         }
 
         /* rewrite head and all argument expressions in place-ish:

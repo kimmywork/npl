@@ -5,7 +5,7 @@
 Status: complete.
 
 - Keep stage0 untyped.
-- Support `cond` and relative top-level `include`.
+- Support `cond`, `case`, and relative top-level `include` through direct desugaring.
 - Emit QBE SSA with `--emit-qbe`.
 - Build executables with `-o` through QBE and the runtime.
 

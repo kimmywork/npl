@@ -132,17 +132,6 @@ $NPLC0 -o /tmp/r7rs_09 /tmp/r7rs_09.npl 2>&1
 result=$(/tmp/r7rs_09; echo $?)
 [ "$result" -eq 220 ] && pass "fib(10) = 220 (55<<2)" || fail "expected 220, got $result"
 
-# Test 10: Macro (and/or)
-echo "Test 10: Macro (and/or)"
-cat > /tmp/r7rs_10.npl << 'EOF'
-(define-syntax my-and
-  (syntax-rules () ((my-and a b) (if a b #f))))
-(define (main) (if (my-and (> 5 3) (> 10 1)) 1 0))
-EOF
-$NPLC0 -o /tmp/r7rs_10 /tmp/r7rs_10.npl 2>&1
-result=$(/tmp/r7rs_10; echo $?)
-[ "$result" -eq 4 ] && pass "macro and = 4 (#t)" || fail "expected 4, got $result"
-
 rm -f /tmp/r7rs_*
 
 echo ""

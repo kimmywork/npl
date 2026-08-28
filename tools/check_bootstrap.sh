@@ -57,5 +57,24 @@ program_rc=$?
 set -e
 [ "$program_rc" -eq 45 ]
 
+cat > "$WORK/derived.npl" <<'EOF'
+(define (classify x)
+  (case x
+    ((1) 10)
+    ((2 3) 40)
+    (else 0)))
+(define (main)
+  (exit (+ (classify 2)
+           (cond ((= 1 0) 0)
+                 (else 2)))))
+EOF
+emit "$WORK/current-compiler" "$WORK/derived.npl" "$WORK/derived.ssa"
+build_ssa "$WORK/derived.ssa" "$WORK/derived"
+set +e
+"$WORK/derived"
+derived_rc=$?
+set -e
+[ "$derived_rc" -eq 42 ]
+
 echo "bootstrap fixed point: PASS ($(wc -l < "$ROOT/bootstrap/bootstrap.ssa") SSA lines)"
 echo "current compiler recovery: PASS ($(wc -l < "$ROOT/bootstrap/current.ssa") SSA lines)"

@@ -9,7 +9,6 @@ add_executable(nplc0
   ${STAGE0_SRC_DIR}/symtab.c
   ${STAGE0_SRC_DIR}/qbe_gen.c
   ${STAGE0_SRC_DIR}/desugar.c
-  ${STAGE0_SRC_DIR}/macro.c
 )
 
 target_include_directories(nplc0 PRIVATE ${STAGE0_SRC_DIR})
