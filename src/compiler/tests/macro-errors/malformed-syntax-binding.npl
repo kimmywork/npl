@@ -1,0 +1,3 @@
+(define (main)
+  (let-syntax ((bad (syntax-rules () ((_ value) value)) extra))
+    (bad 1)))

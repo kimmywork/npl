@@ -1,0 +1,104 @@
+(include "framework.npl")
+
+(define-syntax outer-value
+  (syntax-rules ()
+    ((outer-value) 1)))
+
+(define-syntax define-constant
+  (syntax-rules ()
+    ((define-constant name value)
+     (define name value))))
+
+(define-syntax define-pair
+  (syntax-rules ()
+    ((define-pair left-name left-value right-name right-value)
+     (begin
+       (define left-name left-value)
+       (define right-name right-value)))))
+
+(define-syntax be-like-begin
+  (syntax-rules ()
+    ((be-like-begin name)
+     (define-syntax name
+       (syntax-rules ()
+         ((name expression (... ...))
+          (begin expression (... ...))))))))
+
+(be-like-begin sequence)
+
+(define-constant generated-value 42)
+(define-pair generated-left 20 generated-right 22)
+
+(define (local-syntax-result)
+  (let-syntax ((twice
+                 (syntax-rules ()
+                   ((twice value) (+ value value)))))
+    (twice 21)))
+
+(define (shadow-and-restore-result)
+  (+ (let-syntax ((outer-value
+                    (syntax-rules ()
+                      ((outer-value) 2))))
+       (outer-value))
+     (outer-value)))
+
+(define (recursive-syntax-result)
+  (letrec-syntax
+      ((count-down
+         (syntax-rules ()
+           ((count-down 0) 42)
+           ((count-down 1) (count-down 0))
+           ((count-down 2) (count-down 1)))))
+    (count-down 2)))
+
+(define (mutual-syntax-result)
+  (letrec-syntax
+      ((even-token
+         (syntax-rules ()
+           ((even-token 0) 42)
+           ((even-token 1) (odd-token 0))))
+       (odd-token
+         (syntax-rules ()
+           ((odd-token 0) (even-token 0)))))
+    (even-token 1)))
+
+(define (internal-syntax-result)
+  (define-syntax local-value
+    (syntax-rules ()
+      ((local-value value) value)))
+  (local-value 42))
+
+(define (definition-value-result)
+  (define base 40)
+  (define-syntax add-base
+    (syntax-rules ()
+      ((add-base value) (+ base value))))
+  (let ((base 1))
+    (add-base 2)))
+
+(define (generated-local-result)
+  (define-constant local-value 40)
+  (+ local-value 2))
+
+(define (main)
+  (test-equal "let-syntax local binding"
+              (lambda () (local-syntax-result)) 42)
+  (test-equal "outer transformer restoration"
+              (lambda () (shadow-and-restore-result)) 3)
+  (test-equal "letrec-syntax recursion"
+              (lambda () (recursive-syntax-result)) 42)
+  (test-equal "letrec-syntax mutual recursion"
+              (lambda () (mutual-syntax-result)) 42)
+  (test-equal "internal syntax definition"
+              (lambda () (internal-syntax-result)) 42)
+  (test-equal "definition-site local value"
+              (lambda () (definition-value-result)) 42)
+  (test-equal "macro-generated top-level definition"
+              (lambda () generated-value) 42)
+  (test-equal "macro-generated internal definition"
+              (lambda () (generated-local-result)) 42)
+  (test-equal "macro-generated definition begin"
+              (lambda () (+ generated-left generated-right)) 42)
+  (test-equal "macro-generated syntax definition"
+              (lambda () (sequence 1 2 42)) 42)
+  (finish-tests "macro-scopes"))

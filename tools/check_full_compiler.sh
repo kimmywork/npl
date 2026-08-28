@@ -79,6 +79,7 @@ run_suite dynamic-core "PASS dynamic-core 4"
 run_suite reader-datum "PASS reader-datum 24"
 run_suite macros-basic "PASS macros-basic 10"
 run_suite macro-ellipsis "PASS macro-ellipsis 9"
+run_suite macro-scopes "PASS macro-scopes 10"
 
 reject_literal_mutation literal-vector-mutation \
     "vector-set!: cannot mutate a literal"
@@ -121,6 +122,17 @@ reject_compile macro-errors/misplaced-pattern-ellipsis.npl \
     misplaced-pattern-ellipsis "misplaced ellipsis in pattern"
 reject_compile macro-errors/misplaced-template-ellipsis.npl \
     misplaced-template-ellipsis "misplaced ellipsis in template"
+reject_compile macro-errors/internal-use-before-definition.npl \
+    internal-use-before-definition \
+    "syntax keyword used before its definition"
+reject_compile macro-errors/duplicate-internal-syntax.npl \
+    duplicate-internal-syntax "duplicate internal syntax keyword"
+reject_compile macro-errors/duplicate-local-syntax.npl \
+    duplicate-local-syntax "duplicate local syntax keyword"
+reject_compile macro-errors/let-syntax-sibling-reference.npl \
+    let-syntax-sibling-reference "unknown builtin or unbound: right"
+reject_compile macro-errors/malformed-syntax-binding.npl \
+    malformed-syntax-binding "malformed syntax binding"
 
 echo "full compiler dynamic core: PASS"
 echo "full compiler reader/datum: PASS"

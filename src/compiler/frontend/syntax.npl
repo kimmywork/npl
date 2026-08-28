@@ -5,6 +5,7 @@
 (define MATCH-FAIL '(_syntax_match_fail_))
 (define CURRENT-PATTERN-VARIABLES (cell ()))
 (define NO-REPEAT-COUNT 1000000000)
+(define UNINITIALIZED-SYNTAX '(_uninitialized_syntax_))
 
 (define (syntax-atomic? value)
   (if (datum-symbol? value)
@@ -61,13 +62,29 @@
         (if (if (string=? (datum-symbol-name identifier) (car entry))
                 (= (identifier-mark identifier) (car (cdr entry)))
                 #f)
-            (car (cdr (cdr entry)))
+            (cell-get (car (cdr (cdr entry))))
             (lookup-macro-binding identifier (cdr environment))))))
 
-(define (add-macro-binding identifier transformer environment)
+(define (lookup-macro-cell identifier environment)
+  (if (null? environment)
+      ()
+      (let ((entry (car environment)))
+        (if (if (string=? (datum-symbol-name identifier) (car entry))
+                (= (identifier-mark identifier) (car (cdr entry)))
+                #f)
+            (macro-entry-cell entry)
+            (lookup-macro-cell identifier (cdr environment))))))
+
+(define (add-macro-cell-binding identifier transformer-cell environment)
   (cons (cons (datum-symbol-name identifier)
-              (cons (identifier-mark identifier) (cons transformer ())))
+              (cons (identifier-mark identifier)
+                    (cons transformer-cell ())))
         environment))
+
+(define (add-macro-binding identifier transformer environment)
+  (add-macro-cell-binding identifier (cell transformer) environment))
+
+(define (macro-entry-cell entry) (car (cdr (cdr entry))))
 
 (define (syntax-atom-equal? left right)
   (cond
@@ -227,8 +244,9 @@
               (fatal "syntax literal must be an identifier"))
           (fatal "syntax literal list must be proper"))))
 
-; transformer = (ellipsis literals annotated-rules definition-value-env)
-(define (parse-syntax-rules specification definition-env)
+; transformer = (ellipsis literals annotated-rules definition-value-env
+;                definition-macro-env)
+(define (parse-syntax-rules specification definition-env definition-macro-env)
   (if (not (raw-form? specification "syntax-rules"))
       (fatal "transformer must be syntax-rules"))
   (let ((parts (cdr specification)))
@@ -250,13 +268,16 @@
               (cons ellipsis
                 (cons literals
                   (cons annotated-rules
-                    (cons definition-env ())))))))))))
+                    (cons definition-env
+                      (cons definition-macro-env ()))))))))))))
 
 (define (transformer-ellipsis transformer) (car transformer))
 (define (transformer-literals transformer) (car (cdr transformer)))
 (define (transformer-rules transformer) (car (cdr (cdr transformer))))
 (define (transformer-definition-env transformer)
   (car (cdr (cdr (cdr transformer)))))
+(define (transformer-definition-macro-env transformer)
+  (car (cdr (cdr (cdr (cdr transformer))))))
 
 ; capture = (name path value)
 (define (add-capture name path value captures)
@@ -561,8 +582,11 @@
                     transformer use-env () ())))
             (if (eq? captures MATCH-FAIL)
                 (transcribe-rules (cdr rules) use transformer use-env)
-                (clone-template (car (cdr rule)) transformer captures
-                                (fresh-syntax-mark) () #t)))))))
+                (let ((mark (fresh-syntax-mark)))
+                  (cons
+                    (clone-template (car (cdr rule)) transformer captures
+                                    mark () #t)
+                    mark))))))))
 
 (define (transcribe-macro transformer use use-env)
   (transcribe-rules (transformer-rules transformer)

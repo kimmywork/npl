@@ -1,0 +1,4 @@
+(define (main)
+  (letrec-syntax ((same (syntax-rules () ((same) 1)))
+                  (same (syntax-rules () ((same) 2))))
+    (same)))

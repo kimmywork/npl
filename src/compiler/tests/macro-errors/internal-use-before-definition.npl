@@ -1,0 +1,7 @@
+(define (bad)
+  (define value (local 1))
+  (define-syntax local
+    (syntax-rules ()
+      ((local input) input)))
+  value)
+(define (main) (bad))

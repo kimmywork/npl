@@ -52,14 +52,23 @@
                     (fatal "define-syntax needs an identifier"))
                 (let ((transformer
                         (parse-syntax-rules
-                          (car (cdr (cdr form))) value-env)))
+                          (car (cdr (cdr form))) value-env macro-env)))
                   (expand-top-sequence
                     (cdr forms) value-env
                     (add-macro-binding keyword transformer macro-env)
                     acc))))
-            (expand-top-sequence
-              (cdr forms) value-env macro-env
-              (cons (expand-expression form value-env macro-env) acc))))))
+            (let ((expanded
+                    (expand-expression form value-env macro-env)))
+              (if (raw-form? expanded "define-syntax")
+                  (expand-top-sequence
+                    (cons expanded (cdr forms)) value-env macro-env acc)
+                  (if (raw-form? expanded "begin")
+                      (expand-top-sequence
+                        (append-forms (cdr expanded) (cdr forms))
+                        value-env macro-env acc)
+                      (expand-top-sequence
+                        (cdr forms) value-env macro-env
+                        (cons expanded acc)))))))))
 
 (define (resolve-identifier identifier environment)
   (let ((binding (lookup-value-binding identifier environment)))
@@ -87,6 +96,59 @@
      (expand-pair-expression expression value-env macro-env))
     (else expression)))
 
+(define (alias-value-environment definition-env mark use-env)
+  (if (null? definition-env)
+      use-env
+      (let ((entry (car definition-env)))
+        (alias-value-environment
+          (cdr definition-env) mark
+          (cons (cons (car entry)
+                      (cons mark (cons (car (cdr (cdr entry))) ())))
+                use-env)))))
+
+(define (alias-macro-environment definition-env mark use-env)
+  (if (null? definition-env)
+      use-env
+      (let ((entry (car definition-env)))
+        (alias-macro-environment
+          (cdr definition-env) mark
+          (cons (cons (car entry)
+                      (cons mark (cons (macro-entry-cell entry) ())))
+                use-env)))))
+
+(define (definition-form? form)
+  (if (raw-form? form "define")
+      #t
+      (raw-form? form "define-syntax")))
+
+(define (definition-begin? form)
+  (if (not (raw-form? form "begin"))
+      #f
+      (begin-contains-definition? (cdr form))))
+
+(define (begin-contains-definition? forms)
+  (if (null? forms)
+      #f
+      (if (definition-form? (car forms))
+          #t
+          (if (definition-begin? (car forms))
+              #t
+              (begin-contains-definition? (cdr forms))))))
+
+(define (expand-transcription transformer transcription value-env macro-env)
+  (let ((output (car transcription)))
+    (let ((mark (cdr transcription)))
+      (if (if (raw-form? output "define-syntax")
+              #t
+              (definition-begin? output))
+          output
+          (expand-expression
+            output
+            (alias-value-environment
+              (transformer-definition-env transformer) mark value-env)
+            (alias-macro-environment
+              (transformer-definition-macro-env transformer) mark macro-env))))))
+
 (define (expand-pair-expression expression value-env macro-env)
   (let ((head (car expression)))
     (if (datum-symbol? head)
@@ -95,9 +157,12 @@
                     ()
                     (lookup-macro-binding head macro-env))))
           (if (not (null? transformer))
-              (expand-expression
-                (transcribe-macro transformer expression value-env)
-                value-env macro-env)
+              (if (eq? transformer UNINITIALIZED-SYNTAX)
+                  (fatal "syntax keyword used before its definition")
+                  (expand-transcription
+                    transformer
+                    (transcribe-macro transformer expression value-env)
+                    value-env macro-env))
               (if (head-value-bound? head value-env)
                   (expand-application expression value-env macro-env)
                   (expand-keyword-or-application
@@ -114,7 +179,8 @@
     ((string=? name "define") (expand-define form value-env macro-env))
     ((string=? name "if") (expand-if form value-env macro-env))
     ((string=? name "begin")
-     (cons (car form) (expand-body (cdr form) value-env macro-env)))
+     (cons (car form)
+           (expand-expression-list (cdr form) value-env macro-env)))
     ((string=? name "let")
      (expand-binding-form form 1 value-env macro-env))
     ((string=? name "let*")
@@ -123,6 +189,10 @@
      (expand-binding-form form 3 value-env macro-env))
     ((string=? name "letrec*")
      (expand-binding-form form 4 value-env macro-env))
+    ((string=? name "let-syntax")
+     (expand-local-syntax form #f value-env macro-env))
+    ((string=? name "letrec-syntax")
+     (expand-local-syntax form #t value-env macro-env))
     ((string=? name "set!") (expand-set form value-env macro-env))
     ((string=? name "cond") (expand-cond form value-env macro-env))
     ((string=? name "case") (expand-case form value-env macro-env))
@@ -168,18 +238,99 @@
 (define (body-defined-identifiers body acc)
   (if (null? body)
       (rev acc)
-      (let ((identifier (direct-defined-identifier (car body))))
-        (if (null? identifier)
-            (rev acc)
-            (body-defined-identifiers (cdr body)
-                                      (cons identifier acc))))))
+      (let ((form (car body)))
+        (if (raw-form? form "define-syntax")
+            (body-defined-identifiers (cdr body) acc)
+            (let ((identifier (direct-defined-identifier form)))
+              (if (null? identifier)
+                  (rev acc)
+                  (body-defined-identifiers
+                    (cdr body) (cons identifier acc))))))))
 
 (define (bind-body-definitions body environment)
   (bind-identifiers (body-defined-identifiers body ()) environment))
 
+(define (syntax-definition-keyword form)
+  (if (raw-form? form "define-syntax")
+      (begin
+        (require-raw-arity form 2 "define-syntax")
+        (let ((keyword (car (cdr form))))
+          (if (datum-symbol? keyword)
+              keyword
+              (fatal "define-syntax needs an identifier"))))
+      ()))
+
+(define (identifier-name-seen? identifier identifiers)
+  (if (null? identifiers)
+      #f
+      (if (string=? (datum-symbol-name identifier)
+                    (datum-symbol-name (car identifiers)))
+          #t
+          (identifier-name-seen? identifier (cdr identifiers)))))
+
+(define (prebind-body-syntax body macro-env seen)
+  (if (null? body)
+      macro-env
+      (let ((form (car body)))
+        (if (raw-form? form "define-syntax")
+            (let ((keyword (syntax-definition-keyword form)))
+              (if (identifier-name-seen? keyword seen)
+                  (fatal "duplicate internal syntax keyword"))
+              (prebind-body-syntax
+                (cdr body)
+                (add-macro-binding keyword UNINITIALIZED-SYNTAX macro-env)
+                (cons keyword seen)))
+            (if (raw-form? form "define")
+                (prebind-body-syntax (cdr body) macro-env seen)
+                macro-env)))))
+
+(define (expand-body-sequence body value-env macro-env)
+  (if (null? body)
+      ()
+      (let ((form (car body)))
+        (if (raw-form? form "define-syntax")
+            (let ((keyword (syntax-definition-keyword form)))
+              (let ((binding-cell (lookup-macro-cell keyword macro-env)))
+                (if (null? binding-cell)
+                    (let ((transformer
+                            (parse-syntax-rules
+                              (car (cdr (cdr form)))
+                              value-env macro-env)))
+                      (expand-body-sequence
+                        (cdr body) value-env
+                        (add-macro-binding keyword transformer macro-env)))
+                    (begin
+                      (cell-set! binding-cell
+                        (parse-syntax-rules
+                          (car (cdr (cdr form))) value-env macro-env))
+                      (expand-body-sequence
+                        (cdr body) value-env macro-env)))))
+            (if (raw-form? form "define")
+                (cons (expand-expression form value-env macro-env)
+                      (expand-body-sequence
+                        (cdr body) value-env macro-env))
+                (let ((expanded
+                        (expand-expression form value-env macro-env)))
+                  (if (raw-form? expanded "begin")
+                      (let ((spliced
+                              (append-forms (cdr expanded) (cdr body))))
+                        (let ((spliced-macros
+                                (prebind-body-syntax
+                                  spliced macro-env ())))
+                          (expand-body-sequence
+                            spliced value-env spliced-macros)))
+                      (if (raw-form? expanded "define")
+                          (cons expanded
+                                (expand-body-sequence
+                                  (cdr body) value-env macro-env))
+                          (cons expanded
+                                (expand-expression-list
+                                  (cdr body) value-env macro-env))))))))))
+
 (define (expand-body body value-env macro-env)
   (let ((bound (bind-body-definitions body value-env)))
-    (expand-expression-list body (cdr bound) macro-env)))
+    (let ((body-macros (prebind-body-syntax body macro-env ())))
+      (expand-body-sequence body (cdr bound) body-macros))))
 
 (define (expand-lambda form value-env macro-env)
   (if (null? (cdr form)) (fatal "lambda needs parameters"))
@@ -306,6 +457,85 @@
                     (expand-bound-bindings bindings (car bound)
                                             init-env body-env macro-env)
                     (expand-body body body-env macro-env))))))))))
+
+(define (local-syntax-binding-keyword binding)
+  (if (not (pair? binding)) (fatal "malformed syntax binding"))
+  (if (not (= (raw-list-count binding 0) 2))
+      (fatal "malformed syntax binding"))
+  (let ((keyword (car binding)))
+    (if (datum-symbol? keyword)
+        keyword
+        (fatal "syntax binding needs an identifier"))))
+
+(define (prebind-local-syntax bindings macro-env seen)
+  (if (null? bindings)
+      macro-env
+      (if (not (pair? bindings))
+          (fatal "syntax bindings must be a proper list")
+          (let ((keyword
+                  (local-syntax-binding-keyword (car bindings))))
+            (if (identifier-name-seen? keyword seen)
+                (fatal "duplicate local syntax keyword"))
+            (prebind-local-syntax
+              (cdr bindings)
+              (add-macro-binding keyword UNINITIALIZED-SYNTAX macro-env)
+              (cons keyword seen))))))
+
+(define (fill-local-syntax bindings value-env definition-macro-env body-macro-env)
+  (if (null? bindings)
+      body-macro-env
+      (let ((binding (car bindings)))
+        (let ((keyword (local-syntax-binding-keyword binding)))
+          (let ((transformer
+                  (parse-syntax-rules
+                    (car (cdr binding)) value-env definition-macro-env)))
+            (let ((binding-cell
+                    (lookup-macro-cell keyword body-macro-env)))
+              (if (null? binding-cell)
+                  (fatal "local syntax binding is missing"))
+              (cell-set! binding-cell transformer)
+              (fill-local-syntax (cdr bindings) value-env
+                                 definition-macro-env body-macro-env)))))))
+
+(define (expand-let-syntax-nonrecursive bindings value-env macro-env acc seen)
+  (if (null? bindings)
+      acc
+      (if (not (pair? bindings))
+          (fatal "syntax bindings must be a proper list")
+          (let ((binding (car bindings)))
+            (let ((keyword (local-syntax-binding-keyword binding)))
+              (if (identifier-name-seen? keyword seen)
+                  (fatal "duplicate local syntax keyword"))
+              (let ((transformer
+                      (parse-syntax-rules
+                        (car (cdr binding)) value-env macro-env)))
+                (expand-let-syntax-nonrecursive
+                  (cdr bindings) value-env macro-env
+                  (add-macro-binding keyword transformer acc)
+                  (cons keyword seen))))))))
+
+(define (expanded-body-expression body)
+  (if (null? body)
+      (fatal "syntax binding form needs a body")
+      (if (null? (cdr body))
+          (car body)
+          (cons (datum-symbol "begin") body))))
+
+(define (expand-local-syntax form recursive value-env macro-env)
+  (if (null? (cdr form)) (fatal "syntax binding form needs bindings"))
+  (let ((bindings (car (cdr form))))
+    (let ((body (cdr (cdr form))))
+      (if recursive
+          (let ((body-macros
+                  (prebind-local-syntax bindings macro-env ())))
+            (fill-local-syntax bindings value-env body-macros body-macros)
+            (expanded-body-expression
+              (expand-body body value-env body-macros)))
+          (let ((body-macros
+                  (expand-let-syntax-nonrecursive
+                    bindings value-env macro-env macro-env ())))
+            (expanded-body-expression
+              (expand-body body value-env body-macros)))))))
 
 (define (expand-cond form value-env macro-env)
   (cons (car form)

@@ -1,0 +1,7 @@
+(define (bad)
+  (define-syntax local
+    (syntax-rules () ((local) 1)))
+  (define-syntax local
+    (syntax-rules () ((local) 2)))
+  (local))
+(define (main) (bad))
