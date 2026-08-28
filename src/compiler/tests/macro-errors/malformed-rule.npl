@@ -1,0 +1,4 @@
+(define-syntax malformed-rule
+  (syntax-rules ()
+    ((_ value) value value)))
+(define (main) 0)

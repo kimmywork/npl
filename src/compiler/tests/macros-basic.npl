@@ -1,0 +1,87 @@
+(include "framework.npl")
+
+(define helper 40)
+
+(define-syntax swap-fixed!
+  (syntax-rules ()
+    ((swap-fixed! left right)
+     (let ((temporary left))
+       (set! left right)
+       (set! right temporary)))))
+
+(define-syntax add-helper
+  (syntax-rules ()
+    ((add-helper value) (+ helper value))))
+
+(define-syntax literal-choice
+  (syntax-rules (else)
+    ((literal-choice else value) value)
+    ((literal-choice other value) 0)))
+
+(define-syntax choose
+  (syntax-rules ()
+    ((choose test consequent alternate)
+     (if test consequent alternate))))
+
+(define-syntax ordered
+  (syntax-rules ()
+    ((ordered 1) 11)
+    ((ordered value) 22)))
+
+(define-syntax ignore-first
+  (syntax-rules ()
+    ((ignore-first _ value) value)))
+
+(define-syntax improper-tail
+  (syntax-rules ()
+    ((improper-tail first . rest) (quote rest))))
+
+(define-syntax vector-sum
+  (syntax-rules ()
+    ((vector-sum #(left right)) (+ left right))))
+
+(define-syntax string-pattern
+  (syntax-rules ()
+    ((string-pattern "ok") 42)
+    ((string-pattern value) 0)))
+
+(define (swap-result)
+  (let ((temporary 100)
+        (left 20)
+        (right 22))
+    (swap-fixed! left right)
+    (+ (+ left right) temporary)))
+
+(define (literal-shadow-result)
+  (let ((else #t))
+    (literal-choice else 9)))
+
+(define (core-shadow-result)
+  (let ((if (lambda (value) (+ value 1))))
+    (+ (if 40)
+       (choose #t 1 0))))
+
+(define (main)
+  (test-equal "introduced binding is hygienic"
+              (lambda () (swap-result)) 142)
+  (test-equal "definition-site free identifier"
+              (lambda ()
+                (let ((helper 1)) (add-helper 2)))
+              42)
+  (test-equal "literal identifier unbound match"
+              (lambda () (literal-choice else 9)) 9)
+  (test-equal "literal identifier binding mismatch"
+              (lambda () (literal-shadow-result)) 0)
+  (test-equal "introduced core keyword is not captured"
+              (lambda () (core-shadow-result)) 42)
+  (test-equal "syntax rule order"
+              (lambda () (+ (ordered 1) (ordered 7))) 33)
+  (test-equal "wildcard does not bind"
+              (lambda () (ignore-first 9 42)) 42)
+  (test-equal "improper list pattern"
+              (lambda () (car (improper-tail 1 42 3))) 42)
+  (test-equal "vector pattern"
+              (lambda () (vector-sum #(20 22))) 42)
+  (test-equal "string constant pattern"
+              (lambda () (string-pattern "ok")) 42)
+  (finish-tests "macros-basic"))

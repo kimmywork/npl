@@ -1,0 +1,4 @@
+(define-syntax duplicate-literal
+  (syntax-rules (else else)
+    ((_ value) value)))
+(define (main) 0)

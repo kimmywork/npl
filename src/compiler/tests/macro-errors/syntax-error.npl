@@ -1,0 +1,4 @@
+(define-syntax reject
+  (syntax-rules ()
+    ((_ value) (syntax-error "rejected macro input" value))))
+(define (main) (reject 1))

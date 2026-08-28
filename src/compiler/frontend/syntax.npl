@@ -1,0 +1,293 @@
+; syntax-rules matcher and hygienic template transcription.
+
+(define SYNTAX-MARKS (cell ()))
+(define SYNTAX-NEXT-MARK (cell 0))
+(define MATCH-FAIL '(_syntax_match_fail_))
+
+(define (identifier-mark identifier)
+  (identifier-mark-in identifier (cell-get SYNTAX-MARKS)))
+
+(define (identifier-mark-in identifier entries)
+  (if (null? entries)
+      0
+      (if (eq? identifier (car (car entries)))
+          (cdr (car entries))
+          (identifier-mark-in identifier (cdr entries)))))
+
+(define (set-identifier-mark! identifier mark)
+  (cell-set! SYNTAX-MARKS
+    (cons (cons identifier mark) (cell-get SYNTAX-MARKS))))
+
+(define (fresh-syntax-mark)
+  (cell-set! SYNTAX-NEXT-MARK (+ 1 (cell-get SYNTAX-NEXT-MARK)))
+  (cell-get SYNTAX-NEXT-MARK))
+
+(define (identifier-key-equal? left right)
+  (if (string=? (datum-symbol-name left) (datum-symbol-name right))
+      (= (identifier-mark left) (identifier-mark right))
+      #f))
+
+(define (name-in-identifiers? name identifiers)
+  (if (null? identifiers)
+      #f
+      (if (string=? name (datum-symbol-name (car identifiers)))
+          #t
+          (name-in-identifiers? name (cdr identifiers)))))
+
+(define (lookup-value-binding identifier environment)
+  (if (null? environment)
+      ""
+      (let ((entry (car environment)))
+        (if (if (string=? (datum-symbol-name identifier) (car entry))
+                (= (identifier-mark identifier) (car (cdr entry)))
+                #f)
+            (car (cdr (cdr entry)))
+            (lookup-value-binding identifier (cdr environment))))))
+
+(define (add-value-binding identifier emitted environment)
+  (cons (cons (datum-symbol-name identifier)
+              (cons (identifier-mark identifier) (cons emitted ())))
+        environment))
+
+(define (lookup-macro-binding identifier environment)
+  (if (null? environment)
+      ()
+      (let ((entry (car environment)))
+        (if (if (string=? (datum-symbol-name identifier) (car entry))
+                (= (identifier-mark identifier) (car (cdr entry)))
+                #f)
+            (car (cdr (cdr entry)))
+            (lookup-macro-binding identifier (cdr environment))))))
+
+(define (add-macro-binding identifier transformer environment)
+  (cons (cons (datum-symbol-name identifier)
+              (cons (identifier-mark identifier) (cons transformer ())))
+        environment))
+
+(define (pattern-binding name bindings)
+  (if (null? bindings)
+      ()
+      (if (string=? name (car (car bindings)))
+          (car bindings)
+          (pattern-binding name (cdr bindings)))))
+
+(define (syntax-atom-equal? left right)
+  (cond
+    ((if (number? left) (number? right) #f) (= left right))
+    ((if (datum-symbol? left) (datum-symbol? right) #f)
+     (string=? (datum-symbol-name left) (datum-symbol-name right)))
+    ((if (datum-string? left) (datum-string? right) #f)
+     (string=? (datum-string-text left) (datum-string-text right)))
+    ((if (datum-char? left) (datum-char? right) #f)
+     (= (datum-char-code left) (datum-char-code right)))
+    ((if (datum-true? left) (datum-true? right) #f) #t)
+    ((if (datum-false? left) (datum-false? right) #f) #t)
+    (else #f)))
+
+(define (syntax-equal? left right)
+  (cond
+    ((if (null? left) (null? right) #f) #t)
+    ((syntax-atom-equal? left right) #t)
+    ((if (datum-vector? left) (datum-vector? right) #f)
+     (syntax-equal? (datum-vector-items left) (datum-vector-items right)))
+    ((if (datum-bytevector? left) (datum-bytevector? right) #f)
+     (syntax-equal? (datum-bytevector-items left)
+                    (datum-bytevector-items right)))
+    ((if (pair? left) (pair? right) #f)
+     (if (syntax-equal? (car left) (car right))
+         (syntax-equal? (cdr left) (cdr right))
+         #f))
+    (else (syntax-atom-equal? left right))))
+
+(define (literal-identifier? identifier literals)
+  (if (null? literals)
+      #f
+      (if (string=? (datum-symbol-name identifier)
+                    (datum-symbol-name (car literals)))
+          #t
+          (literal-identifier? identifier (cdr literals)))))
+
+(define (identifier-binding-at identifier environment)
+  (lookup-value-binding identifier environment))
+
+(define (literal-identifier-match? pattern input definition-env use-env)
+  (if (not (datum-symbol? input))
+      #f
+      (if (not (string=? (datum-symbol-name pattern)
+                         (datum-symbol-name input)))
+          #f
+          (let ((definition-binding
+                  (identifier-binding-at pattern definition-env)))
+            (let ((use-binding (identifier-binding-at input use-env)))
+              (if (= (string-length definition-binding) 0)
+                  (= (string-length use-binding) 0)
+                  (if (= (string-length use-binding) 0)
+                      #f
+                      (string=? definition-binding use-binding))))))))
+
+(define (match-pattern pattern input literals definition-env use-env bindings)
+  (cond
+    ((datum-symbol? pattern)
+     (let ((name (datum-symbol-name pattern)))
+       (cond
+         ((string=? name "_") bindings)
+         ((string=? name "...") (fatal "misplaced ellipsis in pattern"))
+         ((literal-identifier? pattern literals)
+          (if (literal-identifier-match? pattern input
+                                         definition-env use-env)
+              bindings
+              MATCH-FAIL))
+         (else
+          (if (not (null? (pattern-binding name bindings)))
+              (fatal "duplicate pattern variable")
+              (cons (cons name input) bindings))))))
+    ((datum-vector? pattern)
+     (if (datum-vector? input)
+         (match-pattern (datum-vector-items pattern)
+                        (datum-vector-items input)
+                        literals definition-env use-env bindings)
+         MATCH-FAIL))
+    ((datum-bytevector? pattern)
+     (if (syntax-equal? pattern input) bindings MATCH-FAIL))
+    ((datum-string? pattern)
+     (if (syntax-equal? pattern input) bindings MATCH-FAIL))
+    ((datum-char? pattern)
+     (if (syntax-equal? pattern input) bindings MATCH-FAIL))
+    ((datum-true? pattern)
+     (if (datum-true? input) bindings MATCH-FAIL))
+    ((datum-false? pattern)
+     (if (datum-false? input) bindings MATCH-FAIL))
+    ((pair? pattern)
+     (if (not (pair? input))
+         MATCH-FAIL
+         (let ((head-bindings
+                 (match-pattern (car pattern) (car input)
+                                literals definition-env use-env bindings)))
+           (if (eq? head-bindings MATCH-FAIL)
+               MATCH-FAIL
+               (match-pattern (cdr pattern) (cdr input)
+                              literals definition-env use-env
+                              head-bindings)))))
+    (else (if (syntax-equal? pattern input) bindings MATCH-FAIL))))
+
+(define (validate-pattern pattern literals variables)
+  (cond
+    ((datum-symbol? pattern)
+     (let ((name (datum-symbol-name pattern)))
+       (if (if (string=? name "_")
+               #t
+               (if (string=? name "...")
+                   #t
+                   (literal-identifier? pattern literals)))
+           variables
+           (if (name-in-identifiers? name variables)
+               (fatal "duplicate pattern variable")
+               (cons pattern variables)))))
+    ((datum-vector? pattern)
+     (validate-pattern (datum-vector-items pattern) literals variables))
+    ((datum-string? pattern) variables)
+    ((datum-char? pattern) variables)
+    ((datum-bytevector? pattern) variables)
+    ((datum-true? pattern) variables)
+    ((datum-false? pattern) variables)
+    ((pair? pattern)
+     (let ((after-head (validate-pattern (car pattern)
+                                         literals variables)))
+       (validate-pattern (cdr pattern) literals after-head)))
+    (else variables)))
+
+(define (validate-rule rule literals)
+  (if (not (= (raw-list-count rule 0) 2))
+      (fatal "syntax rule must contain a pattern and template"))
+  (let ((pattern (car rule)))
+    (if (not (pair? pattern)) (fatal "syntax rule pattern must be a list"))
+    (if (not (datum-symbol? (car pattern)))
+        (fatal "syntax rule pattern must start with an identifier"))
+    (validate-pattern (cdr pattern) literals ())))
+
+(define (validate-rules rules literals)
+  (if (null? rules)
+      0
+      (if (pair? rules)
+          (begin
+            (validate-rule (car rules) literals)
+            (validate-rules (cdr rules) literals))
+          (fatal "syntax-rules rules must be a proper list"))))
+
+(define (validate-literals literals)
+  (if (null? literals)
+      literals
+      (if (pair? literals)
+          (if (datum-symbol? (car literals))
+              (begin
+                (if (name-in-identifiers?
+                      (datum-symbol-name (car literals)) (cdr literals))
+                    (fatal "duplicate syntax literal"))
+                (validate-literals (cdr literals))
+                literals)
+              (fatal "syntax literal must be an identifier"))
+          (fatal "syntax literal list must be proper"))))
+
+; transformer = (literals rules definition-value-environment)
+(define (parse-syntax-rules specification definition-env)
+  (if (not (raw-form? specification "syntax-rules"))
+      (fatal "transformer must be syntax-rules"))
+  (let ((parts (cdr specification)))
+    (if (null? parts) (fatal "syntax-rules needs literals and rules"))
+    (if (datum-symbol? (car parts))
+        (fatal "custom ellipsis is not available yet"))
+    (let ((literals (car parts)))
+      (let ((rules (cdr parts)))
+        (validate-literals literals)
+        (if (null? rules) (fatal "syntax-rules needs a rule"))
+        (validate-rules rules literals)
+        (cons literals (cons rules (cons definition-env ())))))))
+
+(define (transformer-literals transformer) (car transformer))
+(define (transformer-rules transformer) (car (cdr transformer)))
+(define (transformer-definition-env transformer)
+  (car (cdr (cdr transformer))))
+
+(define (clone-template template bindings mark)
+  (cond
+    ((datum-symbol? template)
+     (let ((binding
+             (pattern-binding (datum-symbol-name template) bindings)))
+       (if (null? binding)
+           (let ((copy (datum-symbol (datum-symbol-name template))))
+             (set-identifier-mark! copy mark)
+             copy)
+           (cdr binding))))
+    ((datum-vector? template)
+     (datum-vector
+       (clone-template (datum-vector-items template) bindings mark)))
+    ((datum-bytevector? template)
+     (datum-bytevector
+       (clone-template (datum-bytevector-items template) bindings mark)))
+    ((datum-string? template) template)
+    ((datum-char? template) template)
+    ((datum-true? template) template)
+    ((datum-false? template) template)
+    ((pair? template)
+     (cons (clone-template (car template) bindings mark)
+           (clone-template (cdr template) bindings mark)))
+    (else template)))
+
+(define (transcribe-rules rules use transformer use-env)
+  (if (null? rules)
+      (fatal "macro use does not match any syntax rule")
+      (let ((rule (car rules)))
+        (let ((pattern (car rule)))
+          (let ((bindings
+                  (match-pattern (cdr pattern) (cdr use)
+                    (transformer-literals transformer)
+                    (transformer-definition-env transformer)
+                    use-env ())))
+            (if (eq? bindings MATCH-FAIL)
+                (transcribe-rules (cdr rules) use transformer use-env)
+                (clone-template (car (cdr rule)) bindings
+                                (fresh-syntax-mark))))))))
+
+(define (transcribe-macro transformer use use-env)
+  (transcribe-rules (transformer-rules transformer)
+                    use transformer use-env))

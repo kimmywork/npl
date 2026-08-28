@@ -1,0 +1,4 @@
+(define-syntax bad-literal
+  (syntax-rules (1)
+    ((_ value) value)))
+(define (main) 0)

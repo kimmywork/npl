@@ -42,16 +42,23 @@ run_suite() {
     cmp "$WORK/$name.expected" "$WORK/$name.out"
 }
 
-reject_reader() {
-    name=$1
-    message=$2
+reject_compile() {
+    source=$1
+    name=$2
+    message=$3
     set +e
-    "$WORK/compiler" --emit-qbe "$TESTS/reader-errors/$name.npl" \
+    "$WORK/compiler" --emit-qbe "$TESTS/$source" \
         > "$WORK/$name.out" 2>&1
     rc=$?
     set -e
     [ "$rc" -ne 44 ]
     grep -F "$message" "$WORK/$name.out" >/dev/null
+}
+
+reject_reader() {
+    name=$1
+    message=$2
+    reject_compile "reader-errors/$name.npl" "$name" "$message"
 }
 
 reject_literal_mutation() {
@@ -70,6 +77,7 @@ reject_literal_mutation() {
 
 run_suite dynamic-core "PASS dynamic-core 4"
 run_suite reader-datum "PASS reader-datum 24"
+run_suite macros-basic "PASS macros-basic 10"
 
 reject_literal_mutation literal-vector-mutation \
     "vector-set!: cannot mutate a literal"
@@ -89,5 +97,19 @@ reject_reader bad-quasiquote-cycle "circular datum label in quasiquote"
 reject_reader bad-delimiter \
     "unmatched ( at line 1 col 1; expected ) before end of input"
 
+reject_compile macro-errors/duplicate-pattern-variable.npl \
+    duplicate-pattern-variable "duplicate pattern variable"
+reject_compile macro-errors/non-identifier-literal.npl \
+    non-identifier-literal "syntax literal must be an identifier"
+reject_compile macro-errors/duplicate-literal.npl \
+    duplicate-literal "duplicate syntax literal"
+reject_compile macro-errors/malformed-rule.npl \
+    malformed-rule "syntax rule must contain a pattern and template"
+reject_compile macro-errors/no-matching-rule.npl \
+    no-matching-rule "macro use does not match any syntax rule"
+reject_compile macro-errors/syntax-error.npl \
+    syntax-error "rejected macro input"
+
 echo "full compiler dynamic core: PASS"
 echo "full compiler reader/datum: PASS"
+echo "full compiler macros: PASS"

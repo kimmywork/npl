@@ -1,4 +1,416 @@
-; Hygienic expansion entry point. Step 3.1 establishes the phase boundary;
-; later increments replace this identity traversal with syntax environments.
+; Hygienic expansion and lexical alpha-renaming before core lowering.
 
-(define (expand-program forms) forms)
+(define EXPAND-NEXT-VALUE (cell 0))
+
+(define (fresh-value-name identifier)
+  (cell-set! EXPAND-NEXT-VALUE (+ 1 (cell-get EXPAND-NEXT-VALUE)))
+  (string-append "_npl_h_"
+    (string-append (number->string (cell-get EXPAND-NEXT-VALUE))
+      (string-append "_" (sanitize (datum-symbol-name identifier) 0 "")))))
+
+(define (direct-defined-identifier form)
+  (if (raw-form? form "define")
+      (if (null? (cdr form))
+          ()
+          (let ((target (car (cdr form))))
+            (if (datum-symbol? target)
+                target
+                (if (pair? target)
+                    (if (datum-symbol? (car target)) (car target) ())
+                    ()))))
+      ()))
+
+(define (predeclare-globals forms environment)
+  (if (null? forms)
+      environment
+      (let ((identifier (direct-defined-identifier (car forms))))
+        (if (null? identifier)
+            (predeclare-globals (cdr forms) environment)
+            (predeclare-globals
+              (cdr forms)
+              (add-value-binding identifier
+                                 (datum-symbol-name identifier)
+                                 environment))))))
+
+(define (expand-program forms)
+  (cell-set! SYNTAX-MARKS ())
+  (cell-set! SYNTAX-NEXT-MARK 0)
+  (cell-set! EXPAND-NEXT-VALUE 0)
+  (let ((environment (predeclare-globals forms ())))
+    (car (expand-top-sequence forms environment () ()))))
+
+; result = (expanded-forms . final-macro-environment)
+(define (expand-top-sequence forms value-env macro-env acc)
+  (if (null? forms)
+      (cons (rev acc) macro-env)
+      (let ((form (car forms)))
+        (if (raw-form? form "define-syntax")
+            (begin
+              (require-raw-arity form 2 "define-syntax")
+              (let ((keyword (car (cdr form))))
+                (if (not (datum-symbol? keyword))
+                    (fatal "define-syntax needs an identifier"))
+                (let ((transformer
+                        (parse-syntax-rules
+                          (car (cdr (cdr form))) value-env)))
+                  (expand-top-sequence
+                    (cdr forms) value-env
+                    (add-macro-binding keyword transformer macro-env)
+                    acc))))
+            (expand-top-sequence
+              (cdr forms) value-env macro-env
+              (cons (expand-expression form value-env macro-env) acc))))))
+
+(define (resolve-identifier identifier environment)
+  (let ((binding (lookup-value-binding identifier environment)))
+    (if (= (string-length binding) 0)
+        identifier
+        (datum-symbol binding))))
+
+(define (head-value-bound? identifier environment)
+  (> (string-length (lookup-value-binding identifier environment)) 0))
+
+(define (expand-expression expression value-env macro-env)
+  (cond
+    ((datum-symbol? expression)
+     (resolve-identifier expression value-env))
+    ((datum-string? expression) expression)
+    ((datum-char? expression) expression)
+    ((datum-bytevector? expression) expression)
+    ((datum-true? expression) expression)
+    ((datum-false? expression) expression)
+    ((datum-vector? expression)
+     (datum-vector
+       (expand-expression-list (datum-vector-items expression)
+                               value-env macro-env)))
+    ((pair? expression)
+     (expand-pair-expression expression value-env macro-env))
+    (else expression)))
+
+(define (expand-pair-expression expression value-env macro-env)
+  (let ((head (car expression)))
+    (if (datum-symbol? head)
+        (let ((transformer
+                (if (head-value-bound? head value-env)
+                    ()
+                    (lookup-macro-binding head macro-env))))
+          (if (not (null? transformer))
+              (expand-expression
+                (transcribe-macro transformer expression value-env)
+                value-env macro-env)
+              (if (head-value-bound? head value-env)
+                  (expand-application expression value-env macro-env)
+                  (expand-keyword-or-application
+                    expression (datum-symbol-name head)
+                    value-env macro-env))))
+        (expand-application expression value-env macro-env))))
+
+(define (expand-keyword-or-application form name value-env macro-env)
+  (cond
+    ((string=? name "quote") form)
+    ((string=? name "quasiquote")
+     (expand-quasiquote-form form value-env macro-env))
+    ((string=? name "lambda") (expand-lambda form value-env macro-env))
+    ((string=? name "define") (expand-define form value-env macro-env))
+    ((string=? name "if") (expand-if form value-env macro-env))
+    ((string=? name "begin")
+     (cons (car form) (expand-body (cdr form) value-env macro-env)))
+    ((string=? name "let")
+     (expand-binding-form form 1 value-env macro-env))
+    ((string=? name "let*")
+     (expand-binding-form form 2 value-env macro-env))
+    ((string=? name "letrec")
+     (expand-binding-form form 3 value-env macro-env))
+    ((string=? name "letrec*")
+     (expand-binding-form form 4 value-env macro-env))
+    ((string=? name "set!") (expand-set form value-env macro-env))
+    ((string=? name "cond") (expand-cond form value-env macro-env))
+    ((string=? name "case") (expand-case form value-env macro-env))
+    ((string=? name "syntax-error") (expand-syntax-error form))
+    ((string=? name "define-syntax")
+     (fatal "define-syntax is not valid in expression position"))
+    ((string=? name "syntax-rules")
+     (fatal "syntax-rules is not valid in expression position"))
+    (else (expand-application form value-env macro-env))))
+
+(define (expand-expression-list expressions value-env macro-env)
+  (if (null? expressions)
+      ()
+      (if (pair? expressions)
+          (cons (expand-expression (car expressions) value-env macro-env)
+                (expand-expression-list (cdr expressions)
+                                        value-env macro-env))
+          (begin
+            (display "nplc1: improper expression tail: ")
+            (display expressions)
+            (newline)
+            (fatal "expression list must be proper")))))
+
+(define (expand-application form value-env macro-env)
+  (expand-expression-list form value-env macro-env))
+
+(define (bind-identifiers identifiers environment)
+  (if (null? identifiers)
+      (cons () environment)
+      (if (not (pair? identifiers))
+          (fatal "identifier list must be proper")
+          (let ((identifier (car identifiers)))
+            (if (not (datum-symbol? identifier))
+                (fatal "binding name must be an identifier"))
+            (let ((emitted (fresh-value-name identifier)))
+              (let ((rest
+                      (bind-identifiers
+                        (cdr identifiers)
+                        (add-value-binding identifier emitted environment))))
+                (cons (cons (datum-symbol emitted) (car rest))
+                      (cdr rest))))))))
+
+(define (body-defined-identifiers body acc)
+  (if (null? body)
+      (rev acc)
+      (let ((identifier (direct-defined-identifier (car body))))
+        (if (null? identifier)
+            (rev acc)
+            (body-defined-identifiers (cdr body)
+                                      (cons identifier acc))))))
+
+(define (bind-body-definitions body environment)
+  (bind-identifiers (body-defined-identifiers body ()) environment))
+
+(define (expand-body body value-env macro-env)
+  (let ((bound (bind-body-definitions body value-env)))
+    (expand-expression-list body (cdr bound) macro-env)))
+
+(define (expand-lambda form value-env macro-env)
+  (if (null? (cdr form)) (fatal "lambda needs parameters"))
+  (let ((bound (bind-identifiers (car (cdr form)) value-env)))
+    (cons (car form)
+      (cons (car bound)
+        (expand-body (cdr (cdr form)) (cdr bound) macro-env)))))
+
+(define (defined-target-identifier target)
+  (if (datum-symbol? target)
+      target
+      (if (pair? target)
+          (if (datum-symbol? (car target)) (car target) ())
+          ())))
+
+(define (rename-defined-target target environment)
+  (if (datum-symbol? target)
+      (resolve-identifier target environment)
+      (if (pair? target)
+          (cons (resolve-identifier (car target) environment)
+                (cdr target))
+          target)))
+
+(define (expand-define form value-env macro-env)
+  (if (null? (cdr form)) (fatal "define needs a target"))
+  (let ((target (car (cdr form))))
+    (let ((rest (cdr (cdr form))))
+      (if (datum-symbol? target)
+          (cons (car form)
+            (cons (resolve-identifier target value-env)
+                  (expand-expression-list rest value-env macro-env)))
+          (if (pair? target)
+              (let ((bound (bind-identifiers (cdr target) value-env)))
+                (cons (car form)
+                  (cons
+                    (cons (resolve-identifier (car target) value-env)
+                          (car bound))
+                    (expand-body rest (cdr bound) macro-env))))
+              (fatal "bad define target"))))))
+
+(define (expand-if form value-env macro-env)
+  (cons (car form)
+        (expand-expression-list (cdr form) value-env macro-env)))
+
+(define (expand-set form value-env macro-env)
+  (require-raw-arity form 2 "set!")
+  (let ((identifier (car (cdr form))))
+    (if (not (datum-symbol? identifier))
+        (fatal "set! needs an identifier"))
+    (cons (car form)
+      (cons (resolve-identifier identifier value-env)
+        (cons (expand-expression (car (cdr (cdr form)))
+                                 value-env macro-env)
+              ())))))
+
+(define (binding-identifiers bindings)
+  (if (null? bindings)
+      ()
+      (if (not (pair? bindings))
+          (fatal "bindings must be a proper list")
+          (let ((binding (car bindings)))
+            (if (if (not (pair? binding))
+                    #t
+                    (not (datum-symbol? (car binding))))
+                (fatal "malformed binding"))
+            (cons (car binding)
+                  (binding-identifiers (cdr bindings)))))))
+
+(define (expand-bound-bindings bindings names init-env body-env macro-env)
+  (if (null? bindings)
+      ()
+      (let ((binding (car bindings)))
+        (cons
+          (cons (car names)
+            (cons (expand-expression (car (cdr binding))
+                                     init-env macro-env)
+                  ()))
+          (expand-bound-bindings (cdr bindings) (cdr names)
+                                 init-env body-env macro-env)))))
+
+(define (expand-let-star-bindings bindings environment macro-env)
+  (if (null? bindings)
+      (cons () environment)
+      (let ((binding (car bindings)))
+        (if (if (not (pair? binding))
+                #t
+                (not (datum-symbol? (car binding))))
+            (fatal "malformed binding"))
+        (let ((identifier (car binding)))
+          (let ((emitted (fresh-value-name identifier)))
+            (let ((expanded-init
+                    (expand-expression (car (cdr binding))
+                                       environment macro-env)))
+              (let ((next-env
+                      (add-value-binding identifier emitted environment)))
+                (let ((rest
+                        (expand-let-star-bindings
+                          (cdr bindings) next-env macro-env)))
+                  (cons
+                    (cons
+                      (cons (datum-symbol emitted)
+                            (cons expanded-init ()))
+                      (car rest))
+                    (cdr rest))))))))))
+
+; kind: 1 let, 2 let*, 3 letrec, 4 letrec*
+(define (expand-binding-form form kind value-env macro-env)
+  (if (null? (cdr form)) (fatal "binding form needs bindings"))
+  (let ((bindings (car (cdr form))))
+    (let ((body (cdr (cdr form))))
+      (if (= kind 2)
+          (let ((expanded
+                  (expand-let-star-bindings bindings value-env macro-env)))
+            (cons (car form)
+              (cons (car expanded)
+                    (expand-body body (cdr expanded) macro-env))))
+          (let ((bound
+                  (bind-identifiers
+                    (binding-identifiers bindings) value-env)))
+            (let ((body-env (cdr bound)))
+              (let ((init-env (if (= kind 1) value-env body-env)))
+                (cons (car form)
+                  (cons
+                    (expand-bound-bindings bindings (car bound)
+                                            init-env body-env macro-env)
+                    (expand-body body body-env macro-env))))))))))
+
+(define (expand-cond form value-env macro-env)
+  (cons (car form)
+        (expand-cond-clauses (cdr form) value-env macro-env)))
+
+(define (expand-cond-clauses clauses value-env macro-env)
+  (if (null? clauses)
+      ()
+      (let ((clause (car clauses)))
+        (if (not (pair? clause)) (fatal "malformed cond clause"))
+        (let ((test (car clause)))
+          (cons
+            (if (raw-name? test "else")
+                (cons test
+                      (expand-expression-list (cdr clause)
+                                              value-env macro-env))
+                (cons (expand-expression test value-env macro-env)
+                      (expand-cond-body (cdr clause)
+                                        value-env macro-env)))
+            (expand-cond-clauses (cdr clauses)
+                                 value-env macro-env))))))
+
+(define (expand-cond-body body value-env macro-env)
+  (if (if (pair? body)
+          (raw-name? (car body) "=>")
+          #f)
+      (cons (car body)
+            (expand-expression-list (cdr body) value-env macro-env))
+      (expand-expression-list body value-env macro-env)))
+
+(define (expand-case form value-env macro-env)
+  (if (null? (cdr form)) (fatal "case needs a key"))
+  (cons (car form)
+    (cons (expand-expression (car (cdr form)) value-env macro-env)
+          (expand-case-clauses (cdr (cdr form)) value-env macro-env))))
+
+(define (expand-case-clauses clauses value-env macro-env)
+  (if (null? clauses)
+      ()
+      (let ((clause (car clauses)))
+        (if (not (pair? clause)) (fatal "malformed case clause"))
+        (cons
+          (cons (car clause)
+                (expand-cond-body (cdr clause) value-env macro-env))
+          (expand-case-clauses (cdr clauses) value-env macro-env)))))
+
+(define (expand-quasiquote-form form value-env macro-env)
+  (require-raw-arity form 1 "quasiquote")
+  (cons (car form)
+    (cons (expand-quasiquote (car (cdr form)) 1 value-env macro-env) ())))
+
+(define (expand-quasiquote value depth value-env macro-env)
+  (cond
+    ((raw-form? value "quasiquote")
+     (cons (car value)
+       (cons (expand-quasiquote (raw-single-argument value "quasiquote")
+                                (+ depth 1) value-env macro-env)
+             ())))
+    ((raw-form? value "unquote")
+     (cons (car value)
+       (cons
+         (if (= depth 1)
+             (expand-expression (raw-single-argument value "unquote")
+                                value-env macro-env)
+             (expand-quasiquote (raw-single-argument value "unquote")
+                                (- depth 1) value-env macro-env))
+         ())))
+    ((raw-form? value "unquote-splicing")
+     (cons (car value)
+       (cons
+         (if (= depth 1)
+             (expand-expression
+               (raw-single-argument value "unquote-splicing")
+               value-env macro-env)
+             (expand-quasiquote
+               (raw-single-argument value "unquote-splicing")
+               (- depth 1) value-env macro-env))
+         ())))
+    ((datum-vector? value)
+     (datum-vector
+       (expand-quasiquote-list (datum-vector-items value) depth
+                               value-env macro-env)))
+    ((datum-symbol? value) value)
+    ((datum-string? value) value)
+    ((datum-char? value) value)
+    ((datum-bytevector? value) value)
+    ((datum-true? value) value)
+    ((datum-false? value) value)
+    ((pair? value)
+     (expand-quasiquote-list value depth value-env macro-env))
+    (else value)))
+
+(define (expand-quasiquote-list values depth value-env macro-env)
+  (if (null? values)
+      ()
+      (if (pair? values)
+          (cons (expand-quasiquote (car values) depth value-env macro-env)
+                (expand-quasiquote-list (cdr values) depth
+                                        value-env macro-env))
+          (expand-quasiquote values depth value-env macro-env))))
+
+(define (expand-syntax-error form)
+  (if (null? (cdr form))
+      (fatal "syntax-error needs a message"))
+  (let ((message (car (cdr form))))
+    (if (datum-string? message)
+        (fatal (datum-string-text message))
+        (fatal "syntax-error message must be a string"))))
