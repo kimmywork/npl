@@ -1,0 +1,4 @@
+; Hygienic expansion entry point. Step 3.1 establishes the phase boundary;
+; later increments replace this identity traversal with syntax environments.
+
+(define (expand-program forms) forms)

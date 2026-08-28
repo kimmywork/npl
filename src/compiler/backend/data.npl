@@ -61,16 +61,29 @@
           (datum-object-label (cdr entries) object))))
 
 (define (walk-datum d)
-  (if (null? d)
-      "2"
-      (if (number? d)
-          (npl_tagged_num_to_string d)
-          (if (pair-shape? d)
-              (let ((known (datum-object-label (cell-get DATUM-OBJS) d)))
-                (if (> (string-length known) 0)
-                    (label-ref-op known)
-                    (walk-boxed d)))
-              (fatal "bad datum")))))
+  (cond
+    ((null? d) "2")
+    ((number? d) (npl_tagged_num_to_string d))
+    ((datum-symbol? d) (label-ref-op (intern-sym (datum-symbol-name d))))
+    ((datum-string? d) (fresh-string-op (datum-string-text d)))
+    ((datum-char? d)
+     (number->string (+ (* (datum-char-code d) 256) 14)))
+    ((datum-vector? d) (label-ref-op (ensure-static-vector d)))
+    ((datum-bytevector? d)
+     (label-ref-op (ensure-static-bytevector d)))
+    ((datum-true? d) "6")
+    ((datum-false? d) "10")
+    ((pair-shape? d)
+     (let ((known (datum-object-label (cell-get DATUM-OBJS) d)))
+       (if (> (string-length known) 0)
+           (label-ref-op known)
+           (build-static-pair d))))
+    (else
+      (begin
+        (display "nplc1: bad datum: ")
+        (display d)
+        (newline)
+        (fatal "bad datum")))))
 
 (define (walk-boxed d)
   (case (car d)
@@ -84,28 +97,43 @@
     (else (build-static-pair d))))
 
 (define (walk-static-datum datum)
-  (if (null? datum)
-      "2"
-      (if (number? datum)
-          (npl_tagged_num_to_string datum)
-          (let ((known (datum-object-label (cell-get DATUM-OBJS) datum)))
-            (if (> (string-length known) 0)
-                (label-constant known)
-                (case (car datum)
-                  ((100) (label-constant (intern-sym (cdr datum))))
-                  ((101) (label-constant (fresh-string-label (cdr datum))))
-                  ((102) (number->string (+ (* (cdr datum) 256) 14)))
-                  ((103) (label-constant (ensure-static-vector datum)))
-                  ((104) (label-constant (ensure-static-bytevector datum)))
-                  ((106) "6")
-                  ((107) "10")
-                  (else (label-constant (ensure-static-pair datum)))))))))
+  (cond
+    ((null? datum) "2")
+    ((number? datum) (npl_tagged_num_to_string datum))
+    ((datum-symbol? datum)
+     (label-constant (intern-sym (datum-symbol-name datum))))
+    ((datum-string? datum)
+     (label-constant (fresh-string-label (datum-string-text datum))))
+    ((datum-char? datum)
+     (number->string (+ (* (datum-char-code datum) 256) 14)))
+    ((datum-vector? datum)
+     (label-constant (ensure-static-vector datum)))
+    ((datum-bytevector? datum)
+     (label-constant (ensure-static-bytevector datum)))
+    ((datum-true? datum) "6")
+    ((datum-false? datum) "10")
+    ((pair-shape? datum)
+     (let ((known (datum-object-label (cell-get DATUM-OBJS) datum)))
+       (if (> (string-length known) 0)
+           (label-constant known)
+           (label-constant (ensure-static-pair datum)))))
+    (else
+      (begin
+        (display "nplc1: bad static datum: ")
+        (display datum)
+        (newline)
+        (fatal "bad static datum")))))
 
 (define (static-vector-items items)
   (if (null? items)
       ""
       (string-append ", l " (walk-static-datum (car items))
                      (static-vector-items (cdr items)))))
+
+(define (literal-vector-items datum)
+  (if (datum-vector? datum)
+      (datum-vector-items datum)
+      (car (cdr datum))))
 
 (define (ensure-static-vector datum)
   (let ((known (datum-object-label (cell-get DATUM-OBJS) datum)))
@@ -116,7 +144,7 @@
           (let ((lab (string-append "$v_" (number->string (cell-get DATAN)))))
             (cell-set! DATUM-OBJS
               (cons (cons datum lab) (cell-get DATUM-OBJS)))
-            (let ((items (car (cdr datum))))
+            (let ((items (literal-vector-items datum)))
               (let ((count (count-up items 0)))
                 (data-line
                   (string-append lab " = { w 2, w 1, w "
@@ -135,6 +163,11 @@
         (string-append ", b " (number->string value)
                        (bytevector-items (cdr items))))))
 
+(define (literal-bytevector-items datum)
+  (if (datum-bytevector? datum)
+      (datum-bytevector-items datum)
+      (car (cdr datum))))
+
 (define (ensure-static-bytevector datum)
   (let ((known (datum-object-label (cell-get DATUM-OBJS) datum)))
     (if (> (string-length known) 0)
@@ -144,7 +177,7 @@
           (let ((lab (string-append "$bv_" (number->string (cell-get DATAN)))))
             (cell-set! DATUM-OBJS
               (cons (cons datum lab) (cell-get DATUM-OBJS)))
-            (let ((items (car (cdr datum))))
+            (let ((items (literal-bytevector-items datum)))
               (let ((count (count-up items 0)))
                 (data-line
                   (string-append lab " = { w 6, w 1, w "
@@ -166,11 +199,14 @@
 (define (build-static-pair d)
   (label-ref-op (ensure-static-pair d)))
 
-(define (pair-shape? x)
-  (if (number? x) #f (not (null? x))))
+(define (pair-shape? x) (pair? x))
 
 (define (sym-atom? x)
-  (if (pair-shape? x) (= (car x) 100) #f))
+  (if (pair-shape? x)
+      (if (number? (car x)) (= (car x) 100) #f)
+      #f))
 
 (define (str-atom? x)
-  (if (pair-shape? x) (= (car x) 101) #f))
+  (if (pair-shape? x)
+      (if (number? (car x)) (= (car x) 101) #f)
+      #f))

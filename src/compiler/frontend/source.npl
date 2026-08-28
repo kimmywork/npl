@@ -6,12 +6,12 @@
       (begin
         (cell-set! DATUM-LABELS ())
         (cell-set! ACTIVE-DATUM-LABELS ())
-        (parse-all cur (cons (parse-expr cur) acc)))))
+        (parse-all cur (cons (parse-raw-expr cur) acc)))))
 
 (define (include-form? form)
   (if (pair-shape? form)
-      (if (sym-atom? (car form))
-          (string=? (cdr (car form)) "include")
+      (if (datum-symbol? (car form))
+          (string=? (datum-symbol-name (car form)) "include")
           #f)
       #f))
 
@@ -54,8 +54,9 @@
 (define (expand-include-paths paths base stack)
   (if (null? paths)
       ()
-      (if (str-atom? (car paths))
-          (let ((path (resolve-include-path base (cdr (car paths)))))
+      (if (datum-string? (car paths))
+          (let ((path (resolve-include-path
+                        base (datum-string-text (car paths)))))
             (if (path-on-stack? path stack)
                 (fatal (string-append "include cycle: " path)))
             (append-forms

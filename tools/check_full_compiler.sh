@@ -69,7 +69,7 @@ reject_literal_mutation() {
 }
 
 run_suite dynamic-core "PASS dynamic-core 4"
-run_suite reader-datum "PASS reader-datum 22"
+run_suite reader-datum "PASS reader-datum 24"
 
 reject_literal_mutation literal-vector-mutation \
     "vector-set!: cannot mutate a literal"

@@ -7,37 +7,18 @@
 (define (expect-rparen cur what)
   (if (= (peek-kind cur) 2) (advance! cur) (fatal (string-append "expected ) after " what))))
 
-(define (parse-expr cur)
-  (let ((k (peek-kind cur)))
-    (case k
-      ((5) (let ((v (peek-payload cur))) (advance! cur) v))
-      ((7) (fatal "unexpected end of input"))
-      ((2) (fatal "unexpected )"))
-      ((8) (begin (advance! cur) (cons 108 ())))
-      ((9) (begin (advance! cur) (cons 109 ())))
-      ((10) (begin (advance! cur) (parse-quasiquote cur)))
-      ((11 12) (fatal "unquote outside quasiquote"))
-      ((13) (let ((code (peek-payload cur)))
-              (advance! cur)
-              (cons 102 code)))
-      ((14) (begin (advance! cur)
-                   (cons 103 (cons (datum-items cur) ()))))
-      ((15) (begin (advance! cur)
-                   (cons 104 (cons (datum-items cur) ()))))
-      ((4) (let ((nm (peek-payload cur)))
-             (advance! cur)
-             (cons 100 nm)))
-      ((6) (let ((tx (peek-payload cur)))
-             (advance! cur)
-             (cons 101 tx)))
-      ((3) (begin (advance! cur)
-                  (cons 204 (cons (parse-quote-datum cur) ()))))
-      (else (parse-list-form cur)))))
-
 (define DATUM-LABELS (cell ()))
 (define ACTIVE-DATUM-LABELS (cell ()))
 (define QUASIQUOTE-LEVEL (cell 0))
 (define UNRESOLVED-DATUM (cons 110 ()))
+
+(define (parse-raw-expr cur)
+  (let ((kind (peek-kind cur)))
+    (if (if (= kind 11) #t (= kind 12))
+        (fatal "unquote outside quasiquote"))
+    (parse-quote-datum cur)))
+
+(define (parse-expr cur) (parse-raw-expr cur))
 
 (define (active-datum-label? labels label)
   (if (null? labels)
@@ -67,8 +48,8 @@
 (define (new-datum-placeholder kind)
   (case kind
     ((1) (cons 0 ()))
-    ((14) (cons 103 (cons () ())))
-    ((15) (cons 104 (cons () ())))
+    ((14) (datum-vector ()))
+    ((15) (datum-bytevector ()))
     (else UNRESOLVED-DATUM)))
 
 (define (fill-datum-placeholder placeholder datum)
@@ -99,25 +80,25 @@
   (let ((k (peek-kind cur)))
     (case k
       ((5) (let ((v (peek-payload cur))) (advance! cur) v))
+      ((7) (fatal "unexpected end of input"))
+      ((2) (fatal "unexpected )"))
       ((4) (let ((nm (peek-payload cur)))
              (advance! cur)
-             (cons 100 nm)))
+             (datum-symbol nm)))
       ((6) (let ((tx (peek-payload cur)))
              (advance! cur)
-             (cons 101 tx)))
-      ((8) (begin (advance! cur) (cons 106 ())))
-      ((9) (begin (advance! cur) (cons 107 ())))
+             (datum-string tx)))
+      ((8) (begin (advance! cur) (datum-true)))
+      ((9) (begin (advance! cur) (datum-false)))
       ((3) (parse-datum-abbreviation cur "quote"))
-      ((10) (parse-datum-abbreviation cur "quasiquote"))
+      ((10) (parse-quasiquote-abbreviation cur))
       ((11) (parse-datum-abbreviation cur "unquote"))
       ((12) (parse-datum-abbreviation cur "unquote-splicing"))
       ((13) (let ((code (peek-payload cur)))
               (advance! cur)
-              (cons 102 code)))
-      ((14) (begin (advance! cur)
-                   (cons 103 (cons (datum-items cur) ()))))
-      ((15) (begin (advance! cur)
-                   (cons 104 (cons (datum-items cur) ()))))
+              (datum-char code)))
+      ((14) (begin (advance! cur) (datum-vector (datum-items cur))))
+      ((15) (begin (advance! cur) (datum-bytevector (datum-items cur))))
       ((16) (parse-datum-label cur (peek-payload cur)))
       ((17) (let ((label (peek-payload cur)))
               (advance! cur)
@@ -125,9 +106,15 @@
       ((1) (begin (advance! cur) (datum-items cur)))
       (else (fatal "bad quoted datum")))))
 
+(define (parse-quasiquote-abbreviation cur)
+  (cell-set! QUASIQUOTE-LEVEL (+ 1 (cell-get QUASIQUOTE-LEVEL)))
+  (let ((value (parse-datum-abbreviation cur "quasiquote")))
+    (cell-set! QUASIQUOTE-LEVEL (- (cell-get QUASIQUOTE-LEVEL) 1))
+    value))
+
 (define (parse-datum-abbreviation cur name)
   (advance! cur)
-  (cons (cons 100 name)
+  (cons (datum-symbol name)
         (cons (parse-quote-datum cur) ())))
 
 (define (dot-token? cur)
@@ -145,109 +132,3 @@
               (expect-rparen cur "dotted datum")
               tail))
           (cons (parse-quote-datum cur) (datum-items cur)))))
-
-(define (call-node name args)
-  (cons (cons 100 name) args))
-
-(define (quote-node datum)
-  (cons 204 (cons datum ())))
-
-(define (splice-node? value)
-  (if (pair-shape? value)
-      (if (number? (car value)) (= (car value) 105) #f)
-      #f))
-
-(define (qq-keyword name content)
-  (call-node "cons"
-    (cons (quote-node (cons 100 name))
-      (cons (call-node "cons"
-              (cons content (cons (quote-node ()) ())))
-            ()))))
-
-(define (qq-special-list cur depth name)
-  (let ((content
-          (cond
-            ((string=? name "quasiquote")
-             (qq-keyword name (parse-quasiquote-depth cur (+ depth 1))))
-            ((string=? name "unquote")
-             (if (= depth 1)
-                 (parse-expr cur)
-                 (qq-keyword name (parse-quasiquote-depth cur (- depth 1)))))
-            (else
-             (if (= depth 1)
-                 (cons 105 (cons (parse-expr cur) ()))
-                 (qq-keyword name (parse-quasiquote-depth cur (- depth 1))))))))
-    (expect-rparen cur name)
-    content))
-
-(define (qq-head-name cur)
-  (if (= (peek-kind cur) 4)
-      (let ((name (peek-payload cur)))
-        (if (or2 (string=? name "quasiquote")
-                 (or2 (string=? name "unquote")
-                      (string=? name "unquote-splicing")))
-            name
-            ""))
-      ""))
-
-(define (parse-quasiquote-list cur depth)
-  (advance! cur)
-  (let ((special (qq-head-name cur)))
-    (if (> (string-length special) 0)
-        (begin
-          (advance! cur)
-          (qq-special-list cur depth special))
-        (quasiquote-items cur depth))))
-
-(define (parse-quasiquote cur)
-  (cell-set! QUASIQUOTE-LEVEL (+ 1 (cell-get QUASIQUOTE-LEVEL)))
-  (let ((value (parse-quasiquote-depth cur 1)))
-    (cell-set! QUASIQUOTE-LEVEL (- (cell-get QUASIQUOTE-LEVEL) 1))
-    value))
-
-(define (parse-quasiquote-depth cur depth)
-  (let ((kind (peek-kind cur)))
-    (case kind
-      ((10)
-       (begin
-         (advance! cur)
-         (qq-keyword "quasiquote"
-                     (parse-quasiquote-depth cur (+ depth 1)))))
-      ((11)
-       (begin
-         (advance! cur)
-         (if (= depth 1)
-             (parse-expr cur)
-             (qq-keyword "unquote"
-                         (parse-quasiquote-depth cur (- depth 1))))))
-      ((12)
-       (begin
-         (advance! cur)
-         (if (= depth 1)
-             (cons 105 (cons (parse-expr cur) ()))
-             (qq-keyword "unquote-splicing"
-                         (parse-quasiquote-depth cur (- depth 1))))))
-      ((1) (parse-quasiquote-list cur depth))
-      ((14)
-       (begin
-         (advance! cur)
-         (call-node "list->vector"
-                    (cons (quasiquote-items cur depth) ()))))
-      (else (quote-node (parse-quote-datum cur))))))
-
-(define (quasiquote-items cur depth)
-  (if (= (peek-kind cur) 2)
-      (begin (advance! cur) (quote-node ()))
-      (if (dot-token? cur)
-          (begin
-            (advance! cur)
-            (let ((tail (parse-quasiquote-depth cur depth)))
-              (if (splice-node? tail)
-                  (fatal "unquote-splicing in dotted tail"))
-              (expect-rparen cur "dotted quasiquote")
-              tail))
-          (let ((item (parse-quasiquote-depth cur depth)))
-            (let ((rest (quasiquote-items cur depth)))
-              (if (splice-node? item)
-                  (call-node "append" (cons (car (cdr item)) (cons rest ())))
-                  (call-node "cons" (cons item (cons rest ())))))))))

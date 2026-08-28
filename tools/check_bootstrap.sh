@@ -37,11 +37,6 @@ build_ssa "$ROOT/bootstrap/bootstrap.ssa" "$WORK/bootstrap-compiler"
 emit "$WORK/bootstrap-compiler" "$BOOTSTRAP_SOURCE" "$WORK/bootstrap.self.ssa"
 cmp "$ROOT/bootstrap/bootstrap.ssa" "$WORK/bootstrap.self.ssa"
 
-emit "$WORK/bootstrap-compiler" "$FULL_SOURCE" "$WORK/current.seed.ssa"
-build_ssa "$WORK/current.seed.ssa" "$WORK/current-seed"
-emit "$WORK/current-seed" "$FULL_SOURCE" "$WORK/current.candidate.ssa"
-cmp "$ROOT/bootstrap/current.ssa" "$WORK/current.candidate.ssa"
-
 build_ssa "$ROOT/bootstrap/current.ssa" "$WORK/current-compiler"
 emit "$WORK/current-compiler" "$FULL_SOURCE" "$WORK/current.self.ssa"
 cmp "$ROOT/bootstrap/current.ssa" "$WORK/current.self.ssa"

@@ -190,14 +190,15 @@
 
 (define (run args)
   (let ((path (compiler-input args)))
-    (let ((forms
+    (let ((raw-forms
             (expand-includes (parse-source-file path)
                              (path-dir path)
                              (cons path ()))))
-      (begin
-        (pass-register-functions forms)
-        (emit-all-forms forms)
-        (dump-and-print)))))
+      (let ((forms (lower-program (expand-program raw-forms))))
+        (begin
+          (pass-register-functions forms)
+          (emit-all-forms forms)
+          (dump-and-print))))))
 
 (define (emit-all-forms forms)
   (if (null? forms)

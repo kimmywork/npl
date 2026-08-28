@@ -87,4 +87,8 @@
                  (lambda () (car (nested-quasiquote))) 'a)
   (test-equal "nested quasiquote depth"
               (lambda () (nested-quasiquote-value)) 9)
+  (test-equal "quoted numeric tag is datum"
+              (lambda () (car '(100 101 102))) 100)
+  (test-equal "quoted numeric tag tail"
+              (lambda () (second '(100 101 102))) 101)
   (finish-tests "reader-datum"))
