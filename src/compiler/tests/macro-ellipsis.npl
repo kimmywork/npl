@@ -1,0 +1,61 @@
+(include "framework.npl")
+
+(define-syntax make-list
+  (syntax-rules ()
+    ((make-list item ...) (quote (item ...)))))
+
+(define-syntax bind-two
+  (syntax-rules ()
+    ((bind-two (name value) ...)
+     (let ((name value) ...)
+       (+ name ...)))))
+
+(define-syntax nested-copy
+  (syntax-rules ()
+    ((nested-copy ((item ...) ...))
+     (quote ((item ...) ...)))))
+
+(define-syntax final-item
+  (syntax-rules ()
+    ((final-item prefix ... final) final)))
+
+(define-syntax dotted-tail
+  (syntax-rules ()
+    ((dotted-tail item ... . tail) (quote tail))))
+
+(define-syntax vector-copy
+  (syntax-rules ()
+    ((vector-copy #(item ...)) (vector item ...))))
+
+(define-syntax custom-list
+  (syntax-rules ::: ()
+    ((custom-list item :::) (quote (item :::)))))
+
+(define-syntax ellipsis-symbol
+  (syntax-rules ()
+    ((ellipsis-symbol) (quote (... ...)))))
+
+(define (nested-value)
+  (let ((value (nested-copy ((1 2) (3 4 5)))))
+    (car (cdr (car (cdr value))))))
+
+(define (main)
+  (test-identity "zero ellipsis match"
+                 (lambda () (make-list)) '())
+  (test-equal "many ellipsis matches"
+              (lambda () (car (cdr (make-list 1 42 3)))) 42)
+  (test-equal "multiple variables at one depth"
+              (lambda () (bind-two (left 20) (right 22))) 42)
+  (test-equal "nested ellipsis"
+              (lambda () (nested-value)) 4)
+  (test-equal "fixed suffix after ellipsis"
+              (lambda () (final-item 1 2 42)) 42)
+  (test-equal "improper pattern tail"
+              (lambda () (dotted-tail 1 2 . 42)) 42)
+  (test-equal "vector pattern and template"
+              (lambda () (vector-ref (vector-copy #(20 42)) 1)) 42)
+  (test-equal "custom ellipsis identifier"
+              (lambda () (car (cdr (custom-list 1 42 3)))) 42)
+  (test-identity "escaped ellipsis"
+                 (lambda () (ellipsis-symbol)) '...)
+  (finish-tests "macro-ellipsis"))

@@ -78,6 +78,7 @@ reject_literal_mutation() {
 run_suite dynamic-core "PASS dynamic-core 4"
 run_suite reader-datum "PASS reader-datum 24"
 run_suite macros-basic "PASS macros-basic 10"
+run_suite macro-ellipsis "PASS macro-ellipsis 9"
 
 reject_literal_mutation literal-vector-mutation \
     "vector-set!: cannot mutate a literal"
@@ -109,6 +110,17 @@ reject_compile macro-errors/no-matching-rule.npl \
     no-matching-rule "macro use does not match any syntax rule"
 reject_compile macro-errors/syntax-error.npl \
     syntax-error "rejected macro input"
+reject_compile macro-errors/inconsistent-repetition.npl \
+    inconsistent-repetition "inconsistent ellipsis repetition lengths"
+reject_compile macro-errors/wrong-ellipsis-depth.npl \
+    wrong-ellipsis-depth "pattern variable used at wrong ellipsis depth"
+reject_compile macro-errors/ellipsis-without-variable.npl \
+    ellipsis-without-variable \
+    "ellipsis template has no repeated pattern variable"
+reject_compile macro-errors/misplaced-pattern-ellipsis.npl \
+    misplaced-pattern-ellipsis "misplaced ellipsis in pattern"
+reject_compile macro-errors/misplaced-template-ellipsis.npl \
+    misplaced-template-ellipsis "misplaced ellipsis in template"
 
 echo "full compiler dynamic core: PASS"
 echo "full compiler reader/datum: PASS"

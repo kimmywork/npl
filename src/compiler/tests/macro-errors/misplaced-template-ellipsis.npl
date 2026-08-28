@@ -1,0 +1,4 @@
+(define-syntax misplaced-template
+  (syntax-rules ()
+    ((misplaced-template value) ...)))
+(define (main) (misplaced-template 1))

@@ -1,0 +1,5 @@
+(define-syntax no-driver
+  (syntax-rules ()
+    ((no-driver value ...)
+     (quote (constant ...)))))
+(define (main) (no-driver 1 2))

@@ -1,0 +1,5 @@
+(define-syntax inconsistent
+  (syntax-rules ()
+    ((inconsistent (left ...) (right ...))
+     (quote ((left right) ...)))))
+(define (main) (inconsistent (1 2) (3)))

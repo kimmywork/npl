@@ -1,0 +1,4 @@
+(define-syntax wrong-depth
+  (syntax-rules ()
+    ((wrong-depth value ...) value)))
+(define (main) (wrong-depth 1 2))

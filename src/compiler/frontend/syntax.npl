@@ -3,6 +3,23 @@
 (define SYNTAX-MARKS (cell ()))
 (define SYNTAX-NEXT-MARK (cell 0))
 (define MATCH-FAIL '(_syntax_match_fail_))
+(define CURRENT-PATTERN-VARIABLES (cell ()))
+(define NO-REPEAT-COUNT 1000000000)
+
+(define (syntax-atomic? value)
+  (if (datum-symbol? value)
+      #t
+      (if (datum-string? value)
+          #t
+          (if (datum-char? value)
+              #t
+              (if (datum-vector? value)
+                  #t
+                  (if (datum-bytevector? value)
+                      #t
+                      (if (datum-true? value)
+                          #t
+                          (datum-false? value))))))))
 
 (define (identifier-mark identifier)
   (identifier-mark-in identifier (cell-get SYNTAX-MARKS)))
@@ -21,18 +38,6 @@
 (define (fresh-syntax-mark)
   (cell-set! SYNTAX-NEXT-MARK (+ 1 (cell-get SYNTAX-NEXT-MARK)))
   (cell-get SYNTAX-NEXT-MARK))
-
-(define (identifier-key-equal? left right)
-  (if (string=? (datum-symbol-name left) (datum-symbol-name right))
-      (= (identifier-mark left) (identifier-mark right))
-      #f))
-
-(define (name-in-identifiers? name identifiers)
-  (if (null? identifiers)
-      #f
-      (if (string=? name (datum-symbol-name (car identifiers)))
-          #t
-          (name-in-identifiers? name (cdr identifiers)))))
 
 (define (lookup-value-binding identifier environment)
   (if (null? environment)
@@ -64,13 +69,6 @@
               (cons (identifier-mark identifier) (cons transformer ())))
         environment))
 
-(define (pattern-binding name bindings)
-  (if (null? bindings)
-      ()
-      (if (string=? name (car (car bindings)))
-          (car bindings)
-          (pattern-binding name (cdr bindings)))))
-
 (define (syntax-atom-equal? left right)
   (cond
     ((if (number? left) (number? right) #f) (= left right))
@@ -97,7 +95,7 @@
      (if (syntax-equal? (car left) (car right))
          (syntax-equal? (cdr left) (cdr right))
          #f))
-    (else (syntax-atom-equal? left right))))
+    (else #f)))
 
 (define (literal-identifier? identifier literals)
   (if (null? literals)
@@ -107,8 +105,12 @@
           #t
           (literal-identifier? identifier (cdr literals)))))
 
-(define (identifier-binding-at identifier environment)
-  (lookup-value-binding identifier environment))
+(define (active-ellipsis? identifier ellipsis literals)
+  (if (not (datum-symbol? identifier))
+      #f
+      (if (literal-identifier? identifier literals)
+          #f
+          (string=? (datum-symbol-name identifier) ellipsis))))
 
 (define (literal-identifier-match? pattern input definition-env use-env)
   (if (not (datum-symbol? input))
@@ -117,102 +119,99 @@
                          (datum-symbol-name input)))
           #f
           (let ((definition-binding
-                  (identifier-binding-at pattern definition-env)))
-            (let ((use-binding (identifier-binding-at input use-env)))
+                  (lookup-value-binding pattern definition-env)))
+            (let ((use-binding (lookup-value-binding input use-env)))
               (if (= (string-length definition-binding) 0)
                   (= (string-length use-binding) 0)
                   (if (= (string-length use-binding) 0)
                       #f
                       (string=? definition-binding use-binding))))))))
 
-(define (match-pattern pattern input literals definition-env use-env bindings)
-  (cond
-    ((datum-symbol? pattern)
-     (let ((name (datum-symbol-name pattern)))
-       (cond
-         ((string=? name "_") bindings)
-         ((string=? name "...") (fatal "misplaced ellipsis in pattern"))
-         ((literal-identifier? pattern literals)
-          (if (literal-identifier-match? pattern input
-                                         definition-env use-env)
-              bindings
-              MATCH-FAIL))
-         (else
-          (if (not (null? (pattern-binding name bindings)))
-              (fatal "duplicate pattern variable")
-              (cons (cons name input) bindings))))))
-    ((datum-vector? pattern)
-     (if (datum-vector? input)
-         (match-pattern (datum-vector-items pattern)
-                        (datum-vector-items input)
-                        literals definition-env use-env bindings)
-         MATCH-FAIL))
-    ((datum-bytevector? pattern)
-     (if (syntax-equal? pattern input) bindings MATCH-FAIL))
-    ((datum-string? pattern)
-     (if (syntax-equal? pattern input) bindings MATCH-FAIL))
-    ((datum-char? pattern)
-     (if (syntax-equal? pattern input) bindings MATCH-FAIL))
-    ((datum-true? pattern)
-     (if (datum-true? input) bindings MATCH-FAIL))
-    ((datum-false? pattern)
-     (if (datum-false? input) bindings MATCH-FAIL))
-    ((pair? pattern)
-     (if (not (pair? input))
-         MATCH-FAIL
-         (let ((head-bindings
-                 (match-pattern (car pattern) (car input)
-                                literals definition-env use-env bindings)))
-           (if (eq? head-bindings MATCH-FAIL)
-               MATCH-FAIL
-               (match-pattern (cdr pattern) (cdr input)
-                              literals definition-env use-env
-                              head-bindings)))))
-    (else (if (syntax-equal? pattern input) bindings MATCH-FAIL))))
+; variable descriptor = (name . repetition-depth)
+(define (variable-descriptor name variables)
+  (if (null? variables)
+      ()
+      (if (string=? name (car (car variables)))
+          (car variables)
+          (variable-descriptor name (cdr variables)))))
 
-(define (validate-pattern pattern literals variables)
+(define (validate-pattern pattern literals ellipsis depth variables)
   (cond
     ((datum-symbol? pattern)
      (let ((name (datum-symbol-name pattern)))
        (if (if (string=? name "_")
                #t
-               (if (string=? name "...")
-                   #t
-                   (literal-identifier? pattern literals)))
+               (literal-identifier? pattern literals))
            variables
-           (if (name-in-identifiers? name variables)
-               (fatal "duplicate pattern variable")
-               (cons pattern variables)))))
+           (if (active-ellipsis? pattern ellipsis literals)
+               (fatal "misplaced ellipsis in pattern")
+               (if (not (null? (variable-descriptor name variables)))
+                   (fatal "duplicate pattern variable")
+                   (cons (cons name depth) variables))))))
     ((datum-vector? pattern)
-     (validate-pattern (datum-vector-items pattern) literals variables))
+     (validate-pattern-list (datum-vector-items pattern)
+                            literals ellipsis depth variables))
     ((datum-string? pattern) variables)
     ((datum-char? pattern) variables)
     ((datum-bytevector? pattern) variables)
     ((datum-true? pattern) variables)
     ((datum-false? pattern) variables)
     ((pair? pattern)
-     (let ((after-head (validate-pattern (car pattern)
-                                         literals variables)))
-       (validate-pattern (cdr pattern) literals after-head)))
+     (validate-pattern-list pattern literals ellipsis depth variables))
     (else variables)))
 
-(define (validate-rule rule literals)
+(define (validate-pattern-list patterns literals ellipsis depth variables)
+  (if (null? patterns)
+      variables
+      (if (syntax-atomic? patterns)
+          (validate-pattern patterns literals ellipsis depth variables)
+          (if (pair? patterns)
+              (if (if (pair? (cdr patterns))
+                      (active-ellipsis? (car (cdr patterns))
+                                        ellipsis literals)
+                      #f)
+                  (let ((after-repeat
+                          (validate-pattern (car patterns) literals ellipsis
+                                            (+ depth 1) variables)))
+                    (validate-pattern-list (cdr (cdr patterns))
+                                           literals ellipsis depth after-repeat))
+                  (let ((after-head
+                          (validate-pattern (car patterns) literals ellipsis
+                                            depth variables)))
+                    (validate-pattern-list (cdr patterns) literals ellipsis
+                                           depth after-head)))
+              (validate-pattern patterns literals ellipsis depth variables)))))
+
+(define (validate-rule rule literals ellipsis)
   (if (not (= (raw-list-count rule 0) 2))
       (fatal "syntax rule must contain a pattern and template"))
   (let ((pattern (car rule)))
     (if (not (pair? pattern)) (fatal "syntax rule pattern must be a list"))
     (if (not (datum-symbol? (car pattern)))
         (fatal "syntax rule pattern must start with an identifier"))
-    (validate-pattern (cdr pattern) literals ())))
+    (let ((variables
+            (validate-pattern-list (cdr pattern)
+                                   literals ellipsis 0 ())))
+      (cons pattern
+        (cons (car (cdr rule))
+          (cons variables ()))))))
 
-(define (validate-rules rules literals)
+(define (validate-rules rules literals ellipsis)
   (if (null? rules)
-      0
+      ()
       (if (pair? rules)
-          (begin
-            (validate-rule (car rules) literals)
-            (validate-rules (cdr rules) literals))
+          (cons (validate-rule (car rules) literals ellipsis)
+                (validate-rules (cdr rules) literals ellipsis))
           (fatal "syntax-rules rules must be a proper list"))))
+
+(define (name-in-literal-tail? name literals)
+  (if (null? literals)
+      #f
+      (if (not (datum-symbol? (car literals)))
+          #f
+          (if (string=? name (datum-symbol-name (car literals)))
+              #t
+              (name-in-literal-tail? name (cdr literals))))))
 
 (define (validate-literals literals)
   (if (null? literals)
@@ -220,7 +219,7 @@
       (if (pair? literals)
           (if (datum-symbol? (car literals))
               (begin
-                (if (name-in-identifiers?
+                (if (name-in-literal-tail?
                       (datum-symbol-name (car literals)) (cdr literals))
                     (fatal "duplicate syntax literal"))
                 (validate-literals (cdr literals))
@@ -228,65 +227,342 @@
               (fatal "syntax literal must be an identifier"))
           (fatal "syntax literal list must be proper"))))
 
-; transformer = (literals rules definition-value-environment)
+; transformer = (ellipsis literals annotated-rules definition-value-env)
 (define (parse-syntax-rules specification definition-env)
   (if (not (raw-form? specification "syntax-rules"))
       (fatal "transformer must be syntax-rules"))
   (let ((parts (cdr specification)))
     (if (null? parts) (fatal "syntax-rules needs literals and rules"))
-    (if (datum-symbol? (car parts))
-        (fatal "custom ellipsis is not available yet"))
-    (let ((literals (car parts)))
-      (let ((rules (cdr parts)))
-        (validate-literals literals)
-        (if (null? rules) (fatal "syntax-rules needs a rule"))
-        (validate-rules rules literals)
-        (cons literals (cons rules (cons definition-env ())))))))
+    (let ((ellipsis
+            (if (datum-symbol? (car parts))
+                (datum-symbol-name (car parts))
+                "...")))
+      (let ((after-ellipsis
+              (if (datum-symbol? (car parts)) (cdr parts) parts)))
+        (if (null? after-ellipsis)
+            (fatal "syntax-rules needs literals and rules"))
+        (let ((literals (car after-ellipsis)))
+          (let ((rules (cdr after-ellipsis)))
+            (validate-literals literals)
+            (if (null? rules) (fatal "syntax-rules needs a rule"))
+            (let ((annotated-rules
+                    (validate-rules rules literals ellipsis)))
+              (cons ellipsis
+                (cons literals
+                  (cons annotated-rules
+                    (cons definition-env ())))))))))))
 
-(define (transformer-literals transformer) (car transformer))
-(define (transformer-rules transformer) (car (cdr transformer)))
+(define (transformer-ellipsis transformer) (car transformer))
+(define (transformer-literals transformer) (car (cdr transformer)))
+(define (transformer-rules transformer) (car (cdr (cdr transformer))))
 (define (transformer-definition-env transformer)
-  (car (cdr (cdr transformer))))
+  (car (cdr (cdr (cdr transformer)))))
 
-(define (clone-template template bindings mark)
+; capture = (name path value)
+(define (add-capture name path value captures)
+  (cons (cons name (cons path (cons value ()))) captures))
+
+(define (capture-name capture) (car capture))
+(define (capture-path capture) (car (cdr capture)))
+(define (capture-value capture) (car (cdr (cdr capture))))
+
+(define (path-equal? left right)
+  (if (null? left)
+      (null? right)
+      (if (null? right)
+          #f
+          (if (= (car left) (car right))
+              (path-equal? (cdr left) (cdr right))
+              #f))))
+
+(define (path-prefix? prefix path)
+  (if (null? prefix)
+      #t
+      (if (null? path)
+          #f
+          (if (= (car prefix) (car path))
+              (path-prefix? (cdr prefix) (cdr path))
+              #f))))
+
+(define (path-drop-prefix prefix path)
+  (if (null? prefix)
+      path
+      (path-drop-prefix (cdr prefix) (cdr path))))
+
+(define (path-append-index path index)
+  (if (null? path)
+      (cons index ())
+      (cons (car path) (path-append-index (cdr path) index))))
+
+(define (path-length path)
+  (if (null? path) 0 (+ 1 (path-length (cdr path)))))
+
+(define (capture-exact name path captures)
+  (if (null? captures)
+      ()
+      (let ((capture (car captures)))
+        (if (if (string=? name (capture-name capture))
+                (path-equal? path (capture-path capture))
+                #f)
+            capture
+            (capture-exact name path (cdr captures))))))
+
+(define (capture-next-count name path captures count)
+  (if (null? captures)
+      count
+      (let ((capture (car captures)))
+        (if (if (string=? name (capture-name capture))
+                (path-prefix? path (capture-path capture))
+                #f)
+            (let ((rest (path-drop-prefix path (capture-path capture))))
+              (if (null? rest)
+                  (capture-next-count name path (cdr captures) count)
+                  (let ((next (+ (car rest) 1)))
+                    (capture-next-count name path (cdr captures)
+                      (if (> next count) next count)))))
+            (capture-next-count name path (cdr captures) count)))))
+
+(define (match-pattern pattern input transformer use-env captures path)
+  (let ((literals (transformer-literals transformer)))
+    (let ((ellipsis (transformer-ellipsis transformer)))
+      (cond
+        ((datum-symbol? pattern)
+         (let ((name (datum-symbol-name pattern)))
+           (cond
+             ((string=? name "_") captures)
+             ((active-ellipsis? pattern ellipsis literals)
+              (fatal "misplaced ellipsis in pattern"))
+             ((literal-identifier? pattern literals)
+              (if (literal-identifier-match?
+                    pattern input
+                    (transformer-definition-env transformer) use-env)
+                  captures
+                  MATCH-FAIL))
+             (else (add-capture name path input captures)))))
+        ((datum-vector? pattern)
+         (if (datum-vector? input)
+             (match-pattern-list (datum-vector-items pattern)
+                                 (datum-vector-items input)
+                                 transformer use-env captures path)
+             MATCH-FAIL))
+        ((datum-bytevector? pattern)
+         (if (syntax-equal? pattern input) captures MATCH-FAIL))
+        ((datum-string? pattern)
+         (if (syntax-equal? pattern input) captures MATCH-FAIL))
+        ((datum-char? pattern)
+         (if (syntax-equal? pattern input) captures MATCH-FAIL))
+        ((datum-true? pattern)
+         (if (datum-true? input) captures MATCH-FAIL))
+        ((datum-false? pattern)
+         (if (datum-false? input) captures MATCH-FAIL))
+        ((pair? pattern)
+         (if (pair? input)
+             (match-pattern-list pattern input transformer use-env
+                                 captures path)
+             MATCH-FAIL))
+        (else (if (syntax-equal? pattern input) captures MATCH-FAIL))))))
+
+(define (match-pattern-list patterns input transformer use-env captures path)
+  (if (null? patterns)
+      (if (null? input) captures MATCH-FAIL)
+      (if (syntax-atomic? patterns)
+          (match-pattern patterns input transformer use-env captures path)
+          (if (pair? patterns)
+              (if (if (pair? (cdr patterns))
+                      (active-ellipsis?
+                        (car (cdr patterns))
+                        (transformer-ellipsis transformer)
+                        (transformer-literals transformer))
+                      #f)
+                  (match-repeated-pattern
+                    (car patterns) (cdr (cdr patterns)) input
+                    transformer use-env captures path 0)
+                  (if (not (pair? input))
+                      MATCH-FAIL
+                      (let ((head-captures
+                              (match-pattern (car patterns) (car input)
+                                transformer use-env captures path)))
+                        (if (eq? head-captures MATCH-FAIL)
+                            MATCH-FAIL
+                            (match-pattern-list
+                              (cdr patterns) (cdr input)
+                              transformer use-env head-captures path)))))
+              (match-pattern patterns input transformer use-env captures path)))))
+
+(define (match-repeated-pattern repeated suffix input transformer use-env
+                                captures path index)
+  (let ((consume-result
+          (if (pair? input)
+              (let ((next-captures
+                      (match-pattern repeated (car input)
+                        transformer use-env captures
+                        (path-append-index path index))))
+                (if (eq? next-captures MATCH-FAIL)
+                    MATCH-FAIL
+                    (match-repeated-pattern
+                      repeated suffix (cdr input)
+                      transformer use-env next-captures path (+ index 1))))
+              MATCH-FAIL)))
+    (if (eq? consume-result MATCH-FAIL)
+        (match-pattern-list suffix input transformer use-env captures path)
+        consume-result)))
+
+(define (merge-repeat-count current candidate)
+  (if (= candidate NO-REPEAT-COUNT)
+      current
+      (if (= current NO-REPEAT-COUNT)
+          candidate
+          (if (= current candidate)
+              current
+              (fatal "inconsistent ellipsis repetition lengths")))))
+
+(define (template-repeat-count template transformer captures path)
+  (template-repeat-count-in template transformer captures
+                            path NO-REPEAT-COUNT))
+
+(define (template-repeat-count-in template transformer captures path current)
   (cond
     ((datum-symbol? template)
-     (let ((binding
-             (pattern-binding (datum-symbol-name template) bindings)))
-       (if (null? binding)
-           (let ((copy (datum-symbol (datum-symbol-name template))))
-             (set-identifier-mark! copy mark)
-             copy)
-           (cdr binding))))
+     (let ((descriptor
+             (variable-descriptor
+               (datum-symbol-name template)
+               (cell-get CURRENT-PATTERN-VARIABLES))))
+       (if (null? descriptor)
+           current
+           (if (> (cdr descriptor) (path-length path))
+               (merge-repeat-count
+                 current
+                 (capture-next-count (car descriptor) path captures 0))
+               current))))
+    ((datum-vector? template)
+     (template-repeat-count-in (datum-vector-items template)
+                               transformer captures path current))
+    ((datum-string? template) current)
+    ((datum-char? template) current)
+    ((datum-bytevector? template) current)
+    ((datum-true? template) current)
+    ((datum-false? template) current)
+    ((pair? template)
+     (let ((after-head
+             (template-repeat-count-in (car template)
+                                       transformer captures path current)))
+       (template-repeat-count-in (cdr template)
+                                 transformer captures path after-head)))
+    (else current)))
+
+(define (escaped-ellipsis-template? template transformer)
+  (if (not (pair? template))
+      #f
+      (if (not (active-ellipsis?
+                 (car template)
+                 (transformer-ellipsis transformer)
+                 (transformer-literals transformer)))
+          #f
+          (if (not (pair? (cdr template)))
+              #f
+              (null? (cdr (cdr template)))))))
+
+(define (clone-template template transformer captures mark path enabled)
+  (cond
+    ((datum-symbol? template)
+     (let ((descriptor
+             (variable-descriptor
+               (datum-symbol-name template)
+               (cell-get CURRENT-PATTERN-VARIABLES))))
+       (if (null? descriptor)
+           (begin
+             (if (if enabled
+                     (active-ellipsis?
+                       template
+                       (transformer-ellipsis transformer)
+                       (transformer-literals transformer))
+                     #f)
+                 (fatal "misplaced ellipsis in template"))
+             (let ((copy (datum-symbol (datum-symbol-name template))))
+               (set-identifier-mark! copy mark)
+               copy))
+           (if (not (= (cdr descriptor) (path-length path)))
+               (fatal "pattern variable used at wrong ellipsis depth")
+               (let ((capture
+                       (capture-exact (car descriptor) path captures)))
+                 (if (null? capture)
+                     (fatal "missing pattern capture")
+                     (capture-value capture)))))))
     ((datum-vector? template)
      (datum-vector
-       (clone-template (datum-vector-items template) bindings mark)))
-    ((datum-bytevector? template)
-     (datum-bytevector
-       (clone-template (datum-bytevector-items template) bindings mark)))
+       (clone-template-list (datum-vector-items template)
+                            transformer captures mark path enabled)))
+    ((datum-bytevector? template) template)
     ((datum-string? template) template)
     ((datum-char? template) template)
     ((datum-true? template) template)
     ((datum-false? template) template)
     ((pair? template)
-     (cons (clone-template (car template) bindings mark)
-           (clone-template (cdr template) bindings mark)))
+     (if (if enabled (escaped-ellipsis-template? template transformer) #f)
+         (clone-template (car (cdr template)) transformer captures
+                         mark path #f)
+         (clone-template-list template transformer captures
+                              mark path enabled)))
     (else template)))
+
+(define (clone-repeated-template template count index transformer captures
+                                 mark path enabled)
+  (if (= index count)
+      ()
+      (cons
+        (clone-template template transformer captures mark
+                        (path-append-index path index) enabled)
+        (clone-repeated-template template count (+ index 1)
+                                 transformer captures mark path enabled))))
+
+(define (clone-template-list templates transformer captures mark path enabled)
+  (if (null? templates)
+      ()
+      (if (syntax-atomic? templates)
+          (clone-template templates transformer captures mark path enabled)
+          (if (pair? templates)
+              (if (if enabled
+                      (if (pair? (cdr templates))
+                          (active-ellipsis?
+                            (car (cdr templates))
+                            (transformer-ellipsis transformer)
+                            (transformer-literals transformer))
+                          #f)
+                      #f)
+                  (let ((count
+                          (template-repeat-count (car templates)
+                                                 transformer captures path)))
+                    (if (= count NO-REPEAT-COUNT)
+                        (fatal "ellipsis template has no repeated pattern variable"))
+                    (append-forms
+                      (clone-repeated-template
+                        (car templates) count 0 transformer captures
+                        mark path enabled)
+                      (clone-template-list
+                        (cdr (cdr templates)) transformer captures
+                        mark path enabled)))
+                  (cons
+                    (clone-template (car templates) transformer captures
+                                    mark path enabled)
+                    (clone-template-list (cdr templates) transformer captures
+                                         mark path enabled)))
+              (clone-template templates transformer captures mark path enabled)))))
 
 (define (transcribe-rules rules use transformer use-env)
   (if (null? rules)
-      (fatal "macro use does not match any syntax rule")
+      (fatal (string-append "macro use does not match any syntax rule: "
+                            (datum-symbol-name (car use))))
       (let ((rule (car rules)))
         (let ((pattern (car rule)))
-          (let ((bindings
-                  (match-pattern (cdr pattern) (cdr use)
-                    (transformer-literals transformer)
-                    (transformer-definition-env transformer)
-                    use-env ())))
-            (if (eq? bindings MATCH-FAIL)
+          (cell-set! CURRENT-PATTERN-VARIABLES
+                     (car (cdr (cdr rule))))
+          (let ((captures
+                  (match-pattern-list (cdr pattern) (cdr use)
+                    transformer use-env () ())))
+            (if (eq? captures MATCH-FAIL)
                 (transcribe-rules (cdr rules) use transformer use-env)
-                (clone-template (car (cdr rule)) bindings
-                                (fresh-syntax-mark))))))))
+                (clone-template (car (cdr rule)) transformer captures
+                                (fresh-syntax-mark) () #t)))))))
 
 (define (transcribe-macro transformer use use-env)
   (transcribe-rules (transformer-rules transformer)

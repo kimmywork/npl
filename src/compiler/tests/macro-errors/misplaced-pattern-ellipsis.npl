@@ -1,0 +1,4 @@
+(define-syntax misplaced-pattern
+  (syntax-rules ()
+    ((misplaced-pattern ... value) value)))
+(define (main) 0)
