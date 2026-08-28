@@ -1,0 +1,102 @@
+(include "framework.npl")
+
+(define derived-probes 0)
+
+(define (probe value)
+  (set! derived-probes (+ derived-probes 1))
+  value)
+
+(define (main)
+  (test-identity "and empty"
+                 (lambda () (and)) #t)
+  (test-equal "and single value"
+              (lambda () (and 42)) 42)
+  (test-equal "and short circuit"
+              (lambda ()
+                (set! derived-probes 0)
+                (and #f (probe 42))
+                derived-probes)
+              0)
+  (test-equal "and final value"
+              (lambda () (and #t 42)) 42)
+  (test-identity "or empty"
+                 (lambda () (or)) #f)
+  (test-equal "or short circuit and value"
+              (lambda ()
+                (set! derived-probes 0)
+                (+ (or (probe 40) (probe 1)) derived-probes))
+              41)
+  (test-equal "when body"
+              (lambda ()
+                (let ((value 0))
+                  (when #t
+                    (set! value 40)
+                    (set! value (+ value 2)))
+                  value))
+              42)
+  (test-equal "unless body"
+              (lambda ()
+                (let ((value 0))
+                  (unless #f (set! value 42))
+                  value))
+              42)
+  (test-equal "cond else"
+              (lambda ()
+                (cond ((= 1 0) 0)
+                      (else 42)))
+              42)
+  (test-equal "cond test-only value"
+              (lambda ()
+                (cond ((probe 42))))
+              42)
+  (test-equal "cond recipient and single evaluation"
+              (lambda ()
+                (set! derived-probes 0)
+                (+ (cond ((probe 40) =>
+                          (lambda (value) (+ value 1))))
+                   derived-probes))
+              42)
+  (test-equal "case body and single key evaluation"
+              (lambda ()
+                (set! derived-probes 0)
+                (+ (case (probe 2)
+                     ((1) 0)
+                     ((2 3) 41)
+                     (else 0))
+                   derived-probes))
+              42)
+  (test-equal "case symbol datum"
+              (lambda ()
+                (case (quote beta)
+                  ((alpha) 0)
+                  ((beta gamma) 42)
+                  (else 1)))
+              42)
+  (test-equal "case recipient"
+              (lambda ()
+                (case 40
+                  ((40) => (lambda (value) (+ value 2)))
+                  (else 0)))
+              42)
+  (test-equal "do iteration and commands"
+              (lambda ()
+                (set! derived-probes 0)
+                (+ (do ((i 0 (+ i 1))
+                        (total 0 (+ total i)))
+                       ((= i 4) total)
+                     (set! derived-probes (+ derived-probes 1)))
+                   (* derived-probes 9)))
+              42)
+  (test-equal "do omitted step"
+              (lambda ()
+                (do ((i 3 (- i 1))
+                     (value 42))
+                    ((= i 0) value)))
+              42)
+  (test-equal "introduced names are hygienic"
+              (lambda ()
+                (let ((value 39)
+                      (loop 1))
+                  (+ (+ (or #f value) loop) 2)))
+              42)
+  (finish-tests "derived-forms"))

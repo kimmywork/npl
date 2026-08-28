@@ -402,6 +402,7 @@
     ((string=? nm "pair?") (pair-question args env))
     ((string=? nm "not") (not-builtin args env))
     ((string=? nm "eq?") (eq-builtin args env))
+    ((string=? nm "eqv?") (eq-builtin args env))
     ((string=? nm "exit") (progn-exit args env))
     ((string=? nm "program-arguments")
      (zero-named "npl_program_arguments" args))

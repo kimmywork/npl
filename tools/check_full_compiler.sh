@@ -80,6 +80,7 @@ run_suite reader-datum "PASS reader-datum 24"
 run_suite macros-basic "PASS macros-basic 10"
 run_suite macro-ellipsis "PASS macro-ellipsis 9"
 run_suite macro-scopes "PASS macro-scopes 10"
+run_suite derived-forms "PASS derived-forms 17"
 
 reject_literal_mutation literal-vector-mutation \
     "vector-set!: cannot mutate a literal"
@@ -133,6 +134,14 @@ reject_compile macro-errors/let-syntax-sibling-reference.npl \
     let-syntax-sibling-reference "unknown builtin or unbound: right"
 reject_compile macro-errors/malformed-syntax-binding.npl \
     malformed-syntax-binding "malformed syntax binding"
+reject_compile macro-errors/duplicate-case-datum.npl \
+    duplicate-case-datum "duplicate case datum"
+reject_compile macro-errors/cond-else-not-last.npl \
+    cond-else-not-last "cond else clause must be last"
+reject_compile macro-errors/case-else-not-last.npl \
+    case-else-not-last "malformed case clauses"
+reject_compile macro-errors/malformed-do-binding.npl \
+    malformed-do-binding "macro use does not match any syntax rule: do"
 
 echo "full compiler dynamic core: PASS"
 echo "full compiler reader/datum: PASS"

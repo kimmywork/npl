@@ -1,0 +1,95 @@
+; Parsed by the full compiler at expansion startup. Keeping these definitions
+; as source text lets the permanent previous-generation compiler build this
+; implementation without having to understand active macro definitions.
+
+(define DERIVED-SYNTAX-SOURCE
+"(define-syntax and
+  (syntax-rules ()
+    ((and) #t)
+    ((and test) test)
+    ((and test first ...) (if test (and first ...) #f))))
+
+(define-syntax or
+  (syntax-rules ()
+    ((or) #f)
+    ((or test) test)
+    ((or test first ...)
+     (let ((value test))
+       (if value value (or first ...))))))
+
+(define-syntax when
+  (syntax-rules ()
+    ((when test result ...)
+     (if test (begin result ...)))))
+
+(define-syntax unless
+  (syntax-rules ()
+    ((unless test result ...)
+     (if (not test) (begin result ...)))))
+
+(define-syntax cond
+  (syntax-rules (else =>)
+    ((cond (else result1 result2 ...))
+     (begin result1 result2 ...))
+    ((cond (else result1 result2 ...) clause1 clause2 ...)
+     (syntax-error \"cond else clause must be last\"))
+    ((cond (test => result))
+     (let ((value test))
+       (if value (result value))))
+    ((cond (test => result) clause1 clause2 ...)
+     (let ((value test))
+       (if value
+           (result value)
+           (cond clause1 clause2 ...))))
+    ((cond (test)) test)
+    ((cond (test) clause1 clause2 ...)
+     (let ((value test))
+       (if value value (cond clause1 clause2 ...))))
+    ((cond (test result1 result2 ...))
+     (if test (begin result1 result2 ...)))
+    ((cond (test result1 result2 ...) clause1 clause2 ...)
+     (if test
+         (begin result1 result2 ...)
+         (cond clause1 clause2 ...)))))
+
+(define-syntax case
+  (syntax-rules (else => _case)
+    ((case _case key)
+     (if #f #f))
+    ((case _case key (else => result))
+     (result key))
+    ((case _case key (else result1 result2 ...))
+     (begin result1 result2 ...))
+    ((case _case key (() result1 result2 ...) clause ...)
+     (case _case key clause ...))
+    ((case _case key (() => result) clause ...)
+     (case _case key clause ...))
+    ((case _case key ((atom atoms ...) => result) clause ...)
+     (if (eqv? key (quote atom))
+         (result key)
+         (case _case key ((atoms ...) => result) clause ...)))
+    ((case _case key ((atom atoms ...) result1 result2 ...) clause ...)
+     (if (eqv? key (quote atom))
+         (begin result1 result2 ...)
+         (case _case key ((atoms ...) result1 result2 ...) clause ...)))
+    ((case _case key clause ...)
+     (syntax-error \"malformed case clauses\"))
+    ((case key clause ...)
+     (let ((value key)) (case _case value clause ...)))))
+
+(define-syntax do
+  (syntax-rules (_step)
+    ((do ((var init step ...) ...)
+         (test result ...)
+         command ...)
+     (letrec ((loop
+                (lambda (var ...)
+                  (if test
+                      (begin (if #f #f) result ...)
+                      (begin
+                        command ...
+                        (loop (do _step var step ...) ...))))))
+       (loop init ...)))
+    ((do _step value) value)
+    ((do _step value step) step)))
+")

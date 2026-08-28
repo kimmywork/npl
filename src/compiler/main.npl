@@ -2,6 +2,7 @@
   "common/base.npl"
   "reader/lexer.npl"
   "reader/datum.npl"
+  "frontend/derived.npl"
   "frontend/syntax.npl"
   "frontend/expand.npl"
   "frontend/forms.npl"

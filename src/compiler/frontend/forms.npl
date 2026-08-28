@@ -1,7 +1,5 @@
 ; Lower expanded raw syntax into the compact core AST.
 
-(define CASE-N (cell 0))
-
 (define (raw-name value)
   (if (datum-symbol? value)
       (datum-symbol-name value)
@@ -83,8 +81,6 @@
           ((string=? name "letrec") (lower-binding-form form 221))
           ((string=? name "letrec*") (lower-binding-form form 222))
           ((string=? name "set!") (lower-set form))
-          ((string=? name "cond") (lower-cond form))
-          ((string=? name "case") (lower-case form))
           (else (lower-application form))))
       (lower-application form)))
 
@@ -253,93 +249,3 @@
                 (cons (core-symbol name)
                       (lower-expr (car (cdr binding))))
                 (lower-bindings (cdr bindings))))))))
-
-(define (lower-body-expression body message)
-  (if (null? body)
-      (fatal message)
-      (if (null? (cdr body))
-          (lower-expr (car body))
-          (cons 216 (lower-expressions body)))))
-
-(define (lower-cond form)
-  (let ((clauses (cdr form)))
-    (if (null? clauses) (fatal "cond needs a clause"))
-    (lower-cond-clauses clauses)))
-
-(define (lower-cond-clauses clauses)
-  (if (not (pair-shape? clauses)) (fatal "malformed cond clauses"))
-  (let ((clause (car clauses)))
-    (if (not (pair-shape? clause)) (fatal "malformed cond clause"))
-    (let ((test (car clause)))
-      (let ((body (cdr clause)))
-        (if (raw-name? test "else")
-            (begin
-              (if (not (null? (cdr clauses)))
-                  (fatal "cond else clause must be last"))
-              (lower-body-expression body "cond else clause needs a body"))
-            (let ((result
-                    (if (null? body)
-                        (lower-expr test)
-                        (lower-body-expression body
-                          "cond clause needs a body"))))
-              (let ((alternate
-                      (if (null? (cdr clauses))
-                          (core-false)
-                          (lower-cond-clauses (cdr clauses)))))
-                (cons 213
-                  (cons (lower-expr test)
-                        (cons result (cons alternate ())))))))))))
-
-(define (fresh-case-name)
-  (cell-set! CASE-N (+ 1 (cell-get CASE-N)))
-  (string-append "_case_key_" (number->string (cell-get CASE-N))))
-
-(define (case-equal key-name datum)
-  (cons (cons 100 "eq?")
-        (cons (cons 100 key-name)
-              (cons (quote-node datum) ()))))
-
-(define (expand-case-datums key-name datums result alternate)
-  (if (null? datums)
-      alternate
-      (if (pair-shape? datums)
-          (cons 213
-            (cons (case-equal key-name (car datums))
-              (cons result
-                (cons (expand-case-datums key-name (cdr datums)
-                                         result alternate)
-                      ()))))
-          (fatal "case datum list must be proper"))))
-
-(define (lower-case form)
-  (if (null? (cdr form)) (fatal "case needs a key"))
-  (let ((key (lower-expr (car (cdr form)))))
-    (let ((key-name (fresh-case-name)))
-      (let ((selection
-              (lower-case-clauses (cdr (cdr form)) key-name)))
-        (cons 214
-          (cons (cons (cons (cons 100 key-name) key) ())
-                (cons (cons selection ()) ())))))))
-
-(define (lower-case-clauses clauses key-name)
-  (if (null? clauses)
-      (core-false)
-      (if (not (pair-shape? clauses))
-          (fatal "malformed case clauses")
-          (let ((clause (car clauses)))
-            (if (not (pair-shape? clause))
-                (fatal "malformed case clause"))
-            (let ((head (car clause)))
-              (let ((body (cdr clause)))
-                (if (raw-name? head "else")
-                    (begin
-                      (if (not (null? (cdr clauses)))
-                          (fatal "case else clause must be last"))
-                      (lower-body-expression body
-                        "case else clause needs a body"))
-                    (let ((result
-                            (lower-body-expression body
-                              "case clause needs a body")))
-                      (expand-case-datums key-name head result
-                        (lower-case-clauses (cdr clauses)
-                                            key-name))))))))))

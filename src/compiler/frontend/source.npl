@@ -45,11 +45,13 @@
           #t
           (path-on-stack? path (cdr stack)))))
 
+(define (parse-source-text source)
+  (check-parens source 0 1 1 () 0)
+  (let ((cur (cell (lex-loop source 0 ()))))
+    (parse-all cur ())))
+
 (define (parse-source-file path)
-  (let ((source (read-file path)))
-    (check-parens source 0 1 1 () 0)
-    (let ((cur (cell (lex-loop source 0 ()))))
-      (parse-all cur ()))))
+  (parse-source-text (read-file path)))
 
 (define (expand-include-paths paths base stack)
   (if (null? paths)

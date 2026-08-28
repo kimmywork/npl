@@ -1,0 +1,4 @@
+(define (main)
+  (cond
+    (else 1)
+    (#t 2)))

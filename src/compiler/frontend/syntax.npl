@@ -5,6 +5,7 @@
 (define MATCH-FAIL '(_syntax_match_fail_))
 (define CURRENT-PATTERN-VARIABLES (cell ()))
 (define NO-REPEAT-COUNT 1000000000)
+(define CURRENT-REPEAT-DRIVER-DEPTH (cell 1000000000))
 (define UNINITIALIZED-SYNTAX '(_uninitialized_syntax_))
 
 (define (syntax-atomic? value)
@@ -438,8 +439,43 @@
               (fatal "inconsistent ellipsis repetition lengths")))))
 
 (define (template-repeat-count template transformer captures path)
-  (template-repeat-count-in template transformer captures
-                            path NO-REPEAT-COUNT))
+  (let ((driver-depth
+          (template-repeat-driver-depth
+            template transformer (path-length path) NO-REPEAT-COUNT)))
+    (cell-set! CURRENT-REPEAT-DRIVER-DEPTH driver-depth)
+    (template-repeat-count-in template transformer captures
+                              path NO-REPEAT-COUNT)))
+
+(define (template-repeat-driver-depth template transformer path-depth current)
+  (cond
+    ((datum-symbol? template)
+     (let ((descriptor
+             (variable-descriptor
+               (datum-symbol-name template)
+               (cell-get CURRENT-PATTERN-VARIABLES))))
+       (if (null? descriptor)
+           current
+           (if (> (cdr descriptor) path-depth)
+               (if (< (cdr descriptor) current)
+                   (cdr descriptor)
+                   current)
+               current))))
+    ((datum-vector? template)
+     (template-repeat-driver-depth
+       (datum-vector-items template) transformer path-depth current))
+    ((datum-string? template) current)
+    ((datum-char? template) current)
+    ((datum-bytevector? template) current)
+    ((datum-true? template) current)
+    ((datum-false? template) current)
+    ((pair? template)
+     (if (escaped-ellipsis-template? template transformer)
+         current
+         (template-repeat-driver-depth
+           (cdr template) transformer path-depth
+           (template-repeat-driver-depth
+             (car template) transformer path-depth current))))
+    (else current)))
 
 (define (template-repeat-count-in template transformer captures path current)
   (cond
@@ -450,7 +486,8 @@
                (cell-get CURRENT-PATTERN-VARIABLES))))
        (if (null? descriptor)
            current
-           (if (> (cdr descriptor) (path-length path))
+           (if (= (cdr descriptor)
+                  (cell-get CURRENT-REPEAT-DRIVER-DEPTH))
                (merge-repeat-count
                  current
                  (capture-next-count (car descriptor) path captures 0))
@@ -464,11 +501,13 @@
     ((datum-true? template) current)
     ((datum-false? template) current)
     ((pair? template)
-     (let ((after-head
-             (template-repeat-count-in (car template)
-                                       transformer captures path current)))
-       (template-repeat-count-in (cdr template)
-                                 transformer captures path after-head)))
+     (if (escaped-ellipsis-template? template transformer)
+         current
+         (let ((after-head
+                 (template-repeat-count-in
+                   (car template) transformer captures path current)))
+           (template-repeat-count-in
+             (cdr template) transformer captures path after-head))))
     (else current)))
 
 (define (escaped-ellipsis-template? template transformer)

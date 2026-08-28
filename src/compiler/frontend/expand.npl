@@ -37,7 +37,14 @@
   (cell-set! SYNTAX-NEXT-MARK 0)
   (cell-set! EXPAND-NEXT-VALUE 0)
   (let ((environment (predeclare-globals forms ())))
-    (car (expand-top-sequence forms environment () ()))))
+    (let ((core-result
+            (expand-top-sequence
+              (parse-source-text DERIVED-SYNTAX-SOURCE)
+              environment () ())))
+      (if (not (null? (car core-result)))
+          (fatal "derived syntax source emitted runtime forms"))
+      (car (expand-top-sequence
+             forms environment (cdr core-result) ())))))
 
 ; result = (expanded-forms . final-macro-environment)
 (define (expand-top-sequence forms value-env macro-env acc)
@@ -50,13 +57,16 @@
               (let ((keyword (car (cdr form))))
                 (if (not (datum-symbol? keyword))
                     (fatal "define-syntax needs an identifier"))
-                (let ((transformer
-                        (parse-syntax-rules
-                          (car (cdr (cdr form))) value-env macro-env)))
-                  (expand-top-sequence
-                    (cdr forms) value-env
-                    (add-macro-binding keyword transformer macro-env)
-                    acc))))
+                (let ((transformer-cell (cell UNINITIALIZED-SYNTAX)))
+                  (let ((definition-macros
+                          (add-macro-cell-binding
+                            keyword transformer-cell macro-env)))
+                    (cell-set! transformer-cell
+                      (parse-syntax-rules
+                        (car (cdr (cdr form)))
+                        value-env definition-macros))
+                    (expand-top-sequence
+                      (cdr forms) value-env definition-macros acc)))))
             (let ((expanded
                     (expand-expression form value-env macro-env)))
               (if (raw-form? expanded "define-syntax")
@@ -149,6 +159,56 @@
             (alias-macro-environment
               (transformer-definition-macro-env transformer) mark macro-env))))))
 
+(define (case-datum-seen? datum seen)
+  (if (null? seen)
+      #f
+      (if (syntax-equal? datum (car seen))
+          #t
+          (case-datum-seen? datum (cdr seen)))))
+
+(define (validate-case-datums datums seen)
+  (if (null? datums)
+      seen
+      (if (not (pair? datums))
+          (fatal "case datum list must be proper")
+          (let ((datum (car datums)))
+            (if (case-datum-seen? datum seen)
+                (fatal "duplicate case datum"))
+            (validate-case-datums (cdr datums) (cons datum seen))))))
+
+(define (validate-case-clauses clauses seen)
+  (if (null? clauses)
+      seen
+      (if (not (pair? clauses))
+          (fatal "case clauses must be proper")
+          (let ((clause (car clauses)))
+            (if (not (pair? clause))
+                (fatal "malformed case clause"))
+            (let ((head (car clause)))
+              (if (if (datum-symbol? head)
+                      (string=? (datum-symbol-name head) "else")
+                      #f)
+                  (validate-case-clauses (cdr clauses) seen)
+                  (validate-case-clauses
+                    (cdr clauses)
+                    (validate-case-datums head seen))))))))
+
+(define (internal-case-use? expression)
+  (if (null? (cdr expression))
+      #f
+      (let ((head (car expression)))
+        (let ((argument (car (cdr expression))))
+          (if (datum-symbol? argument)
+              (if (string=? (datum-symbol-name argument) "_case")
+                  (= (identifier-mark argument) (identifier-mark head))
+                  #f)
+              #f)))))
+
+(define (validate-case-use expression)
+  (if (not (internal-case-use? expression))
+      (if (not (null? (cdr expression)))
+          (validate-case-clauses (cdr (cdr expression)) ()))))
+
 (define (expand-pair-expression expression value-env macro-env)
   (let ((head (car expression)))
     (if (datum-symbol? head)
@@ -157,12 +217,17 @@
                     ()
                     (lookup-macro-binding head macro-env))))
           (if (not (null? transformer))
-              (if (eq? transformer UNINITIALIZED-SYNTAX)
-                  (fatal "syntax keyword used before its definition")
-                  (expand-transcription
-                    transformer
-                    (transcribe-macro transformer expression value-env)
-                    value-env macro-env))
+              (begin
+                (if (if (string=? (datum-symbol-name head) "case")
+                        (not (internal-case-use? expression))
+                        #f)
+                    (validate-case-use expression))
+                (if (eq? transformer UNINITIALIZED-SYNTAX)
+                    (fatal "syntax keyword used before its definition")
+                    (expand-transcription
+                      transformer
+                      (transcribe-macro transformer expression value-env)
+                      value-env macro-env)))
               (if (head-value-bound? head value-env)
                   (expand-application expression value-env macro-env)
                   (expand-keyword-or-application
@@ -194,8 +259,6 @@
     ((string=? name "letrec-syntax")
      (expand-local-syntax form #t value-env macro-env))
     ((string=? name "set!") (expand-set form value-env macro-env))
-    ((string=? name "cond") (expand-cond form value-env macro-env))
-    ((string=? name "case") (expand-case form value-env macro-env))
     ((string=? name "syntax-error") (expand-syntax-error form))
     ((string=? name "define-syntax")
      (fatal "define-syntax is not valid in expression position"))
@@ -536,51 +599,6 @@
                     bindings value-env macro-env macro-env ())))
             (expanded-body-expression
               (expand-body body value-env body-macros)))))))
-
-(define (expand-cond form value-env macro-env)
-  (cons (car form)
-        (expand-cond-clauses (cdr form) value-env macro-env)))
-
-(define (expand-cond-clauses clauses value-env macro-env)
-  (if (null? clauses)
-      ()
-      (let ((clause (car clauses)))
-        (if (not (pair? clause)) (fatal "malformed cond clause"))
-        (let ((test (car clause)))
-          (cons
-            (if (raw-name? test "else")
-                (cons test
-                      (expand-expression-list (cdr clause)
-                                              value-env macro-env))
-                (cons (expand-expression test value-env macro-env)
-                      (expand-cond-body (cdr clause)
-                                        value-env macro-env)))
-            (expand-cond-clauses (cdr clauses)
-                                 value-env macro-env))))))
-
-(define (expand-cond-body body value-env macro-env)
-  (if (if (pair? body)
-          (raw-name? (car body) "=>")
-          #f)
-      (cons (car body)
-            (expand-expression-list (cdr body) value-env macro-env))
-      (expand-expression-list body value-env macro-env)))
-
-(define (expand-case form value-env macro-env)
-  (if (null? (cdr form)) (fatal "case needs a key"))
-  (cons (car form)
-    (cons (expand-expression (car (cdr form)) value-env macro-env)
-          (expand-case-clauses (cdr (cdr form)) value-env macro-env))))
-
-(define (expand-case-clauses clauses value-env macro-env)
-  (if (null? clauses)
-      ()
-      (let ((clause (car clauses)))
-        (if (not (pair? clause)) (fatal "malformed case clause"))
-        (cons
-          (cons (car clause)
-                (expand-cond-body (cdr clause) value-env macro-env))
-          (expand-case-clauses (cdr clauses) value-env macro-env)))))
 
 (define (expand-quasiquote-form form value-env macro-env)
   (require-raw-arity form 1 "quasiquote")
