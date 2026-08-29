@@ -38,6 +38,7 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_CLOSURE 4
 #define BOX_FLOAT   5
 #define BOX_BYTEVECTOR 6
+#define BOX_VALUES  7
 
 #define NPL_FLAG_LITERAL 1
 #define IMM_CHAR_TAG 14
@@ -85,6 +86,13 @@ typedef struct {
     uint32_t capacity;
     uint8_t data[];
 } NplBytevector;
+
+typedef struct {
+    NplHeader header;
+    uint32_t count;
+    uint32_t capacity;
+    NplVal data[];
+} NplValues;
 
 /* ---- Closure ---- */
 typedef struct {
@@ -195,6 +203,9 @@ NplVal npl_char_p(NplVal value);
 NplVal npl_char_to_integer(NplVal value);
 NplVal npl_integer_to_char(NplVal value);
 NplVal npl_append(NplVal left, NplVal right);
+NplVal npl_make_values(int64_t argc, NplVal *argv);
+NplVal npl_expect_one(NplVal value);
+void npl_values_dispatch(NplVal consumer, NplVal continuation, NplVal value);
 
 /* Get car/cdr of a pair */
 NplVal npl_car(NplVal v);
@@ -207,6 +218,8 @@ void npl_set_cdr(NplVal pair, NplVal val);
 /* Generic NPL call ABI used by closures and the tail trampoline. */
 NplVal npl_make_environment(int64_t argc, NplVal *argv);
 NplVal npl_environment_ref(NplVal environment, int64_t index);
+NplVal npl_rest_arguments(int64_t argc, NplVal *argv, int64_t fixed,
+                          int64_t trailing);
 NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
                         int64_t arity);
 int32_t npl_guard_integer(NplVal value);

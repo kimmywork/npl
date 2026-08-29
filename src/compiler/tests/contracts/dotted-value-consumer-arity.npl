@@ -1,0 +1,4 @@
+(define (main)
+  (call-with-values
+    (lambda () (values))
+    (lambda (first . rest) first)))

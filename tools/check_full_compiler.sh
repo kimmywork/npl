@@ -61,11 +61,11 @@ reject_reader() {
     reject_compile "reader-errors/$name.npl" "$name" "$message"
 }
 
-reject_literal_mutation() {
-    name=$1
-    message=$2
-    source="$TESTS/contracts/$name.npl"
-    emit "$WORK/compiler" "$source" "$WORK/$name.ssa"
+reject_runtime() {
+    source=$1
+    name=$2
+    message=$3
+    emit "$WORK/compiler" "$TESTS/$source" "$WORK/$name.ssa"
     build_ssa "$WORK/$name.ssa" "$WORK/$name"
     set +e
     "$WORK/$name" > "$WORK/$name.out" 2>&1
@@ -75,6 +75,12 @@ reject_literal_mutation() {
     grep -F "$message" "$WORK/$name.out" >/dev/null
 }
 
+reject_literal_mutation() {
+    name=$1
+    message=$2
+    reject_runtime "contracts/$name.npl" "$name" "$message"
+}
+
 run_suite dynamic-core "PASS dynamic-core 4"
 run_suite reader-datum "PASS reader-datum 24"
 run_suite macros-basic "PASS macros-basic 10"
@@ -82,11 +88,24 @@ run_suite macro-ellipsis "PASS macro-ellipsis 9"
 run_suite macro-scopes "PASS macro-scopes 10"
 run_suite derived-forms "PASS derived-forms 17"
 run_suite explicit-control "PASS explicit-control 2"
+run_suite multiple-values "PASS multiple-values 13"
 
 reject_literal_mutation literal-vector-mutation \
     "vector-set!: cannot mutate a literal"
 reject_literal_mutation literal-bytevector-mutation \
     "bytevector-u8-set!: cannot mutate a literal"
+reject_runtime contracts/multiple-values-in-single-context.npl \
+    multiple-values-in-single-context \
+    "value context: expected 1 value, got 2"
+reject_runtime contracts/zero-values-in-single-context.npl \
+    zero-values-in-single-context \
+    "value context: expected 1 value, got 0"
+reject_runtime contracts/value-consumer-arity.npl \
+    value-consumer-arity \
+    "npl_tail_request_closure: expected 2 arguments, got 3"
+reject_runtime contracts/dotted-value-consumer-arity.npl \
+    dotted-value-consumer-arity \
+    "npl_tail_request_closure: expected at least 2 arguments, got 1"
 
 reject_reader bad-dotted "expected ) after dotted datum"
 reject_reader bad-byte "bytevector literal byte out of range"

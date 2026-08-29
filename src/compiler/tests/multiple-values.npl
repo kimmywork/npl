@@ -1,0 +1,98 @@
+(include "framework.npl")
+
+(define value-probes 0)
+
+(define (two-values)
+  (values 20 22))
+
+(define (forward-values)
+  (two-values))
+
+(define-values (defined-left defined-right)
+  (values 20 22))
+
+(define (internal-defined-values)
+  (define-values (left right) (values 19 23))
+  (+ left right))
+
+(define (main)
+  (test-equal "zero values"
+              (lambda ()
+                (call-with-values
+                  (lambda () (values))
+                  (lambda () 42)))
+              42)
+  (test-equal "one value"
+              (lambda ()
+                (call-with-values
+                  (lambda () (values 42))
+                  (lambda (value) value)))
+              42)
+  (test-equal "multiple values"
+              (lambda ()
+                (call-with-values two-values
+                  (lambda (left right) (+ left right))))
+              42)
+  (test-equal "tail forwarded values"
+              (lambda ()
+                (call-with-values forward-values
+                  (lambda (left right) (+ left right))))
+              42)
+  (test-equal "discarded multiple values"
+              (lambda ()
+                (begin
+                  (values 1 2 3)
+                  42))
+              42)
+  (test-equal "producer before consumer"
+              (lambda ()
+                (set! value-probes 0)
+                (call-with-values
+                  (begin
+                    (set! value-probes (+ value-probes 1))
+                    (let ((producer-order value-probes))
+                      (lambda () (values 39 producer-order))))
+                  (begin
+                    (set! value-probes (+ value-probes 1))
+                    (lambda (value order)
+                      (+ value (+ order value-probes))))))
+              42)
+  (test-equal "let-values parallel initializers"
+              (lambda ()
+                (let ((value 20))
+                  (let-values (((value) (values 30))
+                               ((other) (values value)))
+                    (+ value (- other 8)))))
+              42)
+  (test-equal "let*-values sequential initializers"
+              (lambda ()
+                (let*-values (((value) (values 20))
+                              ((left right) (values value 22)))
+                  (+ left right)))
+              42)
+  (test-equal "top-level define-values"
+              (lambda () (+ defined-left defined-right)) 42)
+  (test-equal "internal define-values"
+              (lambda () (internal-defined-values)) 42)
+  (test-equal "dotted consumer formals"
+              (lambda ()
+                (call-with-values
+                  (lambda () (values 19 20 3))
+                  (lambda (first . rest)
+                    (+ first (+ (car rest) (car (cdr rest)))))))
+              42)
+  (test-equal "rest-only zero-value consumer"
+              (lambda ()
+                (call-with-values
+                  (lambda () (values))
+                  (lambda received
+                    (if (null? received) 42 0))))
+              42)
+  (test-equal "rest-only multiple-value consumer"
+              (lambda ()
+                (call-with-values
+                  (lambda () (values 20 22))
+                  (lambda received
+                    (+ (car received) (car (cdr received))))))
+              42)
+  (finish-tests "multiple-values"))

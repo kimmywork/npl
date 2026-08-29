@@ -20,17 +20,37 @@
                     ()))))
       ()))
 
-(define (predeclare-globals forms environment)
-  (if (null? forms)
+(define (direct-defined-identifiers form)
+  (let ((single (direct-defined-identifier form)))
+    (if (null? single)
+        (if (raw-form? form "define-values")
+            (begin
+              (require-raw-arity form 2 "define-values")
+              (car (cdr form)))
+            ())
+        (cons single ()))))
+
+(define (predeclare-global-identifiers identifiers environment)
+  (if (null? identifiers)
       environment
-      (let ((identifier (direct-defined-identifier (car forms))))
-        (if (null? identifier)
-            (predeclare-globals (cdr forms) environment)
-            (predeclare-globals
-              (cdr forms)
+      (if (not (pair? identifiers))
+          (fatal "definition names must be a proper list")
+          (let ((identifier (car identifiers)))
+            (if (not (datum-symbol? identifier))
+                (fatal "definition name must be an identifier"))
+            (predeclare-global-identifiers
+              (cdr identifiers)
               (add-value-binding identifier
                                  (datum-symbol-name identifier)
                                  environment))))))
+
+(define (predeclare-globals forms environment)
+  (if (null? forms)
+      environment
+      (predeclare-globals
+        (cdr forms)
+        (predeclare-global-identifiers
+          (direct-defined-identifiers (car forms)) environment))))
 
 (define (expand-program forms)
   (cell-set! SYNTAX-MARKS ())
@@ -258,6 +278,10 @@
      (expand-local-syntax form #f value-env macro-env))
     ((string=? name "letrec-syntax")
      (expand-local-syntax form #t value-env macro-env))
+    ((string=? name "let-values")
+     (expand-let-values form value-env macro-env))
+    ((string=? name "define-values")
+     (expand-define-values form value-env macro-env))
     ((string=? name "set!") (expand-set form value-env macro-env))
     ((string=? name "syntax-error") (expand-syntax-error form))
     ((string=? name "define-syntax")
@@ -298,17 +322,47 @@
                 (cons (cons (datum-symbol emitted) (car rest))
                       (cdr rest))))))))
 
+(define (prepend-identifiers-reversed identifiers acc)
+  (if (null? identifiers)
+      acc
+      (if (not (pair? identifiers))
+          (fatal "definition names must be a proper list")
+          (prepend-identifiers-reversed
+            (cdr identifiers) (cons (car identifiers) acc)))))
+
+(define (bind-formals formals environment)
+  (if (null? formals)
+      (cons () environment)
+      (if (datum-symbol? formals)
+          (let ((emitted (fresh-value-name formals)))
+            (cons (datum-symbol emitted)
+                  (add-value-binding formals emitted environment)))
+          (if (not (pair? formals))
+              (fatal "malformed procedure formals")
+              (let ((identifier (car formals)))
+                (if (not (datum-symbol? identifier))
+                    (fatal "formal name must be an identifier"))
+                (let ((emitted (fresh-value-name identifier)))
+                  (let ((rest
+                          (bind-formals
+                            (cdr formals)
+                            (add-value-binding
+                              identifier emitted environment))))
+                    (cons (cons (datum-symbol emitted) (car rest))
+                          (cdr rest)))))))))
+
 (define (body-defined-identifiers body acc)
   (if (null? body)
       (rev acc)
       (let ((form (car body)))
         (if (raw-form? form "define-syntax")
             (body-defined-identifiers (cdr body) acc)
-            (let ((identifier (direct-defined-identifier form)))
-              (if (null? identifier)
+            (let ((identifiers (direct-defined-identifiers form)))
+              (if (null? identifiers)
                   (rev acc)
                   (body-defined-identifiers
-                    (cdr body) (cons identifier acc))))))))
+                    (cdr body)
+                    (prepend-identifiers-reversed identifiers acc))))))))
 
 (define (bind-body-definitions body environment)
   (bind-identifiers (body-defined-identifiers body ()) environment))
@@ -343,7 +397,9 @@
                 (cdr body)
                 (add-macro-binding keyword UNINITIALIZED-SYNTAX macro-env)
                 (cons keyword seen)))
-            (if (raw-form? form "define")
+            (if (if (raw-form? form "define")
+                    #t
+                    (raw-form? form "define-values"))
                 (prebind-body-syntax (cdr body) macro-env seen)
                 macro-env)))))
 
@@ -397,7 +453,7 @@
 
 (define (expand-lambda form value-env macro-env)
   (if (null? (cdr form)) (fatal "lambda needs parameters"))
-  (let ((bound (bind-identifiers (car (cdr form)) value-env)))
+  (let ((bound (bind-formals (car (cdr form)) value-env)))
     (cons (car form)
       (cons (car bound)
         (expand-body (cdr (cdr form)) (cdr bound) macro-env)))))
@@ -426,7 +482,7 @@
             (cons (resolve-identifier target value-env)
                   (expand-expression-list rest value-env macro-env)))
           (if (pair? target)
-              (let ((bound (bind-identifiers (cdr target) value-env)))
+              (let ((bound (bind-formals (cdr target) value-env)))
                 (cons (car form)
                   (cons
                     (cons (resolve-identifier (car target) value-env)
@@ -520,6 +576,128 @@
                     (expand-bound-bindings bindings (car bound)
                                             init-env body-env macro-env)
                     (expand-body body body-env macro-env))))))))))
+
+(define (values-producer-records bindings value-env macro-env)
+  (if (null? bindings)
+      ()
+      (if (not (pair? bindings))
+          (fatal "let-values bindings must be a proper list")
+          (let ((binding (car bindings)))
+            (if (not (pair? binding))
+                (fatal "malformed let-values binding"))
+            (if (not (= (raw-list-count binding 0) 2))
+                (fatal "malformed let-values binding"))
+            (let ((identifiers (car binding)))
+              (bind-identifiers identifiers value-env)
+              (let ((producer
+                      (datum-symbol
+                        (fresh-value-name
+                          (datum-symbol "values_producer")))))
+                (cons
+                  (cons producer
+                    (cons identifiers
+                      (cons
+                        (expand-expression
+                          (car (cdr binding)) value-env macro-env)
+                        ())))
+                  (values-producer-records
+                    (cdr bindings) value-env macro-env))))))))
+
+(define (values-producer-bindings records)
+  (if (null? records)
+      ()
+      (let ((record (car records)))
+        (cons
+          (cons (car record)
+            (cons
+              (cons (datum-symbol "lambda")
+                    (cons () (cons (car (cdr (cdr record))) ())))
+              ()))
+          (values-producer-bindings (cdr records))))))
+
+(define (values-consumer-chain records body value-env macro-env)
+  (if (null? records)
+      (expanded-body-expression
+        (expand-body body value-env macro-env))
+      (let ((record (car records)))
+        (let ((bound
+                (bind-identifiers (car (cdr record)) value-env)))
+          (cons (datum-symbol "call-with-values")
+            (cons (car record)
+              (cons
+                (cons (datum-symbol "lambda")
+                  (cons (car bound)
+                    (cons
+                      (values-consumer-chain
+                        (cdr records) body (cdr bound) macro-env)
+                      ())))
+                ())))))))
+
+(define (expand-let-values form value-env macro-env)
+  (if (null? (cdr form)) (fatal "let-values needs bindings"))
+  (let ((body (cdr (cdr form))))
+    (if (null? body) (fatal "let-values needs a body"))
+    (let ((records
+            (values-producer-records
+              (car (cdr form)) value-env macro-env)))
+      (if (null? records)
+          (expanded-body-expression
+            (expand-body body value-env macro-env))
+          (cons (datum-symbol "let")
+            (cons (values-producer-bindings records)
+              (cons
+                (values-consumer-chain
+                  records body value-env macro-env)
+                ())))))))
+
+(define (values-pack-expression identifiers)
+  (if (null? identifiers)
+      (cons (datum-symbol "quote") (cons () ()))
+      (cons (datum-symbol "cons")
+        (cons (car identifiers)
+          (cons (values-pack-expression (cdr identifiers)) ())))))
+
+(define (define-values-forms identifiers rest)
+  (if (null? identifiers)
+      ()
+      (cons
+        (cons (datum-symbol "define")
+          (cons (car identifiers)
+            (cons
+              (cons (datum-symbol "car") (cons rest ()))
+              ())))
+        (define-values-forms
+          (cdr identifiers)
+          (cons (datum-symbol "cdr") (cons rest ()))))))
+
+(define (expand-define-values form value-env macro-env)
+  (require-raw-arity form 2 "define-values")
+  (let ((identifiers (car (cdr form))))
+    (let ((bound (bind-identifiers identifiers value-env)))
+      (let ((packed
+              (datum-symbol
+                (fresh-value-name (datum-symbol "values_packed")))))
+        (let ((initializer
+                (expand-expression
+                  (car (cdr (cdr form))) value-env macro-env)))
+          (let ((producer
+                  (cons (datum-symbol "lambda")
+                    (cons () (cons initializer ())))))
+            (let ((consumer
+                    (cons (datum-symbol "lambda")
+                      (cons (car bound)
+                        (cons
+                          (values-pack-expression (car bound))
+                          ())))))
+              (cons (datum-symbol "begin")
+                (cons
+                  (cons (datum-symbol "define")
+                    (cons packed
+                      (cons
+                        (cons (datum-symbol "call-with-values")
+                          (cons producer (cons consumer ())))
+                        ())))
+                  (define-values-forms identifiers packed))))))))))
 
 (define (local-syntax-binding-keyword binding)
   (if (not (pair? binding)) (fatal "malformed syntax binding"))

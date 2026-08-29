@@ -92,4 +92,14 @@
        (loop init ...)))
     ((do _step value) value)
     ((do _step value step) step)))
+
+(define-syntax let*-values
+  (syntax-rules ()
+    ((let*-values () body ...)
+     (let () body ...))
+    ((let*-values (((var ...) init) binding ...) body ...)
+     (call-with-values
+       (lambda () init)
+       (lambda (var ...)
+         (let*-values (binding ...) body ...))))))
 ")

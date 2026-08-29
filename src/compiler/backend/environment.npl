@@ -27,6 +27,21 @@
             (cons entry
                   (visible-env (cdr env) (cons (car entry) seen)))))))
 
+(define (variadic-parameters? params)
+  (if (pair-shape? params)
+      (if (number? (car params)) (= (car params) 230) #f)
+      #f))
+
+(define (variadic-fixed-parameters params) (car (cdr params)))
+(define (variadic-rest-parameter params) (car (cdr (cdr params))))
+(define (variadic-continuation-parameter params)
+  (car (cdr (cdr (cdr params)))))
+
+(define (parameter-arity params)
+  (if (variadic-parameters? params)
+      (- 0 (+ (count-up (variadic-fixed-parameters params) 0) 2))
+      (count-up params 0)))
+
 (define (load-argv index)
   (let ((address
           (if (= index 0)
@@ -40,14 +55,44 @@
       (func-line (string-append value " =l loadl " address))
       value)))
 
+(define (load-last-argv)
+  (let ((last (new-tmp)))
+    (func-line (string-append last " =l sub %npl_argc, 1"))
+    (let ((offset (new-tmp)))
+      (func-line (string-append offset " =l mul " last ", 8"))
+      (let ((address (new-tmp)))
+        (func-line
+          (string-append address " =l add %npl_argv, " offset))
+        (let ((value (new-tmp)))
+          (func-line (string-append value " =l loadl " address))
+          value)))))
+
+(define (bind-variadic-params params env)
+  (let ((fixed (variadic-fixed-parameters params)))
+    (let ((fixed-env (bind-generic-params fixed 0 env)))
+      (let ((rest-value (new-tmp)))
+        (func-line
+          (string-append rest-value
+            " =l call $npl_rest_arguments(l %npl_argc, l %npl_argv, l "
+            (number->string (count-up fixed 0)) ", l 1)"))
+        (let ((rest-cell (make-cell-op rest-value)))
+          (let ((continuation-cell (make-cell-op (load-last-argv))))
+            (env-extend
+              (env-extend fixed-env
+                (cdr (variadic-rest-parameter params)) rest-cell)
+              (cdr (variadic-continuation-parameter params))
+              continuation-cell)))))))
+
 (define (bind-generic-params params index env)
-  (if (null? params)
-      env
-      (let ((value (load-argv index)))
-        (let ((binding (make-cell-op value)))
-          (bind-generic-params
-            (cdr params) (+ index 1)
-            (env-extend env (cdr (car params)) binding))))))
+  (if (variadic-parameters? params)
+      (bind-variadic-params params env)
+      (if (null? params)
+          env
+          (let ((value (load-argv index)))
+            (let ((binding (make-cell-op value)))
+              (bind-generic-params
+                (cdr params) (+ index 1)
+                (env-extend env (cdr (car params)) binding)))))))
 
 (define (bind-captures captures index env)
   (if (null? captures)
@@ -110,5 +155,5 @@
                     (string-append closure
                       " =l call $npl_make_closure(l $" name ", l "
                       environment ", l "
-                      (number->string (count-up params 0)) ")"))
+                      (number->string (parameter-arity params)) ")"))
                   closure)))))))))

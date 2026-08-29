@@ -441,11 +441,21 @@
      (checked-call "npl_char_to_integer" 1 args env))
     ((string=? nm "integer->char")
      (checked-call "npl_integer_to_char" 1 args env))
+    ((string=? nm "npl_expect_one")
+     (checked-call "npl_expect_one" 1 args env))
+    ((string=? nm "npl_make_values")
+     (collection-call "npl_make_values" args env))
     (else (cmp-or-arith nm args env))))
+
+(define (registered-arity-accepts? arity count)
+  (if (< arity 0)
+      (>= count (- (- 0 arity) 1))
+      (= count arity)))
 
 (define (user-call nm args env)
   (let ((argn (count-up args 0)))
-    (if (not (= argn (lookup-func-arity nm)))
+    (if (not (registered-arity-accepts?
+               (lookup-func-arity nm) argn))
         (fatal "function arity mismatch"))
     (let ((ops (eval-args-fixed args env argn ())))
       (let ((argv (argv-op ops)))

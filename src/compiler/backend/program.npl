@@ -14,7 +14,7 @@
         (if (fun-def? (car forms))
             (register-func
               (defined-name (car forms))
-              (count-up (cdr (car (cdr (car forms)))) 0))
+              (parameter-arity (cdr (car (cdr (car forms))))))
             0)
         (pass-register-functions (cdr forms)))))
 
@@ -88,11 +88,24 @@
       (cell-set! CURRENT-FUNC saved-func)))
   (func-line "}"))
 
-(define (parameter-cells params env)
+(define (parameter-cells-proper params env)
   (if (null? params)
       ()
       (cons (env-lookup env (cdr (car params)))
-            (parameter-cells (cdr params) env))))
+            (parameter-cells-proper (cdr params) env))))
+
+(define (parameter-cells params env)
+  (if (variadic-parameters? params)
+      (append-list
+        (parameter-cells-proper
+          (variadic-fixed-parameters params) env)
+        (cons
+          (env-lookup env (cdr (variadic-rest-parameter params)))
+          (cons
+            (env-lookup env
+              (cdr (variadic-continuation-parameter params)))
+            ())))
+      (parameter-cells-proper params env)))
 
 (define (emit-main params body)
   ; emitted programs follow the same runtime ABI as stage0 output:

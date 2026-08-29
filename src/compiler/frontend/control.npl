@@ -73,6 +73,8 @@
     ((string=? name "char?") #t)
     ((string=? name "char->integer") #t)
     ((string=? name "integer->char") #t)
+    ((string=? name "npl_expect_one") #t)
+    ((string=? name "npl_make_values") #t)
     (else #f)))
 
 (define (control-primitive-head? head)
@@ -129,10 +131,23 @@
     ((= (car expression) 212) (control-transform-lambda expression))
     (else expression)))
 
-(define (control-continuation parameter body)
+(define (control-raw-continuation parameter body)
   (cons 212
         (cons (cons (control-symbol parameter) ())
               (cons (cons body ()) ()))))
+
+(define (control-continuation parameter body)
+  (control-raw-continuation
+    parameter
+    (cons 216
+      (cons
+        (cons 217
+          (cons (control-symbol parameter)
+            (cons
+              (cons (control-symbol "npl_expect_one")
+                    (cons (control-symbol parameter) ()))
+              ())))
+        (cons body ())))))
 
 (define (control-send continuation value)
   (cons continuation (cons value ())))
@@ -142,6 +157,35 @@
       (cons value ())
       (cons (car values)
             (control-append-one (cdr values) value))))
+
+(define (control-proper-formals? formals)
+  (if (null? formals)
+      #t
+      (if (pair-shape? formals)
+          (control-proper-formals? (cdr formals))
+          #f)))
+
+(define (control-fixed-formals formals)
+  (if (sym-atom? formals)
+      ()
+      (if (pair-shape? formals)
+          (cons (car formals) (control-fixed-formals (cdr formals)))
+          ())))
+
+(define (control-rest-formal formals)
+  (if (sym-atom? formals)
+      formals
+      (if (pair-shape? formals)
+          (control-rest-formal (cdr formals))
+          formals)))
+
+(define (control-add-continuation-formal formals continuation)
+  (if (control-proper-formals? formals)
+      (control-append-one formals continuation)
+      (cons 230
+        (cons (control-fixed-formals formals)
+          (cons (control-rest-formal formals)
+            (cons continuation ()))))))
 
 (define (control-evaluate-list expressions values finish)
   (if (null? expressions)
@@ -183,24 +227,61 @@
       (cons (control-call-head head)
             (control-append-one values continuation)))))
 
+(define (control-values-call values)
+  (cons (control-symbol "npl_make_values") values))
+
+(define (control-cps-values application continuation)
+  (control-evaluate-list
+    (cdr application) ()
+    (lambda (values)
+      (control-send continuation (control-values-call values)))))
+
+(define (control-values-collector consumer continuation)
+  (let ((packed-name (control-fresh-name "_npl_values_")))
+    (control-raw-continuation
+      packed-name
+      (cons (control-symbol "_npl_values_dispatch")
+        (cons consumer
+          (cons continuation
+            (cons (control-symbol packed-name) ())))))))
+
+(define (control-cps-call-with-values application continuation)
+  (if (not (= (count-up (cdr application) 0) 2))
+      (fatal "call-with-values needs producer and consumer"))
+  (control-evaluate-list
+    (cdr application) ()
+    (lambda (procedures)
+      (cons (car procedures)
+        (cons
+          (control-values-collector
+            (car (cdr procedures)) continuation)
+          ())))))
+
 (define (control-cps-application application continuation)
   (let ((head (car application)))
-    (if (control-primitive-head? head)
-        (control-cps-primitive application continuation)
-        (if (sym-atom? head)
-            (control-cps-known-call head (cdr application) continuation)
-            (if (control-simple? head)
-                (control-cps-known-call
-                  (control-transform-simple head)
-                  (cdr application) continuation)
-                (let ((callee-name (control-fresh-name "_npl_callee_")))
-                  (control-cps-expression
-                    head
-                    (control-continuation
-                      callee-name
-                      (control-cps-known-call
-                        (control-symbol callee-name)
-                        (cdr application) continuation)))))))))
+    (if (if (sym-atom? head) (string=? (cdr head) "values") #f)
+        (control-cps-values application continuation)
+        (if (if (sym-atom? head)
+                (string=? (cdr head) "call-with-values")
+                #f)
+            (control-cps-call-with-values application continuation)
+            (if (control-primitive-head? head)
+                (control-cps-primitive application continuation)
+                (if (sym-atom? head)
+                    (control-cps-known-call head (cdr application) continuation)
+                    (if (control-simple? head)
+                        (control-cps-known-call
+                          (control-transform-simple head)
+                          (cdr application) continuation)
+                        (let ((callee-name
+                                (control-fresh-name "_npl_callee_")))
+                          (control-cps-expression
+                            head
+                            (control-continuation
+                              callee-name
+                              (control-cps-known-call
+                                (control-symbol callee-name)
+                                (cdr application) continuation)))))))))))
 
 (define (control-cps-if-branches test expression continuation)
   (cons 213
@@ -235,7 +316,7 @@
           (let ((ignored (control-fresh-name "_npl_ignored_")))
             (control-cps-expression
               (car expressions)
-              (control-continuation
+              (control-raw-continuation
                 ignored
                 (control-cps-sequence
                   (cdr expressions) continuation)))))))
@@ -406,7 +487,7 @@
   (let ((continuation-name (control-fresh-name "_npl_return_")))
     (cons 212
       (cons
-        (control-append-one
+        (control-add-continuation-formal
           (car (cdr expression))
           (control-symbol continuation-name))
         (cons
@@ -467,7 +548,7 @@
         (cons 211
           (cons
             (cons (control-symbol target-name)
-                  (control-append-one
+                  (control-add-continuation-formal
                     (cdr signature)
                     (control-symbol continuation-name)))
             (cons
@@ -483,9 +564,20 @@
     (car (cdr form))
     (car (cdr (cdr form)))))
 
+(define (control-static-global-initializer? initializer)
+  (if (number? initializer)
+      #t
+      (if (null? initializer)
+          #t
+          (if (pair-shape? initializer)
+              (if (number? (car initializer))
+                  (= (car initializer) 101)
+                  #f)
+              #f))))
+
 (define (control-transform-global form)
   (let ((initializer (car (cdr (cdr form)))))
-    (if (control-simple? initializer)
+    (if (control-static-global-initializer? initializer)
         (cons 200
           (cons (car (cdr form))
                 (cons (control-transform-simple initializer) ())))
@@ -497,7 +589,8 @@
       ()
       (let ((form (car forms)))
         (if (if (control-variable-form? form)
-                (not (control-simple? (car (cdr (cdr form)))))
+                (not (control-static-global-initializer?
+                       (car (cdr (cdr form)))))
                 #f)
             (cons (control-global-assignment form)
                   (control-runtime-global-inits (cdr forms)))

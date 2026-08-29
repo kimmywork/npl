@@ -481,6 +481,60 @@ NplVal npl_append(NplVal left, NplVal right)
     return head;
 }
 
+NplVal npl_make_values(int64_t argc, NplVal *argv)
+{
+    if (argc == 1) return argv[0];
+    if (argc < 0 || (uint64_t)argc > UINT32_MAX) {
+        fprintf(stderr, "values: unsupported value count\n");
+        exit(1);
+    }
+    NplValues *values = (NplValues *)npl_alloc(
+        sizeof(NplValues) + (size_t)argc * sizeof(NplVal));
+    values->header.tag = BOX_VALUES;
+    values->header.flags = 0;
+    values->count = (uint32_t)argc;
+    values->capacity = (uint32_t)argc;
+    for (int64_t i = 0; i < argc; i++) values->data[i] = argv[i];
+    return (NplVal)(uintptr_t)values | TAG_PTR;
+}
+
+NplVal npl_expect_one(NplVal value)
+{
+    if (npl_is_ptr(value) && npl_header(value)->tag == BOX_VALUES) {
+        NplValues *values = (NplValues *)npl_header(value);
+        fprintf(stderr, "value context: expected 1 value, got %u\n",
+                values->count);
+        exit(1);
+    }
+    return value;
+}
+
+void npl_values_dispatch(NplVal consumer_value, NplVal continuation,
+                         NplVal value)
+{
+    if (!npl_is_ptr(consumer_value) ||
+        npl_header(consumer_value)->tag != BOX_CLOSURE) {
+        fprintf(stderr, "call-with-values: consumer is not a procedure\n");
+        exit(1);
+    }
+
+    uint32_t count = 1;
+    NplVal *values = &value;
+    if (npl_is_ptr(value) && npl_header(value)->tag == BOX_VALUES) {
+        NplValues *multiple = (NplValues *)npl_header(value);
+        count = multiple->count;
+        values = multiple->data;
+    }
+
+    size_t argc = (size_t)count + 1;
+    NplVal *arguments = (NplVal *)malloc(argc * sizeof(NplVal));
+    if (!arguments) runtime_oom();
+    for (uint32_t i = 0; i < count; i++) arguments[i] = values[i];
+    arguments[count] = continuation;
+    npl_tail_request_closure(consumer_value, (int64_t)argc, arguments);
+    free(arguments);
+}
+
 NplVal npl_make_environment(int64_t argc, NplVal *argv)
 {
     if (argc < 0 || (uint64_t)argc > UINT32_MAX) {
@@ -512,14 +566,24 @@ NplVal npl_environment_ref(NplVal value, int64_t index)
     return environment->data[index];
 }
 
+NplVal npl_rest_arguments(int64_t argc, NplVal *argv, int64_t fixed,
+                          int64_t trailing)
+{
+    if (argc < 0 || fixed < 0 || trailing < 0 || fixed + trailing > argc) {
+        fprintf(stderr, "procedure: invalid rest argument range\n");
+        exit(1);
+    }
+    NplVal rest = npl_nil();
+    npl_gc_root(&rest);
+    for (int64_t i = argc - trailing; i > fixed; i--)
+        rest = npl_cons(argv[i - 1], rest);
+    npl_gc_unroot(&rest);
+    return rest;
+}
+
 NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
                         int64_t arity)
 {
-    if (arity < 0) {
-        fprintf(stderr, "npl_make_closure: unsupported arity %lld\n",
-                (long long)arity);
-        exit(1);
-    }
     NplClosure *closure = (NplClosure *)npl_alloc(sizeof(NplClosure));
     closure->header.tag = BOX_CLOSURE;
     closure->header.flags = 0;
@@ -738,6 +802,12 @@ void npl_gc_drain_internal(void)
             npl_gc_mark_candidate_internal(closure->environment);
             break;
         }
+        case BOX_VALUES: {
+            NplValues *values = (NplValues *)header;
+            for (uint32_t i = 0; i < values->count; i++)
+                npl_gc_mark_candidate_internal(values->data[i]);
+            break;
+        }
         default:
             break;
         }
@@ -874,6 +944,25 @@ void npl_tail_request(NplGenericFunction function, NplVal environment,
     g_tail_context->pending = 1;
 }
 
+static int closure_accepts_arity(const NplClosure *closure, int64_t argc)
+{
+    if (argc < 0) return 0;
+    if (closure->arity >= 0) return argc == closure->arity;
+    return argc >= -closure->arity - 1;
+}
+
+static void report_closure_arity(const char *who, const NplClosure *closure,
+                                 int64_t argc)
+{
+    if (closure->arity >= 0)
+        fprintf(stderr, "%s: expected %lld arguments, got %lld\n", who,
+                (long long)closure->arity, (long long)argc);
+    else
+        fprintf(stderr, "%s: expected at least %lld arguments, got %lld\n",
+                who, (long long)(-closure->arity - 1), (long long)argc);
+    exit(1);
+}
+
 void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
 {
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE) {
@@ -881,12 +970,8 @@ void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
         exit(1);
     }
     NplClosure *closure = (NplClosure *)npl_header(value);
-    if (argc != closure->arity) {
-        fprintf(stderr,
-                "npl_tail_request_closure: expected %lld arguments, got %lld\n",
-                (long long)closure->arity, (long long)argc);
-        exit(1);
-    }
+    if (!closure_accepts_arity(closure, argc))
+        report_closure_arity("npl_tail_request_closure", closure, argc);
     npl_tail_request(closure->function, closure->environment, argc, argv);
 }
 
@@ -941,11 +1026,8 @@ NplVal npl_apply(NplVal value, int64_t argc, NplVal *argv)
         exit(1);
     }
     NplClosure *closure = (NplClosure *)npl_header(value);
-    if (argc != closure->arity) {
-        fprintf(stderr, "npl_apply: expected %lld arguments, got %lld\n",
-                (long long)closure->arity, (long long)argc);
-        exit(1);
-    }
+    if (!closure_accepts_arity(closure, argc))
+        report_closure_arity("npl_apply", closure, argc);
     return npl_trampoline(closure->function, closure->environment, argc, argv);
 }
 
@@ -1082,6 +1164,9 @@ NplVal npl_display(NplVal v) {
             putchar(')');
             break;
         }
+        case BOX_VALUES:
+            printf("<multiple-values>");
+            break;
         default:
             printf("<unknown>");
         }
