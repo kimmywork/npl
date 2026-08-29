@@ -1,0 +1,43 @@
+(include "framework.npl")
+
+(define (main)
+  (test-equal "guard catches condition"
+              (lambda ()
+                (guard (condition
+                         ((= condition 40) (+ condition 2))
+                         (else 0))
+                  (raise 40)))
+              42)
+  (test-equal "guard normal body"
+              (lambda ()
+                (guard (condition
+                         ((= condition 0) 0)
+                         (else 1))
+                  42))
+              42)
+  (test-equal "guard continuable handler clause"
+              (lambda ()
+                (guard (condition
+                         ((= condition 40) 42)
+                         (else 0))
+                  (raise-continuable 40)))
+              42)
+  (test-equal "guard arrow clause"
+              (lambda ()
+                (guard (condition
+                         (condition => (lambda (value) (+ value 2)))
+                         (else 0))
+                  (raise 40)))
+              42)
+  (test-equal "guard re-raises unmatched condition"
+              (lambda ()
+                (call/cc
+                  (lambda (return)
+                    (with-exception-handler
+                      (lambda (object) (return (+ object 2)))
+                      (lambda ()
+                        (guard (condition
+                                 ((= condition 0) 0))
+                          (raise 40)))))))
+              42)
+  (finish-tests "guard"))

@@ -456,6 +456,12 @@
      (checked-call "npl_wind_push" 2 args env))
     ((string=? nm "npl_wind_pop")
      (checked-call "npl_wind_pop" 1 args env))
+    ((string=? nm "npl_current_handler")
+     (zero-named "npl_current_handler" args))
+    ((string=? nm "npl_handler_push")
+     (checked-call "npl_handler_push" 1 args env))
+    ((string=? nm "npl_handler_pop")
+     (checked-call "npl_handler_pop" 1 args env))
     (else (cmp-or-arith nm args env))))
 
 (define (registered-arity-accepts? arity count)

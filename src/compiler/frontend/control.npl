@@ -79,6 +79,9 @@
     ((string=? name "npl_current_wind") #t)
     ((string=? name "npl_wind_push") #t)
     ((string=? name "npl_wind_pop") #t)
+    ((string=? name "npl_current_handler") #t)
+    ((string=? name "npl_handler_push") #t)
+    ((string=? name "npl_handler_pop") #t)
     (else #f)))
 
 (define (control-primitive-head? head)
@@ -261,7 +264,8 @@
             (car (cdr procedures)) continuation)
           ())))))
 
-(define (control-captured-continuation continuation target-wind)
+(define (control-captured-continuation
+          continuation target-wind target-handler)
   (let ((values-name (control-fresh-name "_npl_jump_values_")))
     (let ((ignored-name (control-fresh-name "_npl_abandoned_")))
       (cons 212
@@ -274,11 +278,12 @@
             (cons
               (cons (control-symbol "_npl_wind_transfer")
                 (cons target-wind
-                  (cons continuation
-                    (cons
-                      (cons (control-symbol "npl_list_to_values")
-                        (cons (control-symbol values-name) ()))
-                      ()))))
+                  (cons target-handler
+                    (cons continuation
+                      (cons
+                        (cons (control-symbol "npl_list_to_values")
+                          (cons (control-symbol values-name) ()))
+                        ())))))
               ())
             ()))))))
 
@@ -289,14 +294,21 @@
     (cdr application) ()
     (lambda (procedures)
       (let ((target-name (control-fresh-name "_npl_target_wind_")))
-        (control-single-let
-          (cons (control-symbol target-name)
-                (cons (control-symbol "npl_current_wind") ()))
-          (cons (car procedures)
-            (cons
-              (control-captured-continuation
-                continuation (control-symbol target-name))
-              (cons continuation ()))))))))
+        (let ((handler-name
+                (control-fresh-name "_npl_target_handler_")))
+          (control-single-let
+            (cons (control-symbol target-name)
+                  (cons (control-symbol "npl_current_wind") ()))
+            (control-single-let
+              (cons (control-symbol handler-name)
+                    (cons (control-symbol "npl_current_handler") ()))
+              (cons (car procedures)
+                (cons
+                  (control-captured-continuation
+                    continuation
+                    (control-symbol target-name)
+                    (control-symbol handler-name))
+                  (cons continuation ()))))))))))
 
 (define (control-call-cc-name? head)
   (if (not (sym-atom? head))
@@ -353,38 +365,97 @@
       (string=? (cdr head) "dynamic-wind")
       #f))
 
+(define (control-cps-with-exception-handler application continuation)
+  (if (not (= (count-up (cdr application) 0) 2))
+      (fatal "with-exception-handler needs handler and thunk"))
+  (control-evaluate-list
+    (cdr application) ()
+    (lambda (procedures)
+      (let ((handler (car procedures)))
+        (let ((thunk (car (cdr procedures))))
+          (let ((frame-name (control-fresh-name "_npl_handler_frame_")))
+            (let ((body-name (control-fresh-name "_npl_handler_values_")))
+              (let ((body-continuation
+                      (control-raw-continuation
+                        body-name
+                        (cons 216
+                          (cons
+                            (cons (control-symbol "npl_handler_pop")
+                              (cons (control-symbol frame-name) ()))
+                            (cons
+                              (control-send
+                                continuation (control-symbol body-name))
+                              ()))))))
+                (control-single-let
+                  (cons (control-symbol frame-name)
+                    (cons (control-symbol "npl_handler_push")
+                      (cons handler ())))
+                  (cons thunk (cons body-continuation ())))))))))))
+
+(define (control-cps-raise application continuation continuable)
+  (if (not (= (count-up (cdr application) 0) 1))
+      (fatal "raise needs one object"))
+  (control-evaluate-list
+    (cdr application) ()
+    (lambda (values)
+      (cons
+        (control-symbol
+          (if continuable
+              "_npl_raise_continuable"
+              "_npl_raise"))
+        (cons (car values) (cons continuation ()))))))
+
+(define (control-with-handler-name? head)
+  (if (sym-atom? head)
+      (string=? (cdr head) "with-exception-handler")
+      #f))
+
+(define (control-raise-name? head name)
+  (if (sym-atom? head)
+      (string=? (cdr head) name)
+      #f))
+
 (define (control-cps-application application continuation)
   (let ((head (car application)))
     (if (if (sym-atom? head) (string=? (cdr head) "values") #f)
         (control-cps-values application continuation)
-        (if (control-dynamic-wind-name? head)
-            (control-cps-dynamic-wind application continuation)
-            (if (control-call-cc-name? head)
-                (control-cps-call-cc application continuation)
-                (if (if (sym-atom? head)
-                        (string=? (cdr head) "call-with-values")
-                        #f)
-                    (control-cps-call-with-values application continuation)
-                    (if (control-primitive-head? head)
-                        (control-cps-primitive application continuation)
-                        (if (sym-atom? head)
-                            (control-cps-known-call
-                              head (cdr application) continuation)
-                            (if (control-simple? head)
-                                (control-cps-known-call
-                                  (control-transform-simple head)
-                                  (cdr application) continuation)
-                                (let ((callee-name
-                                        (control-fresh-name
-                                          "_npl_callee_")))
-                                  (control-cps-expression
-                                    head
-                                    (control-continuation
-                                      callee-name
-                                      (control-cps-known-call
-                                        (control-symbol callee-name)
-                                        (cdr application)
-                                        continuation)))))))))))))
+        (if (control-with-handler-name? head)
+            (control-cps-with-exception-handler application continuation)
+            (if (control-raise-name? head "raise")
+                (control-cps-raise application continuation #f)
+                (if (control-raise-name? head "raise-continuable")
+                    (control-cps-raise application continuation #t)
+                    (if (control-dynamic-wind-name? head)
+                        (control-cps-dynamic-wind application continuation)
+                        (if (control-call-cc-name? head)
+                            (control-cps-call-cc application continuation)
+                            (if (if (sym-atom? head)
+                                    (string=? (cdr head) "call-with-values")
+                                    #f)
+                                (control-cps-call-with-values
+                                  application continuation)
+                                (if (control-primitive-head? head)
+                                    (control-cps-primitive
+                                      application continuation)
+                                    (if (sym-atom? head)
+                                        (control-cps-known-call
+                                          head (cdr application) continuation)
+                                        (if (control-simple? head)
+                                            (control-cps-known-call
+                                              (control-transform-simple head)
+                                              (cdr application) continuation)
+                                            (let ((callee-name
+                                                    (control-fresh-name
+                                                      "_npl_callee_")))
+                                              (control-cps-expression
+                                                head
+                                                (control-continuation
+                                                  callee-name
+                                                  (control-cps-known-call
+                                                    (control-symbol
+                                                      callee-name)
+                                                    (cdr application)
+                                                    continuation))))))))))))))))
 
 (define (control-cps-if-branches test expression continuation)
   (cons 213

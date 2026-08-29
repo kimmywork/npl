@@ -102,4 +102,23 @@
        (lambda () init)
        (lambda (var ...)
          (let*-values (binding ...) body ...))))))
+
+(define-syntax guard
+  (syntax-rules (=> else)
+    ((guard (condition clause ... (else result1 result2 ...)) body ...)
+     (call/cc
+       (lambda (return)
+         (with-exception-handler
+           (lambda (condition)
+             (return
+               (cond clause ... (#t result1 result2 ...))))
+           (lambda () body ...)))))
+    ((guard (condition clause ...) body ...)
+     (call/cc
+       (lambda (return)
+         (with-exception-handler
+           (lambda (condition)
+             (return
+               (cond clause ... (#t (raise condition)))))
+           (lambda () body ...)))))))
 ")

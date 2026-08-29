@@ -1,0 +1,4 @@
+(define (main)
+  (with-exception-handler
+    1
+    (lambda () 42)))

@@ -91,6 +91,8 @@ run_suite explicit-control "PASS explicit-control 2"
 run_suite multiple-values "PASS multiple-values 13"
 run_suite continuations "PASS continuations 7"
 run_suite dynamic-wind "PASS dynamic-wind 5"
+run_suite exceptions "PASS exceptions 6"
+run_suite guard "PASS guard 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2
     exit 1
@@ -121,6 +123,13 @@ reject_runtime contracts/continuation-multiple-values.npl \
 reject_runtime contracts/dynamic-wind-nonprocedure.npl \
     dynamic-wind-nonprocedure \
     "npl_tail_request_closure: not a closure"
+reject_runtime contracts/handler-nonprocedure.npl \
+    handler-nonprocedure \
+    "with-exception-handler: handler is not a procedure"
+reject_runtime contracts/uncaught-exception.npl \
+    uncaught-exception "uncaught exception"
+reject_runtime contracts/handler-secondary-raise.npl \
+    handler-secondary-raise "uncaught exception"
 
 reject_reader bad-dotted "expected ) after dotted datum"
 reject_reader bad-byte "bytevector literal byte out of range"

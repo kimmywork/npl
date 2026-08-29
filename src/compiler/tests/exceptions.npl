@@ -1,0 +1,76 @@
+(include "framework.npl")
+
+(define exception-log 0)
+(define saved-handler-continuation #f)
+(define handler-phase 0)
+
+(define (log-exception digit)
+  (set! exception-log (+ (* exception-log 10) digit)))
+
+(define (main)
+  (test-equal "continuable handler result"
+              (lambda ()
+                (with-exception-handler
+                  (lambda (object) (+ object 2))
+                  (lambda () (raise-continuable 40))))
+              42)
+  (test-equal "handler uses previous handler environment"
+              (lambda ()
+                (with-exception-handler
+                  (lambda (object) (+ object 2))
+                  (lambda ()
+                    (with-exception-handler
+                      (lambda (object) (raise-continuable object))
+                      (lambda () (raise-continuable 40))))))
+              42)
+  (test-equal "handler restoration after normal return"
+              (lambda ()
+                (+ (with-exception-handler
+                     (lambda (object) 0)
+                     (lambda () 40))
+                   (with-exception-handler
+                     (lambda (object) (+ object 1))
+                     (lambda () (raise-continuable 1)))))
+              42)
+  (test-equal "continuation restores handler state"
+              (lambda ()
+                (set! handler-phase 0)
+                (with-exception-handler
+                  (lambda (object) (+ object 2))
+                  (lambda ()
+                    (let ((value
+                            (call/cc
+                              (lambda (continuation)
+                                (set! saved-handler-continuation continuation)
+                                10))))
+                      (if (= handler-phase 0)
+                          (begin
+                            (set! handler-phase 1)
+                            (saved-handler-continuation 20))
+                          (raise-continuable 40))))))
+              42)
+  (test-equal "raise exits dynamic-wind in continuation handler"
+              (lambda ()
+                (set! exception-log 0)
+                (let ((value
+                        (call/cc
+                          (lambda (escape)
+                            (with-exception-handler
+                              (lambda (object) (escape object))
+                              (lambda ()
+                                (dynamic-wind
+                                  (lambda () (log-exception 1))
+                                  (lambda () (raise 42))
+                                  (lambda () (log-exception 2)))))))))
+                  (+ (* value 100) exception-log)))
+              4212)
+  (test-equal "continuable multiple values"
+              (lambda ()
+                (call-with-values
+                  (lambda ()
+                    (with-exception-handler
+                      (lambda (object) (values 20 22))
+                      (lambda () (raise-continuable 1))))
+                  (lambda (left right) (+ left right))))
+              42)
+  (finish-tests "exceptions"))

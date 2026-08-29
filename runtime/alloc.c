@@ -69,6 +69,7 @@ static int g_argc_stored = 0;
 static char **g_argv_stored = NULL;
 static NplVal g_args_list = 2;
 static NplVal g_current_wind = 2;
+static NplVal g_current_handler = 2;
 static uint64_t g_next_wind_id = 1;
 
 static size_t align_up(size_t n, size_t alignment)
@@ -205,6 +206,7 @@ void npl_runtime_init(void)
     g_root_count = 0;
     g_args_list = npl_nil();
     g_current_wind = npl_nil();
+    g_current_handler = npl_nil();
 }
 
 /* ---- Value constructors ---- */
@@ -581,6 +583,92 @@ NplVal npl_current_wind(void)
     return g_current_wind;
 }
 
+NplVal npl_current_handler(void)
+{
+    return g_current_handler;
+}
+
+NplVal npl_handler_push(NplVal procedure)
+{
+    if (!npl_is_ptr(procedure) || npl_header(procedure)->tag != BOX_CLOSURE) {
+        fprintf(stderr, "with-exception-handler: handler is not a procedure\n");
+        exit(1);
+    }
+    NplHandlerFrame *frame =
+        (NplHandlerFrame *)npl_alloc(sizeof(NplHandlerFrame));
+    frame->header.tag = BOX_HANDLER_FRAME;
+    frame->header.flags = 0;
+    frame->parent = g_current_handler;
+    frame->procedure = procedure;
+    g_current_handler = (NplVal)(uintptr_t)frame | TAG_PTR;
+    return g_current_handler;
+}
+
+NplVal npl_handler_pop(NplVal value)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_HANDLER_FRAME ||
+        g_current_handler != value) {
+        fprintf(stderr, "with-exception-handler: non-current handler exit\n");
+        exit(1);
+    }
+    NplHandlerFrame *frame = (NplHandlerFrame *)npl_header(value);
+    g_current_handler = frame->parent;
+    return npl_nil();
+}
+
+static NplVal raise_handler_returned(NplVal environment, int64_t argc,
+                                     NplVal *argv);
+
+void npl_raise(NplVal value, NplVal continuation, int64_t continuable)
+{
+    if (npl_is_nil(g_current_handler)) {
+        fprintf(stderr, "uncaught exception\n");
+        exit(1);
+    }
+    if (!npl_is_ptr(g_current_handler) ||
+        npl_header(g_current_handler)->tag != BOX_HANDLER_FRAME) {
+        fprintf(stderr, "raise: invalid handler chain\n");
+        exit(1);
+    }
+
+    NplVal frame_value = g_current_handler;
+    NplHandlerFrame *frame = (NplHandlerFrame *)npl_header(frame_value);
+    NplRaiseContext *context =
+        (NplRaiseContext *)npl_alloc(sizeof(NplRaiseContext));
+    context->header.tag = BOX_RAISE_CONTEXT;
+    context->header.flags = 0;
+    context->frame = frame_value;
+    context->continuation = continuation;
+    context->value = value;
+    context->continuable = continuable ? 1u : 0u;
+    context->reserved = 0;
+    NplVal context_value = (NplVal)(uintptr_t)context | TAG_PTR;
+
+    g_current_handler = frame->parent;
+    NplVal callback = npl_make_closure(
+        raise_handler_returned, context_value, 1);
+    NplVal arguments[2] = { value, callback };
+    npl_tail_request_closure(frame->procedure, 2, arguments);
+}
+
+static NplVal raise_handler_returned(NplVal environment, int64_t argc,
+                                     NplVal *argv)
+{
+    if (argc != 1 || !npl_is_ptr(environment) ||
+        npl_header(environment)->tag != BOX_RAISE_CONTEXT) {
+        fprintf(stderr, "raise: invalid handler callback\n");
+        exit(1);
+    }
+    NplRaiseContext *context = (NplRaiseContext *)npl_header(environment);
+    if (context->continuable) {
+        g_current_handler = context->frame;
+        npl_tail_request_closure(context->continuation, 1, argv);
+    } else {
+        npl_raise(context->value, npl_nil(), 0);
+    }
+    return npl_nil();
+}
+
 NplVal npl_wind_push(NplVal before, NplVal after)
 {
     if (!npl_is_ptr(before) || npl_header(before)->tag != BOX_CLOSURE ||
@@ -664,6 +752,7 @@ static void schedule_wind_transition(NplVal transition_value)
         g_current_wind = frame->parent;
         thunk = frame->after;
     } else if (transition->entry_index < transition->entry_count) {
+        g_current_handler = transition->target_handler;
         uint32_t reverse = transition->entry_count -
                            transition->entry_index - 1;
         NplVal frame_value = transition->frames[transition->exit_count + reverse];
@@ -673,6 +762,7 @@ static void schedule_wind_transition(NplVal transition_value)
         thunk = frame->before;
     } else {
         g_current_wind = transition->target;
+        g_current_handler = transition->target_handler;
         NplVal argument = transition->value;
         npl_tail_request_closure(transition->continuation, 1, &argument);
         return;
@@ -696,11 +786,19 @@ static NplVal wind_transition_resume(NplVal environment, int64_t argc,
     return npl_nil();
 }
 
-void npl_wind_transfer(NplVal target, NplVal continuation, NplVal value)
+void npl_wind_transfer(NplVal target, NplVal target_handler,
+                       NplVal continuation, NplVal value)
 {
     if (!npl_is_nil(target))
         (void)require_wind_frame(target, "continuation");
+    if (!npl_is_nil(target_handler) &&
+        (!npl_is_ptr(target_handler) ||
+         npl_header(target_handler)->tag != BOX_HANDLER_FRAME)) {
+        fprintf(stderr, "continuation: invalid handler state\n");
+        exit(1);
+    }
     if (g_current_wind == target) {
+        g_current_handler = target_handler;
         npl_tail_request_closure(continuation, 1, &value);
         return;
     }
@@ -725,6 +823,7 @@ void npl_wind_transfer(NplVal target, NplVal continuation, NplVal value)
     transition->entry_count = entry_count;
     transition->entry_index = 0;
     transition->target = target;
+    transition->target_handler = target_handler;
     transition->continuation = continuation;
     transition->value = value;
     transition->entering = npl_nil();
@@ -981,6 +1080,7 @@ void npl_gc_mark_roots_internal(void)
     }
     npl_gc_mark_candidate_internal(g_args_list);
     npl_gc_mark_candidate_internal(g_current_wind);
+    npl_gc_mark_candidate_internal(g_current_handler);
     mark_tail_context_roots();
 }
 
@@ -1024,12 +1124,26 @@ void npl_gc_drain_internal(void)
         case BOX_WIND_TRANSITION: {
             NplWindTransition *transition = (NplWindTransition *)header;
             npl_gc_mark_candidate_internal(transition->target);
+            npl_gc_mark_candidate_internal(transition->target_handler);
             npl_gc_mark_candidate_internal(transition->continuation);
             npl_gc_mark_candidate_internal(transition->value);
             npl_gc_mark_candidate_internal(transition->entering);
             uint32_t count = transition->exit_count + transition->entry_count;
             for (uint32_t i = 0; i < count; i++)
                 npl_gc_mark_candidate_internal(transition->frames[i]);
+            break;
+        }
+        case BOX_HANDLER_FRAME: {
+            NplHandlerFrame *frame = (NplHandlerFrame *)header;
+            npl_gc_mark_candidate_internal(frame->parent);
+            npl_gc_mark_candidate_internal(frame->procedure);
+            break;
+        }
+        case BOX_RAISE_CONTEXT: {
+            NplRaiseContext *context = (NplRaiseContext *)header;
+            npl_gc_mark_candidate_internal(context->frame);
+            npl_gc_mark_candidate_internal(context->continuation);
+            npl_gc_mark_candidate_internal(context->value);
             break;
         }
         default:

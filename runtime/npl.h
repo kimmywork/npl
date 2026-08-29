@@ -41,6 +41,8 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_VALUES  7
 #define BOX_WIND_FRAME 8
 #define BOX_WIND_TRANSITION 9
+#define BOX_HANDLER_FRAME 10
+#define BOX_RAISE_CONTEXT 11
 
 #define NPL_FLAG_LITERAL 1
 #define IMM_CHAR_TAG 14
@@ -111,11 +113,27 @@ typedef struct {
     uint32_t entry_count;
     uint32_t entry_index;
     NplVal target;
+    NplVal target_handler;
     NplVal continuation;
     NplVal value;
     NplVal entering;
     NplVal frames[];
 } NplWindTransition;
+
+typedef struct {
+    NplHeader header;
+    NplVal parent;
+    NplVal procedure;
+} NplHandlerFrame;
+
+typedef struct {
+    NplHeader header;
+    NplVal frame;
+    NplVal continuation;
+    NplVal value;
+    uint32_t continuable;
+    uint32_t reserved;
+} NplRaiseContext;
 
 /* ---- Closure ---- */
 typedef struct {
@@ -233,7 +251,12 @@ void npl_values_dispatch(NplVal consumer, NplVal continuation, NplVal value);
 NplVal npl_current_wind(void);
 NplVal npl_wind_push(NplVal before, NplVal after);
 NplVal npl_wind_pop(NplVal frame);
-void npl_wind_transfer(NplVal target, NplVal continuation, NplVal value);
+NplVal npl_current_handler(void);
+NplVal npl_handler_push(NplVal procedure);
+NplVal npl_handler_pop(NplVal frame);
+void npl_raise(NplVal value, NplVal continuation, int64_t continuable);
+void npl_wind_transfer(NplVal target, NplVal target_handler,
+                       NplVal continuation, NplVal value);
 
 /* Get car/cdr of a pair */
 NplVal npl_car(NplVal v);

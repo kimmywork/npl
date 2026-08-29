@@ -1,0 +1,4 @@
+(define (main)
+  (with-exception-handler
+    (lambda (object) (raise object))
+    (lambda () (raise 42))))
