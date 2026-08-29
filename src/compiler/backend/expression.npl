@@ -361,6 +361,15 @@
                      (arg-tail-rest (cdr rest)))))
 
 
+(define (two-named-w qfn args env)
+  (check-arity args 2 2)
+  (let ((ops (eval-args-fixed args env 2 ())))
+    (let ((r (new-tmp)))
+      (func-line (string-append r " =l call $" qfn
+                                "(l " (car ops)
+                                ", l " (car (cdr ops)) ")"))
+      r)))
+
 (define (three-named-w qfn args env)
   (check-arity args 3 3)
   (let ((ops (eval-args-fixed args env 3 ())))
@@ -462,6 +471,14 @@
      (checked-call "npl_handler_push" 1 args env))
     ((string=? nm "npl_handler_pop")
      (checked-call "npl_handler_pop" 1 args env))
+    ((string=? nm "npl_make_parameter")
+     (two-named-w "npl_make_parameter" args env))
+    ((string=? nm "npl_parameter_converter")
+     (checked-call "npl_parameter_converter" 1 args env))
+    ((string=? nm "npl_parameters_enter")
+     (three-named-w "npl_parameters_enter" args env))
+    ((string=? nm "npl_parameters_leave")
+     (checked-call "npl_parameters_leave" 1 args env))
     (else (cmp-or-arith nm args env))))
 
 (define (registered-arity-accepts? arity count)

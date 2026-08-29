@@ -70,6 +70,7 @@ static char **g_argv_stored = NULL;
 static NplVal g_args_list = 2;
 static NplVal g_current_wind = 2;
 static NplVal g_current_handler = 2;
+static NplVal g_current_parameters = 2;
 static uint64_t g_next_wind_id = 1;
 
 static size_t align_up(size_t n, size_t alignment)
@@ -207,6 +208,7 @@ void npl_runtime_init(void)
     g_args_list = npl_nil();
     g_current_wind = npl_nil();
     g_current_handler = npl_nil();
+    g_current_parameters = npl_nil();
 }
 
 /* ---- Value constructors ---- */
@@ -586,6 +588,198 @@ NplVal npl_current_wind(void)
 NplVal npl_current_handler(void)
 {
     return g_current_handler;
+}
+
+static NplParameter *require_parameter(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PARAMETER) {
+        fprintf(stderr, "%s: not a parameter\n", who);
+        exit(1);
+    }
+    return (NplParameter *)npl_header(value);
+}
+
+NplVal npl_make_parameter(NplVal converter, NplVal value)
+{
+    if (!npl_is_nil(converter) &&
+        (!npl_is_ptr(converter) || npl_header(converter)->tag != BOX_CLOSURE)) {
+        fprintf(stderr, "make-parameter: converter is not a procedure\n");
+        exit(1);
+    }
+    NplParameter *parameter =
+        (NplParameter *)npl_alloc(sizeof(NplParameter));
+    parameter->header.tag = BOX_PARAMETER;
+    parameter->header.flags = 0;
+    parameter->converter = converter;
+    parameter->value = value;
+    return (NplVal)(uintptr_t)parameter | TAG_PTR;
+}
+
+NplVal npl_parameter_ref(NplVal parameter_value)
+{
+    (void)require_parameter(parameter_value, "parameter");
+    for (NplVal binding_value = g_current_parameters;
+         !npl_is_nil(binding_value);) {
+        if (!npl_is_ptr(binding_value) ||
+            npl_header(binding_value)->tag != BOX_PARAMETER_BINDING) {
+            fprintf(stderr, "parameter: invalid binding chain\n");
+            exit(1);
+        }
+        NplParameterBinding *binding =
+            (NplParameterBinding *)npl_header(binding_value);
+        if (binding->parameter == parameter_value) return binding->value;
+        binding_value = binding->parent;
+    }
+    return require_parameter(parameter_value, "parameter")->value;
+}
+
+NplVal npl_parameter_set(NplVal parameter_value, NplVal value)
+{
+    NplParameter *parameter = require_parameter(parameter_value, "parameter");
+    for (NplVal binding_value = g_current_parameters;
+         !npl_is_nil(binding_value);) {
+        NplParameterBinding *binding =
+            (NplParameterBinding *)npl_header(binding_value);
+        if (binding->parameter == parameter_value) {
+            binding->value = value;
+            return npl_nil();
+        }
+        binding_value = binding->parent;
+    }
+    parameter->value = value;
+    return npl_nil();
+}
+
+NplVal npl_parameter_converter(NplVal parameter_value)
+{
+    NplVal converter = require_parameter(
+        parameter_value, "parameterize")->converter;
+    return npl_is_nil(converter) ? npl_false() : converter;
+}
+
+static NplVector *require_parameter_vector(NplVal value)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_VECTOR) {
+        fprintf(stderr, "parameterize: invalid binding vectors\n");
+        exit(1);
+    }
+    return (NplVector *)npl_header(value);
+}
+
+NplVal npl_parameters_enter(NplVal parameters_value, NplVal values_value,
+                            NplVal frames_value)
+{
+    NplVector *parameters = require_parameter_vector(parameters_value);
+    NplVector *values = require_parameter_vector(values_value);
+    NplVector *frames = require_parameter_vector(frames_value);
+    if (parameters->length != values->length ||
+        parameters->length != frames->length) {
+        fprintf(stderr, "parameterize: inconsistent binding vectors\n");
+        exit(1);
+    }
+    for (uint32_t i = 0; i < parameters->length; i++) {
+        (void)require_parameter(parameters->data[i], "parameterize");
+        NplVal frame_value = frames->data[i];
+        if (frame_value == npl_false()) {
+            NplParameterBinding *created =
+                (NplParameterBinding *)npl_alloc(sizeof(NplParameterBinding));
+            created->header.tag = BOX_PARAMETER_BINDING;
+            created->header.flags = 0;
+            created->parent = g_current_parameters;
+            created->parameter = parameters->data[i];
+            created->value = values->data[i];
+            frame_value = (NplVal)(uintptr_t)created | TAG_PTR;
+            frames->data[i] = frame_value;
+        } else if (!npl_is_ptr(frame_value) ||
+                   npl_header(frame_value)->tag != BOX_PARAMETER_BINDING) {
+            fprintf(stderr, "parameterize: invalid binding reentry\n");
+            exit(1);
+        }
+        NplParameterBinding *binding =
+            (NplParameterBinding *)npl_header(frame_value);
+        if (binding->parameter != parameters->data[i] ||
+            binding->parent != g_current_parameters) {
+            fprintf(stderr, "parameterize: invalid binding reentry\n");
+            exit(1);
+        }
+        g_current_parameters = frame_value;
+    }
+    return npl_nil();
+}
+
+NplVal npl_parameters_leave(NplVal frames_value)
+{
+    NplVector *frames = require_parameter_vector(frames_value);
+    for (uint32_t i = frames->length; i > 0; i--) {
+        NplVal frame_value = frames->data[i - 1];
+        if (!npl_is_ptr(frame_value) ||
+            npl_header(frame_value)->tag != BOX_PARAMETER_BINDING ||
+            g_current_parameters != frame_value) {
+            fprintf(stderr, "parameterize: non-current binding exit\n");
+            exit(1);
+        }
+        NplParameterBinding *binding =
+            (NplParameterBinding *)npl_header(frame_value);
+        g_current_parameters = binding->parent;
+    }
+    return npl_nil();
+}
+
+static NplVal parameter_converted(NplVal environment, int64_t argc,
+                                  NplVal *argv)
+{
+    if (argc != 1 || !npl_is_ptr(environment) ||
+        npl_header(environment)->tag != BOX_PARAMETER_CONTEXT) {
+        fprintf(stderr, "parameter: invalid converter callback\n");
+        exit(1);
+    }
+    NplParameterContext *context =
+        (NplParameterContext *)npl_header(environment);
+    if (context->update) (void)npl_parameter_set(context->parameter, argv[0]);
+    NplVal result = context->update ? npl_nil() : argv[0];
+    npl_tail_request_closure(context->continuation, 1, &result);
+    return npl_nil();
+}
+
+static void parameter_convert(NplVal parameter_value, NplVal value,
+                              NplVal continuation, uint32_t update)
+{
+    NplParameter *parameter = require_parameter(parameter_value, "parameter");
+    if (npl_is_nil(parameter->converter)) {
+        if (update) (void)npl_parameter_set(parameter_value, value);
+        NplVal result = update ? npl_nil() : value;
+        npl_tail_request_closure(continuation, 1, &result);
+        return;
+    }
+    NplParameterContext *context =
+        (NplParameterContext *)npl_alloc(sizeof(NplParameterContext));
+    context->header.tag = BOX_PARAMETER_CONTEXT;
+    context->header.flags = 0;
+    context->parameter = parameter_value;
+    context->continuation = continuation;
+    context->update = update;
+    context->reserved = 0;
+    NplVal callback = npl_make_closure(
+        parameter_converted,
+        (NplVal)(uintptr_t)context | TAG_PTR, 1);
+    NplVal arguments[2] = { value, callback };
+    npl_tail_request_closure(parameter->converter, 2, arguments);
+}
+
+static void npl_parameter_dispatch(NplVal parameter, int64_t argc,
+                                   NplVal *argv)
+{
+    if (argc == 1) {
+        NplVal result = npl_parameter_ref(parameter);
+        npl_tail_request_closure(argv[0], 1, &result);
+        return;
+    }
+    if (argc == 2) {
+        parameter_convert(parameter, argv[0], argv[1], 1);
+        return;
+    }
+    fprintf(stderr, "parameter: expected zero or one argument\n");
+    exit(1);
 }
 
 NplVal npl_handler_push(NplVal procedure)
@@ -1081,6 +1275,7 @@ void npl_gc_mark_roots_internal(void)
     npl_gc_mark_candidate_internal(g_args_list);
     npl_gc_mark_candidate_internal(g_current_wind);
     npl_gc_mark_candidate_internal(g_current_handler);
+    npl_gc_mark_candidate_internal(g_current_parameters);
     mark_tail_context_roots();
 }
 
@@ -1144,6 +1339,25 @@ void npl_gc_drain_internal(void)
             npl_gc_mark_candidate_internal(context->frame);
             npl_gc_mark_candidate_internal(context->continuation);
             npl_gc_mark_candidate_internal(context->value);
+            break;
+        }
+        case BOX_PARAMETER: {
+            NplParameter *parameter = (NplParameter *)header;
+            npl_gc_mark_candidate_internal(parameter->converter);
+            npl_gc_mark_candidate_internal(parameter->value);
+            break;
+        }
+        case BOX_PARAMETER_BINDING: {
+            NplParameterBinding *binding = (NplParameterBinding *)header;
+            npl_gc_mark_candidate_internal(binding->parent);
+            npl_gc_mark_candidate_internal(binding->parameter);
+            npl_gc_mark_candidate_internal(binding->value);
+            break;
+        }
+        case BOX_PARAMETER_CONTEXT: {
+            NplParameterContext *context = (NplParameterContext *)header;
+            npl_gc_mark_candidate_internal(context->parameter);
+            npl_gc_mark_candidate_internal(context->continuation);
             break;
         }
         default:
@@ -1303,6 +1517,10 @@ static void report_closure_arity(const char *who, const NplClosure *closure,
 
 void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
 {
+    if (npl_is_ptr(value) && npl_header(value)->tag == BOX_PARAMETER) {
+        npl_parameter_dispatch(value, argc, argv);
+        return;
+    }
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE) {
         fprintf(stderr, "npl_tail_request_closure: not a closure\n");
         exit(1);
@@ -1359,6 +1577,10 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
 
 NplVal npl_apply(NplVal value, int64_t argc, NplVal *argv)
 {
+    if (npl_is_ptr(value) && npl_header(value)->tag == BOX_PARAMETER) {
+        npl_parameter_dispatch(value, argc, argv);
+        return npl_nil();
+    }
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE) {
         fprintf(stderr, "npl_apply: not a closure\n");
         exit(1);

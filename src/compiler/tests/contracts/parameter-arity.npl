@@ -1,0 +1,3 @@
+(define (main)
+  (let ((parameter (make-parameter 0)))
+    (parameter 1 2)))

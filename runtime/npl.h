@@ -43,6 +43,9 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_WIND_TRANSITION 9
 #define BOX_HANDLER_FRAME 10
 #define BOX_RAISE_CONTEXT 11
+#define BOX_PARAMETER 12
+#define BOX_PARAMETER_BINDING 13
+#define BOX_PARAMETER_CONTEXT 14
 
 #define NPL_FLAG_LITERAL 1
 #define IMM_CHAR_TAG 14
@@ -134,6 +137,27 @@ typedef struct {
     uint32_t continuable;
     uint32_t reserved;
 } NplRaiseContext;
+
+typedef struct {
+    NplHeader header;
+    NplVal converter;
+    NplVal value;
+} NplParameter;
+
+typedef struct {
+    NplHeader header;
+    NplVal parent;
+    NplVal parameter;
+    NplVal value;
+} NplParameterBinding;
+
+typedef struct {
+    NplHeader header;
+    NplVal parameter;
+    NplVal continuation;
+    uint32_t update;
+    uint32_t reserved;
+} NplParameterContext;
 
 /* ---- Closure ---- */
 typedef struct {
@@ -254,6 +278,12 @@ NplVal npl_wind_pop(NplVal frame);
 NplVal npl_current_handler(void);
 NplVal npl_handler_push(NplVal procedure);
 NplVal npl_handler_pop(NplVal frame);
+NplVal npl_make_parameter(NplVal converter, NplVal value);
+NplVal npl_parameter_ref(NplVal parameter);
+NplVal npl_parameter_set(NplVal parameter, NplVal value);
+NplVal npl_parameter_converter(NplVal parameter);
+NplVal npl_parameters_enter(NplVal parameters, NplVal values, NplVal frames);
+NplVal npl_parameters_leave(NplVal frames);
 void npl_raise(NplVal value, NplVal continuation, int64_t continuable);
 void npl_wind_transfer(NplVal target, NplVal target_handler,
                        NplVal continuation, NplVal value);

@@ -82,6 +82,10 @@
     ((string=? name "npl_current_handler") #t)
     ((string=? name "npl_handler_push") #t)
     ((string=? name "npl_handler_pop") #t)
+    ((string=? name "npl_make_parameter") #t)
+    ((string=? name "npl_parameter_converter") #t)
+    ((string=? name "npl_parameters_enter") #t)
+    ((string=? name "npl_parameters_leave") #t)
     (else #f)))
 
 (define (control-primitive-head? head)

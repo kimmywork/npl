@@ -121,4 +121,49 @@
              (return
                (cond clause ... (#t (raise condition)))))
            (lambda () body ...)))))))
+
+(define-syntax make-parameter
+  (syntax-rules ()
+    ((make-parameter value)
+     (npl_make_parameter (quote ()) value))
+    ((make-parameter value converter)
+     (let ((saved-value value) (saved-converter converter))
+       (call-with-values
+         (lambda () (saved-converter saved-value))
+         (lambda (converted)
+           (npl_make_parameter saved-converter converted)))))))
+
+(define-syntax parameterize
+  (syntax-rules ()
+    ((parameterize bindings)
+     (syntax-error \"parameterize needs a body\"))
+    ((parameterize () body ...)
+     (begin body ...))
+    ((parameterize ((parameter value) ...) body ...)
+     (let ((parameters (vector parameter ...))
+           (new-values (vector value ...))
+           (converted-values (vector (if #t #f parameter) ...))
+           (frames (vector (if #t #f parameter) ...)))
+       (letrec
+         ((convert
+            (lambda (index)
+              (if (= index (vector-length parameters))
+                  (dynamic-wind
+                    (lambda ()
+                      (npl_parameters_enter
+                        parameters converted-values frames))
+                    (lambda () body ...)
+                    (lambda () (npl_parameters_leave frames)))
+                  (let ((converter
+                          (npl_parameter_converter
+                            (vector-ref parameters index))))
+                    (call-with-values
+                      (lambda ()
+                        (if converter
+                            (converter (vector-ref new-values index))
+                            (vector-ref new-values index)))
+                      (lambda (converted)
+                        (vector-set! converted-values index converted)
+                        (convert (+ index 1)))))))))
+         (convert 0))))))
 ")

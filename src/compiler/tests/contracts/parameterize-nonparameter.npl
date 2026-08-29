@@ -1,0 +1,2 @@
+(define (main)
+  (parameterize ((42 1)) 0))

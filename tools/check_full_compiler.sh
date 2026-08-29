@@ -93,6 +93,7 @@ run_suite continuations "PASS continuations 7"
 run_suite dynamic-wind "PASS dynamic-wind 5"
 run_suite exceptions "PASS exceptions 6"
 run_suite guard "PASS guard 5"
+run_suite parameters "PASS parameters 10"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2
     exit 1
@@ -130,6 +131,10 @@ reject_runtime contracts/uncaught-exception.npl \
     uncaught-exception "uncaught exception"
 reject_runtime contracts/handler-secondary-raise.npl \
     handler-secondary-raise "uncaught exception"
+reject_runtime contracts/parameter-arity.npl \
+    parameter-arity "parameter: expected zero or one argument"
+reject_runtime contracts/parameterize-nonparameter.npl \
+    parameterize-nonparameter "parameterize: not a parameter"
 
 reject_reader bad-dotted "expected ) after dotted datum"
 reject_reader bad-byte "bytevector literal byte out of range"
@@ -186,6 +191,9 @@ reject_compile macro-errors/case-else-not-last.npl \
     case-else-not-last "malformed case clauses"
 reject_compile macro-errors/malformed-do-binding.npl \
     malformed-do-binding "macro use does not match any syntax rule: do"
+reject_compile macro-errors/malformed-parameterize-binding.npl \
+    malformed-parameterize-binding \
+    "macro use does not match any syntax rule: parameterize"
 
 echo "full compiler dynamic core: PASS"
 echo "full compiler reader/datum: PASS"
