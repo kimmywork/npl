@@ -1,0 +1,5 @@
+(define (main)
+  (+ 0
+     (call/cc
+       (lambda (continuation)
+         (continuation 20 22)))))

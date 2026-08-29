@@ -210,7 +210,10 @@
         (let ((local (env-lookup env (cdr head))))
           (if (> (string-length local) 0)
               (emit-closure-call (read-cell-op local) (cdr e) env)
-              (route-call (cdr head) (cdr e) env)))
+              (if (> (string-length (lookup-glob (cdr head))) 0)
+                  (emit-closure-call (symbol-value (cdr head) env)
+                                     (cdr e) env)
+                  (route-call (cdr head) (cdr e) env))))
         (emit-closure-call (emit-expr head env) (cdr e) env))))
 
 (define (store-argv ops base index)
@@ -445,6 +448,8 @@
      (checked-call "npl_expect_one" 1 args env))
     ((string=? nm "npl_make_values")
      (collection-call "npl_make_values" args env))
+    ((string=? nm "npl_list_to_values")
+     (checked-call "npl_list_to_values" 1 args env))
     (else (cmp-or-arith nm args env))))
 
 (define (registered-arity-accepts? arity count)

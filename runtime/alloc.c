@@ -498,6 +498,35 @@ NplVal npl_make_values(int64_t argc, NplVal *argv)
     return (NplVal)(uintptr_t)values | TAG_PTR;
 }
 
+NplVal npl_list_to_values(NplVal list)
+{
+    int64_t count = 0;
+    for (NplVal rest = list; !npl_is_nil(rest); rest = npl_cdr(rest)) {
+        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR) {
+            fprintf(stderr, "continuation: arguments are not a proper list\n");
+            exit(1);
+        }
+        if ((uint64_t)count == UINT32_MAX) runtime_oom();
+        count++;
+    }
+    if (count == 1) return npl_car(list);
+
+    npl_gc_root(&list);
+    NplValues *values = (NplValues *)npl_alloc(
+        sizeof(NplValues) + (size_t)count * sizeof(NplVal));
+    values->header.tag = BOX_VALUES;
+    values->header.flags = 0;
+    values->count = (uint32_t)count;
+    values->capacity = (uint32_t)count;
+    NplVal rest = list;
+    for (int64_t i = 0; i < count; i++) {
+        values->data[i] = npl_car(rest);
+        rest = npl_cdr(rest);
+    }
+    npl_gc_unroot(&list);
+    return (NplVal)(uintptr_t)values | TAG_PTR;
+}
+
 NplVal npl_expect_one(NplVal value)
 {
     if (npl_is_ptr(value) && npl_header(value)->tag == BOX_VALUES) {

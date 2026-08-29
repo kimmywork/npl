@@ -1,0 +1,89 @@
+(include "framework.npl")
+
+(define saved-continuation #f)
+(define continuation-phase 0)
+(define continuation-mutation 0)
+
+(define (capture-for-later)
+  (call/cc
+    (lambda (continuation)
+      (set! saved-continuation continuation)
+      10)))
+
+(define (multi-shot-after-return)
+  (let ((value (capture-for-later)))
+    (cond
+      ((= continuation-phase 0)
+       (set! continuation-phase 1)
+       (saved-continuation 20))
+      ((= continuation-phase 1)
+       (set! continuation-phase 2)
+       (saved-continuation 41))
+      (else (+ value 1)))))
+
+(define (main)
+  (test-equal "immediate escape"
+              (lambda ()
+                (+ 1
+                  (call/cc
+                    (lambda (continuation)
+                      (continuation 41)
+                      0))))
+              42)
+  (test-equal "normal call/cc return"
+              (lambda ()
+                (call-with-current-continuation
+                  (lambda (continuation) 42)))
+              42)
+  (test-equal "unlimited extent and multi-shot"
+              (lambda ()
+                (set! continuation-phase 0)
+                (multi-shot-after-return))
+              42)
+  (test-equal "mutation across re-entry"
+              (lambda ()
+                (let ((continuation #f))
+                  (let ((value
+                          (call/cc
+                            (lambda (captured)
+                              (set! continuation captured)
+                              0))))
+                    (set! continuation-mutation
+                          (+ continuation-mutation 1))
+                    (if (= continuation-mutation 1)
+                        (continuation 40)
+                        (+ value continuation-mutation)))))
+              42)
+  (test-equal "multiple values through continuation"
+              (lambda ()
+                (call-with-values
+                  (lambda ()
+                    (call/cc
+                      (lambda (continuation)
+                        (continuation 20 22))))
+                  (lambda (left right) (+ left right))))
+              42)
+  (test-equal "continuation stored in closure"
+              (lambda ()
+                (let ((resume #f))
+                  (let ((value
+                          (call/cc
+                            (lambda (continuation)
+                              (set! resume
+                                (lambda (next)
+                                  (continuation next)))
+                              0))))
+                    (if (= value 0)
+                        (resume 42)
+                        value))))
+              42)
+  (test-equal "nested continuation escape"
+              (lambda ()
+                (call/cc
+                  (lambda (outer)
+                    (+ 1
+                      (call/cc
+                        (lambda (inner)
+                          (outer 42)))))))
+              42)
+  (finish-tests "continuations"))

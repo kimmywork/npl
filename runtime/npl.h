@@ -204,6 +204,7 @@ NplVal npl_char_to_integer(NplVal value);
 NplVal npl_integer_to_char(NplVal value);
 NplVal npl_append(NplVal left, NplVal right);
 NplVal npl_make_values(int64_t argc, NplVal *argv);
+NplVal npl_list_to_values(NplVal list);
 NplVal npl_expect_one(NplVal value);
 void npl_values_dispatch(NplVal consumer, NplVal continuation, NplVal value);
 

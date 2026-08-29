@@ -89,6 +89,11 @@ run_suite macro-scopes "PASS macro-scopes 10"
 run_suite derived-forms "PASS derived-forms 17"
 run_suite explicit-control "PASS explicit-control 2"
 run_suite multiple-values "PASS multiple-values 13"
+run_suite continuations "PASS continuations 7"
+if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
+    echo "full compiler continuations used escape-only runtime path" >&2
+    exit 1
+fi
 
 reject_literal_mutation literal-vector-mutation \
     "vector-set!: cannot mutate a literal"
@@ -106,6 +111,12 @@ reject_runtime contracts/value-consumer-arity.npl \
 reject_runtime contracts/dotted-value-consumer-arity.npl \
     dotted-value-consumer-arity \
     "npl_tail_request_closure: expected at least 2 arguments, got 1"
+reject_runtime contracts/continuation-zero-values.npl \
+    continuation-zero-values \
+    "value context: expected 1 value, got 0"
+reject_runtime contracts/continuation-multiple-values.npl \
+    continuation-multiple-values \
+    "value context: expected 1 value, got 2"
 
 reject_reader bad-dotted "expected ) after dotted datum"
 reject_reader bad-byte "bytevector literal byte out of range"
