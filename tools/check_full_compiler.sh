@@ -81,6 +81,7 @@ run_suite macros-basic "PASS macros-basic 10"
 run_suite macro-ellipsis "PASS macro-ellipsis 9"
 run_suite macro-scopes "PASS macro-scopes 10"
 run_suite derived-forms "PASS derived-forms 17"
+run_suite explicit-control "PASS explicit-control 2"
 
 reject_literal_mutation literal-vector-mutation \
     "vector-set!: cannot mutate a literal"

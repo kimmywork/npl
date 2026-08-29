@@ -147,12 +147,18 @@
   (func-line "ret 2")
   (func-line "}"))
 
-(define (dump-and-print)
-  ; $npl_global_inits: with a real body when any global had a runtime-
-  ; computed initializer, else the empty stub (main always calls it)
+(define (flush-code-buffers)
   (print-lines (rev (cell-get DATA-BUF)))
   (print-lines (rev (cell-get LAMBDA-BUF)))
   (print-lines (rev (cell-get FUNC-BUF)))
+  (cell-set! DATA-BUF ())
+  (cell-set! LAMBDA-BUF ())
+  (cell-set! FUNC-BUF ()))
+
+(define (dump-and-print)
+  ; Top-level forms are flushed incrementally. Only runtime initializer code
+  ; remains until its enclosing function can be emitted.
+  (flush-code-buffers)
   (if (= (cell-get HAS-INIT) 7)
       (begin
         (display "function l $npl_global_inits() {")
@@ -194,7 +200,9 @@
             (expand-includes (parse-source-file path)
                              (path-dir path)
                              (cons path ()))))
-      (let ((forms (lower-program (expand-program raw-forms))))
+      (let ((forms
+              (control-program
+                (lower-program (expand-program raw-forms)))))
         (begin
           (pass-register-functions forms)
           (emit-all-forms forms)
@@ -203,8 +211,10 @@
 (define (emit-all-forms forms)
   (if (null? forms)
       0
-      (begin (emit-top-level (car forms))
-             (emit-all-forms (cdr forms)))))
+      (begin
+        (emit-top-level (car forms))
+        (flush-code-buffers)
+        (emit-all-forms (cdr forms)))))
 
 (define (main)
   (begin

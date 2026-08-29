@@ -99,8 +99,9 @@
                     (emit-tail-body body lambda-env)
                     (cell-set! CURRENT-FUNC saved-func))))
               (func-line "}")
-              (cell-set! LAMBDA-BUF
-                (append-list (cell-get LOCAL-BUF) (cell-get LAMBDA-BUF)))
+              (print-lines (rev (cell-get DATA-BUF)))
+              (cell-set! DATA-BUF ())
+              (print-lines (rev (cell-get LOCAL-BUF)))
               (cell-set! LOCAL-BUF saved-local)
               (cell-set! CURBUF saved-mode)
               (let ((environment (emit-capture-environment captures)))

@@ -24,7 +24,6 @@
 #define NPL_META_MAGIC_LIVE UINT64_C(0x4e504c4d45544131)
 #define NPL_META_MAGIC_FREE UINT64_C(0x4e504c4d45544130)
 #define MAX_ROOTS 1024
-#define NPL_MAX_CALL_ARGS 16
 
 typedef struct NplChunk NplChunk;
 typedef struct NplAllocMeta NplAllocMeta;
@@ -33,6 +32,7 @@ struct NplChunk {
     NplChunk *next;
     size_t map_size;
     size_t used;
+    size_t live_blocks;
     unsigned char data[];
 };
 
@@ -62,6 +62,8 @@ static int g_root_count = 0;
 static uintptr_t g_stack_bottom = 0;
 static int g_runtime_initialized = 0;
 static int g_gc_running = 0;
+
+static void mark_tail_context_roots(void);
 
 static int g_argc_stored = 0;
 static char **g_argv_stored = NULL;
@@ -93,6 +95,7 @@ static NplChunk *map_chunk(size_t need)
     chunk->next = g_chunks;
     chunk->map_size = map_size;
     chunk->used = header;
+    chunk->live_blocks = 0;
     g_chunks = chunk;
     return chunk;
 }
@@ -118,18 +121,40 @@ static NplAllocMeta *find_managed_meta(const void *object)
     return NULL;
 }
 
-static NplAllocMeta *take_free_block(size_t size)
+static NplChunk *find_chunk_containing(const void *object)
 {
-    NplAllocMeta **link = &g_free_head;
-    while (*link) {
-        if ((*link)->capacity >= size) {
-            NplAllocMeta *meta = *link;
-            *link = meta->free_next;
-            return meta;
-        }
-        link = &(*link)->free_next;
+    uintptr_t address = (uintptr_t)object;
+    for (NplChunk *chunk = g_chunks; chunk; chunk = chunk->next) {
+        uintptr_t begin = (uintptr_t)chunk;
+        if (address >= begin && address < begin + chunk->used) return chunk;
     }
     return NULL;
+}
+
+static NplAllocMeta *take_free_block(size_t size)
+{
+    NplAllocMeta **best_link = NULL;
+    for (NplAllocMeta **link = &g_free_head; *link;
+         link = &(*link)->free_next) {
+        if ((*link)->capacity >= size &&
+            (!best_link || (*link)->capacity < (*best_link)->capacity))
+            best_link = link;
+    }
+    if (!best_link) return NULL;
+
+    NplAllocMeta *meta = *best_link;
+    *best_link = meta->free_next;
+    if (meta->capacity >= size + NPL_META_SIZE + NPL_ALIGN) {
+        NplAllocMeta *remainder = (NplAllocMeta *)(
+            (unsigned char *)meta + NPL_META_SIZE + size);
+        memset(remainder, 0, NPL_META_SIZE);
+        remainder->magic = NPL_META_MAGIC_FREE;
+        remainder->capacity = meta->capacity - size - NPL_META_SIZE;
+        remainder->free_next = g_free_head;
+        g_free_head = remainder;
+        meta->capacity = size;
+    }
+    return meta;
 }
 
 static void *npl_alloc(size_t size)
@@ -152,6 +177,9 @@ static void *npl_alloc(size_t size)
         meta->capacity = size;
     }
 
+    NplChunk *owner = find_chunk_containing(meta);
+    if (!owner) runtime_oom();
+    owner->live_blocks++;
     meta->magic = NPL_META_MAGIC_LIVE;
     meta->size = size;
     meta->marked = 0;
@@ -455,7 +483,7 @@ NplVal npl_append(NplVal left, NplVal right)
 
 NplVal npl_make_environment(int64_t argc, NplVal *argv)
 {
-    if (argc < 0 || argc > NPL_MAX_CALL_ARGS) {
+    if (argc < 0 || (uint64_t)argc > UINT32_MAX) {
         fprintf(stderr, "npl_make_environment: unsupported size %lld\n",
                 (long long)argc);
         exit(1);
@@ -487,7 +515,7 @@ NplVal npl_environment_ref(NplVal value, int64_t index)
 NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
                         int64_t arity)
 {
-    if (arity < 0 || arity > NPL_MAX_CALL_ARGS) {
+    if (arity < 0) {
         fprintf(stderr, "npl_make_closure: unsupported arity %lld\n",
                 (long long)arity);
         exit(1);
@@ -683,6 +711,7 @@ void npl_gc_mark_roots_internal(void)
         if (g_roots[i]) npl_gc_mark_candidate_internal(*g_roots[i]);
     }
     npl_gc_mark_candidate_internal(g_args_list);
+    mark_tail_context_roots();
 }
 
 void npl_gc_drain_internal(void)
@@ -715,6 +744,36 @@ void npl_gc_drain_internal(void)
     }
 }
 
+static int pointer_in_chunk(const void *pointer, const NplChunk *chunk)
+{
+    uintptr_t address = (uintptr_t)pointer;
+    uintptr_t begin = (uintptr_t)chunk;
+    return address >= begin && address < begin + chunk->used;
+}
+
+static void reclaim_empty_chunks(void)
+{
+    NplChunk **chunk_link = &g_chunks;
+    while (*chunk_link) {
+        NplChunk *chunk = *chunk_link;
+        if (chunk->live_blocks != 0) {
+            chunk_link = &chunk->next;
+            continue;
+        }
+
+        NplAllocMeta **free_link = &g_free_head;
+        while (*free_link) {
+            if (pointer_in_chunk(*free_link, chunk))
+                *free_link = (*free_link)->free_next;
+            else
+                free_link = &(*free_link)->free_next;
+        }
+
+        *chunk_link = chunk->next;
+        if (munmap(chunk, chunk->map_size) != 0) runtime_oom();
+    }
+}
+
 void npl_gc_sweep_internal(void)
 {
     NplAllocMeta **link = &g_alloc_head;
@@ -728,6 +787,9 @@ void npl_gc_sweep_internal(void)
         }
 
         *link = meta->all_next;
+        NplChunk *owner = find_chunk_containing(meta);
+        if (!owner || owner->live_blocks == 0) runtime_oom();
+        owner->live_blocks--;
         g_allocated -= meta->size;
         g_live_objects--;
         meta->magic = NPL_META_MAGIC_FREE;
@@ -739,6 +801,7 @@ void npl_gc_sweep_internal(void)
 
     g_threshold = g_allocated * 2;
     if (g_threshold < 1024 * 1024) g_threshold = 1024 * 1024;
+    reclaim_empty_chunks();
     g_collections++;
     g_gc_running = 0;
 }
@@ -760,11 +823,22 @@ typedef struct NplTailContext {
     NplGenericFunction function;
     NplVal environment;
     int64_t argc;
-    NplVal argv[NPL_MAX_CALL_ARGS];
+    NplVal *arguments;
+    size_t argument_capacity;
     int pending;
 } NplTailContext;
 
 static NplTailContext *g_tail_context = NULL;
+
+static void mark_tail_context_roots(void)
+{
+    for (NplTailContext *context = g_tail_context; context;
+         context = context->previous) {
+        npl_gc_mark_candidate_internal(context->environment);
+        for (int64_t i = 0; i < context->argc; i++)
+            npl_gc_mark_candidate_internal(context->arguments[i]);
+    }
+}
 
 void npl_tail_request(NplGenericFunction function, NplVal environment,
                       int64_t argc, NplVal *argv)
@@ -773,16 +847,30 @@ void npl_tail_request(NplGenericFunction function, NplVal environment,
         fprintf(stderr, "npl_tail_request: no active trampoline\n");
         exit(1);
     }
-    if (argc < 0 || argc > NPL_MAX_CALL_ARGS) {
+    if (argc < 0 || (uint64_t)argc > UINT32_MAX) {
         fprintf(stderr, "npl_tail_request: unsupported arity %lld\n",
                 (long long)argc);
         exit(1);
     }
 
+    if ((uint64_t)argc > g_tail_context->argument_capacity) {
+        size_t capacity = g_tail_context->argument_capacity;
+        if (capacity == 0) capacity = 8;
+        while (capacity < (uint64_t)argc) {
+            if (capacity > SIZE_MAX / 2) runtime_oom();
+            capacity *= 2;
+        }
+        NplVal *arguments = (NplVal *)realloc(
+            g_tail_context->arguments, capacity * sizeof(NplVal));
+        if (!arguments) runtime_oom();
+        g_tail_context->arguments = arguments;
+        g_tail_context->argument_capacity = capacity;
+    }
+    for (int64_t i = 0; i < argc; i++)
+        g_tail_context->arguments[i] = argv[i];
     g_tail_context->function = function;
     g_tail_context->environment = environment;
     g_tail_context->argc = argc;
-    for (int64_t i = 0; i < argc; i++) g_tail_context->argv[i] = argv[i];
     g_tail_context->pending = 1;
 }
 
@@ -805,11 +893,31 @@ void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
 NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
                       int64_t argc, NplVal *argv)
 {
+    uintptr_t stack_boundary = 0;
+    uintptr_t saved_stack_bottom = g_stack_bottom;
     NplTailContext context;
     context.previous = g_tail_context;
+    context.function = function;
+    context.environment = environment;
+    context.argc = argc;
+    context.arguments = NULL;
+    context.argument_capacity = 0;
+    if (argc < 0 || (uint64_t)argc > UINT32_MAX) {
+        fprintf(stderr, "npl_trampoline: unsupported arity %lld\n",
+                (long long)argc);
+        exit(1);
+    }
+    if (argc > 0) {
+        context.arguments = (NplVal *)malloc((size_t)argc * sizeof(NplVal));
+        if (!context.arguments) runtime_oom();
+        context.argument_capacity = (size_t)argc;
+        for (int64_t i = 0; i < argc; i++) context.arguments[i] = argv[i];
+    }
     g_tail_context = &context;
+    g_stack_bottom = (uintptr_t)(void *)&stack_boundary;
 
     NplVal result = npl_nil();
+    argv = context.arguments;
     for (;;) {
         context.pending = 0;
         result = function(environment, argc, argv);
@@ -817,9 +925,11 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
         function = context.function;
         environment = context.environment;
         argc = context.argc;
-        argv = context.argv;
+        argv = context.arguments;
     }
 
+    g_stack_bottom = saved_stack_bottom;
+    free(context.arguments);
     g_tail_context = context.previous;
     return result;
 }

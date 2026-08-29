@@ -1,0 +1,561 @@
+; Whole-program CPS conversion for the evolving full compiler.
+;
+; Primitive operations remain synchronous. Every source procedure receives an
+; explicit final continuation argument, and every source procedure/closure call
+; is emitted in tail position. Generated continuation lambdas are ordinary heap
+; closures whose bodies are already in CPS.
+
+(define CONTROL-NEXT-NAME (cell 0))
+(define CONTROL-MAIN-SOURCE "main")
+(define CONTROL-MAIN-TARGET "_npl_control_main")
+
+(define (control-fresh-name prefix)
+  (cell-set! CONTROL-NEXT-NAME (+ 1 (cell-get CONTROL-NEXT-NAME)))
+  (string-append prefix (number->string (cell-get CONTROL-NEXT-NAME))))
+
+(define (control-symbol name) (cons 100 name))
+
+(define (control-tagged? expression tag)
+  (if (pair-shape? expression)
+      (if (number? (car expression)) (= (car expression) tag) #f)
+      #f))
+
+(define (control-primitive-name? name)
+  (cond
+    ((string=? name "+") #t)
+    ((string=? name "-") #t)
+    ((string=? name "*") #t)
+    ((string=? name "<") #t)
+    ((string=? name ">") #t)
+    ((string=? name "=") #t)
+    ((string=? name "<=") #t)
+    ((string=? name ">=") #t)
+    ((string=? name "string-ref") #t)
+    ((string=? name "substring") #t)
+    ((string=? name "int->string") #t)
+    ((string=? name "npl_tagged_num_to_string") #t)
+    ((string=? name "npl_lex_class_w") #t)
+    ((string=? name "npl_lex_scan_sym_end") #t)
+    ((string=? name "npl_lex_number") #t)
+    ((string=? name "number?") #t)
+    ((string=? name "cons") #t)
+    ((string=? name "car") #t)
+    ((string=? name "cdr") #t)
+    ((string=? name "display") #t)
+    ((string=? name "newline") #t)
+    ((string=? name "null?") #t)
+    ((string=? name "pair?") #t)
+    ((string=? name "not") #t)
+    ((string=? name "eq?") #t)
+    ((string=? name "eqv?") #t)
+    ((string=? name "exit") #t)
+    ((string=? name "program-arguments") #t)
+    ((string=? name "set-car!") #t)
+    ((string=? name "set-cdr!") #t)
+    ((string=? name "string-append") #t)
+    ((string=? name "number->string") #t)
+    ((string=? name "symbol->string") #t)
+    ((string=? name "string-length") #t)
+    ((string=? name "string=?") #t)
+    ((string=? name "read-file") #t)
+    ((string=? name "append") #t)
+    ((string=? name "vector") #t)
+    ((string=? name "list->vector") #t)
+    ((string=? name "vector?") #t)
+    ((string=? name "vector-length") #t)
+    ((string=? name "vector-ref") #t)
+    ((string=? name "vector-set!") #t)
+    ((string=? name "bytevector") #t)
+    ((string=? name "bytevector?") #t)
+    ((string=? name "bytevector-length") #t)
+    ((string=? name "bytevector-u8-ref") #t)
+    ((string=? name "bytevector-u8-set!") #t)
+    ((string=? name "char?") #t)
+    ((string=? name "char->integer") #t)
+    ((string=? name "integer->char") #t)
+    (else #f)))
+
+(define (control-primitive-head? head)
+  (if (sym-atom? head)
+      (control-primitive-name? (cdr head))
+      #f))
+
+(define (control-simple-list? expressions)
+  (if (null? expressions)
+      #t
+      (if (control-simple? (car expressions))
+          (control-simple-list? (cdr expressions))
+          #f)))
+
+(define (control-simple? expression)
+  (cond
+    ((number? expression) #t)
+    ((null? expression) #t)
+    ((not (pair-shape? expression)) #f)
+    ((not (number? (car expression)))
+     (if (control-primitive-head? (car expression))
+         (control-simple-list? (cdr expression))
+         #f))
+    ((= (car expression) 212) #t)
+    ((= (car expression) 100) #t)
+    ((= (car expression) 101) #t)
+    ((= (car expression) 102) #t)
+    ((= (car expression) 103) #t)
+    ((= (car expression) 104) #t)
+    ((= (car expression) 108) #t)
+    ((= (car expression) 109) #t)
+    ((= (car expression) 204) #t)
+    (else #f)))
+
+(define (control-transform-simple-list expressions)
+  (if (null? expressions)
+      ()
+      (cons (control-transform-simple (car expressions))
+            (control-transform-simple-list (cdr expressions)))))
+
+(define (control-transform-symbol expression)
+  (if (string=? (cdr expression) CONTROL-MAIN-SOURCE)
+      (control-symbol CONTROL-MAIN-TARGET)
+      expression))
+
+(define (control-transform-simple expression)
+  (cond
+    ((number? expression) expression)
+    ((null? expression) expression)
+    ((not (number? (car expression)))
+     (cons (control-transform-simple (car expression))
+           (control-transform-simple-list (cdr expression))))
+    ((= (car expression) 100) (control-transform-symbol expression))
+    ((= (car expression) 212) (control-transform-lambda expression))
+    (else expression)))
+
+(define (control-continuation parameter body)
+  (cons 212
+        (cons (cons (control-symbol parameter) ())
+              (cons (cons body ()) ()))))
+
+(define (control-send continuation value)
+  (cons continuation (cons value ())))
+
+(define (control-append-one values value)
+  (if (null? values)
+      (cons value ())
+      (cons (car values)
+            (control-append-one (cdr values) value))))
+
+(define (control-evaluate-list expressions values finish)
+  (if (null? expressions)
+      (finish (rev values))
+      (if (control-simple? (car expressions))
+          (control-evaluate-list
+            (cdr expressions)
+            (cons (control-transform-simple (car expressions)) values)
+            finish)
+          (let ((temporary (control-fresh-name "_npl_value_")))
+            (control-cps-expression
+              (car expressions)
+              (control-continuation
+                temporary
+                (control-evaluate-list
+                  (cdr expressions)
+                  (cons (control-symbol temporary) values)
+                  finish)))))))
+
+(define (control-cps-primitive application continuation)
+  (control-evaluate-list
+    (cdr application) ()
+    (lambda (arguments)
+      (control-send
+        continuation
+        (cons (car application) arguments)))))
+
+(define (control-call-head head)
+  (if (if (sym-atom? head)
+          (string=? (cdr head) CONTROL-MAIN-SOURCE)
+          #f)
+      (control-symbol CONTROL-MAIN-TARGET)
+      head))
+
+(define (control-cps-known-call head arguments continuation)
+  (control-evaluate-list
+    arguments ()
+    (lambda (values)
+      (cons (control-call-head head)
+            (control-append-one values continuation)))))
+
+(define (control-cps-application application continuation)
+  (let ((head (car application)))
+    (if (control-primitive-head? head)
+        (control-cps-primitive application continuation)
+        (if (sym-atom? head)
+            (control-cps-known-call head (cdr application) continuation)
+            (if (control-simple? head)
+                (control-cps-known-call
+                  (control-transform-simple head)
+                  (cdr application) continuation)
+                (let ((callee-name (control-fresh-name "_npl_callee_")))
+                  (control-cps-expression
+                    head
+                    (control-continuation
+                      callee-name
+                      (control-cps-known-call
+                        (control-symbol callee-name)
+                        (cdr application) continuation)))))))))
+
+(define (control-cps-if-branches test expression continuation)
+  (cons 213
+    (cons test
+      (cons
+        (control-cps-expression
+          (car (cdr (cdr expression))) continuation)
+        (cons
+          (control-cps-expression
+            (car (cdr (cdr (cdr expression)))) continuation)
+          ())))))
+
+(define (control-cps-if expression continuation)
+  (let ((test (car (cdr expression))))
+    (if (control-simple? test)
+        (control-cps-if-branches
+          (control-transform-simple test) expression continuation)
+        (let ((test-name (control-fresh-name "_npl_test_")))
+          (control-cps-expression
+            test
+            (control-continuation
+              test-name
+              (control-cps-if-branches
+                (control-symbol test-name)
+                expression continuation)))))))
+
+(define (control-cps-sequence expressions continuation)
+  (if (null? expressions)
+      (control-send continuation ())
+      (if (null? (cdr expressions))
+          (control-cps-expression (car expressions) continuation)
+          (let ((ignored (control-fresh-name "_npl_ignored_")))
+            (control-cps-expression
+              (car expressions)
+              (control-continuation
+                ignored
+                (control-cps-sequence
+                  (cdr expressions) continuation)))))))
+
+(define (control-set-and-continue expression value continuation)
+  (cons 216
+    (cons
+      (cons 217
+        (cons (car (cdr expression))
+              (cons value ())))
+      (cons (control-send continuation ()) ()))))
+
+(define (control-cps-set expression continuation)
+  (let ((value (car (cdr (cdr expression)))))
+    (if (control-simple? value)
+        (control-set-and-continue
+          expression (control-transform-simple value) continuation)
+        (let ((value-name (control-fresh-name "_npl_set_value_")))
+          (control-cps-expression
+            value
+            (control-continuation
+              value-name
+              (control-set-and-continue
+                expression (control-symbol value-name)
+                continuation)))))))
+
+(define (control-binding-names bindings)
+  (if (null? bindings)
+      ()
+      (cons (car (car bindings))
+            (control-binding-names (cdr bindings)))))
+
+(define (control-binding-values bindings)
+  (if (null? bindings)
+      ()
+      (cons (cdr (car bindings))
+            (control-binding-values (cdr bindings)))))
+
+(define (control-cps-let expression continuation)
+  (let ((bindings (car (cdr expression))))
+    (let ((lambda-expression
+            (cons 212
+              (cons (control-binding-names bindings)
+                    (cons (car (cdr (cdr expression))) ())))))
+      (control-cps-application
+        (cons lambda-expression (control-binding-values bindings))
+        continuation))))
+
+(define (control-single-let binding body)
+  (cons 214
+    (cons (cons binding ())
+          (cons (cons body ()) ()))))
+
+(define (control-expand-letstar bindings body)
+  (if (null? bindings)
+      (if (null? (cdr body))
+          (car body)
+          (cons 216 body))
+      (control-single-let
+        (car bindings)
+        (control-expand-letstar (cdr bindings) body))))
+
+(define (control-placeholder-bindings bindings)
+  (if (null? bindings)
+      ()
+      (cons (cons (car (car bindings)) ())
+            (control-placeholder-bindings (cdr bindings)))))
+
+(define (control-assignment name value)
+  (cons 217 (cons name (cons value ()))))
+
+(define (control-assignments names values tail)
+  (if (null? names)
+      tail
+      (cons (control-assignment (car names) (car values))
+            (control-assignments (cdr names) (cdr values) tail))))
+
+(define (control-cps-letrec-parallel bindings body continuation)
+  (let ((names (control-binding-names bindings)))
+    (cons 222
+      (cons (control-placeholder-bindings bindings)
+        (cons
+          (cons
+            (control-evaluate-list
+              (control-binding-values bindings) ()
+              (lambda (values)
+                (cons 216
+                  (control-assignments
+                    names values
+                    (cons (control-cps-sequence body continuation) ())))))
+            ())
+          ())))))
+
+(define (control-cps-letrec-sequential bindings body continuation)
+  (if (null? bindings)
+      (control-cps-sequence body continuation)
+      (let ((value-name (control-fresh-name "_npl_init_")))
+        (control-cps-expression
+          (cdr (car bindings))
+          (control-continuation
+            value-name
+            (cons 216
+              (cons
+                (control-assignment
+                  (car (car bindings)) (control-symbol value-name))
+                (cons
+                  (control-cps-letrec-sequential
+                    (cdr bindings) body continuation)
+                  ()))))))))
+
+(define (control-cps-letrec expression continuation sequential)
+  (let ((bindings (car (cdr expression))))
+    (let ((body (car (cdr (cdr expression)))))
+      (if sequential
+          (cons 222
+            (cons (control-placeholder-bindings bindings)
+              (cons
+                (cons
+                  (control-cps-letrec-sequential
+                    bindings body continuation)
+                  ())
+                ())))
+          (control-cps-letrec-parallel
+            bindings body continuation)))))
+
+(define (control-internal-definition? expression)
+  (if (pair-shape? expression)
+      (if (number? (car expression))
+          (if (= (car expression) 200) #t (= (car expression) 211))
+          #f)
+      #f))
+
+(define (control-internal-binding expression)
+  (if (= (car expression) 200)
+      (cons (car (cdr expression))
+            (car (cdr (cdr expression))))
+      (cons (car (car (cdr expression)))
+            (cons 212
+              (cons (cdr (car (cdr expression)))
+                    (cons (car (cdr (cdr expression))) ()))))))
+
+(define (control-leading-bindings body)
+  (if (if (null? body)
+          #f
+          (control-internal-definition? (car body)))
+      (cons (control-internal-binding (car body))
+            (control-leading-bindings (cdr body)))
+      ()))
+
+(define (control-after-definitions body)
+  (if (if (null? body)
+          #f
+          (control-internal-definition? (car body)))
+      (control-after-definitions (cdr body))
+      body))
+
+(define (control-cps-body body continuation)
+  (let ((bindings (control-leading-bindings body)))
+    (if (null? bindings)
+        (control-cps-sequence body continuation)
+        (control-cps-letrec
+          (cons 222
+            (cons bindings
+                  (cons (control-after-definitions body) ())))
+          continuation #t))))
+
+(define (control-transform-lambda expression)
+  (let ((continuation-name (control-fresh-name "_npl_return_")))
+    (cons 212
+      (cons
+        (control-append-one
+          (car (cdr expression))
+          (control-symbol continuation-name))
+        (cons
+          (cons
+            (control-cps-body
+              (car (cdr (cdr expression)))
+              (control-symbol continuation-name))
+            ())
+          ())))))
+
+(define (control-cps-expression expression continuation)
+  (cond
+    ((control-simple? expression)
+     (control-send continuation
+                   (control-transform-simple expression)))
+    ((not (pair-shape? expression))
+     (fatal "control conversion: bad expression"))
+    ((not (number? (car expression)))
+     (control-cps-application expression continuation))
+    ((= (car expression) 213)
+     (control-cps-if expression continuation))
+    ((= (car expression) 214)
+     (control-cps-let expression continuation))
+    ((= (car expression) 216)
+     (control-cps-sequence (cdr expression) continuation))
+    ((= (car expression) 217)
+     (control-cps-set expression continuation))
+    ((= (car expression) 220)
+     (control-cps-expression
+       (control-expand-letstar
+         (car (cdr expression))
+         (car (cdr (cdr expression))))
+       continuation))
+    ((= (car expression) 221)
+     (control-cps-letrec expression continuation #f))
+    ((= (car expression) 222)
+     (control-cps-letrec expression continuation #t))
+    (else
+     (fatal "control conversion: unsupported core form"))))
+
+(define (control-function-form? form)
+  (if (pair-shape? form)
+      (if (number? (car form)) (= (car form) 211) #f)
+      #f))
+
+(define (control-variable-form? form)
+  (if (pair-shape? form)
+      (if (number? (car form)) (= (car form) 200) #f)
+      #f))
+
+(define (control-function-name form)
+  (cdr (car (car (cdr form)))))
+
+(define (control-transform-function form target-name prefix)
+  (let ((continuation-name (control-fresh-name "_npl_return_")))
+    (let ((signature (car (cdr form))))
+      (let ((body (car (cdr (cdr form)))))
+        (cons 211
+          (cons
+            (cons (control-symbol target-name)
+                  (control-append-one
+                    (cdr signature)
+                    (control-symbol continuation-name)))
+            (cons
+              (cons
+                (control-cps-body
+                  (append-list prefix body)
+                  (control-symbol continuation-name))
+                ())
+              ())))))))
+
+(define (control-global-assignment form)
+  (control-assignment
+    (car (cdr form))
+    (car (cdr (cdr form)))))
+
+(define (control-transform-global form)
+  (let ((initializer (car (cdr (cdr form)))))
+    (if (control-simple? initializer)
+        (cons 200
+          (cons (car (cdr form))
+                (cons (control-transform-simple initializer) ())))
+        (cons 200
+          (cons (car (cdr form)) (cons () ()))))))
+
+(define (control-runtime-global-inits forms)
+  (if (null? forms)
+      ()
+      (let ((form (car forms)))
+        (if (if (control-variable-form? form)
+                (not (control-simple? (car (cdr (cdr form)))))
+                #f)
+            (cons (control-global-assignment form)
+                  (control-runtime-global-inits (cdr forms)))
+            (control-runtime-global-inits (cdr forms))))))
+
+(define (control-transform-non-main forms initializers)
+  (if (null? forms)
+      ()
+      (let ((form (car forms)))
+        (if (control-function-form? form)
+            (if (string=? (control-function-name form) CONTROL-MAIN-SOURCE)
+                (control-transform-non-main (cdr forms) initializers)
+                (cons
+                  (control-transform-function
+                    form (control-function-name form) ())
+                  (control-transform-non-main
+                    (cdr forms) initializers)))
+            (if (control-variable-form? form)
+                (cons (control-transform-global form)
+                      (control-transform-non-main
+                        (cdr forms) initializers))
+                (fatal "control conversion: top level must be definitions"))))))
+
+(define (control-find-main forms)
+  (if (null? forms)
+      ()
+      (let ((form (car forms)))
+        (if (if (control-function-form? form)
+                (string=? (control-function-name form) CONTROL-MAIN-SOURCE)
+                #f)
+            form
+            (control-find-main (cdr forms))))))
+
+(define (control-main-wrapper)
+  (let ((result-name (control-fresh-name "_npl_halt_value_")))
+    (cons 211
+      (cons
+        (cons (control-symbol CONTROL-MAIN-SOURCE) ())
+        (cons
+          (cons
+            (cons (control-symbol CONTROL-MAIN-TARGET)
+              (cons
+                (cons 212
+                  (cons (cons (control-symbol result-name) ())
+                    (cons (cons (control-symbol result-name) ()) ())))
+                ()))
+            ())
+          ())))))
+
+(define (control-program forms)
+  (cell-set! CONTROL-NEXT-NAME 0)
+  (let ((main-form (control-find-main forms)))
+    (if (null? main-form)
+        (fatal "control conversion: program needs main"))
+    (let ((initializers (control-runtime-global-inits forms)))
+      (append-list
+        (control-transform-non-main forms initializers)
+        (cons
+          (control-transform-function
+            main-form CONTROL-MAIN-TARGET initializers)
+          (cons (control-main-wrapper) ()))))))

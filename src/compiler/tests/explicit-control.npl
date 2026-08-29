@@ -1,0 +1,23 @@
+(include "framework.npl")
+
+(define (sum20 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9
+               a10 a11 a12 a13 a14 a15 a16 a17 a18 a19)
+  (+ (+ (+ (+ a0 a1) (+ a2 a3))
+        (+ (+ a4 a5) (+ a6 a7)))
+     (+ (+ (+ a8 a9) (+ a10 a11))
+        (+ (+ (+ a12 a13) (+ a14 a15))
+           (+ (+ a16 a17) (+ a18 a19))))))
+
+(define (main)
+  (test-equal "direct call over old argument limit"
+              (lambda ()
+                (sum20 1 1 1 1 1 1 1 1 1 1
+                       1 1 1 1 1 1 1 1 1 23))
+              42)
+  (test-equal "closure call over old argument limit"
+              (lambda ()
+                (let ((procedure sum20))
+                  (procedure 1 1 1 1 1 1 1 1 1 1
+                             1 1 1 1 1 1 1 1 1 23)))
+              42)
+  (finish-tests "explicit-control"))

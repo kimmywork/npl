@@ -7,6 +7,7 @@
   "frontend/expand.npl"
   "frontend/forms.npl"
   "frontend/source.npl"
+  "frontend/control.npl"
   "backend/state.npl"
   "backend/data.npl"
   "backend/environment.npl"
