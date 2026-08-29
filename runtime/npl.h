@@ -39,6 +39,8 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_FLOAT   5
 #define BOX_BYTEVECTOR 6
 #define BOX_VALUES  7
+#define BOX_WIND_FRAME 8
+#define BOX_WIND_TRANSITION 9
 
 #define NPL_FLAG_LITERAL 1
 #define IMM_CHAR_TAG 14
@@ -93,6 +95,27 @@ typedef struct {
     uint32_t capacity;
     NplVal data[];
 } NplValues;
+
+typedef struct {
+    NplHeader header;
+    NplVal parent;
+    NplVal before;
+    NplVal after;
+    uint64_t id;
+} NplWindFrame;
+
+typedef struct {
+    NplHeader header;
+    uint32_t exit_count;
+    uint32_t exit_index;
+    uint32_t entry_count;
+    uint32_t entry_index;
+    NplVal target;
+    NplVal continuation;
+    NplVal value;
+    NplVal entering;
+    NplVal frames[];
+} NplWindTransition;
 
 /* ---- Closure ---- */
 typedef struct {
@@ -207,6 +230,10 @@ NplVal npl_make_values(int64_t argc, NplVal *argv);
 NplVal npl_list_to_values(NplVal list);
 NplVal npl_expect_one(NplVal value);
 void npl_values_dispatch(NplVal consumer, NplVal continuation, NplVal value);
+NplVal npl_current_wind(void);
+NplVal npl_wind_push(NplVal before, NplVal after);
+NplVal npl_wind_pop(NplVal frame);
+void npl_wind_transfer(NplVal target, NplVal continuation, NplVal value);
 
 /* Get car/cdr of a pair */
 NplVal npl_car(NplVal v);

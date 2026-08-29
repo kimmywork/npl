@@ -1,0 +1,87 @@
+(include "framework.npl")
+
+(define wind-log 0)
+(define saved-wind-continuation #f)
+(define wind-phase 0)
+
+(define (log-wind digit)
+  (set! wind-log (+ (* wind-log 10) digit)))
+
+(define (normal-wind)
+  (set! wind-log 0)
+  (let ((value
+          (dynamic-wind
+            (lambda () (log-wind 1))
+            (lambda ()
+              (log-wind 2)
+              42)
+            (lambda () (log-wind 3)))))
+    (+ (* value 1000) wind-log)))
+
+(define (nested-wind-exit)
+  (set! wind-log 0)
+  (let ((value
+          (call/cc
+            (lambda (escape)
+              (dynamic-wind
+                (lambda () (log-wind 1))
+                (lambda ()
+                  (dynamic-wind
+                    (lambda () (log-wind 2))
+                    (lambda ()
+                      (log-wind 3)
+                      (escape 42))
+                    (lambda () (log-wind 4))))
+                (lambda () (log-wind 5)))))))
+    (+ (* value 100000) wind-log)))
+
+(define (wind-reentry)
+  (set! wind-log 0)
+  (set! wind-phase 0)
+  (let ((value
+          (dynamic-wind
+            (lambda () (log-wind 1))
+            (lambda ()
+              (call/cc
+                (lambda (continuation)
+                  (set! saved-wind-continuation continuation)
+                  10)))
+            (lambda () (log-wind 3)))))
+    (cond
+      ((= wind-phase 0)
+       (set! wind-phase 1)
+       (saved-wind-continuation 20))
+      ((= wind-phase 1)
+       (set! wind-phase 2)
+       (saved-wind-continuation 30))
+      (else (+ (* value 1000000) wind-log)))))
+
+(define (main)
+  (test-equal "normal before body after order"
+              (lambda () (normal-wind)) 42123)
+  (test-equal "nested exit after order"
+              (lambda () (nested-wind-exit)) 4212345)
+  (test-equal "re-entry before and after order"
+              (lambda () (wind-reentry)) 30131313)
+  (test-equal "body multiple values"
+              (lambda ()
+                (call-with-values
+                  (lambda ()
+                    (dynamic-wind
+                      (lambda () 0)
+                      (lambda () (values 20 22))
+                      (lambda () 0)))
+                  (lambda (left right) (+ left right))))
+              42)
+  (test-equal "empty nested dynamic extent"
+              (lambda ()
+                (dynamic-wind
+                  (lambda () 0)
+                  (lambda ()
+                    (dynamic-wind
+                      (lambda () 0)
+                      (lambda () 42)
+                      (lambda () 0)))
+                  (lambda () 0)))
+              42)
+  (finish-tests "dynamic-wind"))

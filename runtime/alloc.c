@@ -68,6 +68,8 @@ static void mark_tail_context_roots(void);
 static int g_argc_stored = 0;
 static char **g_argv_stored = NULL;
 static NplVal g_args_list = 2;
+static NplVal g_current_wind = 2;
+static uint64_t g_next_wind_id = 1;
 
 static size_t align_up(size_t n, size_t alignment)
 {
@@ -202,6 +204,7 @@ void npl_runtime_init(void)
     g_threshold = 1024 * 1024;
     g_root_count = 0;
     g_args_list = npl_nil();
+    g_current_wind = npl_nil();
 }
 
 /* ---- Value constructors ---- */
@@ -564,6 +567,179 @@ void npl_values_dispatch(NplVal consumer_value, NplVal continuation,
     free(arguments);
 }
 
+static NplWindFrame *require_wind_frame(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_WIND_FRAME) {
+        fprintf(stderr, "%s: invalid wind frame\n", who);
+        exit(1);
+    }
+    return (NplWindFrame *)npl_header(value);
+}
+
+NplVal npl_current_wind(void)
+{
+    return g_current_wind;
+}
+
+NplVal npl_wind_push(NplVal before, NplVal after)
+{
+    if (!npl_is_ptr(before) || npl_header(before)->tag != BOX_CLOSURE ||
+        !npl_is_ptr(after) || npl_header(after)->tag != BOX_CLOSURE) {
+        fprintf(stderr, "dynamic-wind: before and after must be procedures\n");
+        exit(1);
+    }
+    NplWindFrame *frame = (NplWindFrame *)npl_alloc(sizeof(NplWindFrame));
+    frame->header.tag = BOX_WIND_FRAME;
+    frame->header.flags = 0;
+    frame->parent = g_current_wind;
+    frame->before = before;
+    frame->after = after;
+    frame->id = g_next_wind_id++;
+    g_current_wind = (NplVal)(uintptr_t)frame | TAG_PTR;
+    return g_current_wind;
+}
+
+NplVal npl_wind_pop(NplVal value)
+{
+    NplWindFrame *frame = require_wind_frame(value, "dynamic-wind");
+    if (g_current_wind != value) {
+        fprintf(stderr, "dynamic-wind: non-current frame exit\n");
+        exit(1);
+    }
+    g_current_wind = frame->parent;
+    return npl_nil();
+}
+
+static uint32_t wind_depth(NplVal value)
+{
+    uint32_t depth = 0;
+    while (!npl_is_nil(value)) {
+        value = require_wind_frame(value, "continuation")->parent;
+        if (depth == UINT32_MAX) runtime_oom();
+        depth++;
+    }
+    return depth;
+}
+
+static NplVal wind_parent(NplVal value)
+{
+    return require_wind_frame(value, "continuation")->parent;
+}
+
+static NplVal wind_common_ancestor(NplVal source, NplVal target)
+{
+    uint32_t source_depth = wind_depth(source);
+    uint32_t target_depth = wind_depth(target);
+    while (source_depth > target_depth) {
+        source = wind_parent(source);
+        source_depth--;
+    }
+    while (target_depth > source_depth) {
+        target = wind_parent(target);
+        target_depth--;
+    }
+    while (source != target) {
+        source = wind_parent(source);
+        target = wind_parent(target);
+    }
+    return source;
+}
+
+static NplVal wind_transition_resume(NplVal environment, int64_t argc,
+                                     NplVal *argv);
+
+static void schedule_wind_transition(NplVal transition_value)
+{
+    NplWindTransition *transition =
+        (NplWindTransition *)npl_header(transition_value);
+    if (!npl_is_nil(transition->entering)) {
+        g_current_wind = transition->entering;
+        transition->entering = npl_nil();
+    }
+
+    NplVal thunk = npl_nil();
+    if (transition->exit_index < transition->exit_count) {
+        NplVal frame_value = transition->frames[transition->exit_index++];
+        NplWindFrame *frame = require_wind_frame(frame_value, "continuation");
+        g_current_wind = frame->parent;
+        thunk = frame->after;
+    } else if (transition->entry_index < transition->entry_count) {
+        uint32_t reverse = transition->entry_count -
+                           transition->entry_index - 1;
+        NplVal frame_value = transition->frames[transition->exit_count + reverse];
+        NplWindFrame *frame = require_wind_frame(frame_value, "continuation");
+        transition->entry_index++;
+        transition->entering = frame_value;
+        thunk = frame->before;
+    } else {
+        g_current_wind = transition->target;
+        NplVal argument = transition->value;
+        npl_tail_request_closure(transition->continuation, 1, &argument);
+        return;
+    }
+
+    NplVal resume = npl_make_closure(
+        wind_transition_resume, transition_value, 1);
+    npl_tail_request_closure(thunk, 1, &resume);
+}
+
+static NplVal wind_transition_resume(NplVal environment, int64_t argc,
+                                     NplVal *argv)
+{
+    (void)argv;
+    if (argc != 1 || !npl_is_ptr(environment) ||
+        npl_header(environment)->tag != BOX_WIND_TRANSITION) {
+        fprintf(stderr, "dynamic-wind: invalid transition callback\n");
+        exit(1);
+    }
+    schedule_wind_transition(environment);
+    return npl_nil();
+}
+
+void npl_wind_transfer(NplVal target, NplVal continuation, NplVal value)
+{
+    if (!npl_is_nil(target))
+        (void)require_wind_frame(target, "continuation");
+    if (g_current_wind == target) {
+        npl_tail_request_closure(continuation, 1, &value);
+        return;
+    }
+
+    NplVal common = wind_common_ancestor(g_current_wind, target);
+    uint32_t exit_count = 0;
+    for (NplVal frame = g_current_wind; frame != common;
+         frame = wind_parent(frame))
+        exit_count++;
+    uint32_t entry_count = 0;
+    for (NplVal frame = target; frame != common;
+         frame = wind_parent(frame))
+        entry_count++;
+
+    size_t total = (size_t)exit_count + entry_count;
+    NplWindTransition *transition = (NplWindTransition *)npl_alloc(
+        sizeof(NplWindTransition) + total * sizeof(NplVal));
+    transition->header.tag = BOX_WIND_TRANSITION;
+    transition->header.flags = 0;
+    transition->exit_count = exit_count;
+    transition->exit_index = 0;
+    transition->entry_count = entry_count;
+    transition->entry_index = 0;
+    transition->target = target;
+    transition->continuation = continuation;
+    transition->value = value;
+    transition->entering = npl_nil();
+
+    size_t index = 0;
+    for (NplVal frame = g_current_wind; frame != common;
+         frame = wind_parent(frame))
+        transition->frames[index++] = frame;
+    for (NplVal frame = target; frame != common;
+         frame = wind_parent(frame))
+        transition->frames[index++] = frame;
+
+    schedule_wind_transition((NplVal)(uintptr_t)transition | TAG_PTR);
+}
+
 NplVal npl_make_environment(int64_t argc, NplVal *argv)
 {
     if (argc < 0 || (uint64_t)argc > UINT32_MAX) {
@@ -804,6 +980,7 @@ void npl_gc_mark_roots_internal(void)
         if (g_roots[i]) npl_gc_mark_candidate_internal(*g_roots[i]);
     }
     npl_gc_mark_candidate_internal(g_args_list);
+    npl_gc_mark_candidate_internal(g_current_wind);
     mark_tail_context_roots();
 }
 
@@ -835,6 +1012,24 @@ void npl_gc_drain_internal(void)
             NplValues *values = (NplValues *)header;
             for (uint32_t i = 0; i < values->count; i++)
                 npl_gc_mark_candidate_internal(values->data[i]);
+            break;
+        }
+        case BOX_WIND_FRAME: {
+            NplWindFrame *frame = (NplWindFrame *)header;
+            npl_gc_mark_candidate_internal(frame->parent);
+            npl_gc_mark_candidate_internal(frame->before);
+            npl_gc_mark_candidate_internal(frame->after);
+            break;
+        }
+        case BOX_WIND_TRANSITION: {
+            NplWindTransition *transition = (NplWindTransition *)header;
+            npl_gc_mark_candidate_internal(transition->target);
+            npl_gc_mark_candidate_internal(transition->continuation);
+            npl_gc_mark_candidate_internal(transition->value);
+            npl_gc_mark_candidate_internal(transition->entering);
+            uint32_t count = transition->exit_count + transition->entry_count;
+            for (uint32_t i = 0; i < count; i++)
+                npl_gc_mark_candidate_internal(transition->frames[i]);
             break;
         }
         default:

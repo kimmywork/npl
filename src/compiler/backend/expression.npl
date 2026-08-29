@@ -450,6 +450,12 @@
      (collection-call "npl_make_values" args env))
     ((string=? nm "npl_list_to_values")
      (checked-call "npl_list_to_values" 1 args env))
+    ((string=? nm "npl_current_wind")
+     (zero-named "npl_current_wind" args))
+    ((string=? nm "npl_wind_push")
+     (checked-call "npl_wind_push" 2 args env))
+    ((string=? nm "npl_wind_pop")
+     (checked-call "npl_wind_pop" 1 args env))
     (else (cmp-or-arith nm args env))))
 
 (define (registered-arity-accepts? arity count)

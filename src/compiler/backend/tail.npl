@@ -100,10 +100,30 @@
           ", l " (car (cdr (cdr ops))) ")"))
       (func-line "ret 2"))))
 
+(define (wind-transfer-application? expression)
+  (if (not (pair-shape? expression))
+      #f
+      (let ((head (car expression)))
+        (if (sym-atom? head)
+            (string=? (cdr head) "_npl_wind_transfer")
+            #f))))
+
+(define (emit-wind-transfer expression env)
+  (let ((args (cdr expression)))
+    (check-arity args 3 3)
+    (let ((ops (eval-args-fixed args env 3 ())))
+      (func-line
+        (string-append "call $npl_wind_transfer(l " (car ops)
+          ", l " (car (cdr ops))
+          ", l " (car (cdr (cdr ops))) ")"))
+      (func-line "ret 2"))))
+
 (define (emit-tail-expr expression env)
   (if (values-dispatch-application? expression)
       (emit-values-dispatch expression env)
-      (if (if (pair-shape? expression) (number? (car expression)) #f)
+      (if (wind-transfer-application? expression)
+          (emit-wind-transfer expression env)
+          (if (if (pair-shape? expression) (number? (car expression)) #f)
       (case (car expression)
         ((213) (emit-tail-if expression env))
         ((214) (emit-tail-let expression env 0))
@@ -119,7 +139,7 @@
               #f)
           (emit-tail-request expression env)
           (let ((result (emit-expr expression env)))
-            (func-line (string-append "ret " result)))))))
+            (func-line (string-append "ret " result))))))))
 
 (define (emit-tail-sequence body env)
   (if (null? body)

@@ -1,0 +1,6 @@
+(define (main)
+  (let ((before 1))
+    (dynamic-wind
+      before
+      (lambda () 42)
+      (lambda () 0))))

@@ -90,6 +90,7 @@ run_suite derived-forms "PASS derived-forms 17"
 run_suite explicit-control "PASS explicit-control 2"
 run_suite multiple-values "PASS multiple-values 13"
 run_suite continuations "PASS continuations 7"
+run_suite dynamic-wind "PASS dynamic-wind 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2
     exit 1
@@ -117,6 +118,9 @@ reject_runtime contracts/continuation-zero-values.npl \
 reject_runtime contracts/continuation-multiple-values.npl \
     continuation-multiple-values \
     "value context: expected 1 value, got 2"
+reject_runtime contracts/dynamic-wind-nonprocedure.npl \
+    dynamic-wind-nonprocedure \
+    "npl_tail_request_closure: not a closure"
 
 reject_reader bad-dotted "expected ) after dotted datum"
 reject_reader bad-byte "bytevector literal byte out of range"
