@@ -782,6 +782,145 @@ static void npl_parameter_dispatch(NplVal parameter, int64_t argc,
     exit(1);
 }
 
+#define PROMISE_DONE 0u
+#define PROMISE_DELAY 1u
+#define PROMISE_CHAIN 2u
+#define PROMISE_REDIRECT 3u
+
+static NplVal make_promise_state(uint32_t state, NplVal value)
+{
+    NplPromise *promise = (NplPromise *)npl_alloc(sizeof(NplPromise));
+    promise->header.tag = BOX_PROMISE;
+    promise->header.flags = 0;
+    promise->state = state;
+    promise->reserved = 0;
+    promise->value = value;
+    return (NplVal)(uintptr_t)promise | TAG_PTR;
+}
+
+static NplVal make_promise(NplVal value)
+{
+    if (npl_is_ptr(value) && npl_header(value)->tag == BOX_PROMISE)
+        return value;
+    return make_promise_state(PROMISE_DONE, value);
+}
+
+static NplVal make_delayed_promise(NplVal thunk, uint32_t state,
+                                   const char *who)
+{
+    if (!npl_is_ptr(thunk) || npl_header(thunk)->tag != BOX_CLOSURE) {
+        fprintf(stderr, "%s: not a procedure\n", who);
+        exit(1);
+    }
+    return make_promise_state(state, thunk);
+}
+
+NplVal npl_promise_op(int64_t argc, NplVal *argv)
+{
+    if (argc != 2 || !npl_is_fixnum(argv[0])) {
+        fprintf(stderr, "promise operation: expected two arguments\n");
+        exit(1);
+    }
+    switch (npl_fixnum_value(argv[0])) {
+    case 0:
+        return make_promise(argv[1]);
+    case 1:
+        return (npl_is_ptr(argv[1]) &&
+                npl_header(argv[1])->tag == BOX_PROMISE)
+            ? npl_true() : npl_false();
+    case 2:
+        return make_delayed_promise(argv[1], PROMISE_DELAY, "delay");
+    case 3:
+        return make_delayed_promise(argv[1], PROMISE_CHAIN, "delay-force");
+    default:
+        fprintf(stderr, "promise operation: invalid operation\n");
+        exit(1);
+    }
+}
+
+static void promise_force_step(NplVal context_value, NplVal value);
+
+static NplVal promise_force_resume(NplVal environment, int64_t argc,
+                                   NplVal *argv)
+{
+    if (argc != 1 || !npl_is_ptr(environment) ||
+        npl_header(environment)->tag != BOX_PROMISE_CONTEXT) {
+        fprintf(stderr, "force: invalid promise callback\n");
+        exit(1);
+    }
+    NplPromiseContext *context =
+        (NplPromiseContext *)npl_header(environment);
+    if (!npl_is_ptr(context->current) ||
+        npl_header(context->current)->tag != BOX_PROMISE) {
+        fprintf(stderr, "force: invalid promise state\n");
+        exit(1);
+    }
+    NplPromise *promise = (NplPromise *)npl_header(context->current);
+    if (promise->state == PROMISE_DELAY) {
+        promise->state = PROMISE_DONE;
+        promise->value = argv[0];
+        promise_force_step(environment, context->current);
+    } else if (promise->state == PROMISE_CHAIN) {
+        promise->state = PROMISE_REDIRECT;
+        promise->value = argv[0];
+        promise_force_step(environment, argv[0]);
+    } else {
+        promise_force_step(environment, context->current);
+    }
+    return npl_nil();
+}
+
+static void promise_force_step(NplVal context_value, NplVal value)
+{
+    NplPromiseContext *context =
+        (NplPromiseContext *)npl_header(context_value);
+    while (npl_is_ptr(value) &&
+           npl_header(value)->tag == BOX_PROMISE) {
+        NplPromise *promise = (NplPromise *)npl_header(value);
+        if (promise->state == PROMISE_DONE) {
+            value = promise->value;
+            break;
+        }
+        if (promise->state == PROMISE_REDIRECT) {
+            value = promise->value;
+            continue;
+        }
+        context->current = value;
+        NplVal callback = npl_make_closure(
+            promise_force_resume, context_value, 1);
+        npl_tail_request_closure(promise->value, 1, &callback);
+        return;
+    }
+
+    if (npl_is_ptr(context->root) &&
+        npl_header(context->root)->tag == BOX_PROMISE) {
+        NplPromise *root = (NplPromise *)npl_header(context->root);
+        if (root->state != PROMISE_DONE) {
+            root->state = PROMISE_DONE;
+            root->value = value;
+        } else {
+            value = root->value;
+        }
+    }
+    npl_tail_request_closure(context->continuation, 1, &value);
+}
+
+void npl_force(NplVal value, NplVal continuation)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PROMISE) {
+        npl_tail_request_closure(continuation, 1, &value);
+        return;
+    }
+    NplPromiseContext *context =
+        (NplPromiseContext *)npl_alloc(sizeof(NplPromiseContext));
+    context->header.tag = BOX_PROMISE_CONTEXT;
+    context->header.flags = 0;
+    context->root = value;
+    context->current = value;
+    context->continuation = continuation;
+    promise_force_step((NplVal)(uintptr_t)context | TAG_PTR, value);
+}
+
 NplVal npl_handler_push(NplVal procedure)
 {
     if (!npl_is_ptr(procedure) || npl_header(procedure)->tag != BOX_CLOSURE) {
@@ -1360,6 +1499,18 @@ void npl_gc_drain_internal(void)
             npl_gc_mark_candidate_internal(context->continuation);
             break;
         }
+        case BOX_PROMISE: {
+            NplPromise *promise = (NplPromise *)header;
+            npl_gc_mark_candidate_internal(promise->value);
+            break;
+        }
+        case BOX_PROMISE_CONTEXT: {
+            NplPromiseContext *context = (NplPromiseContext *)header;
+            npl_gc_mark_candidate_internal(context->root);
+            npl_gc_mark_candidate_internal(context->current);
+            npl_gc_mark_candidate_internal(context->continuation);
+            break;
+        }
         default:
             break;
         }
@@ -1517,6 +1668,14 @@ static void report_closure_arity(const char *who, const NplClosure *closure,
 
 void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
 {
+    if (npl_is_ptr(value) && npl_header(value)->tag == BOX_PROMISE) {
+        if (argc != 1) {
+            fprintf(stderr, "force: expected zero arguments\n");
+            exit(1);
+        }
+        npl_force(value, argv[0]);
+        return;
+    }
     if (npl_is_ptr(value) && npl_header(value)->tag == BOX_PARAMETER) {
         npl_parameter_dispatch(value, argc, argv);
         return;
@@ -1726,6 +1885,9 @@ NplVal npl_display(NplVal v) {
         }
         case BOX_VALUES:
             printf("<multiple-values>");
+            break;
+        case BOX_PROMISE:
+            printf("#<promise>");
             break;
         default:
             printf("<unknown>");

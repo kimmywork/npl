@@ -46,6 +46,8 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_PARAMETER 12
 #define BOX_PARAMETER_BINDING 13
 #define BOX_PARAMETER_CONTEXT 14
+#define BOX_PROMISE 15
+#define BOX_PROMISE_CONTEXT 16
 
 #define NPL_FLAG_LITERAL 1
 #define IMM_CHAR_TAG 14
@@ -158,6 +160,20 @@ typedef struct {
     uint32_t update;
     uint32_t reserved;
 } NplParameterContext;
+
+typedef struct {
+    NplHeader header;
+    uint32_t state;
+    uint32_t reserved;
+    NplVal value;
+} NplPromise;
+
+typedef struct {
+    NplHeader header;
+    NplVal root;
+    NplVal current;
+    NplVal continuation;
+} NplPromiseContext;
 
 /* ---- Closure ---- */
 typedef struct {
@@ -284,6 +300,8 @@ NplVal npl_parameter_set(NplVal parameter, NplVal value);
 NplVal npl_parameter_converter(NplVal parameter);
 NplVal npl_parameters_enter(NplVal parameters, NplVal values, NplVal frames);
 NplVal npl_parameters_leave(NplVal frames);
+NplVal npl_promise_op(int64_t argc, NplVal *argv);
+void npl_force(NplVal value, NplVal continuation);
 void npl_raise(NplVal value, NplVal continuation, int64_t continuable);
 void npl_wind_transfer(NplVal target, NplVal target_handler,
                        NplVal continuation, NplVal value);

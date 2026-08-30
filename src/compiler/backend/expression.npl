@@ -479,6 +479,8 @@
      (three-named-w "npl_parameters_enter" args env))
     ((string=? nm "npl_parameters_leave")
      (checked-call "npl_parameters_leave" 1 args env))
+    ((string=? nm "npl_promise_op")
+     (collection-call "npl_promise_op" args env))
     (else (cmp-or-arith nm args env))))
 
 (define (registered-arity-accepts? arity count)

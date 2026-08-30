@@ -1,0 +1,79 @@
+(include "framework.npl")
+
+(define promise-count 0)
+(define recursive-promise #f)
+(define recursive-limit 5)
+
+(define (delay-force-chain count)
+  (if (= count 0)
+      (delay 42)
+      (delay-force (delay-force-chain (- count 1)))))
+
+(define (main)
+  (test-equal "delay memoizes once"
+              (lambda ()
+                (set! promise-count 0)
+                (let ((promise
+                        (delay
+                          (begin
+                            (set! promise-count (+ promise-count 1))
+                            42))))
+                  (+ (force promise) (force promise))
+                  promise-count))
+              1)
+  (test-equal "memoized value ignores later mutation"
+              (lambda ()
+                (let ((value 20))
+                  (let ((promise (delay (+ value 22))))
+                    (force promise)
+                    (set! value 100)
+                    (force promise))))
+              42)
+  (test-identity "make-promise is idempotent"
+                 (lambda ()
+                   (let ((promise (make-promise 42)))
+                     (eq? promise (make-promise promise))))
+                 #t)
+  (test-identity "promise predicate"
+                 (lambda ()
+                   (if (promise? (delay 42))
+                       (not (promise? 42))
+                       #f))
+                 #t)
+  (test-equal "forcing non-promise returns it"
+              (lambda () (force 42))
+              42)
+  (test-equal "recursive forcing update"
+              (lambda ()
+                (set! promise-count 0)
+                (set! recursive-limit 5)
+                (set! recursive-promise
+                  (delay
+                    (begin
+                      (set! promise-count (+ promise-count 1))
+                      (if (> promise-count recursive-limit)
+                          promise-count
+                          (force recursive-promise)))))
+                (let ((first (force recursive-promise)))
+                  (set! recursive-limit 10)
+                  (+ (* first 6) (force recursive-promise))))
+              42)
+  (test-equal "first force parameter environment"
+              (lambda ()
+                (let ((parameter (make-parameter 1)))
+                  (let ((promise (delay (parameter))))
+                    (parameterize ((parameter 42)) (force promise))
+                    (parameterize ((parameter 10)) (force promise)))))
+              42)
+  (test-equal "first force exception handler"
+              (lambda ()
+                (guard (condition (else 42))
+                  (force (delay (raise 1)))))
+              42)
+  (test-equal "delay-force chain"
+              (lambda () (force (delay-force-chain 1000)))
+              42)
+  (test-equal "million delay-force chain"
+              (lambda () (force (delay-force-chain 1000000)))
+              42)
+  (finish-tests "promises"))

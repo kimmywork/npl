@@ -94,6 +94,7 @@ run_suite dynamic-wind "PASS dynamic-wind 5"
 run_suite exceptions "PASS exceptions 6"
 run_suite guard "PASS guard 5"
 run_suite parameters "PASS parameters 10"
+run_suite promises "PASS promises 10"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2
     exit 1
@@ -194,6 +195,10 @@ reject_compile macro-errors/malformed-do-binding.npl \
 reject_compile macro-errors/malformed-parameterize-binding.npl \
     malformed-parameterize-binding \
     "macro use does not match any syntax rule: parameterize"
+reject_compile macro-errors/force-arity.npl \
+    force-arity "macro use does not match any syntax rule: force"
+reject_compile macro-errors/delay-arity.npl \
+    delay-arity "macro use does not match any syntax rule: delay"
 
 echo "full compiler dynamic core: PASS"
 echo "full compiler reader/datum: PASS"

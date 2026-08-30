@@ -166,4 +166,29 @@
                         (vector-set! converted-values index converted)
                         (convert (+ index 1)))))))))
          (convert 0))))))
+
+(define-syntax make-promise
+  (syntax-rules ()
+    ((make-promise value)
+     (npl_promise_op 0 value))))
+
+(define-syntax promise?
+  (syntax-rules ()
+    ((promise? value)
+     (npl_promise_op 1 value))))
+
+(define-syntax force
+  (syntax-rules ()
+    ((force value)
+     ((npl_promise_op 0 value)))))
+
+(define-syntax delay
+  (syntax-rules ()
+    ((delay expression)
+     (npl_promise_op 2 (lambda () expression)))))
+
+(define-syntax delay-force
+  (syntax-rules ()
+    ((delay-force expression)
+     (npl_promise_op 3 (lambda () expression)))))
 ")
