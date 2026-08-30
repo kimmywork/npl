@@ -19,11 +19,18 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
-#define NPL_CHUNK_SIZE (64u * 1024u)
+#define NPL_GC_MIN_THRESHOLD (1024u * 1024u * 1024u)
+#define NPL_CHUNK_SIZE (1024u * 1024u)
 #define NPL_ALIGN      16u
 #define NPL_META_MAGIC_LIVE UINT64_C(0x4e504c4d45544131)
 #define NPL_META_MAGIC_FREE UINT64_C(0x4e504c4d45544130)
 #define MAX_ROOTS 1024
+#define NPL_CHUNK_INDEX_SHIFT 20
+#define NPL_CHUNK_INDEX_BUCKETS 65536
+#define NPL_FREE_EXACT_BINS 128
+#define NPL_FREE_BIN_COUNT (NPL_FREE_EXACT_BINS + 1)
+
+typedef struct NplChunkIndexEntry NplChunkIndexEntry;
 
 typedef struct NplChunk NplChunk;
 typedef struct NplAllocMeta NplAllocMeta;
@@ -36,11 +43,17 @@ struct NplChunk {
     unsigned char data[];
 };
 
+struct NplChunkIndexEntry {
+    NplChunkIndexEntry *next;
+    NplChunk *chunk;
+};
+
 struct NplAllocMeta {
     uint64_t magic;
     NplAllocMeta *all_next;
     NplAllocMeta *free_next;
     NplAllocMeta *mark_next;
+    NplChunk *owner;
     size_t size;
     size_t capacity;
     uint32_t marked;
@@ -50,11 +63,12 @@ struct NplAllocMeta {
 #define NPL_META_SIZE ((sizeof(NplAllocMeta) + NPL_ALIGN - 1) & ~(NPL_ALIGN - 1))
 
 static NplChunk *g_chunks = NULL;
+static NplChunkIndexEntry *g_chunk_index[NPL_CHUNK_INDEX_BUCKETS];
 static NplAllocMeta *g_alloc_head = NULL;
-static NplAllocMeta *g_free_head = NULL;
+static NplAllocMeta *g_free_bins[NPL_FREE_BIN_COUNT];
 static NplAllocMeta *g_mark_stack = NULL;
 static size_t g_allocated = 0;
-static size_t g_threshold = 1024 * 1024;
+static size_t g_threshold = NPL_GC_MIN_THRESHOLD;
 static size_t g_live_objects = 0;
 static size_t g_collections = 0;
 static NplVal *g_roots[MAX_ROOTS];
@@ -71,6 +85,10 @@ static NplVal g_args_list = 2;
 static NplVal g_current_wind = 2;
 static NplVal g_current_handler = 2;
 static NplVal g_current_parameters = 2;
+static NplVal g_current_input_port = 2;
+static NplVal g_current_output_port = 2;
+static NplVal g_current_error_port = 2;
+static NplVal g_eof_object = 2;
 static uint64_t g_next_wind_id = 1;
 
 static size_t align_up(size_t n, size_t alignment)
@@ -83,6 +101,34 @@ static void runtime_oom(void)
     static const char msg[] = "npl runtime: out of memory\n";
     (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
     _Exit(1);
+}
+
+static size_t chunk_index_bucket(uintptr_t address)
+{
+    return (size_t)((address >> NPL_CHUNK_INDEX_SHIFT) &
+                     (NPL_CHUNK_INDEX_BUCKETS - 1));
+}
+
+static void index_chunk(NplChunk *chunk)
+{
+    uintptr_t begin = (uintptr_t)chunk;
+    uintptr_t end = begin + chunk->map_size - 1;
+    uintptr_t first = begin >> NPL_CHUNK_INDEX_SHIFT;
+    uintptr_t last = end >> NPL_CHUNK_INDEX_SHIFT;
+    for (uintptr_t page = first; page <= last; page++) {
+        size_t bucket = chunk_index_bucket(page << NPL_CHUNK_INDEX_SHIFT);
+        NplChunkIndexEntry *entry =
+            (NplChunkIndexEntry *)malloc(sizeof(NplChunkIndexEntry));
+        if (!entry) runtime_oom();
+        entry->chunk = chunk;
+        entry->next = g_chunk_index[bucket];
+        g_chunk_index[bucket] = entry;
+    }
+}
+
+static NplChunkIndexEntry *chunks_for_address(uintptr_t address)
+{
+    return g_chunk_index[chunk_index_bucket(address)];
 }
 
 static NplChunk *map_chunk(size_t need)
@@ -101,6 +147,7 @@ static NplChunk *map_chunk(size_t need)
     chunk->used = header;
     chunk->live_blocks = 0;
     g_chunks = chunk;
+    index_chunk(chunk);
     return chunk;
 }
 
@@ -113,56 +160,66 @@ static NplAllocMeta *find_managed_meta(const void *object)
 {
     uintptr_t address = (uintptr_t)object;
     if ((address & (NPL_ALIGN - 1)) != 0) return NULL;
-    for (NplChunk *chunk = g_chunks; chunk; chunk = chunk->next) {
+    for (NplChunkIndexEntry *entry = chunks_for_address(address);
+         entry; entry = entry->next) {
+        NplChunk *chunk = entry->chunk;
         uintptr_t begin = (uintptr_t)chunk;
         uintptr_t end = begin + chunk->used;
         if (address < begin + NPL_META_SIZE || address >= end) continue;
         NplAllocMeta *meta = (NplAllocMeta *)(address - NPL_META_SIZE);
         if (meta->magic == NPL_META_MAGIC_LIVE && meta_object(meta) == object)
             return meta;
-        return NULL;
     }
     return NULL;
 }
 
-static NplChunk *find_chunk_containing(const void *object)
+
+static size_t free_bin_index(size_t capacity)
 {
-    uintptr_t address = (uintptr_t)object;
-    for (NplChunk *chunk = g_chunks; chunk; chunk = chunk->next) {
-        uintptr_t begin = (uintptr_t)chunk;
-        if (address >= begin && address < begin + chunk->used) return chunk;
-    }
-    return NULL;
+    size_t units = capacity / NPL_ALIGN;
+    if (units == 0) units = 1;
+    return units <= NPL_FREE_EXACT_BINS
+        ? units - 1
+        : NPL_FREE_EXACT_BINS;
+}
+
+static void add_free_block(NplAllocMeta *meta)
+{
+    size_t bin = free_bin_index(meta->capacity);
+    meta->free_next = g_free_bins[bin];
+    g_free_bins[bin] = meta;
 }
 
 static NplAllocMeta *take_free_block(size_t size)
 {
-    NplAllocMeta **best_link = NULL;
-    for (NplAllocMeta **link = &g_free_head; *link;
-         link = &(*link)->free_next) {
-        if ((*link)->capacity >= size &&
-            (!best_link || (*link)->capacity < (*best_link)->capacity))
-            best_link = link;
-    }
-    if (!best_link) return NULL;
+    size_t first = free_bin_index(size);
+    for (size_t bin = first; bin < NPL_FREE_BIN_COUNT; bin++) {
+        NplAllocMeta **link = &g_free_bins[bin];
+        while (*link && (*link)->capacity < size)
+            link = &(*link)->free_next;
+        if (!*link) continue;
 
-    NplAllocMeta *meta = *best_link;
-    *best_link = meta->free_next;
-    if (meta->capacity >= size + NPL_META_SIZE + NPL_ALIGN) {
-        NplAllocMeta *remainder = (NplAllocMeta *)(
-            (unsigned char *)meta + NPL_META_SIZE + size);
-        memset(remainder, 0, NPL_META_SIZE);
-        remainder->magic = NPL_META_MAGIC_FREE;
-        remainder->capacity = meta->capacity - size - NPL_META_SIZE;
-        remainder->free_next = g_free_head;
-        g_free_head = remainder;
-        meta->capacity = size;
+        NplAllocMeta *meta = *link;
+        *link = meta->free_next;
+        if (meta->capacity >= size + NPL_META_SIZE + NPL_ALIGN) {
+            NplAllocMeta *remainder = (NplAllocMeta *)(
+                (unsigned char *)meta + NPL_META_SIZE + size);
+            memset(remainder, 0, NPL_META_SIZE);
+            remainder->magic = NPL_META_MAGIC_FREE;
+            remainder->owner = meta->owner;
+            remainder->capacity = meta->capacity - size - NPL_META_SIZE;
+            add_free_block(remainder);
+            meta->capacity = size;
+        }
+        return meta;
     }
-    return meta;
+    return NULL;
 }
 
 static void *npl_alloc(size_t size)
 {
+    if (!g_runtime_initialized)
+        npl_runtime_init();
     size = align_up(size, NPL_ALIGN);
     if (g_runtime_initialized && !g_gc_running &&
         g_allocated + size >= g_threshold) {
@@ -179,9 +236,10 @@ static void *npl_alloc(size_t size)
         chunk->used += total;
         memset(meta, 0, NPL_META_SIZE);
         meta->capacity = size;
+        meta->owner = chunk;
     }
 
-    NplChunk *owner = find_chunk_containing(meta);
+    NplChunk *owner = meta->owner;
     if (!owner) runtime_oom();
     owner->live_blocks++;
     meta->magic = NPL_META_MAGIC_LIVE;
@@ -197,25 +255,60 @@ static void *npl_alloc(size_t size)
     return meta_object(meta);
 }
 
+#define NPL_PORT_INPUT  1u
+#define NPL_PORT_OUTPUT 2u
+#define NPL_PORT_OWNED  4u
+#define NPL_PORT_CLOSED 8u
+
+static NplVal make_port(FILE *stream, uint32_t mode)
+{
+    NplPort *port = (NplPort *)npl_alloc(sizeof(NplPort));
+    port->header.tag = BOX_PORT;
+    port->header.flags = 0;
+    port->stream = stream;
+    port->mode = mode;
+    port->reserved = 0;
+    return (NplVal)(uintptr_t)port | TAG_PTR;
+}
+
+static NplVal make_eof_object(void)
+{
+    NplEof *eof = (NplEof *)npl_alloc(sizeof(NplEof));
+    eof->header.tag = BOX_EOF;
+    eof->header.flags = 0;
+    return (NplVal)(uintptr_t)eof | TAG_PTR;
+}
+
 void npl_runtime_init(void)
 {
     uintptr_t marker = 0;
     if (g_runtime_initialized) return;
     g_runtime_initialized = 1;
     g_stack_bottom = (uintptr_t)(void *)&marker + sizeof(marker);
-    g_threshold = 1024 * 1024;
+    g_threshold = NPL_GC_MIN_THRESHOLD;
     g_root_count = 0;
     g_args_list = npl_nil();
     g_current_wind = npl_nil();
     g_current_handler = npl_nil();
     g_current_parameters = npl_nil();
+    g_current_input_port = npl_nil();
+    g_current_output_port = npl_nil();
+    g_current_error_port = npl_nil();
+    g_eof_object = npl_nil();
+    npl_gc_root(&g_current_input_port);
+    npl_gc_root(&g_current_output_port);
+    npl_gc_root(&g_current_error_port);
+    npl_gc_root(&g_eof_object);
+    g_eof_object = make_eof_object();
+    g_current_input_port = make_port(stdin, NPL_PORT_INPUT);
+    g_current_output_port = make_port(stdout, NPL_PORT_OUTPUT);
+    g_current_error_port = make_port(stderr, NPL_PORT_OUTPUT);
 }
 
 /* ---- Value constructors ---- */
 
 NplVal npl_cons(NplVal car, NplVal cdr) {
     NplPair *p = (NplPair *)npl_alloc(sizeof(NplPair));
-    p->header.tag = BOX_PAIR;
     p->header.flags = 0;
     p->car = car;
     p->cdr = cdr;
@@ -1517,36 +1610,6 @@ void npl_gc_drain_internal(void)
     }
 }
 
-static int pointer_in_chunk(const void *pointer, const NplChunk *chunk)
-{
-    uintptr_t address = (uintptr_t)pointer;
-    uintptr_t begin = (uintptr_t)chunk;
-    return address >= begin && address < begin + chunk->used;
-}
-
-static void reclaim_empty_chunks(void)
-{
-    NplChunk **chunk_link = &g_chunks;
-    while (*chunk_link) {
-        NplChunk *chunk = *chunk_link;
-        if (chunk->live_blocks != 0) {
-            chunk_link = &chunk->next;
-            continue;
-        }
-
-        NplAllocMeta **free_link = &g_free_head;
-        while (*free_link) {
-            if (pointer_in_chunk(*free_link, chunk))
-                *free_link = (*free_link)->free_next;
-            else
-                free_link = &(*free_link)->free_next;
-        }
-
-        *chunk_link = chunk->next;
-        if (munmap(chunk, chunk->map_size) != 0) runtime_oom();
-    }
-}
-
 void npl_gc_sweep_internal(void)
 {
     NplAllocMeta **link = &g_alloc_head;
@@ -1560,7 +1623,7 @@ void npl_gc_sweep_internal(void)
         }
 
         *link = meta->all_next;
-        NplChunk *owner = find_chunk_containing(meta);
+        NplChunk *owner = meta->owner;
         if (!owner || owner->live_blocks == 0) runtime_oom();
         owner->live_blocks--;
         g_allocated -= meta->size;
@@ -1568,13 +1631,13 @@ void npl_gc_sweep_internal(void)
         meta->magic = NPL_META_MAGIC_FREE;
         meta->all_next = NULL;
         meta->mark_next = NULL;
-        meta->free_next = g_free_head;
-        g_free_head = meta;
+        meta->free_next = NULL;
+        add_free_block(meta);
     }
 
     g_threshold = g_allocated * 2;
-    if (g_threshold < 1024 * 1024) g_threshold = 1024 * 1024;
-    reclaim_empty_chunks();
+    if (g_threshold < NPL_GC_MIN_THRESHOLD)
+        g_threshold = NPL_GC_MIN_THRESHOLD;
     g_collections++;
     g_gc_running = 0;
 }
@@ -1994,6 +2057,200 @@ static NplVal retag_box(NplVal v, uint32_t new_tag) {
 NplVal npl_symbol_to_string(NplVal s) {
     require_bytes(s, "symbol->string");
     return retag_box(s, BOX_STRING);
+}
+
+/* ---- standard port substrate (increment-6.1) ---- */
+
+static NplPort *port_value(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PORT) {
+        fprintf(stderr, "%s: not a port\n", who);
+        exit(1);
+    }
+    return (NplPort *)npl_header(value);
+}
+
+static NplPort *require_port(NplVal value, uint32_t access,
+                             const char *who)
+{
+    NplPort *port = port_value(value, who);
+    if ((port->mode & NPL_PORT_CLOSED) != 0) {
+        fprintf(stderr, "%s: port is closed\n", who);
+        exit(1);
+    }
+    if ((port->mode & access) == 0) {
+        fprintf(stderr, "%s: wrong port direction\n", who);
+        exit(1);
+    }
+    return port;
+}
+
+static NplVal open_file_port(NplVal path, const char *mode,
+                             uint32_t port_mode, const char *who)
+{
+    const NplString *name = require_bytes(path, who);
+    char *buffer = (char *)malloc((size_t)name->length + 1);
+    if (!buffer) {
+        fprintf(stderr, "%s: out of memory\n", who);
+        exit(1);
+    }
+    memcpy(buffer, name->data, name->length);
+    buffer[name->length] = '\0';
+    FILE *stream = fopen(buffer, mode);
+    if (!stream) {
+        fprintf(stderr, "%s: cannot open '%s'\n", who, buffer);
+        free(buffer);
+        exit(1);
+    }
+    free(buffer);
+    return make_port(stream, port_mode | NPL_PORT_OWNED);
+}
+
+NplVal npl_current_input_port(void) { return g_current_input_port; }
+NplVal npl_current_output_port(void) { return g_current_output_port; }
+NplVal npl_current_error_port(void) { return g_current_error_port; }
+
+NplVal npl_open_input_file(NplVal path)
+{
+    return open_file_port(path, "rb", NPL_PORT_INPUT, "open-input-file");
+}
+
+NplVal npl_open_output_file(NplVal path)
+{
+    return open_file_port(path, "wb", NPL_PORT_OUTPUT, "open-output-file");
+}
+
+static NplVal close_port(NplVal value, uint32_t access, const char *who)
+{
+    NplPort *port = port_value(value, who);
+    if ((port->mode & access) == 0) {
+        fprintf(stderr, "%s: wrong port direction\n", who);
+        exit(1);
+    }
+    if ((port->mode & NPL_PORT_CLOSED) != 0) return npl_nil();
+    if ((port->mode & NPL_PORT_OWNED) != 0 && port->stream) {
+        if (fclose(port->stream) != 0) {
+            fprintf(stderr, "%s: close failed\n", who);
+            exit(1);
+        }
+        port->stream = NULL;
+    }
+    port->mode |= NPL_PORT_CLOSED;
+    return npl_nil();
+}
+
+NplVal npl_close_input_port(NplVal port)
+{
+    return close_port(port, NPL_PORT_INPUT, "close-input-port");
+}
+
+NplVal npl_close_output_port(NplVal port)
+{
+    return close_port(port, NPL_PORT_OUTPUT, "close-output-port");
+}
+
+NplVal npl_flush_output_port(NplVal value)
+{
+    NplPort *port = require_port(value, NPL_PORT_OUTPUT, "flush-output-port");
+    if (fflush(port->stream) != 0) {
+        fprintf(stderr, "flush-output-port: flush failed\n");
+        exit(1);
+    }
+    return npl_nil();
+}
+
+NplVal npl_eof_object_p(NplVal value);
+
+NplVal npl_read_char(NplVal value)
+{
+    NplPort *port = require_port(value, NPL_PORT_INPUT, "read-char");
+    int byte = fgetc(port->stream);
+    return byte == EOF ? g_eof_object : npl_char((uint32_t)(unsigned char)byte);
+}
+
+static NplVal peek_stream_byte(NplPort *port, const char *who)
+{
+    int byte = fgetc(port->stream);
+    if (byte == EOF) return g_eof_object;
+    if (ungetc(byte, port->stream) == EOF) {
+        fprintf(stderr, "%s: cannot restore input\n", who);
+        exit(1);
+    }
+    return npl_char((uint32_t)(unsigned char)byte);
+}
+
+NplVal npl_peek_char(NplVal value)
+{
+    return peek_stream_byte(require_port(value, NPL_PORT_INPUT, "peek-char"),
+                            "peek-char");
+}
+
+NplVal npl_write_char(NplVal character, NplVal value)
+{
+    NplPort *port = require_port(value, NPL_PORT_OUTPUT, "write-char");
+    if (!npl_is_char(character) || npl_char_value(character) > UINT8_MAX) {
+        fprintf(stderr, "write-char: expected an ASCII character\n");
+        exit(1);
+    }
+    if (fputc((int)npl_char_value(character), port->stream) == EOF) {
+        fprintf(stderr, "write-char: write failed\n");
+        exit(1);
+    }
+    return npl_nil();
+}
+
+NplVal npl_read_byte(NplVal value)
+{
+    NplPort *port = require_port(value, NPL_PORT_INPUT, "read-u8");
+    int byte = fgetc(port->stream);
+    return byte == EOF ? g_eof_object : npl_fixnum((unsigned char)byte);
+}
+
+NplVal npl_peek_byte(NplVal value)
+{
+    NplVal character = peek_stream_byte(
+        require_port(value, NPL_PORT_INPUT, "peek-u8"), "peek-u8");
+    return npl_eof_object_p(character)
+        ? character
+        : npl_fixnum(npl_char_value(character));
+}
+
+NplVal npl_write_byte(NplVal byte, NplVal value)
+{
+    NplPort *port = require_port(value, NPL_PORT_OUTPUT, "write-u8");
+    if (!npl_is_fixnum(byte) || npl_fixnum_value(byte) < 0 ||
+        npl_fixnum_value(byte) > UINT8_MAX) {
+        fprintf(stderr, "write-u8: expected a byte\n");
+        exit(1);
+    }
+    if (fputc((int)npl_fixnum_value(byte), port->stream) == EOF) {
+        fprintf(stderr, "write-u8: write failed\n");
+        exit(1);
+    }
+    return npl_nil();
+}
+
+NplVal npl_eof_object(void) { return g_eof_object; }
+NplVal npl_eof_object_p(NplVal value)
+{
+    return value == g_eof_object ? npl_true() : npl_false();
+}
+NplVal npl_port_p(NplVal value)
+{
+    return (npl_is_ptr(value) && npl_header(value)->tag == BOX_PORT)
+        ? npl_true() : npl_false();
+}
+NplVal npl_input_port_p(NplVal value)
+{
+    return (npl_is_ptr(value) && npl_header(value)->tag == BOX_PORT &&
+            (((NplPort *)npl_header(value))->mode & NPL_PORT_INPUT) != 0)
+        ? npl_true() : npl_false();
+}
+NplVal npl_output_port_p(NplVal value)
+{
+    return (npl_is_ptr(value) && npl_header(value)->tag == BOX_PORT &&
+            (((NplPort *)npl_header(value))->mode & NPL_PORT_OUTPUT) != 0)
+        ? npl_true() : npl_false();
 }
 
 /* ---- bootstrap I/O & control (increment-4) ---- */

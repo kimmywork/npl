@@ -1,0 +1,33 @@
+(include "framework.npl")
+
+(define (main)
+  (let ((path "/tmp/npl-port-step61.data"))
+    (let ((output (open-output-file path)))
+      (test-identity "output port predicate"
+                     (lambda () (output-port? output))
+                     #t)
+      (write-char #\A output)
+      (write-u8 66 output)
+      (flush-output-port output)
+      (close-output-port output)
+      (let ((input (open-input-file path)))
+        (test-identity "input port predicate"
+                       (lambda () (input-port? input))
+                       #t)
+        (test-identity "port predicate"
+                       (lambda () (port? input))
+                       #t)
+        (test-identity "peek-char does not consume"
+                       (lambda () (eq? (peek-char input) #\A))
+                       #t)
+        (test-identity "read-char"
+                       (lambda () (eq? (read-char input) #\A))
+                       #t)
+        (test-equal "read-u8"
+                    (lambda () (read-u8 input))
+                    66)
+        (test-identity "eof object"
+                       (lambda () (eof-object? (read-u8 input)))
+                       #t)
+        (close-input-port input))))
+  (finish-tests "ports"))

@@ -1,0 +1,4 @@
+(define (main)
+  (let ((port (open-output-file "/tmp/npl-port-closed.data")))
+    (close-output-port port)
+    (write-u8 42 port)))

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 
 /*
  * NPL Runtime — Value representation and core types.
@@ -48,6 +49,8 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_PARAMETER_CONTEXT 14
 #define BOX_PROMISE 15
 #define BOX_PROMISE_CONTEXT 16
+#define BOX_PORT 17
+#define BOX_EOF 18
 
 #define NPL_FLAG_LITERAL 1
 #define IMM_CHAR_TAG 14
@@ -175,7 +178,17 @@ typedef struct {
     NplVal continuation;
 } NplPromiseContext;
 
-/* ---- Closure ---- */
+typedef struct {
+    NplHeader header;
+    FILE *stream;
+    uint32_t mode;
+    uint32_t reserved;
+} NplPort;
+
+typedef struct {
+    NplHeader header;
+} NplEof;
+
 typedef struct {
     NplHeader header;
     NplGenericFunction function;
@@ -255,7 +268,26 @@ static inline uint32_t npl_box_tag(NplVal v) {
     return npl_header(v)->tag;
 }
 
-/* ---- Runtime API (implemented in alloc.c, gc.c) ---- */
+NplVal npl_current_input_port(void);
+NplVal npl_current_output_port(void);
+NplVal npl_current_error_port(void);
+NplVal npl_open_input_file(NplVal path);
+NplVal npl_open_output_file(NplVal path);
+NplVal npl_close_input_port(NplVal port);
+NplVal npl_close_output_port(NplVal port);
+NplVal npl_flush_output_port(NplVal port);
+NplVal npl_read_char(NplVal port);
+NplVal npl_peek_char(NplVal port);
+NplVal npl_write_char(NplVal character, NplVal port);
+NplVal npl_read_byte(NplVal port);
+NplVal npl_peek_byte(NplVal port);
+NplVal npl_write_byte(NplVal byte, NplVal port);
+NplVal npl_eof_object(void);
+NplVal npl_eof_object_p(NplVal value);
+NplVal npl_input_port_p(NplVal value);
+NplVal npl_output_port_p(NplVal value);
+NplVal npl_port_p(NplVal value);
+
 
 /* Initialize the runtime (call once at startup) */
 void npl_runtime_init(void);

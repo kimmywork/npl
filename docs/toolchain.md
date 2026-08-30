@@ -16,7 +16,7 @@ The command builds a compiler from `bootstrap/current.ssa`, emits `gen1.ssa`, re
 ./tools/check_current_fixed_point.sh --keep --work-dir /tmp/npl-fixed-point
 ```
 
-The current artifact is presently 339,075 lines with SHA-256 `ef070200561159940559c736b2c90a721a3824adc9fa26e2eab43c9b9482f3f4`.
+The current artifact is presently 340,067 lines with SHA-256 `7a1583ceed18fe8e0977437b734a3473d2f9918d1b3ea9526157b60844685a46`.
 
 ## Update Current SSA
 

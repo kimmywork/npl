@@ -112,6 +112,7 @@
   ; store args, run global initializers, then the user body
   (func-line "export function l $main(l %argc, l %argv) {")
   (func-line "@start")
+  (func-line "call $npl_runtime_init()")
   (func-line "call $npl_store_args(l %argc, l %argv)")
   (func-line "call $npl_global_inits()")
   (let ((result (emit-body body ())))

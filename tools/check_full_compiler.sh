@@ -96,6 +96,7 @@ run_suite guard "PASS guard 5"
 run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
 run_suite libraries "PASS libraries 10"
+run_suite ports "PASS ports 7"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2
     exit 1
@@ -137,6 +138,12 @@ reject_runtime contracts/parameter-arity.npl \
     parameter-arity "parameter: expected zero or one argument"
 reject_runtime contracts/parameterize-nonparameter.npl \
     parameterize-nonparameter "parameterize: not a parameter"
+reject_runtime contracts/read-char-nonport.npl \
+    read-char-nonport "read-char: not a port"
+reject_runtime contracts/write-closed-port.npl \
+    write-closed-port "write-u8: port is closed"
+reject_runtime contracts/write-u8-range.npl \
+    write-u8-range "write-u8: expected a byte"
 reject_compile contracts/library-cycle.npl \
     library-cycle "library cycle"
 reject_compile contracts/library-unknown-import.npl \

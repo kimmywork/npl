@@ -8,9 +8,11 @@ The permanent bootstrap language and compiler are frozen. The evolving full comp
 - `bootstrap/compiler/`: permanent NPL bootstrap compiler.
 - `src/compiler/`: full compiler split into `common/`, `reader/`, `frontend/`, and `backend/`.
 - `bootstrap/bootstrap.ssa`: permanent 6,753-line bootstrap fixed point.
-- `bootstrap/current.ssa`: current 339,075-line full-compiler fixed point, SHA-256 `ef070200561159940559c736b2c90a721a3824adc9fa26e2eab43c9b9482f3f4`.
+- `bootstrap/current.ssa`: current 340,067-line full-compiler fixed point, SHA-256 `7a1583ceed18fe8e0977437b734a3473d2f9918d1b3ea9526157b60844685a46`.
 
 The library system supports deterministic `.sld` resolution, `define-library`, top-level `import`, `export`, `only`, `except`, `prefix`, `rename`, `begin`, `include`, `include-ci`, `include-library-declarations`, and `cond-expand`. Per-compilation library caching and circular dependency detection are included. Package management, versions, dynamic loading, precompiled caches, and cyclic libraries are intentionally out of scope.
+
+Step 6.1 now provides the initial runtime substrate for standard input/output/error ports, file ports, character and byte I/O, EOF objects, flushing, closing, and port predicates. The allocator uses explicit runtime initialization, a 1 GiB minimum GC threshold, 1 MiB chunks, direct chunk ownership, indexed conservative marking, and size-class reuse so self-hosting remains bounded.
 
 ## Evidence
 
@@ -24,4 +26,4 @@ Stable toolchain entry points:
 
 ## Next
 
-Execute the approved execution plan in [`docs/plan-stdlib-driver-repl.md`](../docs/plan-stdlib-driver-repl.md), starting with the port/runtime substrate and the explicit R7RS standard-library export surfaces. Then build the one-command driver and the persistent evaluator-backed REPL. Opportunistic compiler rewrites remain module-local and must pass the same semantic and fixed-point gates.
+Execute the approved execution plan in [`docs/plan-stdlib-driver-repl.md`](../docs/plan-stdlib-driver-repl.md). Step 6.1's initial port substrate is complete; next define explicit `(scheme base)`, `(scheme write)`, and `(scheme read)` export surfaces and add the remaining port/string-port operations. Then build the one-command driver and the persistent evaluator-backed REPL. Opportunistic compiler rewrites remain module-local and must pass the same semantic and fixed-point gates.
