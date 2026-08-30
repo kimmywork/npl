@@ -1,0 +1,2 @@
+(import (libraries cycle-a))
+(define (main) value)

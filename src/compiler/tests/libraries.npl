@@ -1,0 +1,48 @@
+(define-library (libraries inline)
+  (export inline-value)
+  (import (scheme base))
+  (begin
+    (define inline-value 6)))
+
+(import (only (libraries core) base-value add)
+        (except (libraries extra) omitted)
+        (prefix (libraries core) core-)
+        (rename (libraries core) (old-name renamed-old))
+        (libraries syntax)
+        (libraries included)
+        (libraries inline))
+
+(include "framework.npl")
+
+(define (main)
+  (test-equal "only and library procedure"
+              (lambda () (add base-value 22))
+              42)
+  (test-equal "except retains selected value"
+              (lambda () (if (number? kept) kept 0))
+              42)
+  (test-equal "prefix import"
+              (lambda () (+ core-base-value core-hidden))
+              30)
+  (test-equal "rename import"
+              (lambda () renamed-old)
+              12)
+  (test-equal "syntax export keeps definition site"
+              (lambda () (increment 2))
+              42)
+  (test-equal "include"
+              (lambda () included-value)
+              20)
+  (test-equal "include-ci"
+              (lambda () case-folded-value)
+              20)
+  (test-equal "include-library-declarations cond-expand"
+              (lambda () declaration-value)
+              2)
+  (test-equal "inline library"
+              (lambda () inline-value)
+              6)
+  (test-equal "library cache initializes once"
+              (lambda () (+ base-value core-base-value))
+              40)
+  (finish-tests "libraries"))

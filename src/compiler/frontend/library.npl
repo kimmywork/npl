@@ -1,0 +1,681 @@
+; R7RS-small library loading and import/export scoping.
+
+(define LIBRARY-ROOT (cell ""))
+(define LIBRARY-REGISTRY (cell ()))
+(define LIBRARY-OUTPUT (cell ()))
+(define LIBRARY-BASE-MACROS (cell ()))
+(define LIBRARY-NEXT-ID (cell 0))
+
+(define (library-entry key form base)
+  (cons key
+    (cons form
+      (cons base
+        (cons (cell 0)
+          (cons (cell ()) ()))))))
+
+(define (library-entry-key entry) (car entry))
+(define (library-entry-form entry) (car (cdr entry)))
+(define (library-entry-base entry) (car (cdr (cdr entry))))
+(define (library-entry-state entry) (car (cdr (cdr (cdr entry)))))
+(define (library-entry-exports entry)
+  (car (cdr (cdr (cdr (cdr entry))))))
+
+(define (library-find key entries)
+  (if (null? entries)
+      ()
+      (if (string=? key (library-entry-key (car entries)))
+          (car entries)
+          (library-find key (cdr entries)))))
+
+(define (library-name-part part)
+  (if (datum-symbol? part)
+      (datum-symbol-name part)
+      (if (number? part)
+          (if (< part 0)
+              (fatal "library name number must be non-negative")
+              (number->string part))
+          (fatal "invalid library name"))))
+
+(define (library-name-key-rest parts)
+  (if (null? parts)
+      ""
+      (if (not (pair? parts))
+          (fatal "library name must be a proper list")
+          (string-append "/"
+            (string-append (library-name-part (car parts))
+                           (library-name-key-rest (cdr parts)))))))
+
+(define (library-name-key name)
+  (if (if (null? name) #t (not (pair? name)))
+      (fatal "library name must be a non-empty list"))
+  (string-append (library-name-part (car name))
+                 (library-name-key-rest (cdr name))))
+
+(define (library-definition? form) (raw-form? form "define-library"))
+(define (library-import? form) (raw-form? form "import"))
+
+(define (library-register form base)
+  (if (not (library-definition? form))
+      (fatal "library file must contain define-library"))
+  (if (null? (cdr form)) (fatal "define-library needs a name"))
+  (let ((key (library-name-key (car (cdr form)))))
+    (if (not (null? (library-find key (cell-get LIBRARY-REGISTRY))))
+        (fatal (string-append "duplicate library: " key)))
+    (let ((entry (library-entry key form base)))
+      (cell-set! LIBRARY-REGISTRY
+        (cons entry (cell-get LIBRARY-REGISTRY)))
+      entry)))
+
+(define (library-register-inline forms base)
+  (if (null? forms)
+      0
+      (begin
+        (if (library-definition? (car forms))
+            (library-register (car forms) base))
+        (library-register-inline (cdr forms) base))))
+
+(define (library-external-entry name)
+  (let ((key (library-name-key name)))
+    (let ((found (library-find key (cell-get LIBRARY-REGISTRY))))
+      (if (not (null? found))
+          found
+          (let ((path
+                  (string-append (cell-get LIBRARY-ROOT)
+                    (string-append key ".sld"))))
+            (let ((forms (parse-source-file path)))
+              (if (if (null? forms) #t (not (null? (cdr forms))))
+                  (fatal "library file must contain one definition"))
+              (let ((entry (library-register (car forms) (path-dir path))))
+                (if (not (string=? key (library-entry-key entry)))
+                    (fatal "library file name does not match definition"))
+                entry)))))))
+
+(define (library-ascii-fold-name name index output)
+  (if (= index (string-length name))
+      output
+      (let ((code (string-ref name index)))
+        (library-ascii-fold-name name (+ index 1)
+          (string-append output
+            (int->string
+              (if (if (> code 64) (< code 91) #f)
+                  (+ code 32)
+                  code)))))))
+
+(define (library-fold-datum value)
+  (cond
+    ((datum-symbol? value)
+     (datum-symbol
+       (library-ascii-fold-name (datum-symbol-name value) 0 "")))
+    ((datum-vector? value)
+     (datum-vector (library-fold-list (datum-vector-items value))))
+    ((pair? value)
+     (cons (library-fold-datum (car value))
+           (library-fold-datum (cdr value))))
+    (else value)))
+
+(define (library-fold-list values)
+  (if (null? values)
+      ()
+      (cons (library-fold-datum (car values))
+            (library-fold-list (cdr values)))))
+
+(define (library-read-paths paths base fold-case)
+  (if (null? paths)
+      ()
+      (if (not (datum-string? (car paths)))
+          (fatal "library include path must be a string")
+          (let ((path
+                  (resolve-include-path
+                    base (datum-string-text (car paths)))))
+            (append-forms
+              (let ((forms (parse-source-file path)))
+                (if fold-case (library-fold-list forms) forms))
+              (library-read-paths (cdr paths) base fold-case))))))
+
+(define (library-feature-symbol? requirement name)
+  (if (datum-symbol? requirement)
+      (string=? (datum-symbol-name requirement) name)
+      #f))
+
+(define (library-feature-list-all requirements)
+  (if (null? requirements)
+      #t
+      (if (library-feature? (car requirements))
+          (library-feature-list-all (cdr requirements))
+          #f)))
+
+(define (library-feature-list-any requirements)
+  (if (null? requirements)
+      #f
+      (if (library-feature? (car requirements))
+          #t
+          (library-feature-list-any (cdr requirements)))))
+
+(define (library-feature? requirement)
+  (if (datum-symbol? requirement)
+      (if (string=? (datum-symbol-name requirement) "r7rs")
+          #t
+          (string=? (datum-symbol-name requirement) "npl"))
+      (if (not (pair? requirement))
+          #f
+          (let ((head (car requirement)))
+            (if (not (datum-symbol? head))
+                #f
+                (let ((name (datum-symbol-name head)))
+                  (cond
+                    ((string=? name "and")
+                     (library-feature-list-all (cdr requirement)))
+                    ((string=? name "or")
+                     (library-feature-list-any (cdr requirement)))
+                    ((string=? name "not")
+                     (if (not (= (raw-list-count (cdr requirement) 0) 1))
+                         (fatal "not feature requirement needs one argument")
+                         (not (library-feature?
+                                (car (cdr requirement))))))
+                    ((string=? name "library")
+                     (if (not (= (raw-list-count (cdr requirement) 0) 1))
+                         (fatal "library feature requirement needs one name")
+                         (let ((key
+                                 (library-name-key
+                                   (car (cdr requirement)))))
+                           (if (string=? key "scheme/base")
+                               #t
+                               (not (null?
+                                 (library-find key
+                                   (cell-get LIBRARY-REGISTRY))))))))
+                    (else #f))))))))
+
+(define (library-cond-select clauses)
+  (if (null? clauses)
+      ()
+      (if (not (pair? clauses))
+          (fatal "cond-expand clauses must be a proper list")
+          (let ((clause (car clauses)))
+            (if (not (pair? clause))
+                (fatal "malformed cond-expand clause"))
+            (if (library-feature-symbol? (car clause) "else")
+                (begin
+                  (if (not (null? (cdr clauses)))
+                      (fatal "cond-expand else clause must be last"))
+                  (cdr clause))
+                (if (library-feature? (car clause))
+                    (cdr clause)
+                    (library-cond-select (cdr clauses))))))))
+
+(define (library-expand-cond-expression form)
+  (cons (datum-symbol "begin")
+        (library-cond-select (cdr form))))
+
+(define (library-expand-declarations declarations base)
+  (if (null? declarations)
+      ()
+      (let ((declaration (car declarations)))
+        (if (raw-form? declaration "include-library-declarations")
+            (append-forms
+              (library-expand-declarations
+                (library-read-paths (cdr declaration) base #f) base)
+              (library-expand-declarations (cdr declarations) base))
+            (if (raw-form? declaration "cond-expand")
+                (append-forms
+                  (library-expand-declarations
+                    (library-cond-select (cdr declaration)) base)
+                  (library-expand-declarations (cdr declarations) base))
+                (cons declaration
+                  (library-expand-declarations
+                    (cdr declarations) base)))))))
+
+; Parts are (exports imports body).
+(define (library-declaration-parts declarations base)
+  (if (null? declarations)
+      (cons () (cons () (cons () ())))
+      (let ((rest (library-declaration-parts (cdr declarations) base)))
+        (let ((declaration (car declarations)))
+          (cond
+            ((raw-form? declaration "export")
+             (cons (append-forms (cdr declaration) (car rest))
+               (cdr rest)))
+            ((raw-form? declaration "import")
+             (cons (car rest)
+               (cons (append-forms
+                       (cdr declaration) (car (cdr rest)))
+                 (cdr (cdr rest)))))
+            ((raw-form? declaration "begin")
+             (cons (car rest)
+               (cons (car (cdr rest))
+                 (cons (append-forms
+                         (cdr declaration)
+                         (car (cdr (cdr rest))))
+                   ()))))
+            ((raw-form? declaration "include")
+             (cons (car rest)
+               (cons (car (cdr rest))
+                 (cons (append-forms
+                         (library-read-paths
+                           (cdr declaration) base #f)
+                         (car (cdr (cdr rest))))
+                   ()))))
+            ((raw-form? declaration "include-ci")
+             (cons (car rest)
+               (cons (car (cdr rest))
+                 (cons (append-forms
+                         (library-read-paths
+                           (cdr declaration) base #t)
+                         (car (cdr (cdr rest))))
+                   ()))))
+            (else (fatal "unknown library declaration")))))))
+
+; Export/import entry is (external-name kind payload), kind 1=value, 2=syntax.
+(define (library-binding name kind payload)
+  (cons name (cons kind (cons payload ()))))
+(define (library-binding-name binding) (car binding))
+(define (library-binding-kind binding) (car (cdr binding)))
+(define (library-binding-payload binding) (car (cdr (cdr binding))))
+
+(define (library-export-binding spec value-env macro-env)
+  (let ((internal
+          (if (datum-symbol? spec)
+              spec
+              (if (raw-form? spec "rename")
+                  (begin
+                    (require-raw-arity spec 2 "export rename")
+                    (car (cdr spec)))
+                  (fatal "malformed export spec")))))
+    (if (not (datum-symbol? internal))
+        (fatal "export name must be an identifier"))
+    (let ((external
+            (if (datum-symbol? spec)
+                internal
+                (car (cdr (cdr spec))))))
+      (if (not (datum-symbol? external))
+          (fatal "export rename needs identifiers"))
+      (let ((value (lookup-value-binding internal value-env)))
+        (if (> (string-length value) 0)
+            (library-binding (datum-symbol-name external) 1 value)
+            (let ((macro (lookup-macro-cell internal macro-env)))
+              (if (null? macro)
+                  (fatal (string-append "unknown export: "
+                           (datum-symbol-name internal)))
+                  (library-binding
+                    (datum-symbol-name external) 2 macro))))))))
+
+(define (library-export-bindings specs value-env macro-env)
+  (if (null? specs)
+      ()
+      (cons (library-export-binding (car specs) value-env macro-env)
+            (library-export-bindings
+              (cdr specs) value-env macro-env))))
+
+(define (library-name-listed? name identifiers)
+  (if (null? identifiers)
+      #f
+      (if (not (datum-symbol? (car identifiers)))
+          (fatal "import modifier needs identifiers")
+          (if (string=? name (datum-symbol-name (car identifiers)))
+              #t
+              (library-name-listed? name (cdr identifiers))))))
+
+(define (library-find-binding name bindings)
+  (if (null? bindings)
+      ()
+      (if (string=? name (library-binding-name (car bindings)))
+          (car bindings)
+          (library-find-binding name (cdr bindings)))))
+
+(define (library-validate-import-names identifiers bindings who)
+  (if (null? identifiers)
+      0
+      (let ((identifier (car identifiers)))
+        (if (not (datum-symbol? identifier))
+            (fatal "import modifier needs identifiers"))
+        (if (null? (library-find-binding
+                     (datum-symbol-name identifier) bindings))
+            (fatal (string-append who " import name not exported")))
+        (library-validate-import-names
+          (cdr identifiers) bindings who))))
+
+(define (library-only-bindings bindings identifiers)
+  (if (null? bindings)
+      ()
+      (if (library-name-listed?
+            (library-binding-name (car bindings)) identifiers)
+          (cons (car bindings)
+                (library-only-bindings (cdr bindings) identifiers))
+          (library-only-bindings (cdr bindings) identifiers))))
+
+(define (library-except-bindings bindings identifiers)
+  (if (null? bindings)
+      ()
+      (if (library-name-listed?
+            (library-binding-name (car bindings)) identifiers)
+          (library-except-bindings (cdr bindings) identifiers)
+          (cons (car bindings)
+                (library-except-bindings
+                  (cdr bindings) identifiers)))))
+
+(define (library-prefix-bindings bindings prefix)
+  (if (null? bindings)
+      ()
+      (cons
+        (library-binding
+          (string-append prefix (library-binding-name (car bindings)))
+          (library-binding-kind (car bindings))
+          (library-binding-payload (car bindings)))
+        (library-prefix-bindings (cdr bindings) prefix))))
+
+(define (library-rename-name name renames)
+  (if (null? renames)
+      name
+      (let ((rename (car renames)))
+        (if (if (not (pair? rename))
+                #t
+                (not (= (raw-list-count rename 0) 2)))
+            (fatal "malformed import rename"))
+        (if (if (not (datum-symbol? (car rename)))
+                #t
+                (not (datum-symbol? (car (cdr rename)))))
+            (fatal "import rename needs identifiers"))
+        (if (string=? name (datum-symbol-name (car rename)))
+            (datum-symbol-name (car (cdr rename)))
+            (library-rename-name name (cdr renames))))))
+
+(define (library-rename-bindings bindings renames)
+  (if (null? bindings)
+      ()
+      (cons
+        (library-binding
+          (library-rename-name
+            (library-binding-name (car bindings)) renames)
+          (library-binding-kind (car bindings))
+          (library-binding-payload (car bindings)))
+        (library-rename-bindings (cdr bindings) renames))))
+
+(define (library-validate-renames renames bindings)
+  (if (null? renames)
+      0
+      (let ((rename (car renames)))
+        (if (if (not (pair? rename))
+                #t
+                (not (= (raw-list-count rename 0) 2)))
+            (fatal "malformed import rename"))
+        (if (not (datum-symbol? (car rename)))
+            (fatal "import rename needs identifiers"))
+        (if (null? (library-find-binding
+                     (datum-symbol-name (car rename)) bindings))
+            (fatal "rename import name not exported"))
+        (library-validate-renames (cdr renames) bindings))))
+
+(define (library-base-name? name)
+  (string=? (library-name-key name) "scheme/base"))
+
+(define (library-resolve-import-set import-set)
+  (if (not (pair? import-set))
+      (fatal "import set must be a list"))
+  (let ((head (car import-set)))
+    (if (datum-symbol? head)
+        (let ((name (datum-symbol-name head)))
+          (cond
+            ((string=? name "only")
+             (if (null? (cdr import-set)) (fatal "only needs an import set"))
+             (let ((bindings
+                     (library-resolve-import-set
+                       (car (cdr import-set)))))
+               (library-validate-import-names
+                 (cdr (cdr import-set)) bindings "only")
+               (library-only-bindings
+                 bindings (cdr (cdr import-set)))))
+            ((string=? name "except")
+             (if (null? (cdr import-set)) (fatal "except needs an import set"))
+             (let ((bindings
+                     (library-resolve-import-set
+                       (car (cdr import-set)))))
+               (library-validate-import-names
+                 (cdr (cdr import-set)) bindings "except")
+               (library-except-bindings
+                 bindings (cdr (cdr import-set)))))
+            ((string=? name "prefix")
+             (if (not (= (raw-list-count (cdr import-set) 0) 2))
+                 (fatal "prefix needs an import set and identifier"))
+             (let ((prefix (car (cdr (cdr import-set)))))
+               (if (not (datum-symbol? prefix))
+                   (fatal "prefix needs an identifier"))
+               (library-prefix-bindings
+                 (library-resolve-import-set
+                   (car (cdr import-set)))
+                 (datum-symbol-name prefix))))
+            ((string=? name "rename")
+             (if (null? (cdr import-set)) (fatal "rename needs an import set"))
+             (let ((bindings
+                     (library-resolve-import-set
+                       (car (cdr import-set)))))
+               (library-validate-renames
+                 (cdr (cdr import-set)) bindings)
+               (library-rename-bindings
+                 bindings (cdr (cdr import-set)))))
+            (else
+             (if (library-base-name? import-set)
+                 ()
+                 (library-load import-set)))))
+        (if (library-base-name? import-set)
+            ()
+            (library-load import-set)))))
+
+; Import bundle is (value-env macro-env).
+(define (library-import-binding binding bundle)
+  (let ((identifier (datum-symbol (library-binding-name binding))))
+    (if (= (library-binding-kind binding) 1)
+        (let ((existing
+                (lookup-value-binding identifier (car bundle))))
+          (if (> (string-length existing) 0)
+              (if (not (string=? existing
+                         (library-binding-payload binding)))
+                  (fatal "conflicting imported binding")))
+          (if (> (string-length existing) 0)
+              bundle
+              (cons
+                (add-value-binding identifier
+                  (library-binding-payload binding) (car bundle))
+                (cdr bundle))))
+        (let ((existing
+                (lookup-macro-cell identifier (car (cdr bundle)))))
+          (if (not (null? existing))
+              (if (not (eq? existing
+                         (library-binding-payload binding)))
+                  (fatal "conflicting imported syntax")))
+          (if (not (null? existing))
+              bundle
+              (cons (car bundle)
+                (cons
+                  (add-macro-cell-binding identifier
+                    (library-binding-payload binding)
+                    (car (cdr bundle)))
+                  ())))))))
+
+(define (library-import-bindings bindings bundle)
+  (if (null? bindings)
+      bundle
+      (library-import-bindings
+        (cdr bindings)
+        (library-import-binding (car bindings) bundle))))
+
+(define (library-import-sets import-sets bundle)
+  (if (null? import-sets)
+      bundle
+      (library-import-sets
+        (cdr import-sets)
+        (library-import-bindings
+          (library-resolve-import-set (car import-sets)) bundle))))
+
+(define (library-prefix)
+  (cell-set! LIBRARY-NEXT-ID (+ 1 (cell-get LIBRARY-NEXT-ID)))
+  (string-append "_npl_lib_"
+    (string-append (number->string (cell-get LIBRARY-NEXT-ID)) "_")))
+
+(define (library-predeclare-identifiers identifiers prefix environment)
+  (if (null? identifiers)
+      environment
+      (let ((identifier (car identifiers)))
+        (if (not (datum-symbol? identifier))
+            (fatal "library definition needs an identifier"))
+        (if (> (string-length
+                 (lookup-value-binding identifier environment)) 0)
+            (fatal "library definition conflicts with import"))
+        (library-predeclare-identifiers
+          (cdr identifiers) prefix
+          (add-value-binding identifier
+            (string-append prefix
+              (sanitize (datum-symbol-name identifier) 0 ""))
+            environment)))))
+
+(define (library-predeclare-forms forms prefix environment)
+  (if (null? forms)
+      environment
+      (library-predeclare-forms
+        (cdr forms) prefix
+        (library-predeclare-identifiers
+          (direct-defined-identifiers (car forms))
+          prefix environment))))
+
+(define (library-body-definition? form)
+  (if (raw-form? form "define")
+      #t
+      (if (raw-form? form "define-values")
+          #t
+          (raw-form? form "define-syntax"))))
+
+(define (library-private-initializer form)
+  (let ((name
+          (datum-symbol
+            (string-append (library-prefix) "initializer"))))
+    (cons (datum-symbol "define")
+      (cons name (cons form ())))))
+
+(define (library-normalize-body forms)
+  (if (null? forms)
+      ()
+      (cons
+        (if (library-body-definition? (car forms))
+            (car forms)
+            (library-private-initializer (car forms)))
+        (library-normalize-body (cdr forms)))))
+
+(define (library-load name)
+  (let ((entry (library-external-entry name)))
+    (let ((state (cell-get (library-entry-state entry))))
+      (if (= state 1)
+          (fatal (string-append "library cycle: "
+                   (library-entry-key entry))))
+      (if (= state 2)
+          (cell-get (library-entry-exports entry))
+          (begin
+            (cell-set! (library-entry-state entry) 1)
+            (let ((declarations
+                    (library-expand-declarations
+                      (cdr (cdr (library-entry-form entry)))
+                      (library-entry-base entry))))
+              (let ((parts
+                      (library-declaration-parts
+                        declarations (library-entry-base entry))))
+                (let ((imports
+                        (library-import-sets
+                          (car (cdr parts))
+                          (cons ()
+                            (cons (cell-get LIBRARY-BASE-MACROS) ())))))
+                  (let ((library-body
+                          (library-normalize-body
+                            (car (cdr (cdr parts))))))
+                    (let ((value-env
+                            (library-predeclare-forms
+                              library-body
+                              (library-prefix) (car imports))))
+                      (let ((expanded
+                              (expand-top-sequence
+                                library-body
+                                value-env (car (cdr imports)) ())))
+                        (let ((exports
+                                (library-export-bindings
+                                  (car parts) value-env (cdr expanded))))
+                          (cell-set! LIBRARY-OUTPUT
+                            (append-forms
+                              (cell-get LIBRARY-OUTPUT) (car expanded)))
+                          (cell-set! (library-entry-exports entry) exports)
+                          (cell-set! (library-entry-state entry) 2)
+                          exports))))))))))))
+
+(define (library-expand-program-conditionals forms)
+  (if (null? forms)
+      ()
+      (let ((form (car forms)))
+        (if (raw-form? form "cond-expand")
+            (append-forms
+              (library-expand-program-conditionals
+                (library-cond-select (cdr form)))
+              (library-expand-program-conditionals (cdr forms)))
+            (cons form
+              (library-expand-program-conditionals (cdr forms)))))))
+
+; Result is (imports body).
+(define (library-split-program forms imports body-seen)
+  (if (null? forms)
+      (cons (rev imports) (cons () ()))
+      (let ((form (car forms)))
+        (if (library-definition? form)
+            (library-split-program (cdr forms) imports body-seen)
+            (if (library-import? form)
+                (if body-seen
+                    (fatal "import must precede program body")
+                    (library-split-program
+                      (cdr forms)
+                      (rev-into (cdr form) imports) #f))
+                (let ((rest
+                        (library-split-program
+                          (cdr forms) imports #t)))
+                  (cons (car rest)
+                    (cons (cons form (car (cdr rest))) ()))))))))
+
+(define (library-source? forms)
+  (if (null? forms)
+      #f
+      (if (if (library-definition? (car forms))
+              #t
+              (if (library-import? (car forms))
+                  #t
+                  (raw-form? (car forms) "cond-expand")))
+          #t
+          (library-source? (cdr forms)))))
+
+(define (expand-library-program forms root)
+  (cell-set! SYNTAX-MARKS ())
+  (cell-set! SYNTAX-NEXT-MARK 0)
+  (cell-set! EXPAND-NEXT-VALUE 0)
+  (cell-set! LIBRARY-ROOT root)
+  (cell-set! LIBRARY-REGISTRY ())
+  (cell-set! LIBRARY-OUTPUT ())
+  (cell-set! LIBRARY-NEXT-ID 0)
+  (library-register-inline forms root)
+  (let ((base-result
+          (expand-top-sequence
+            (parse-source-text DERIVED-SYNTAX-SOURCE) () () ())))
+    (if (not (null? (car base-result)))
+        (fatal "derived syntax source emitted runtime forms"))
+    (cell-set! LIBRARY-BASE-MACROS (cdr base-result))
+    (let ((split
+            (library-split-program
+              (library-expand-program-conditionals forms) () #f)))
+      (let ((imports
+              (library-import-sets
+                (car split)
+                (cons ()
+                  (cons (cell-get LIBRARY-BASE-MACROS) ())))))
+        (let ((body (car (cdr split))))
+          (let ((value-env
+                  (predeclare-globals body (car imports))))
+            (let ((program
+                    (expand-top-sequence
+                      body value-env (car (cdr imports)) ())))
+              (append-forms
+                (cell-get LIBRARY-OUTPUT) (car program)))))))))
+
+(define (expand-source-program forms root)
+  (if (library-source? forms)
+      (expand-library-program forms root)
+      (expand-program forms)))

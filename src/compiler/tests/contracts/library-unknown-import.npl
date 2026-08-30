@@ -1,0 +1,5 @@
+(define-library (contract-lib)
+  (export value)
+  (begin (define value 1)))
+(import (only (contract-lib) missing))
+(define (main) 0)

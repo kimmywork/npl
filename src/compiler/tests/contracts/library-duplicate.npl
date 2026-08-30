@@ -1,0 +1,7 @@
+(define-library (libraries duplicate)
+  (export value)
+  (begin (define value 1)))
+(define-library (libraries duplicate)
+  (export value)
+  (begin (define value 2)))
+(define (main) 0)

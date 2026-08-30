@@ -95,6 +95,7 @@ run_suite exceptions "PASS exceptions 6"
 run_suite guard "PASS guard 5"
 run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
+run_suite libraries "PASS libraries 10"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2
     exit 1
@@ -136,6 +137,12 @@ reject_runtime contracts/parameter-arity.npl \
     parameter-arity "parameter: expected zero or one argument"
 reject_runtime contracts/parameterize-nonparameter.npl \
     parameterize-nonparameter "parameterize: not a parameter"
+reject_compile contracts/library-cycle.npl \
+    library-cycle "library cycle"
+reject_compile contracts/library-unknown-import.npl \
+    library-unknown-import "only import name not exported"
+reject_compile contracts/library-duplicate.npl \
+    library-duplicate "duplicate library"
 
 reject_reader bad-dotted "expected ) after dotted datum"
 reject_reader bad-byte "bytevector literal byte out of range"

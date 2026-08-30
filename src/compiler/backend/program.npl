@@ -215,7 +215,8 @@
                              (cons path ()))))
       (let ((forms
               (control-program
-                (lower-program (expand-program raw-forms)))))
+                (lower-program
+                  (expand-source-program raw-forms (path-dir path))))))
         (begin
           (pass-register-functions forms)
           (emit-all-forms forms)

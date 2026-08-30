@@ -282,6 +282,9 @@
      (expand-let-values form value-env macro-env))
     ((string=? name "define-values")
      (expand-define-values form value-env macro-env))
+    ((string=? name "cond-expand")
+     (expand-expression
+       (library-expand-cond-expression form) value-env macro-env))
     ((string=? name "set!") (expand-set form value-env macro-env))
     ((string=? name "syntax-error") (expand-syntax-error form))
     ((string=? name "define-syntax")

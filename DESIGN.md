@@ -30,13 +30,13 @@ The bootstrap compiler only supports the implementation language required to bui
 
 `src/compiler/` is the evolving full compiler. It is not yet the complete target language. The permanent bootstrap compiler builds a full-compiler seed; that seed emits the checked-in current canonical SSA. Later full-compiler sources remain available through Git history, while `bootstrap/current.ssa` preserves the binary recovery path.
 
-The current implementation contains the Dynamic Core and Reader/Datum increments in `PLAN.md`. Macros, advanced control, the R7RS library system, standard libraries, gradual types, and tensor features remain planned.
+The current implementation contains the Dynamic Core, Reader/Datum, hygienic macros, explicit control and the minimal R7RS library system described in `PLAN.md`. Standard libraries, gradual types, and tensor features remain planned.
 
 The full compiler source is organized by responsibility and loaded in deterministic source order by `src/compiler/main.npl`:
 
 - `common/`: shared state and collection helpers;
 - `reader/`: tokenization, delimiter validation, datum labels, and quasiquote;
-- `frontend/`: form parsing, AST normalization, and source inclusion;
+- `frontend/`: form parsing, hygienic expansion, library resolution, and source inclusion;
 - `backend/`: QBE state, static data, closures, expressions, tail lowering, bindings, and top-level emission;
 - `tests/`: the NPL test framework, positive language suites, runtime contracts, and malformed-reader fixtures.
 
@@ -52,7 +52,14 @@ bootstrap/bootstrap.ssa      bootstrap compiler fixed-point SSA
 bootstrap/current.ssa        current full compiler SSA
 ```
 
-No compiler binary is required in version control. A binary is restored with:
+No compiler binary is required in version control. The supported build process is:
+
+```bash
+./tools/build_nplc.sh                 # writes build/bin/nplc
+./build/bin/nplc --emit-qbe program.npl > program.ssa
+```
+
+The direct equivalent is:
 
 ```bash
 qbe -o compiler.s bootstrap/current.ssa
@@ -81,7 +88,7 @@ Both stage0 and NPL compilers emit QBE SSA. Stage0 also provides direct executab
 
 `(include "path" ...)` is the bootstrap source-composition form. Paths are relative to the including file. Included definitions share the including program's top-level namespace and retain source order.
 
-The full compiler will implement the R7RS library system:
+The full compiler implements the R7RS library system:
 
 - `define-library`, `import`, and `export`;
 - `include` and `include-ci`;
@@ -99,7 +106,7 @@ The implemented dynamic core provides lexical closures, first-class fixed-arity 
 
 The reader supports dotted data, R7RS escaped strings over the required ASCII repertoire, characters, vector and bytevector literals, nested quasiquotation, datum labels with shared and cyclic pair/vector structure, and line/column delimiter diagnostics.
 
-The target language additionally includes multiple values, full continuations, `dynamic-wind`, exceptions, parameters, promises, records, ports, and textual and binary I/O. These features are not yet implemented. Hygienic `syntax-rules`, ellipsis, and the remaining derived forms are the next compiler increment.
+The current implementation contains the Dynamic Core, Reader/Datum, hygienic `syntax-rules`, explicit-control features, and the minimal R7RS library system. It supports multiple values, full continuations, `dynamic-wind`, exceptions, parameters, promises, and deterministic `.sld` library loading. Standard libraries, records, ports, the numeric tower, gradual types, and tensor features remain planned.
 
 ### Numeric Tower
 

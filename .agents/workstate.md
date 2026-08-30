@@ -2,22 +2,26 @@
 
 ## Current
 
-The permanent bootstrap language and compiler are frozen. The evolving full compiler has completed the first two `PLAN.md` increments.
+The permanent bootstrap language and compiler are frozen. The evolving full compiler has completed Dynamic Core, Reader/Datum, hygienic macros and derived forms, explicit-control execution, multiple values, unlimited-extent multi-shot continuations, `dynamic-wind`, exceptions, parameters, promises, and the minimal R7RS library system.
 
 - `stage0/`: untyped C99 compiler with QBE and executable output.
-- `bootstrap/compiler/`: permanent modular NPL bootstrap compiler.
-- `src/compiler/`: full compiler split into `common/`, `reader/`, `frontend/`, and `backend/`, with NPL suites under `tests/`.
-- `bootstrap/bootstrap.ssa`: reproducible 6,753-line bootstrap fixed point.
-- `bootstrap/current.ssa`: reproducible 18,451-line full-compiler fixed point.
+- `bootstrap/compiler/`: permanent NPL bootstrap compiler.
+- `src/compiler/`: full compiler split into `common/`, `reader/`, `frontend/`, and `backend/`.
+- `bootstrap/bootstrap.ssa`: permanent 6,753-line bootstrap fixed point.
+- `bootstrap/current.ssa`: current 339,075-line full-compiler fixed point, SHA-256 `ef070200561159940559c736b2c90a721a3824adc9fa26e2eab43c9b9482f3f4`.
 
-Dynamic Core includes lexical closures, shared mutation, `let*`, distinct `letrec`/`letrec*` initialization, internal definitions, first-class calls, R7RS truth semantics, and proper tail calls.
-
-Reader/Datum includes dotted data, R7RS ASCII character and string escapes, static and runtime vectors/bytevectors, nested quasiquote, shared/cyclic datum labels, and line/column delimiter diagnostics.
+The library system supports deterministic `.sld` resolution, `define-library`, top-level `import`, `export`, `only`, `except`, `prefix`, `rename`, `begin`, `include`, `include-ci`, `include-library-declarations`, and `cond-expand`. Per-compilation library caching and circular dependency detection are included. Package management, versions, dynamic loading, precompiled caches, and cyclic libraries are intentionally out of scope.
 
 ## Evidence
 
-`./tools/run_tests.sh` reports `all suites: PASS`. `tools/check_bootstrap.sh` owns both canonical SSA recovery checks. `tools/check_full_compiler.sh` restores the current compiler, runs thunk-based NPL suites including ten million cross-function tail calls, checks literal mutation contracts, and validates malformed reader fixtures.
+`./tools/run_tests.sh` reports `all suites: PASS`. This includes stage0, permanent bootstrap recovery, current gen1/gen2/gen3 byte-identical fixed-point recovery, full compiler suites and contracts, runtime GC, R7RS baseline, and property tests.
+
+Stable toolchain entry points:
+
+- `tools/check_current_fixed_point.sh` verifies current -> gen1 -> gen2 -> gen3.
+- `tools/update_current_ssa.sh` installs gen3 as `bootstrap/current.ssa` only after verification.
+- `tools/build_nplc.sh` builds `build/bin/nplc` from `bootstrap/current.ssa`.
 
 ## Next
 
-Implement Plan step 3 in `src/compiler/`: hygienic `syntax-rules`, ellipsis, and the remaining derived forms. Keep `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` unchanged, then regenerate `bootstrap/current.ssa` through the full-compiler seed chain.
+Implement the R7RS-small standard libraries, then continue with records, ports, numeric tower, gradual typing, and tensor features. Keep `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` unchanged.

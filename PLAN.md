@@ -44,17 +44,27 @@ The supported character repertoire is ASCII, which is the R7RS-required minimum.
 
 ## 3. Macros and Derived Forms
 
-Status: next.
+Status: complete.
 
-Implement hygienic `syntax-rules`, ellipsis, `and`, `or`, `when`, `unless`, `do`, and complete `cond` and `case`.
+Implemented hygienic declarative `syntax-rules`, ellipsis, syntax scopes, and the remaining derived forms.
+
+Evidence: the macro, ellipsis, scope, derived-form, and malformed-macro suites pass through `tools/check_full_compiler.sh`; the current compiler fixed point is verified by `tools/check_current_fixed_point.sh`.
 
 ## 4. Control and Exceptions
 
-Implement multiple values, full `call/cc`, `dynamic-wind`, exceptions, `guard`, parameters, and promises.
+Status: complete.
+
+Implemented explicit-control lowering, multiple values, unlimited-extent multi-shot continuations, `dynamic-wind`, exceptions, `guard`, parameters, and promises.
+
+Evidence: the focused suites and runtime contracts pass through `tools/check_full_compiler.sh`; the compiler relay remains byte-identical across gen1/gen2/gen3.
 
 ## 5. R7RS Library System
 
-Implement `define-library`, `import`, `export`, import-set modifiers, `include-ci`, and `cond-expand`.
+Status: complete for the minimal scope.
+
+Implemented `define-library`, top-level `import`, `export`, deterministic `.sld` resolution, `only`, `except`, `prefix`, `rename`, `begin`, `include`, `include-ci`, `include-library-declarations`, and `cond-expand`. Library loading has per-compilation caching and rejects circular dependencies. Package management, version resolution, dynamic loading, precompiled caches, and cyclic libraries are not implemented.
+
+Evidence: `src/compiler/tests/libraries.npl`, its `.sld`/include fixtures, and library contract fixtures pass through `tools/check_full_compiler.sh`.
 
 ## 6. Standard Libraries
 
@@ -62,4 +72,4 @@ Implement the R7RS-small libraries, ports, file I/O, strings, vectors, bytevecto
 
 ## Gate
 
-Each increment regenerates `bootstrap/current.ssa`, restores the full compiler from that SSA, and runs focused tests. `tools/check_bootstrap.sh` owns compiler recovery checks; `tools/check_full_compiler.sh` owns full-language suites and contracts. `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` remain unchanged.
+Each increment regenerates `bootstrap/current.ssa`, restores the full compiler from that SSA, and runs focused tests. `tools/check_bootstrap.sh` owns compiler recovery checks; `tools/check_current_fixed_point.sh` owns the historical gen1/gen2/gen3 relay check; `tools/check_full_compiler.sh` owns full-language suites and contracts. `tools/update_current_ssa.sh` installs a new canonical current SSA only after that relay check succeeds. `tools/build_nplc.sh` builds a complete native `nplc` binary from `bootstrap/current.ssa`. `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` remain unchanged.

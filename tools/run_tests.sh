@@ -20,6 +20,7 @@ run() {
 run "stage0 reader/executable" "$ROOT/tools/check_stage0.sh"
 run "stage0 QBE" "$ROOT/tools/check_stage0_qbe.sh"
 run "bootstrap SSA" "$ROOT/tools/check_bootstrap.sh"
+run "current compiler fixed point" "$ROOT/tools/check_current_fixed_point.sh"
 run "full compiler language" "$ROOT/tools/check_full_compiler.sh"
 run "runtime GC" "$ROOT/tools/check_gc.sh"
 run "stage0 dynamic core" "$ROOT/tools/check_core.sh"

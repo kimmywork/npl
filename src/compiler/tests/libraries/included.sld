@@ -1,0 +1,6 @@
+(define-library (libraries included)
+  (export included-value case-folded-value declaration-value)
+  (import (scheme base))
+  (include "included-body.scm")
+  (include-ci "included-ci.scm")
+  (include-library-declarations "included-declarations.scm"))
