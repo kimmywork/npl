@@ -24,4 +24,4 @@ Stable toolchain entry points:
 
 ## Next
 
-Implement the R7RS-small standard libraries, then continue with records, ports, numeric tower, gradual typing, and tensor features. Keep `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` unchanged.
+Execute the approved execution plan in [`docs/plan-stdlib-driver-repl.md`](../docs/plan-stdlib-driver-repl.md), starting with the port/runtime substrate and the explicit R7RS standard-library export surfaces. Then build the one-command driver and the persistent evaluator-backed REPL. Opportunistic compiler rewrites remain module-local and must pass the same semantic and fixed-point gates.

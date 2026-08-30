@@ -68,7 +68,23 @@ Evidence: `src/compiler/tests/libraries.npl`, its `.sld`/include fixtures, and l
 
 ## 6. Standard Libraries
 
-Implement the R7RS-small libraries, ports, file I/O, strings, vectors, bytevectors, and the numeric tower.
+Status: planned next increment.
+
+Implement the R7RS-small standard libraries, ports, file I/O, strings, vectors, bytevectors, process context, and the numeric tower in dependency order. The detailed scope and verification matrix are in [`docs/plan-stdlib-driver-repl.md`](docs/plan-stdlib-driver-repl.md).
+
+## 7. Unified Compilation Driver
+
+Status: planned after the port/process substrate.
+
+Provide a one-command `nplc source.npl -o output` pipeline while retaining raw SSA emission, then implement the orchestration wrapper in NPL using a minimal non-standard argv-based process API. The process API is intentionally separate from R7RS standard libraries.
+
+## 8. REPL
+
+Status: planned after standard I/O and the driver foundations.
+
+Implement a persistent evaluator-backed `npl-repl` with definitions, macros, imports, multiple values, errors, and redirected-stdin transcript tests. Repeated whole-program recompilation is not the implementation strategy.
+
+Detailed increments, rewrite policy, and acceptance evidence: [`docs/plan-stdlib-driver-repl.md`](docs/plan-stdlib-driver-repl.md).
 
 ## Gate
 
