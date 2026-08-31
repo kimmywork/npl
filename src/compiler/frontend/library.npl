@@ -1,9 +1,11 @@
 ; R7RS-small library loading and import/export scoping.
 
 (define LIBRARY-ROOT (cell ""))
+(define LIBRARY-STANDARD-ROOT "lib/")
+(define LIBRARY-STANDARD-INDEX (cell ()))
 (define LIBRARY-REGISTRY (cell ()))
 (define LIBRARY-OUTPUT (cell ()))
-(define LIBRARY-BASE-MACROS (cell ()))
+(define LIBRARY-PRIMITIVE-MACROS (cell ()))
 (define LIBRARY-NEXT-ID (cell 0))
 
 (define (library-entry key form base)
@@ -74,14 +76,39 @@
             (library-register (car forms) base))
         (library-register-inline (cdr forms) base))))
 
+(define (library-standard-key? key)
+  (if (< (string-length key) 7)
+      #f
+      (string=? (substring key 0 7) "scheme/")))
+
+(define (library-standard-available-in? key names)
+  (if (null? names)
+      #f
+      (if (string=? key (library-name-key (car names)))
+          #t
+          (library-standard-available-in? key (cdr names)))))
+
+(define (library-standard-available? key)
+  (if (null? (cell-get LIBRARY-STANDARD-INDEX))
+      (cell-set! LIBRARY-STANDARD-INDEX
+        (parse-source-file
+          (string-append LIBRARY-STANDARD-ROOT "scheme/libraries.scm"))))
+  (library-standard-available-in?
+    key (cell-get LIBRARY-STANDARD-INDEX)))
+
+(define (library-path-for-key key)
+  (string-append
+    (if (library-standard-key? key)
+        LIBRARY-STANDARD-ROOT
+        (cell-get LIBRARY-ROOT))
+    (string-append key ".sld")))
+
 (define (library-external-entry name)
   (let ((key (library-name-key name)))
     (let ((found (library-find key (cell-get LIBRARY-REGISTRY))))
       (if (not (null? found))
           found
-          (let ((path
-                  (string-append (cell-get LIBRARY-ROOT)
-                    (string-append key ".sld"))))
+          (let ((path (library-path-for-key key)))
             (let ((forms (parse-source-file path)))
               (if (if (null? forms) #t (not (null? (cdr forms))))
                   (fatal "library file must contain one definition"))
@@ -151,6 +178,18 @@
           #t
           (library-feature-list-any (cdr requirements)))))
 
+(define (library-feature-library? requirement)
+  (if (not (= (raw-list-count (cdr requirement) 0) 1))
+      (fatal "library feature requirement needs one name"))
+  (let ((library-name (car (cdr requirement))))
+    (if (library-primitive-name? library-name)
+        #t
+        (if (library-standard-key? (library-name-key library-name))
+            (library-standard-available? (library-name-key library-name))
+            (not (null?
+              (library-find (library-name-key library-name)
+                            (cell-get LIBRARY-REGISTRY))))))))
+
 (define (library-feature? requirement)
   (if (datum-symbol? requirement)
       (if (string=? (datum-symbol-name requirement) "r7rs")
@@ -173,14 +212,7 @@
                          (not (library-feature?
                                 (car (cdr requirement))))))
                     ((string=? name "library")
-                     (if (not (= (raw-list-count (cdr requirement) 0) 1))
-                         (fatal "library feature requirement needs one name")
-                         (let ((library-name (car (cdr requirement))))
-                           (if (library-standard-name? library-name)
-                               #t
-                               (not (null?
-                                 (library-find (library-name-key library-name)
-                                   (cell-get LIBRARY-REGISTRY))))))))
+                     (library-feature-library? requirement))
                     (else #f))))))))
 
 (define (library-cond-select clauses)
@@ -402,95 +434,68 @@
             (fatal "rename import name not exported"))
         (library-validate-renames (cdr renames) bindings))))
 
-(define STANDARD-BASE-VALUE-SOURCE
+(define PRIMITIVE-VALUE-SOURCE
 "(+ - * < <= = > >= append bytevector bytevector-length
 bytevector-u8-ref bytevector-u8-set! bytevector? binary-port? car cdr
 char->integer char? close-input-port close-output-port close-port cons
-current-error-port
-current-input-port current-output-port dynamic-wind eof-object eof-object?
-eq? eqv? flush-output-port get-output-bytevector input-port-open?
-input-port? integer->char list->vector newline not null? number->string
-number? open-input-bytevector open-output-bytevector open-input-file
-open-output-file output-port-open?
-output-port? pair? peek-char peek-u8 port? raise raise-continuable
-read-bytevector read-bytevector! read-char read-u8 set-car! set-cdr!
-string-append string-length
-string-ref string=? substring symbol->string values vector vector-length
-vector-ref vector-set! vector? call-with-current-continuation call/cc
-call-with-values with-exception-handler write-bytevector write-char write-u8
-textual-port?)" )
+current-error-port current-input-port current-output-port dynamic-wind exit
+eof-object eof-object? eq? eqv? flush-output-port get-output-bytevector
+input-port-open? input-port? integer->char list->vector newline not null?
+number->string number? program-arguments open-binary-input-file open-binary-output-file
+open-input-bytevector open-input-file open-output-bytevector open-output-file
+output-port-open? output-port? pair? peek-char peek-u8 port? raise
+raise-continuable read read-bytevector read-bytevector! read-char read-u8
+set-car! set-cdr! string-append string-length string-ref string=? substring
+symbol->string textual-port? values vector vector-length vector-ref vector-set!
+vector? call-with-current-continuation call/cc call-with-values
+display with-exception-handler write write-bytevector write-char write-shared
+write-simple write-u8)" )
 
-(define STANDARD-BASE-MACRO-SOURCE
+(define PRIMITIVE-MACRO-SOURCE
 "(and or when unless cond case do let*-values guard make-parameter
 parameterize make-promise promise? force delay delay-force)" )
 
-(define STANDARD-FILE-VALUE-SOURCE
-"(open-input-file open-output-file open-binary-input-file
-open-binary-output-file)" )
-
-(define STANDARD-WRITE-VALUE-SOURCE
-"(display write write-shared write-simple)" )
-
-(define STANDARD-READ-VALUE-SOURCE
-"(read)" )
-
-(define (library-standard-names source)
+(define (library-primitive-names source)
   (car (parse-source-text source)))
 
-(define (library-direct-value-bindings identifiers)
+(define (library-primitive-value-bindings identifiers)
   (if (null? identifiers)
       ()
       (let ((name (datum-symbol-name (car identifiers))))
         (cons (library-binding name 1 name)
-              (library-direct-value-bindings (cdr identifiers))))))
+              (library-primitive-value-bindings (cdr identifiers))))))
 
-(define (library-base-macro-bindings identifiers)
+(define (library-primitive-value-environment identifiers environment)
+  (if (null? identifiers)
+      environment
+      (let ((identifier (car identifiers)))
+        (library-primitive-value-environment
+          (cdr identifiers)
+          (add-value-binding identifier
+            (datum-symbol-name identifier) environment)))))
+
+(define (library-primitive-macro-bindings identifiers)
   (if (null? identifiers)
       ()
       (let ((identifier (car identifiers)))
         (let ((macro
                 (lookup-macro-cell
-                  identifier (cell-get LIBRARY-BASE-MACROS))))
+                  identifier (cell-get LIBRARY-PRIMITIVE-MACROS))))
           (if (null? macro)
-              (fatal "missing standard base syntax binding"))
+              (fatal "missing primitive syntax binding"))
           (cons
             (library-binding (datum-symbol-name identifier) 2 macro)
-            (library-base-macro-bindings (cdr identifiers)))))))
+            (library-primitive-macro-bindings (cdr identifiers)))))))
 
-(define (library-base-bindings)
+(define (library-primitive-bindings)
   (append-forms
-    (library-direct-value-bindings
-      (library-standard-names STANDARD-BASE-VALUE-SOURCE))
-    (library-base-macro-bindings
-      (library-standard-names STANDARD-BASE-MACRO-SOURCE))))
+    (library-primitive-value-bindings
+      (library-primitive-names PRIMITIVE-VALUE-SOURCE))
+    (library-primitive-macro-bindings
+      (library-primitive-names PRIMITIVE-MACRO-SOURCE))))
 
-(define (library-standard-name? name)
-  (let ((key (library-name-key name)))
-    (if (string=? key "scheme/base")
-        #t
-        (if (string=? key "scheme/write")
-            #t
-            (if (string=? key "scheme/read")
-                #t
-                (string=? key "scheme/file"))))))
-
-(define (library-standard-bindings name)
-  (let ((key (library-name-key name)))
-    (cond
-      ((string=? key "scheme/base") (library-base-bindings))
-      ((string=? key "scheme/write")
-       (library-direct-value-bindings
-         (library-standard-names STANDARD-WRITE-VALUE-SOURCE)))
-      ((string=? key "scheme/read")
-       (library-direct-value-bindings
-         (library-standard-names STANDARD-READ-VALUE-SOURCE)))
-      ((string=? key "scheme/file")
-       (library-direct-value-bindings
-         (library-standard-names STANDARD-FILE-VALUE-SOURCE)))
-      (else (fatal "unknown standard library")))))
-
-(define (library-base-name? name)
-  (string=? (library-name-key name) "scheme/base"))
+(define (library-primitive-name? name)
+  (string=? (library-name-key name) "npl/primitive"))
 
 (define (library-resolve-import-set import-set)
   (if (not (pair? import-set))
@@ -537,11 +542,11 @@ open-binary-output-file)" )
                (library-rename-bindings
                  bindings (cdr (cdr import-set)))))
             (else
-             (if (library-standard-name? import-set)
-                 (library-standard-bindings import-set)
+             (if (library-primitive-name? import-set)
+                 (library-primitive-bindings)
                  (library-load import-set)))))
-        (if (library-standard-name? import-set)
-            (library-standard-bindings import-set)
+        (if (library-primitive-name? import-set)
+            (library-primitive-bindings)
             (library-load import-set)))))
 
 ; Import bundle is (value-env macro-env).
@@ -663,8 +668,7 @@ open-binary-output-file)" )
                 (let ((imports
                         (library-import-sets
                           (car (cdr parts))
-                          (cons ()
-                            (cons (cell-get LIBRARY-BASE-MACROS) ())))))
+                          (cons () (cons () ())))))
                   (let ((library-body
                           (library-normalize-body
                             (car (cdr (cdr parts))))))
@@ -729,28 +733,32 @@ open-binary-output-file)" )
           (library-source? (cdr forms)))))
 
 (define (expand-library-program forms root)
+  (cell-set! EXPAND-REQUIRE-BOUND 1)
   (cell-set! SYNTAX-MARKS ())
   (cell-set! SYNTAX-NEXT-MARK 0)
   (cell-set! EXPAND-NEXT-VALUE 0)
   (cell-set! LIBRARY-ROOT root)
   (cell-set! LIBRARY-REGISTRY ())
+  (cell-set! LIBRARY-STANDARD-INDEX ())
   (cell-set! LIBRARY-OUTPUT ())
   (cell-set! LIBRARY-NEXT-ID 0)
   (library-register-inline forms root)
-  (let ((base-result
+  (let ((primitive-result
           (expand-top-sequence
-            (parse-source-text DERIVED-SYNTAX-SOURCE) () () ())))
-    (if (not (null? (car base-result)))
+            (parse-source-text DERIVED-SYNTAX-SOURCE)
+            (library-primitive-value-environment
+              (library-primitive-names PRIMITIVE-VALUE-SOURCE) ())
+            () ())))
+    (if (not (null? (car primitive-result)))
         (fatal "derived syntax source emitted runtime forms"))
-    (cell-set! LIBRARY-BASE-MACROS (cdr base-result))
+    (cell-set! LIBRARY-PRIMITIVE-MACROS (cdr primitive-result))
     (let ((split
             (library-split-program
               (library-expand-program-conditionals forms) () #f)))
       (let ((imports
               (library-import-sets
                 (car split)
-                (cons ()
-                  (cons (cell-get LIBRARY-BASE-MACROS) ())))))
+                (cons () (cons () ())))))
         (let ((body (car (cdr split))))
           (let ((value-env
                   (predeclare-globals body (car imports))))

@@ -2,6 +2,7 @@
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+cd "$ROOT"
 BUILD="$ROOT/build"
 QBE="$BUILD/qbe/qbe"
 RUNTIME="$BUILD/runtime/libnpl_runtime.a"
@@ -95,7 +96,7 @@ run_suite exceptions "PASS exceptions 6"
 run_suite guard "PASS guard 5"
 run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
-run_suite libraries "PASS libraries 12"
+run_suite libraries "PASS libraries 14"
 run_suite ports "PASS ports 7"
 run_suite standard-io "PASS standard-io 6"
 run_suite binary-io "PASS binary-io 15"
@@ -158,6 +159,8 @@ reject_compile contracts/library-unknown-import.npl \
     library-unknown-import "only import name not exported"
 reject_compile contracts/library-duplicate.npl \
     library-duplicate "duplicate library"
+reject_compile contracts/library-unimported-standard.npl \
+    library-unimported-standard "unbound identifier: display"
 
 reject_reader bad-dotted "expected ) after dotted datum"
 reject_reader bad-byte "bytevector literal byte out of range"

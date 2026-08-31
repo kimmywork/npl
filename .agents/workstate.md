@@ -8,27 +8,28 @@ The permanent bootstrap language and compiler are frozen. The evolving full comp
 - `bootstrap/compiler/`: permanent NPL bootstrap compiler.
 - `src/compiler/`: evolving full compiler.
 - `bootstrap/bootstrap.ssa`: permanent 6,753-line bootstrap fixed point.
-- `bootstrap/current.ssa`: current 344,774-line full-compiler fixed point, SHA-256 `b6ffa3d40256f7b46cbbe4ad4acf7d44aeba4ccc3e4d12b6446666c909ab1382`.
+- `bootstrap/current.ssa`: current 345,584-line full-compiler fixed point, SHA-256 `d751742f9f8124e4a7a013181bbf0cd8429115e46306e6c36d7405a462ec5640`.
 
-The runtime is split by responsibility: `alloc.c` owns allocation and GC state, `value.c` owns value operations, `control.c` owns explicit control and dynamic state, `io.c` owns ports/external I/O, and `lexer.c` owns bootstrap lexer hooks. Ports support textual files, binary files, memory bytevectors, optional-port character/byte operations, bulk bytevector I/O, EOF, stream-aware display/write, and ASCII single-datum read. Unused SIMD code is deferred until the tensor CPU-optimization phase; live collector root discovery remains in `gc.c`.
+Standard libraries are independent tracked sources under `lib/scheme/`. The compiler embeds only the private `(npl primitive)` intrinsic/derived-syntax registry and standard-library namespace/path policy. Current sources provide `(scheme base)`, `(scheme read)`, `(scheme write)`, `(scheme file)`, and the implemented `command-line`/`exit` subset of `(scheme process-context)`. Library-mode expansion requires explicit value and macro imports; standard implementations and exports are not ambient compiler bindings.
+
+The modular runtime supports textual files, binary files, memory bytevectors, optional-port character/byte operations, bulk bytevector I/O, EOF, stream-aware display/write, and ASCII single-datum read. Unused SIMD code is deferred until the tensor CPU-optimization phase; live collector root discovery remains in `gc.c`.
 
 ## Evidence
 
-The accepted relay has byte-identical gen1/gen2/gen3 output. GC stress passes one million allocations. `./tools/run_tests.sh --skip-current-fixed-point` reports `all suites: PASS`; permanent bootstrap sources and SSA remain unchanged.
-
-Stable toolchain entry points:
-
-- `tools/check_current_fixed_point.sh` verifies the evolving full compiler relay.
-- `tools/update_current_ssa.sh` installs a verified candidate as `bootstrap/current.ssa`.
-- `tools/build_nplc.sh` restores `build/bin/nplc` from `bootstrap/current.ssa`.
+- The accepted relay has byte-identical gen1/gen2/gen3 output.
+- The same compiler source emitted against normal `lib/` and a copied, modified `lib/scheme/write.sld` is byte-identical.
+- `./tools/run_tests.sh --skip-current-fixed-point` reports `all suites: PASS`.
+- The full compiler gate also passes when launched outside the repository root.
+- GC stress passes one million allocations; permanent bootstrap sources and SSA remain unchanged.
 
 ## Next
 
-Before adding more R7RS APIs, separate standard libraries from compiler implementation:
+Continue [`docs/plan-stdlib-driver-repl.md`](../docs/plan-stdlib-driver-repl.md) in dependency order:
 
-1. Keep only a private intrinsic/core binding surface in the compiler.
-2. Move `(scheme base)`, `(scheme read)`, `(scheme write)`, and `(scheme file)` to tracked `lib/scheme/*.sld` sources.
-3. Make standard-library resolution deterministic without embedding standard source manifests in compiler SSA.
-4. Prove that an implementation-only standard-library edit does not change canonical compiler SSA.
+1. Complete Step 6.1 with textual string ports, remaining process context/environment behavior, and focused contracts.
+2. Add independent `(scheme cxr)`, `(scheme case-lambda)`, `(scheme char)`, and remaining supported R7RS-small libraries under `lib/scheme/`.
+3. Add the explicit source -> SSA -> QBE -> native three-stage driver and NPL wrapper, including an explicit installed stdlib root.
+4. Build the persistent evaluator-backed REPL.
+5. Measure compiler phases and consider output-path optimization only after driver/REPL completion.
 
-Then complete string ports and process context, implement the remaining R7RS-small libraries, add the three-stage native driver, and build the persistent evaluator-backed REPL. Use one fixed-point relay per exact source tree, then run the remaining gate with `--skip-current-fixed-point`.
+Use one fixed-point relay per exact compiler source tree, then run the remaining gate with `--skip-current-fixed-point`.

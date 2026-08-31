@@ -1,6 +1,7 @@
 ; Hygienic expansion and lexical alpha-renaming before core lowering.
 
 (define EXPAND-NEXT-VALUE (cell 0))
+(define EXPAND-REQUIRE-BOUND (cell 0))
 
 (define (fresh-value-name identifier)
   (cell-set! EXPAND-NEXT-VALUE (+ 1 (cell-get EXPAND-NEXT-VALUE)))
@@ -53,6 +54,7 @@
           (direct-defined-identifiers (car forms)) environment))))
 
 (define (expand-program forms)
+  (cell-set! EXPAND-REQUIRE-BOUND 0)
   (cell-set! SYNTAX-MARKS ())
   (cell-set! SYNTAX-NEXT-MARK 0)
   (cell-set! EXPAND-NEXT-VALUE 0)
@@ -291,7 +293,10 @@
      (fatal "define-syntax is not valid in expression position"))
     ((string=? name "syntax-rules")
      (fatal "syntax-rules is not valid in expression position"))
-    (else (expand-application form value-env macro-env))))
+    (else
+     (if (= (cell-get EXPAND-REQUIRE-BOUND) 1)
+         (fatal (string-append "unbound identifier: " name))
+         (expand-application form value-env macro-env)))))
 
 (define (expand-expression-list expressions value-env macro-env)
   (if (null? expressions)

@@ -16,6 +16,7 @@ The plan also defines when existing `src/compiler/` modules may be rewritten usi
 - `bootstrap/current.ssa` remains the only checked-in recovery artifact for the evolving full compiler. No compiler binary, QBE assembly, or object file is committed.
 - Every implementation increment is compiled by the previous current compiler, then verified through gen1/gen2/gen3 byte-identical relay recovery.
 - The compiler implementation may use only libraries that the previous compiler can already load and compile. A standard library must not depend on compiler implementation files.
+- Standard libraries are checked-in `.sld` sources under `lib/scheme/`, with explicit exports and imports from the private `(npl primitive)` intrinsic surface. Their implementation and export changes must not alter compiler SSA unless the primitive registry, language semantics, loader, or lowering changes.
 - R7RS semantics are the source contract. NPL-specific process and native-build operations are separate extensions, not silently added to `(scheme base)`.
 - No package manager, library version solver, dynamic library loader, precompiled module cache, or cyclic library support is added.
 
@@ -57,7 +58,7 @@ Initial libraries:
 
 Actions:
 
-- Represent standard libraries as deterministic built-in manifests or checked-in `.sld` sources with explicit exports. `(scheme base)` must no longer be accepted only as an empty special case.
+- Represent standard libraries as checked-in `.sld` sources with explicit exports. Keep only the private `(npl primitive)` intrinsic binding registry in the compiler; do not embed `(scheme ...)` source or export manifests in compiler SSA.
 - Reuse runtime primitives where they are already correct; implement list, string, vector, bytevector, and character algorithms in NPL where that improves portability.
 - Ensure import modifiers and macro exports work identically for standard and user libraries.
 - Preserve static literal immutability and the current ASCII reader boundary until Unicode support is separately planned.
@@ -171,7 +172,7 @@ Compiler rewrites may be inserted only between the numbered increments above. Th
 
 1. Pure list/string/path helpers in `src/compiler/common/`, after equivalent standard-library functions have focused tests.
 2. Reader utilities, after one-datum port reading and error objects are stable.
-3. Library and expansion helpers, after standard-library export manifests and macro import tests are stable.
+3. Library and expansion helpers, after standard-library source exports and macro import tests are stable.
 4. Backend collection/state helpers, only when the new library version removes real duplication or fixes a measured defect.
 
 For each rewrite:

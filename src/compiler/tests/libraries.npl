@@ -11,6 +11,9 @@
         (libraries syntax)
         (libraries included)
         (libraries inline)
+        (scheme base)
+        (scheme write)
+        (scheme process-context)
         (prefix (only (scheme base) + car) base-)
         (rename (only (scheme base) when) (when standard-when)))
 
@@ -47,13 +50,25 @@
   (test-equal "library cache initializes once"
               (lambda () (+ base-value core-base-value))
               40)
-  (test-equal "standard base procedure manifest"
+  (test-equal "standard base procedure source"
               (lambda () (base-+ (base-car '(40 2)) 2))
               42)
-  (test-equal "standard base syntax manifest"
+  (test-equal "standard base syntax source"
               (lambda ()
                 (let ((value 0))
                   (standard-when #t (set! value 42))
                   value))
+              42)
+  (test-equal "standard library feature"
+              (lambda ()
+                (cond-expand
+                  ((library (scheme write)) 42)
+                  (else 0)))
+              42)
+  (test-equal "unknown standard library feature"
+              (lambda ()
+                (cond-expand
+                  ((library (scheme nonexistent)) 0)
+                  (else 42)))
               42)
   (finish-tests "libraries"))

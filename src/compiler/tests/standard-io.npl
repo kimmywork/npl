@@ -1,9 +1,11 @@
 (import (scheme read)
         (scheme write)
+        (scheme file)
+        (scheme process-context)
         (only (scheme base)
-              car cdr close-input-port close-output-port eof-object?
-              open-input-file open-output-file read-char string=?
-              symbol->string vector-ref write-char))
+              + = car cdr close-input-port close-output-port eof-object?
+              eq? newline read-char string=? symbol->string vector-ref
+              write-char))
 
 (include "framework.npl")
 

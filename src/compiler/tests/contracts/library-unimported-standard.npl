@@ -1,0 +1,9 @@
+(define-library (tests isolated-standard)
+  (export value)
+  (import (only (scheme base) +))
+  (begin
+    (define (value) (display 1))))
+
+(import (tests isolated-standard))
+
+(define (main) (value))
