@@ -16,7 +16,7 @@ The command builds a compiler from `bootstrap/current.ssa`, emits `gen1.ssa`, re
 ./tools/check_current_fixed_point.sh --keep --work-dir /tmp/npl-fixed-point
 ```
 
-The current artifact is presently 340,925 lines with SHA-256 `7f60cf9501a997ee1df137783639afd5a42248e4c05cce9a45344c325507e945`.
+The current artifact is 347,532 lines with SHA-256 `0be8fc68e99ad8f209b1c3171df96d2d754692c21fbf8d88addcd7d9fd27d050`.
 
 ## Update Current SSA
 
@@ -30,29 +30,36 @@ This first runs the complete gen1/gen2/gen3 comparison. Only after it succeeds d
 
 ## Build Nplc
 
-Build the complete native compiler binary from the canonical SSA with:
+Build the raw compiler from canonical SSA and the native three-stage driver with:
 
 ```bash
 ./tools/build_nplc.sh
 ```
 
-The default output is `build/bin/nplc`. A custom output path is accepted:
+The outputs are:
 
-```bash
-./tools/build_nplc.sh /tmp/nplc
+```text
+build/bin/nplc-raw   raw NPL -> QBE SSA emitter
+build/bin/nplc       source -> SSA -> QBE assembly -> native driver
 ```
 
-The process is QBE lowering followed by clang linking against the built runtime archive. The resulting compiler emits QBE SSA:
+Compile a native program in one command:
+
+```bash
+build/bin/nplc program.npl -o program
+```
+
+Raw SSA inspection remains available and preserves the emitter's successful status `44`:
 
 ```bash
 build/bin/nplc --emit-qbe program.npl > program.ssa
 ```
 
-The compiler's successful emit mode exits with status `44`, which is the existing compiler convention. The generated SSA can be lowered and linked with QBE and `build/runtime/libnpl_runtime.a`.
+The driver uses argv-based child processes, an isolated temporary directory, and explicit configured paths for the raw compiler, QBE, C compiler, runtime archive, and standard library. These may be overridden with `--raw-compiler`, `--qbe`, `--cc`, `--runtime`, and `--stdlib-root`. A custom driver output path is accepted by `tools/build_nplc.sh`; it continues to use the configured build-tree dependencies.
 
 ## Standard Libraries
 
-R7RS library sources live under `lib/scheme/`; they are runtime compiler inputs, not embedded in `bootstrap/current.ssa`. The current resolver uses `lib/` as the deterministic standard-library root relative to the compiler process working directory, while user libraries remain relative to the source program. Tooling runs from the repository root. The native driver increment will pass an explicit configured standard-library root so installed compilers do not depend on their caller's working directory.
+R7RS library sources live under `lib/scheme/`; they are runtime compiler inputs, not embedded in `bootstrap/current.ssa`. The raw compiler accepts `--stdlib-root DIR`, and the native driver supplies its configured absolute source-tree root by default. User libraries remain relative to the source program.
 
 Only `(npl primitive)` is compiler-defined. It maps the backend/runtime intrinsics and derived syntax needed by checked-in standard libraries. Changes to ordinary `(scheme ...)` implementation or exports do not require canonical compiler regeneration; changes to the primitive registry, loader, lowering, or runtime ABI do.
 

@@ -35,6 +35,7 @@ if [ "$SKIP_CURRENT_FIXED_POINT" -eq 0 ]; then
         "$ROOT/tools/check_current_fixed_point.sh"
 fi
 run "full compiler language" "$ROOT/tools/check_full_compiler.sh"
+run "three-stage driver" "$ROOT/tools/check_driver.sh"
 run "runtime GC" "$ROOT/tools/check_gc.sh"
 run "stage0 dynamic core" "$ROOT/tools/check_core.sh"
 run "R7RS baseline" "$ROOT/tools/check_r7rs.sh"

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build the complete native nplc compiler from bootstrap/current.ssa.
-# Usage: ./tools/build_nplc.sh [output-path]
+# Restore the raw compiler and build the native three-stage nplc driver.
+# Usage: ./tools/build_nplc.sh [driver-output-path]
 # Default output: build/bin/nplc
 
 set -eu
@@ -10,7 +10,9 @@ BUILD="$ROOT/build"
 QBE="$BUILD/qbe/qbe"
 RUNTIME="$BUILD/runtime/libnpl_runtime.a"
 CURRENT="$ROOT/bootstrap/current.ssa"
-OUTPUT=${1:-"$BUILD/bin/nplc"}
+RAW="$BUILD/bin/nplc-raw"
+DRIVER="$BUILD/bin/nplc"
+OUTPUT=${1:-"$DRIVER"}
 
 case "$OUTPUT" in
     -*)
@@ -20,12 +22,17 @@ case "$OUTPUT" in
 esac
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime >/dev/null
-mkdir -p "$(dirname "$OUTPUT")"
+ninja -C "$BUILD" qbe_build npl_runtime npl_driver >/dev/null
+mkdir -p "$BUILD/bin" "$(dirname "$OUTPUT")"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-"$QBE" -o "$work/nplc.s" "$CURRENT"
-cc -o "$OUTPUT" "$work/nplc.s" "$RUNTIME"
+"$QBE" -o "$work/nplc-raw.s" "$CURRENT"
+cc -o "$RAW" "$work/nplc-raw.s" "$RUNTIME"
 
-printf 'built nplc: %s\n' "$OUTPUT"
+if [ "$OUTPUT" != "$DRIVER" ]; then
+    cmake -E copy "$DRIVER" "$OUTPUT"
+fi
+
+printf 'built nplc driver: %s\n' "$OUTPUT"
+printf 'built raw compiler: %s\n' "$RAW"

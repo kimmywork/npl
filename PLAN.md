@@ -74,9 +74,9 @@ Complete the practical R7RS dependency closure for native tooling and interactiv
 
 ## 7. Unified Compilation Driver
 
-Status: next after the first-wave library dependency closure.
+Status: native three-stage driver complete; NPL wrapper next.
 
-Provide a one-command `nplc source.npl -o output` pipeline while retaining raw SSA emission, then implement the orchestration wrapper in NPL using a minimal non-standard argv-based process API. The process API is intentionally separate from R7RS standard libraries.
+`build/bin/nplc source.npl -o output` now performs raw SSA emission, QBE assembly generation, and native linking while retaining `--emit-qbe`. The driver uses argv child processes, explicit configured toolchain/stdlib paths, isolated temporary directories, failure propagation, and cleanup. Next implement the equivalent NPL orchestration wrapper over `(npl process)`.
 
 ## 8. REPL
 

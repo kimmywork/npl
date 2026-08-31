@@ -1,0 +1,8 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context))
+
+(define (main)
+  (display "hello from nplc")
+  (newline)
+  (exit 0))
