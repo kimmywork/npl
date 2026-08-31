@@ -8,28 +8,28 @@ The permanent bootstrap language and compiler are frozen. The evolving full comp
 - `bootstrap/compiler/`: permanent NPL bootstrap compiler.
 - `src/compiler/`: evolving full compiler.
 - `bootstrap/bootstrap.ssa`: permanent 6,753-line bootstrap fixed point.
-- `bootstrap/current.ssa`: current 345,584-line full-compiler fixed point, SHA-256 `d751742f9f8124e4a7a013181bbf0cd8429115e46306e6c36d7405a462ec5640`.
+- `bootstrap/current.ssa`: current 347,532-line full-compiler fixed point, SHA-256 `0be8fc68e99ad8f209b1c3171df96d2d754692c21fbf8d88addcd7d9fd27d050`.
 
-Standard libraries are independent tracked sources under `lib/scheme/`. The compiler embeds only the private `(npl primitive)` intrinsic/derived-syntax registry and standard-library namespace/path policy. Current sources provide `(scheme base)`, `(scheme read)`, `(scheme write)`, `(scheme file)`, and the implemented `command-line`/`exit` subset of `(scheme process-context)`. Library-mode expansion requires explicit value and macro imports; standard implementations and exports are not ambient compiler bindings.
+The first-wave standard-library closure for driver/REPL is complete. Independent sources under `lib/` provide `(scheme base)`, `(scheme read)`, `(scheme write)`, `(scheme file)`, `(scheme process-context)`, `(scheme cxr)`, `(scheme char)`, `(scheme case-lambda)`, `(scheme lazy)`, and private `(npl process)`. Ports support textual/binary files, string/bytevector memory ports, bulk binary I/O, and single-datum read/write. The compiler accepts explicit `--stdlib-root` configuration.
 
-The modular runtime supports textual files, binary files, memory bytevectors, optional-port character/byte operations, bulk bytevector I/O, EOF, stream-aware display/write, and ASCII single-datum read. Unused SIMD code is deferred until the tensor CPU-optimization phase; live collector root discovery remains in `gc.c`.
+The hygienic macro engine now correctly handles nested dotted patterns whose atomic symbol tail is used as a binding identifier. The root cause was repeated matching treating pair-backed datum symbols as list structure; focused regressions cover nested dotted capture and binding transcription.
 
 ## Evidence
 
-- The accepted relay has byte-identical gen1/gen2/gen3 output.
-- The same compiler source emitted against normal `lib/` and a copied, modified `lib/scheme/write.sld` is byte-identical.
+- Current gen1/gen2/gen3 are byte-identical when linked with the final runtime.
 - `./tools/run_tests.sh --skip-current-fixed-point` reports `all suites: PASS`.
-- The full compiler gate also passes when launched outside the repository root.
+- Focused suites pass for macro ellipsis, string I/O, first-wave libraries, process execution/context, binary I/O, and standard read/write.
+- A compiler launched from `/tmp` can compile a standard-library program with explicit `--stdlib-root`.
 - GC stress passes one million allocations; permanent bootstrap sources and SSA remain unchanged.
 
 ## Next
 
-Continue [`docs/plan-stdlib-driver-repl.md`](../docs/plan-stdlib-driver-repl.md) in dependency order:
+Deliver a concrete usable product before further R7RS conformance expansion:
 
-1. Complete Step 6.1 with textual string ports, remaining process context/environment behavior, and focused contracts.
-2. Add independent `(scheme cxr)`, `(scheme case-lambda)`, `(scheme char)`, and remaining supported R7RS-small libraries under `lib/scheme/`.
-3. Add the explicit source -> SSA -> QBE -> native three-stage driver and NPL wrapper, including an explicit installed stdlib root.
-4. Build the persistent evaluator-backed REPL.
+1. Implement the explicit source -> SSA -> QBE -> native three-stage driver while retaining `--emit-qbe`.
+2. Implement the NPL orchestration wrapper using `(npl process)` and explicit stdlib/toolchain configuration.
+3. Build the shared persistent evaluator engine and native REPL core; full public `(scheme eval)` wraps this engine later.
+4. Return to remaining R7RS-small numeric, `eval`/`load`, time, Unicode, and compatibility conformance using native driver and REPL workflows.
 5. Measure compiler phases and consider output-path optimization only after driver/REPL completion.
 
-Use one fixed-point relay per exact compiler source tree, then run the remaining gate with `--skip-current-fixed-point`.
+Use one fixed-point relay per exact compiler/runtime source tree, then run the remaining gate with `--skip-current-fixed-point`.

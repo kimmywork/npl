@@ -1,0 +1,48 @@
+(import (scheme base)
+        (scheme case-lambda)
+        (scheme char)
+        (scheme cxr)
+        (scheme lazy)
+        (scheme write)
+        (scheme process-context))
+
+(include "framework.npl")
+
+(define (main)
+  (test-equal "cxr depth three"
+              (lambda () (caadr '((1 2) (3 4)))) 3)
+  (test-equal "cxr depth four"
+              (lambda () (cadddr '(1 2 3 4))) 4)
+  (test-equal "cxr cddddr"
+              (lambda () (car (cddddr '(1 2 3 4 5)))) 5)
+  (test-identity "character equality chain"
+                 (lambda () (char=? #\a #\a #\a)) #t)
+  (test-identity "character ordering chain"
+                 (lambda () (char<? #\a #\b #\c)) #t)
+  (test-identity "character ci equality"
+                 (lambda () (char-ci=? #\A #\a)) #t)
+  (test-identity "character alphabetic"
+                 (lambda () (char-alphabetic? #\Z)) #t)
+  (test-identity "character numeric"
+                 (lambda () (char-numeric? #\7)) #t)
+  (test-equal "character digit value"
+              (lambda () (digit-value #\7)) 7)
+  (test-identity "character whitespace"
+                 (lambda () (char-whitespace? #\space)) #t)
+  (test-identity "character case conversion"
+                 (lambda () (char=? (char-downcase #\Q) #\q)) #t)
+  (let ((promise (delay (+ 40 2))))
+    (test-equal "lazy library promise" (lambda () (force promise)) 42))
+  (let ((dispatch
+          (case-lambda
+            (() 0)
+            ((a) a)
+            ((a b) (+ a b))
+            ((a b . rest) (+ (+ a b) (car rest))))))
+    (test-equal "case-lambda empty clause" (lambda () (dispatch)) 0)
+    (test-equal "case-lambda fixed clause" (lambda () (dispatch 42)) 42)
+    (test-equal "case-lambda second fixed clause"
+                (lambda () (dispatch 20 22)) 42)
+    (test-equal "case-lambda dotted clause"
+                (lambda () (dispatch 10 11 21)) 42))
+  (finish-tests "first-wave-libraries"))

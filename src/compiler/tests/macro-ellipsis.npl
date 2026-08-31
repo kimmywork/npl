@@ -23,6 +23,16 @@
   (syntax-rules ()
     ((dotted-tail item ... . tail) (quote tail))))
 
+(define-syntax nested-dotted-binding
+  (syntax-rules ()
+    ((_ ((name ... . rest) body ...))
+     ((lambda (rest) body ...) '(42)))))
+
+(define-syntax dotted-tail-binding
+  (syntax-rules ()
+    ((_ (item ... . tail) value)
+     (let ((tail value)) tail))))
+
 (define-syntax vector-copy
   (syntax-rules ()
     ((vector-copy #(item ...)) (vector item ...))))
@@ -52,6 +62,15 @@
               (lambda () (final-item 1 2 42)) 42)
   (test-equal "improper pattern tail"
               (lambda () (dotted-tail 1 2 . 42)) 42)
+  (test-equal "nested dotted tail as binding"
+              (lambda ()
+                (nested-dotted-binding
+                  ((a b . captured) (car captured))))
+              42)
+  (test-equal "dotted tail binding identifier"
+              (lambda ()
+                (dotted-tail-binding (a b . captured) 42))
+              42)
   (test-equal "vector pattern and template"
               (lambda () (vector-ref (vector-copy #(20 42)) 1)) 42)
   (test-equal "custom ellipsis identifier"

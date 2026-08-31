@@ -85,7 +85,7 @@ reject_literal_mutation() {
 run_suite dynamic-core "PASS dynamic-core 4"
 run_suite reader-datum "PASS reader-datum 24"
 run_suite macros-basic "PASS macros-basic 10"
-run_suite macro-ellipsis "PASS macro-ellipsis 9"
+run_suite macro-ellipsis "PASS macro-ellipsis 11"
 run_suite macro-scopes "PASS macro-scopes 10"
 run_suite derived-forms "PASS derived-forms 17"
 run_suite explicit-control "PASS explicit-control 2"
@@ -100,6 +100,9 @@ run_suite libraries "PASS libraries 14"
 run_suite ports "PASS ports 7"
 run_suite standard-io "PASS standard-io 6"
 run_suite binary-io "PASS binary-io 15"
+run_suite string-io "PASS string-io 12"
+run_suite first-wave-libraries "PASS first-wave-libraries 16"
+run_suite process "PASS process 9"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2
     exit 1
@@ -153,6 +156,14 @@ reject_runtime contracts/write-bytevector-range.npl \
     write-bytevector-range "write-bytevector: invalid bytevector range"
 reject_runtime contracts/write-bytevector-closed.npl \
     write-bytevector-closed "write-u8: port is closed"
+reject_runtime contracts/open-input-string-type.npl \
+    open-input-string-type "open-input-string: expected a string"
+reject_runtime contracts/get-output-string-port.npl \
+    get-output-string-port "get-output-string: not a string port"
+reject_runtime contracts/process-improper-arguments.npl \
+    process-improper-arguments "run-process: arguments must be a proper list"
+reject_runtime contracts/process-nonstring-argument.npl \
+    process-nonstring-argument "run-process: expected an argument string"
 reject_compile contracts/library-cycle.npl \
     library-cycle "library cycle"
 reject_compile contracts/library-unknown-import.npl \

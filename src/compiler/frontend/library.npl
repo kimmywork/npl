@@ -1,7 +1,7 @@
 ; R7RS-small library loading and import/export scoping.
 
 (define LIBRARY-ROOT (cell ""))
-(define LIBRARY-STANDARD-ROOT "lib/")
+(define LIBRARY-STANDARD-ROOT (cell "lib/"))
 (define LIBRARY-STANDARD-INDEX (cell ()))
 (define LIBRARY-REGISTRY (cell ()))
 (define LIBRARY-OUTPUT (cell ()))
@@ -81,6 +81,13 @@
       #f
       (string=? (substring key 0 7) "scheme/")))
 
+(define (library-installed-key? key)
+  (if (library-standard-key? key)
+      #t
+      (if (< (string-length key) 4)
+          #f
+          (string=? (substring key 0 4) "npl/"))))
+
 (define (library-standard-available-in? key names)
   (if (null? names)
       #f
@@ -92,16 +99,25 @@
   (if (null? (cell-get LIBRARY-STANDARD-INDEX))
       (cell-set! LIBRARY-STANDARD-INDEX
         (parse-source-file
-          (string-append LIBRARY-STANDARD-ROOT "scheme/libraries.scm"))))
+          (string-append (cell-get LIBRARY-STANDARD-ROOT)
+                         "scheme/libraries.scm"))))
   (library-standard-available-in?
     key (cell-get LIBRARY-STANDARD-INDEX)))
 
 (define (library-path-for-key key)
   (string-append
-    (if (library-standard-key? key)
-        LIBRARY-STANDARD-ROOT
+    (if (library-installed-key? key)
+        (cell-get LIBRARY-STANDARD-ROOT)
         (cell-get LIBRARY-ROOT))
     (string-append key ".sld")))
+
+(define (library-set-standard-root! root)
+  (if (= (string-length root) 0)
+      (fatal "standard library root must not be empty"))
+  (cell-set! LIBRARY-STANDARD-ROOT
+    (if (= (string-ref root (- (string-length root) 1)) 47)
+        root
+        (string-append root "/"))))
 
 (define (library-external-entry name)
   (let ((key (library-name-key name)))
@@ -439,10 +455,16 @@
 bytevector-u8-ref bytevector-u8-set! bytevector? binary-port? car cdr
 char->integer char? close-input-port close-output-port close-port cons
 current-error-port current-input-port current-output-port dynamic-wind exit
-eof-object eof-object? eq? eqv? flush-output-port get-output-bytevector
+eof-object eof-object? eq? eqv? flush-output-port get-environment-variable
+get-environment-variables get-output-bytevector
+get-output-string
 input-port-open? input-port? integer->char list->vector newline not null?
-number->string number? program-arguments open-binary-input-file open-binary-output-file
-open-input-bytevector open-input-file open-output-bytevector open-output-file
+number->string number? npl_make_parameter npl_parameter_converter
+npl_parameters_enter npl_parameters_leave npl_promise_op program-arguments
+run-process
+open-binary-input-file open-binary-output-file
+open-input-bytevector open-input-file open-input-string
+open-output-bytevector open-output-file open-output-string
 output-port-open? output-port? pair? peek-char peek-u8 port? raise
 raise-continuable read read-bytevector read-bytevector! read-char read-u8
 set-car! set-cdr! string-append string-length string-ref string=? substring

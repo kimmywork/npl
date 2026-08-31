@@ -201,12 +201,16 @@
 
 (define (compiler-input args)
   (if (null? args)
-      (fatal "usage: npl-bootstrap [--emit-qbe] <input.npl>")
+      (fatal "usage: nplc [--emit-qbe] [--stdlib-root DIR] <input.npl>")
       (if (string=? (car args) "--emit-qbe")
-          (if (null? (cdr args))
-              (fatal "--emit-qbe needs an input file")
-              (car (cdr args)))
-          (car args))))
+          (compiler-input (cdr args))
+          (if (string=? (car args) "--stdlib-root")
+              (if (null? (cdr args))
+                  (fatal "--stdlib-root needs a directory")
+                  (begin
+                    (library-set-standard-root! (car (cdr args)))
+                    (compiler-input (cdr (cdr args)))))
+              (car args)))))
 
 (define (run args)
   (let ((path (compiler-input args)))

@@ -1,0 +1,40 @@
+(import (scheme base)
+        (scheme file)
+        (scheme write)
+        (scheme process-context)
+        (npl process))
+
+(include "framework.npl")
+
+(define (main)
+  (test-equal "process success status"
+              (lambda () (run-process (list "/usr/bin/true") #f)) 0)
+  (test-equal "process failure status"
+              (lambda () (run-process (list "/usr/bin/false") #f)) 1)
+  (test-equal "process missing status"
+              (lambda ()
+                (run-process (list "/tmp/npl-command-does-not-exist") #f))
+              127)
+  (test-identity "missing environment variable"
+                 (lambda ()
+                   (get-environment-variable
+                     "NPL_TEST_VARIABLE_THAT_DOES_NOT_EXIST"))
+                 #f)
+  (test-identity "environment variable"
+                 (lambda ()
+                   (> (string-length (get-environment-variable "PATH")) 0))
+                 #t)
+  (test-identity "environment variable list"
+                 (lambda () (pair? (get-environment-variables))) #t)
+  (let ((path "/tmp/npl-process-output.data"))
+    (test-equal "process redirected status"
+                (lambda ()
+                  (run-process (list "/bin/echo" "hello") path))
+                0)
+    (let ((input (open-input-file path)))
+      (test-identity "process redirected first character"
+                     (lambda () (eq? (read-char input) #\h)) #t)
+      (test-identity "process redirected second character"
+                     (lambda () (eq? (read-char input) #\e)) #t)
+      (close-port input)))
+  (finish-tests "process"))

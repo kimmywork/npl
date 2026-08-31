@@ -22,6 +22,15 @@ The plan also defines when existing `src/compiler/` modules may be rewritten usi
 
 ## Scope And Order
 
+Delivery is product-first:
+
+1. Complete a broad first-wave R7RS dependency closure for native compilation and interactive evaluation.
+2. Deliver the explicit three-stage driver and its NPL wrapper.
+3. Deliver the persistent evaluator-backed REPL core and `(scheme repl)`.
+4. Return to the remaining R7RS-small conformance surface using driver and REPL workflows as acceptance fixtures.
+
+The first wave is intentionally broad but not presented as full conformance. Numeric tower completion, full `eval`/`load`, and compatibility layers must not delay the first usable compiler command and interaction environment.
+
 ### Step 6.1: Port And Runtime Substrate
 
 Result: a small, explicit runtime API for text and binary ports, standard streams, files, and process context.
@@ -43,18 +52,27 @@ Verification:
 
 Complete when ports and process context work from a compiler restored from `bootstrap/current.ssa`, and no process primitive is exported by an R7RS library.
 
-### Step 6.2: Core R7RS Libraries
+### Step 6.2: First-Wave R7RS Libraries
 
-Result: the standard library bindings have explicit export surfaces instead of relying on an undocumented ambient compiler environment.
+Result: the standard library provides the practical dependency closure needed by the native driver and persistent REPL, with explicit source-based export surfaces.
 
-Initial libraries:
+First-wave libraries and substrate:
 
-- `(scheme base)`: booleans, pairs/lists, symbols, numbers currently supported by NPL, characters, strings, vectors, bytevectors, control, exceptions, parameters, promises, and core syntax.
+- `(scheme base)`: the implemented booleans, pairs/lists, symbols, numbers, characters, strings, vectors, bytevectors, control, exceptions, parameters, promises, core syntax, string ports, and bytevector ports.
 - `(scheme cxr)`: the twenty-four composite car/cdr accessors.
 - `(scheme case-lambda)`: `case-lambda` syntax.
-- `(scheme char)`: character predicates and case-insensitive character comparison/conversion.
-- `(scheme write)`: `write`, `write-shared`, `write-simple`, `display`, and `newline`.
-- `(scheme read)`: datum reading and EOF behavior.
+- `(scheme char)`: ASCII character predicates, comparisons, and case conversion.
+- `(scheme write)` and `(scheme read)`: transcript-capable datum I/O.
+- `(scheme file)` and `(scheme process-context)`: the file/process operations needed by tools.
+- `(scheme lazy)`: the already-supported promise surface.
+- Private `(npl process)`: argv-based child process execution for the NPL driver, never shell command strings.
+
+Explicitly deferred until after driver/REPL core:
+
+- exact rational, bignum, complex, and broader inexact numeric semantics;
+- complete `(scheme eval)`, `(scheme load)`, `(scheme time)`, and `(scheme r5rs)`;
+- Unicode expansion beyond the current ASCII repertoire;
+- exhaustive R7RS edge-case and compatibility conformance.
 
 Actions:
 
@@ -71,26 +89,6 @@ Verification:
 - Macro exports, `cond-expand`, `include-ci`, and modifier combinations are tested with standard libraries as well as user libraries.
 
 Complete when the implemented subset is explicit, tested through restored full compilers, and the remaining unimplemented standard bindings are listed rather than implied complete.
-
-### Step 6.3: Remaining R7RS-small Libraries
-
-Result: the remaining R7RS-small library set is implemented in dependency order:
-
-- `(scheme complex)` and `(scheme inexact)` with the numeric operations supported by the numeric representation.
-- `(scheme file)` and `(scheme load)` on top of ports and the source loader.
-- `(scheme process-context)` and `(scheme time)`.
-- `(scheme eval)` with an explicitly defined evaluation environment.
-- `(scheme lazy)` on top of promises.
-- `(scheme repl)` after the REPL evaluator exists.
-- `(scheme r5rs)` as a compatibility export layer only where semantics are actually implemented.
-
-The numeric tower is a separate increment when exact rationals, complex values, and bignum promotion are ready. A library is not marked complete merely because its name resolves.
-
-Verification:
-
-- Use per-library conformance fixtures, cross-library import tests, and negative contracts.
-- Compare observable results and errors with the R7RS reference behavior for the supported numeric and port domains.
-- Run the entire existing suite after every library increment.
 
 ### Step 7.1: Explicit Three-Stage Driver
 
@@ -163,6 +161,30 @@ Verification:
 - Compare REPL evaluation with compiled execution for the same expression fixtures.
 
 Complete when the REPL behaves as a persistent Scheme interaction environment for the implemented language subset, with explicit limitations recorded for unsupported `eval`, numeric, Unicode, or implementation-specific features.
+
+The REPL must use the shared evaluator engine intended for `(scheme eval)`. Full public `eval` conformance is deferred, but the evaluator itself is not: persistent environments, lexical evaluation, macro expansion, imports, control behavior, and recoverable errors are REPL-core requirements.
+
+### Step 9.1: Remaining R7RS-small Conformance
+
+This work starts only after the three-stage driver and persistent REPL core are usable. The driver and REPL become primary acceptance surfaces for the remaining standardization work.
+
+Result: complete the public `(scheme eval)` environment API and the remaining R7RS-small libraries in dependency order:
+
+- `(scheme complex)` and `(scheme inexact)` with the numeric operations supported by the numeric representation.
+- `(scheme load)` on top of ports and the source loader.
+- remaining `(scheme process-context)` and `(scheme time)` behavior;
+- full `(scheme eval)` environment construction and conformance over the shared evaluator engine;
+- `(scheme repl)` interaction-environment exports;
+- `(scheme r5rs)` as a compatibility export layer only where semantics are actually implemented.
+
+The numeric tower is a separate increment when exact rationals, complex values, and bignum promotion are ready. A library is not marked complete merely because its name resolves.
+
+Verification:
+
+- Use per-library conformance fixtures, cross-library import tests, and negative contracts.
+- Compare observable results and errors with the R7RS reference behavior for the supported numeric and port domains.
+- Exercise the remaining APIs through both native programs and persistent REPL transcripts.
+- Run the entire existing suite after every library increment.
 
 ## Opportunistic Compiler Rewrites
 

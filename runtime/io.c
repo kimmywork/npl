@@ -1,9 +1,15 @@
 /* Runtime ports, external I/O, and process entry services. */
 
 #include "npl.h"
+#include <fcntl.h>
+#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+extern char **environ;
 
 #define NPL_PORT_INPUT   1u
 #define NPL_PORT_OUTPUT  2u
@@ -72,6 +78,32 @@ static NplVal copy_bytevector_range(const uint8_t *bytes, uint32_t length)
     return value;
 }
 
+static NplVal make_string_buffer(uint32_t capacity)
+{
+    NplString *buffer = (NplString *)npl_alloc_object(
+        sizeof(NplString) + (size_t)capacity + 1);
+    buffer->header.tag = BOX_STRING;
+    buffer->header.flags = 0;
+    buffer->length = 0;
+    buffer->capacity = capacity;
+    buffer->data[0] = '\0';
+    return (NplVal)(uintptr_t)buffer | TAG_PTR;
+}
+
+static NplString *require_string(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING) {
+        fprintf(stderr, "%s: expected a string\n", who);
+        exit(1);
+    }
+    return (NplString *)npl_header(value);
+}
+
+static NplVal copy_string_range(const char *bytes, uint32_t length)
+{
+    return npl_string(bytes, length);
+}
+
 static NplVal make_eof_object(void)
 {
     NplEof *eof = (NplEof *)npl_alloc_object(sizeof(NplEof));
@@ -96,160 +128,198 @@ void npl_io_init(void)
     npl_gc_root(&g_eof_object);
 }
 
-/* ---- Display (for debugging) ---- */
+/* ---- Datum output ---- */
 
-static void display_to(FILE *stream, NplVal value)
+static void port_write_bytes(NplPort *port, const uint8_t *bytes, size_t count,
+                             const char *who);
+
+static void output_bytes(NplPort *port, const char *bytes, size_t count)
+{
+    port_write_bytes(port, (const uint8_t *)bytes, count, "write");
+}
+
+static void output_text(NplPort *port, const char *text)
+{
+    output_bytes(port, text, strlen(text));
+}
+
+static void output_char(NplPort *port, int code)
+{
+    uint8_t byte = (uint8_t)code;
+    port_write_bytes(port, &byte, 1, "write");
+}
+
+static void output_integer(NplPort *port, long long value)
+{
+    char buffer[32];
+    int length = snprintf(buffer, sizeof(buffer), "%lld", value);
+    output_bytes(port, buffer, (size_t)length);
+}
+
+static void output_float(NplPort *port, double value)
+{
+    char buffer[64];
+    int length = snprintf(buffer, sizeof(buffer), "%g", value);
+    output_bytes(port, buffer, (size_t)length);
+}
+
+static void display_to(NplPort *port, NplVal value)
 {
     if (npl_is_fixnum(value)) {
-        fprintf(stream, "%lld", (long long)npl_fixnum_value(value));
+        output_integer(port, (long long)npl_fixnum_value(value));
     } else if (npl_is_nil(value)) {
-        fputs("()", stream);
+        output_text(port, "()");
     } else if (value == npl_true()) {
-        fputs("#t", stream);
+        output_text(port, "#t");
     } else if (value == npl_false()) {
-        fputs("#f", stream);
+        output_text(port, "#f");
     } else if (npl_is_char(value)) {
-        fputc((int)npl_char_value(value), stream);
+        output_char(port, (int)npl_char_value(value));
     } else if (npl_is_ptr(value)) {
         NplHeader *header = npl_header(value);
         switch (header->tag) {
         case BOX_PAIR: {
             NplPair *pair = (NplPair *)header;
-            fputc('(', stream);
-            display_to(stream, pair->car);
+            output_char(port, '(');
+            display_to(port, pair->car);
             NplVal rest = pair->cdr;
             while (!npl_is_nil(rest) && npl_is_ptr(rest) &&
                    npl_box_tag(rest) == BOX_PAIR) {
-                fputc(' ', stream);
-                display_to(stream, npl_car(rest));
+                output_char(port, ' ');
+                display_to(port, npl_car(rest));
                 rest = npl_cdr(rest);
             }
             if (!npl_is_nil(rest)) {
-                fputs(" . ", stream);
-                display_to(stream, rest);
+                output_text(port, " . ");
+                display_to(port, rest);
             }
-            fputc(')', stream);
+            output_char(port, ')');
             break;
         }
         case BOX_STRING:
         case BOX_SYMBOL: {
             NplString *string = (NplString *)header;
-            fwrite(string->data, 1, string->length, stream);
+            output_bytes(port, string->data, string->length);
             break;
         }
         case BOX_FLOAT:
-            fprintf(stream, "%g", ((NplFloat *)header)->value);
+            output_float(port, ((NplFloat *)header)->value);
             break;
         case BOX_VECTOR: {
             NplVector *vector = (NplVector *)header;
-            fputs("#(", stream);
+            output_text(port, "#(");
             for (uint32_t i = 0; i < vector->length; i++) {
-                if (i) fputc(' ', stream);
-                display_to(stream, vector->data[i]);
+                if (i) output_char(port, ' ');
+                display_to(port, vector->data[i]);
             }
-            fputc(')', stream);
+            output_char(port, ')');
             break;
         }
         case BOX_BYTEVECTOR: {
             NplBytevector *vector = (NplBytevector *)header;
-            fputs("#u8(", stream);
+            output_text(port, "#u8(");
             for (uint32_t i = 0; i < vector->length; i++) {
-                if (i) fputc(' ', stream);
-                fprintf(stream, "%u", (unsigned)vector->data[i]);
+                if (i) output_char(port, ' ');
+                output_integer(port, vector->data[i]);
             }
-            fputc(')', stream);
+            output_char(port, ')');
             break;
         }
-        case BOX_VALUES: fputs("#<multiple-values>", stream); break;
-        case BOX_PROMISE: fputs("#<promise>", stream); break;
-        case BOX_PORT: fputs("#<port>", stream); break;
-        case BOX_EOF: fputs("#<eof>", stream); break;
-        default: fputs("#<unknown>", stream); break;
+        case BOX_VALUES: output_text(port, "#<multiple-values>"); break;
+        case BOX_PROMISE: output_text(port, "#<promise>"); break;
+        case BOX_PORT: output_text(port, "#<port>"); break;
+        case BOX_EOF: output_text(port, "#<eof>"); break;
+        default: output_text(port, "#<unknown>"); break;
         }
     } else {
-        fputs("#<unknown>", stream);
+        output_text(port, "#<unknown>");
     }
 }
 
-static void write_escaped_string(FILE *stream, const NplString *string)
+static void write_escaped_string(NplPort *port, const NplString *string)
 {
-    fputc('"', stream);
+    output_char(port, '"');
     for (uint32_t i = 0; i < string->length; i++) {
         unsigned char code = (unsigned char)string->data[i];
         if (code == '"' || code == '\\') {
-            fputc('\\', stream);
-            fputc(code, stream);
+            output_char(port, '\\');
+            output_char(port, code);
         } else if (code == '\n') {
-            fputs("\\n", stream);
+            output_text(port, "\\n");
         } else if (code == '\r') {
-            fputs("\\r", stream);
+            output_text(port, "\\r");
         } else if (code == '\t') {
-            fputs("\\t", stream);
+            output_text(port, "\\t");
         } else {
-            fputc(code, stream);
+            output_char(port, code);
         }
     }
-    fputc('"', stream);
+    output_char(port, '"');
 }
 
-static void write_to(FILE *stream, NplVal value)
+static void write_to(NplPort *port, NplVal value)
 {
     if (npl_is_char(value)) {
         uint32_t code = npl_char_value(value);
-        if (code == 32) fputs("#\\space", stream);
-        else if (code == 10) fputs("#\\newline", stream);
-        else if (code == 9) fputs("#\\tab", stream);
-        else fprintf(stream, "#\\%c", (int)code);
+        if (code == 32) output_text(port, "#\\space");
+        else if (code == 10) output_text(port, "#\\newline");
+        else if (code == 9) output_text(port, "#\\tab");
+        else {
+            output_text(port, "#\\");
+            output_char(port, (int)code);
+        }
         return;
     }
     if (npl_is_ptr(value) && npl_header(value)->tag == BOX_STRING) {
-        write_escaped_string(stream, (NplString *)npl_header(value));
+        write_escaped_string(port, (NplString *)npl_header(value));
         return;
     }
     if (npl_is_ptr(value) && npl_header(value)->tag == BOX_PAIR) {
         NplPair *pair = (NplPair *)npl_header(value);
-        fputc('(', stream);
-        write_to(stream, pair->car);
+        output_char(port, '(');
+        write_to(port, pair->car);
         NplVal rest = pair->cdr;
         while (!npl_is_nil(rest) && npl_is_ptr(rest) &&
                npl_box_tag(rest) == BOX_PAIR) {
-            fputc(' ', stream);
-            write_to(stream, npl_car(rest));
+            output_char(port, ' ');
+            write_to(port, npl_car(rest));
             rest = npl_cdr(rest);
         }
         if (!npl_is_nil(rest)) {
-            fputs(" . ", stream);
-            write_to(stream, rest);
+            output_text(port, " . ");
+            write_to(port, rest);
         }
-        fputc(')', stream);
+        output_char(port, ')');
         return;
     }
     if (npl_is_ptr(value) && npl_header(value)->tag == BOX_VECTOR) {
         NplVector *vector = (NplVector *)npl_header(value);
-        fputs("#(", stream);
+        output_text(port, "#(");
         for (uint32_t i = 0; i < vector->length; i++) {
-            if (i) fputc(' ', stream);
-            write_to(stream, vector->data[i]);
+            if (i) output_char(port, ' ');
+            write_to(port, vector->data[i]);
         }
-        fputc(')', stream);
+        output_char(port, ')');
         return;
     }
-    display_to(stream, value);
+    display_to(port, value);
 }
 
 NplVal npl_display(NplVal value)
 {
-    display_to(stdout, value);
+    npl_runtime_init();
+    display_to((NplPort *)npl_header(g_current_output_port), value);
     return npl_nil();
 }
 
 NplVal npl_newline(void)
 {
-    fputc('\n', stdout);
+    npl_runtime_init();
+    output_char((NplPort *)npl_header(g_current_output_port), '\n');
     return npl_nil();
 }
 
-/* ---- standard port substrate (increment-6.1) ---- */
+/* ---- standard port substrate ---- */
 
 static NplPort *port_value(NplVal value, const char *who)
 {
@@ -290,7 +360,7 @@ NplVal npl_display_port(NplVal value, NplVal port_value_arg)
 {
     NplPort *port = require_port_mode(port_value_arg, NPL_PORT_OUTPUT,
                                      NPL_PORT_TEXTUAL, "display");
-    display_to(port->stream, value);
+    display_to(port, value);
     return npl_nil();
 }
 
@@ -298,7 +368,7 @@ NplVal npl_write_port(NplVal value, NplVal port_value_arg)
 {
     NplPort *port = require_port_mode(port_value_arg, NPL_PORT_OUTPUT,
                                      NPL_PORT_TEXTUAL, "write");
-    write_to(port->stream, value);
+    write_to(port, value);
     return npl_nil();
 }
 
@@ -306,7 +376,7 @@ NplVal npl_newline_port(NplVal port_value_arg)
 {
     NplPort *port = require_port_mode(port_value_arg, NPL_PORT_OUTPUT,
                                      NPL_PORT_TEXTUAL, "newline");
-    fputc('\n', port->stream);
+    output_char(port, '\n');
     return npl_nil();
 }
 
@@ -386,6 +456,32 @@ NplVal npl_get_output_bytevector(NplVal value)
     return copy_bytevector_range(buffer->data, port->length);
 }
 
+NplVal npl_open_input_string(NplVal value)
+{
+    NplString *string = require_string(value, "open-input-string");
+    return make_memory_port(value, NPL_PORT_INPUT | NPL_PORT_TEXTUAL,
+                            string->length);
+}
+
+NplVal npl_open_output_string(void)
+{
+    return make_memory_port(make_string_buffer(64),
+                            NPL_PORT_OUTPUT | NPL_PORT_TEXTUAL, 0);
+}
+
+NplVal npl_get_output_string(NplVal value)
+{
+    NplPort *port = require_port(value, NPL_PORT_OUTPUT,
+                                 "get-output-string");
+    if ((port->mode & (NPL_PORT_MEMORY | NPL_PORT_TEXTUAL)) !=
+        (NPL_PORT_MEMORY | NPL_PORT_TEXTUAL)) {
+        fprintf(stderr, "get-output-string: not a string port\n");
+        exit(1);
+    }
+    NplString *buffer = require_string(port->buffer, "get-output-string");
+    return copy_string_range(buffer->data, port->length);
+}
+
 static NplVal close_port_direction(NplVal value, uint32_t access,
                                    const char *who)
 {
@@ -433,16 +529,37 @@ NplVal npl_flush_output_port(NplVal value)
     return npl_nil();
 }
 
+static const uint8_t *memory_input_data(NplPort *port, const char *who)
+{
+    if ((port->mode & NPL_PORT_BINARY) != 0)
+        return require_bytevector(port->buffer, who)->data;
+    return (const uint8_t *)require_string(port->buffer, who)->data;
+}
+
+static uint32_t memory_output_capacity(NplPort *port, const char *who)
+{
+    if ((port->mode & NPL_PORT_BINARY) != 0)
+        return require_bytevector(port->buffer, who)->capacity;
+    return require_string(port->buffer, who)->capacity;
+}
+
+static uint8_t *memory_output_data(NplPort *port, const char *who)
+{
+    if ((port->mode & NPL_PORT_BINARY) != 0)
+        return require_bytevector(port->buffer, who)->data;
+    return (uint8_t *)require_string(port->buffer, who)->data;
+}
+
 static size_t port_read_bytes(NplPort *port, uint8_t *output, size_t count)
 {
     if ((port->mode & NPL_PORT_MEMORY) == 0)
         return fread(output, 1, count, port->stream);
-    NplBytevector *buffer = require_bytevector(port->buffer, "read-u8");
+    const uint8_t *data = memory_input_data(port, "read");
     uint32_t available = port->position < port->length
         ? port->length - port->position : 0;
     if (count > available) count = available;
     if (count) {
-        memcpy(output, buffer->data + port->position, count);
+        memcpy(output, data + port->position, count);
         port->position += (uint32_t)count;
     }
     return count;
@@ -450,17 +567,23 @@ static size_t port_read_bytes(NplPort *port, uint8_t *output, size_t count)
 
 static void ensure_memory_output(NplPort *port, uint32_t needed)
 {
-    NplBytevector *current = require_bytevector(port->buffer, "write-u8");
-    if (needed <= current->capacity) return;
-    uint32_t capacity = current->capacity ? current->capacity : 64;
+    uint32_t current_capacity = memory_output_capacity(port, "write");
+    if (needed <= current_capacity) return;
+    uint32_t capacity = current_capacity ? current_capacity : 64;
     while (capacity < needed) {
         if (capacity > UINT32_MAX / 2) npl_runtime_oom_internal();
         capacity *= 2;
     }
-    NplVal grown_value = make_byte_buffer(capacity);
-    NplBytevector *grown = (NplBytevector *)npl_header(grown_value);
-    if (port->length) memcpy(grown->data, current->data, port->length);
+    NplVal grown_value = (port->mode & NPL_PORT_BINARY) != 0
+        ? make_byte_buffer(capacity) : make_string_buffer(capacity);
+    NplVal previous = port->buffer;
     port->buffer = grown_value;
+    if (port->length)
+        memcpy(memory_output_data(port, "write"),
+               (npl_header(previous)->tag == BOX_BYTEVECTOR)
+                   ? ((NplBytevector *)npl_header(previous))->data
+                   : (uint8_t *)((NplString *)npl_header(previous))->data,
+               port->length);
 }
 
 static void port_write_bytes(NplPort *port, const uint8_t *bytes, size_t count,
@@ -476,10 +599,15 @@ static void port_write_bytes(NplPort *port, const uint8_t *bytes, size_t count,
     if (count > UINT32_MAX - port->position) npl_runtime_oom_internal();
     uint32_t end = port->position + (uint32_t)count;
     ensure_memory_output(port, end);
-    NplBytevector *buffer = (NplBytevector *)npl_header(port->buffer);
-    if (count) memcpy(buffer->data + port->position, bytes, count);
+    uint8_t *buffer = memory_output_data(port, who);
+    if (count) memcpy(buffer + port->position, bytes, count);
     port->position = end;
     if (port->length < end) port->length = end;
+    if ((port->mode & NPL_PORT_TEXTUAL) != 0) {
+        NplString *string = require_string(port->buffer, who);
+        string->length = port->length;
+        string->data[port->length] = '\0';
+    }
 }
 
 static int port_read_byte_raw(NplPort *port)
@@ -694,7 +822,7 @@ NplVal npl_binary_port_p(NplVal value)
 /* ---- single-datum textual reader ---- */
 
 typedef struct {
-    FILE *stream;
+    NplPort *port;
     int lookahead;
     int has_lookahead;
 } NplDatumReader;
@@ -711,13 +839,13 @@ static int reader_get(NplDatumReader *reader)
         reader->has_lookahead = 0;
         return reader->lookahead;
     }
-    return fgetc(reader->stream);
+    return port_read_byte_raw(reader->port);
 }
 
 static int reader_peek(NplDatumReader *reader)
 {
     if (!reader->has_lookahead) {
-        reader->lookahead = fgetc(reader->stream);
+        reader->lookahead = port_read_byte_raw(reader->port);
         reader->has_lookahead = 1;
     }
     return reader->lookahead;
@@ -921,10 +1049,14 @@ NplVal npl_read_datum(NplVal port_value_arg)
 {
     NplPort *port = require_port_mode(port_value_arg, NPL_PORT_INPUT,
                                      NPL_PORT_TEXTUAL, "read");
-    NplDatumReader reader = { port->stream, 0, 0 };
+    NplDatumReader reader = { port, 0, 0 };
     NplVal value = read_datum_inner(&reader, 1);
-    if (reader.has_lookahead && reader.lookahead != EOF)
-        (void)ungetc(reader.lookahead, reader.stream);
+    if (reader.has_lookahead && reader.lookahead != EOF) {
+        if ((port->mode & NPL_PORT_MEMORY) != 0)
+            port->position--;
+        else
+            (void)ungetc(reader.lookahead, port->stream);
+    }
     return value;
 }
 
@@ -978,6 +1110,106 @@ NplVal npl_read_file(NplVal path) {
     NplVal out = npl_string(data, (uint32_t)got);
     free(data);
     return out;
+}
+
+static const NplString *process_string(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING) {
+        fprintf(stderr, "%s: expected an argument string\n", who);
+        exit(1);
+    }
+    return (const NplString *)npl_header(value);
+}
+
+static size_t process_argument_count(NplVal arguments)
+{
+    size_t count = 0;
+    while (!npl_is_nil(arguments)) {
+        if (!npl_is_ptr(arguments) || npl_header(arguments)->tag != BOX_PAIR) {
+            fprintf(stderr, "run-process: arguments must be a proper list\n");
+            exit(1);
+        }
+        (void)process_string(npl_car(arguments), "run-process");
+        arguments = npl_cdr(arguments);
+        count++;
+    }
+    if (count == 0) {
+        fprintf(stderr, "run-process: arguments must not be empty\n");
+        exit(1);
+    }
+    return count;
+}
+
+NplVal npl_process_run(NplVal arguments, NplVal output_path)
+{
+    size_t count = process_argument_count(arguments);
+    char **argv = (char **)malloc((count + 1) * sizeof(char *));
+    if (!argv) npl_runtime_oom_internal();
+    NplVal rest = arguments;
+    for (size_t index = 0; index < count; index++) {
+        argv[index] = (char *)process_string(
+            npl_car(rest), "run-process")->data;
+        rest = npl_cdr(rest);
+    }
+    argv[count] = NULL;
+
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_t *actions_pointer = NULL;
+    int action_status = 0;
+    if (output_path != npl_false()) {
+        const NplString *path = process_string(output_path, "run-process");
+        action_status = posix_spawn_file_actions_init(&actions);
+        if (action_status == 0) {
+            action_status = posix_spawn_file_actions_addopen(
+                &actions, STDOUT_FILENO, path->data,
+                O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            actions_pointer = &actions;
+        }
+    }
+    if (action_status != 0) {
+        free(argv);
+        fprintf(stderr, "run-process: cannot configure output\n");
+        exit(1);
+    }
+
+    pid_t child = 0;
+    int spawn_status = posix_spawnp(
+        &child, argv[0], actions_pointer, NULL, argv, environ);
+    if (actions_pointer) posix_spawn_file_actions_destroy(actions_pointer);
+    free(argv);
+    if (spawn_status != 0) return npl_fixnum(127);
+
+    int status = 0;
+    if (waitpid(child, &status, 0) < 0) {
+        fprintf(stderr, "run-process: wait failed\n");
+        exit(1);
+    }
+    if (WIFEXITED(status)) return npl_fixnum(WEXITSTATUS(status));
+    if (WIFSIGNALED(status)) return npl_fixnum(128 + WTERMSIG(status));
+    return npl_fixnum(1);
+}
+
+NplVal npl_get_environment_variable(NplVal name_value)
+{
+    const NplString *name = process_string(
+        name_value, "get-environment-variable");
+    const char *value = getenv(name->data);
+    return value ? npl_string(value, (uint32_t)strlen(value)) : npl_false();
+}
+
+NplVal npl_get_environment_variables(void)
+{
+    NplVal variables = npl_nil();
+    for (size_t index = 0; environ[index]; index++) {
+        const char *entry = environ[index];
+        const char *separator = strchr(entry, '=');
+        if (!separator) continue;
+        NplVal name = npl_string(entry, (uint32_t)(separator - entry));
+        NplVal value = npl_string(separator + 1,
+                                  (uint32_t)strlen(separator + 1));
+        variables = npl_cons(npl_cons(name, value), variables);
+    }
+    return variables;
 }
 
 void npl_exit(NplVal code) {

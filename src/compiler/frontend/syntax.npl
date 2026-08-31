@@ -414,7 +414,7 @@
 (define (match-repeated-pattern repeated suffix input transformer use-env
                                 captures path index)
   (let ((consume-result
-          (if (pair? input)
+          (if (if (pair? input) (not (syntax-atomic? input)) #f)
               (let ((next-captures
                       (match-pattern repeated (car input)
                         transformer use-env captures

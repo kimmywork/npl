@@ -281,6 +281,9 @@ NplVal npl_open_binary_output_file(NplVal path);
 NplVal npl_open_input_bytevector(NplVal bytevector);
 NplVal npl_open_output_bytevector(void);
 NplVal npl_get_output_bytevector(NplVal port);
+NplVal npl_open_input_string(NplVal string);
+NplVal npl_open_output_string(void);
+NplVal npl_get_output_string(NplVal port);
 NplVal npl_close_port(NplVal port);
 NplVal npl_close_input_port(NplVal port);
 NplVal npl_close_output_port(NplVal port);
@@ -432,6 +435,9 @@ NplVal npl_int_to_string_char(NplVal code);         /* 1-byte string */
 void npl_store_args(int argc, char **argv);   /* called from emitted $main */
 NplVal npl_program_arguments(void);           /* list of arg strings, argv[1..] */
 NplVal npl_read_file(NplVal path);            /* whole file as string; aborts on error */
+NplVal npl_process_run(NplVal arguments, NplVal output_path);
+NplVal npl_get_environment_variable(NplVal name);
+NplVal npl_get_environment_variables(void);
 void npl_exit(NplVal code);                   /* untagged fixnum, low byte */
 
 /* bootstrap lexer hooks — all take TAGGED values */

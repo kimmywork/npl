@@ -66,23 +66,23 @@ Implemented `define-library`, top-level `import`, `export`, deterministic `.sld`
 
 Evidence: `src/compiler/tests/libraries.npl`, its `.sld`/include fixtures, and library contract fixtures pass through `tools/check_full_compiler.sh`.
 
-## 6. Standard Libraries
+## 6. First-Wave Standard Libraries
 
-Status: planned next increment.
+Status: in progress.
 
-Implement the R7RS-small standard libraries, ports, file I/O, strings, vectors, bytevectors, process context, and the numeric tower in dependency order. The detailed scope and verification matrix are in [`docs/plan-stdlib-driver-repl.md`](docs/plan-stdlib-driver-repl.md).
+Complete the practical R7RS dependency closure for native tooling and interactive evaluation: textual/string and binary/bytevector ports, explicit source-based libraries, base collections, `cxr`, `char`, `case-lambda`, file/process context, read/write, and promises. This wave is broad but is not claimed as full R7RS conformance; numeric tower completion, full public `eval`, `load`, and compatibility layers are deferred until a usable driver and REPL exist.
 
 ## 7. Unified Compilation Driver
 
-Status: planned after the port/process substrate.
+Status: next after the first-wave library dependency closure.
 
 Provide a one-command `nplc source.npl -o output` pipeline while retaining raw SSA emission, then implement the orchestration wrapper in NPL using a minimal non-standard argv-based process API. The process API is intentionally separate from R7RS standard libraries.
 
 ## 8. REPL
 
-Status: planned after standard I/O and the driver foundations.
+Status: next after the native driver core.
 
-Implement a persistent evaluator-backed `npl-repl` with definitions, macros, imports, multiple values, errors, and redirected-stdin transcript tests. Repeated whole-program recompilation is not the implementation strategy.
+Implement a persistent `npl-repl` over the shared evaluator engine that will later back `(scheme eval)`. The evaluator core, persistent environments, macro/import behavior, and error recovery are hard REPL dependencies; only the complete public `(scheme eval)` environment API and remaining conformance are deferred. Repeated whole-program recompilation is not the implementation strategy.
 
 Detailed increments, rewrite policy, and acceptance evidence: [`docs/plan-stdlib-driver-repl.md`](docs/plan-stdlib-driver-repl.md).
 

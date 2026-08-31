@@ -1,0 +1,2 @@
+(define (main)
+  (get-output-string (open-output-bytevector)))

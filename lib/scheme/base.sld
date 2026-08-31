@@ -7,12 +7,13 @@
     close-input-port close-output-port close-port cons
     current-error-port current-input-port current-output-port
     dynamic-wind eof-object eof-object? eq? eqv?
-    flush-output-port get-output-bytevector
-    input-port-open? input-port? integer->char list->vector
+    flush-output-port get-output-bytevector get-output-string
+    input-port-open? input-port? integer->char list list->vector length
     newline not null? number->string number?
-    open-input-bytevector open-output-bytevector
+    open-input-bytevector open-input-string
+    open-output-bytevector open-output-string
     output-port-open? output-port? pair? peek-char peek-u8 port?
-    raise raise-continuable
+    raise raise-continuable reverse list?
     read-bytevector read-bytevector! read-char read-u8
     set-car! set-cdr! string-append string-length string-ref string=?
     substring symbol->string textual-port?
@@ -22,4 +23,20 @@
     and or when unless cond case do let*-values guard
     make-parameter parameterize make-promise promise? force delay
     delay-force)
-  (import (npl primitive)))
+  (import (npl primitive))
+  (begin
+    (define (list . values) values)
+    (define (length-loop values count)
+      (if (null? values)
+          count
+          (length-loop (cdr values) (+ count 1))))
+    (define (length values) (length-loop values 0))
+    (define (reverse-loop values output)
+      (if (null? values)
+          output
+          (reverse-loop (cdr values) (cons (car values) output))))
+    (define (reverse values) (reverse-loop values '()))
+    (define (list? value)
+      (if (null? value)
+          #t
+          (if (pair? value) (list? (cdr value)) #f)))))

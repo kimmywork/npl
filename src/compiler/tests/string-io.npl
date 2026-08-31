@@ -1,0 +1,51 @@
+(import (scheme base)
+        (scheme read)
+        (scheme write)
+        (scheme process-context))
+
+(include "framework.npl")
+
+(define (main)
+  (let ((output (open-output-string)))
+    (test-identity "output string is textual"
+                   (lambda () (textual-port? output)) #t)
+    (test-identity "output string is not binary"
+                   (lambda () (binary-port? output)) #f)
+    (display "hello" output)
+    (write-char #\space output)
+    (write "x" output)
+    (newline output)
+    (display "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghij"
+             output)
+    (let ((text (get-output-string output)))
+      (test-identity "string output formatting"
+                     (lambda ()
+                       (string=?
+                         text
+                         "hello \"x\"\nabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghij"))
+                     #t)
+      (test-identity "output snapshot is independent"
+                     (lambda ()
+                       (begin
+                         (display "tail" output)
+                         (string=?
+                           text
+                           "hello \"x\"\nabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghij")))
+                     #t)))
+  (let ((input (open-input-string "AB")))
+    (test-identity "peek string character"
+                   (lambda () (eq? (peek-char input) #\A)) #t)
+    (test-identity "read string character"
+                   (lambda () (eq? (read-char input) #\A)) #t)
+    (test-identity "read second string character"
+                   (lambda () (eq? (read-char input) #\B)) #t)
+    (test-identity "string character eof"
+                   (lambda () (eof-object? (read-char input))) #t))
+  (let ((input (open-input-string "42 (1 . 2)")))
+    (test-equal "read datum from string" (lambda () (read input)) 42)
+    (let ((pair (read input)))
+      (test-equal "read pair car from string" (lambda () (car pair)) 1)
+      (test-equal "read pair cdr from string" (lambda () (cdr pair)) 2))
+    (test-identity "read datum string eof"
+                   (lambda () (eof-object? (read input))) #t))
+  (finish-tests "string-io"))
