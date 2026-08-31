@@ -97,6 +97,8 @@ run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
 run_suite libraries "PASS libraries 12"
 run_suite ports "PASS ports 7"
+run_suite standard-io "PASS standard-io 6"
+run_suite binary-io "PASS binary-io 15"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2
     exit 1
@@ -144,6 +146,12 @@ reject_runtime contracts/write-closed-port.npl \
     write-closed-port "write-u8: port is closed"
 reject_runtime contracts/write-u8-range.npl \
     write-u8-range "write-u8: expected a byte"
+reject_runtime contracts/read-char-binary-port.npl \
+    read-char-binary-port "read-char: wrong port type"
+reject_runtime contracts/write-bytevector-range.npl \
+    write-bytevector-range "write-bytevector: invalid bytevector range"
+reject_runtime contracts/write-bytevector-closed.npl \
+    write-bytevector-closed "write-u8: port is closed"
 reject_compile contracts/library-cycle.npl \
     library-cycle "library cycle"
 reject_compile contracts/library-unknown-import.npl \

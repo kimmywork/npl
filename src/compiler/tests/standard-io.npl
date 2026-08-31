@@ -1,0 +1,38 @@
+(import (scheme read)
+        (scheme write)
+        (only (scheme base)
+              car cdr close-input-port close-output-port eof-object?
+              open-input-file open-output-file read-char string=?
+              symbol->string vector-ref write-char))
+
+(include "framework.npl")
+
+(define (main)
+  (let ((path "/tmp/npl-standard-io.data"))
+    (let ((output (open-output-file path)))
+      (write "line\ntext" output)
+      (write-char #\space output)
+      (write '(1 . 2) output)
+      (write-char #\space output)
+      (write '#(3 4) output)
+      (write-char #\space output)
+      (write 'hello output)
+      (close-output-port output))
+    (let ((input (open-input-file path)))
+      (test-identity "read string"
+                     (lambda () (string=? (read input) "line\ntext"))
+                     #t)
+      (let ((pair (read input)))
+        (test-equal "read dotted pair car" (lambda () (car pair)) 1)
+        (test-equal "read dotted pair cdr" (lambda () (cdr pair)) 2))
+      (let ((vector (read input)))
+        (test-equal "read vector" (lambda () (vector-ref vector 1)) 4))
+      (test-identity "read symbol"
+                     (lambda ()
+                       (string=? (symbol->string (read input)) "hello"))
+                     #t)
+      (test-identity "read eof"
+                     (lambda () (eof-object? (read input)))
+                     #t)
+      (close-input-port input)))
+  (finish-tests "standard-io"))

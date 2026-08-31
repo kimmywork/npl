@@ -2,28 +2,33 @@
 
 ## Current
 
-The permanent bootstrap language and compiler are frozen. The evolving full compiler has completed Dynamic Core, Reader/Datum, hygienic macros and derived forms, explicit-control execution, multiple values, unlimited-extent multi-shot continuations, `dynamic-wind`, exceptions, parameters, promises, and the minimal R7RS library system.
+The permanent bootstrap language and compiler are frozen. The evolving full compiler has completed Dynamic Core, Reader/Datum, hygienic macros and derived forms, explicit-control execution, multiple values, multi-shot continuations, `dynamic-wind`, exceptions, parameters, promises, and the minimal R7RS library loader.
 
 - `stage0/`: untyped C99 compiler with QBE and executable output.
 - `bootstrap/compiler/`: permanent NPL bootstrap compiler.
-- `src/compiler/`: full compiler split into `common/`, `reader/`, `frontend/`, and `backend/`.
+- `src/compiler/`: evolving full compiler.
 - `bootstrap/bootstrap.ssa`: permanent 6,753-line bootstrap fixed point.
-- `bootstrap/current.ssa`: current 340,925-line full-compiler fixed point, SHA-256 `7f60cf9501a997ee1df137783639afd5a42248e4c05cce9a45344c325507e945`.
+- `bootstrap/current.ssa`: current 344,774-line full-compiler fixed point, SHA-256 `b6ffa3d40256f7b46cbbe4ad4acf7d44aeba4ccc3e4d12b6446666c909ab1382`.
 
-The library system supports deterministic `.sld` resolution, `define-library`, top-level `import`, `export`, `only`, `except`, `prefix`, `rename`, `begin`, `include`, `include-ci`, `include-library-declarations`, and `cond-expand`. Per-compilation library caching and circular dependency detection are included. Package management, versions, dynamic loading, precompiled caches, and cyclic libraries are intentionally out of scope.
-
-Step 6.1 now provides the initial runtime substrate for standard input/output/error ports, file ports, character and byte I/O, EOF objects, flushing, closing, and port predicates. The allocator uses explicit runtime initialization, a 1 GiB minimum GC threshold, 1 MiB chunks, direct chunk ownership, indexed conservative marking, and size-class reuse so self-hosting remains bounded. `(scheme base)` now has an explicit manifest for the procedures, control operations, and derived syntax currently implemented; import-set modifiers no longer treat it as an empty special case.
+The runtime is split by responsibility: `alloc.c` owns allocation and GC state, `value.c` owns value operations, `control.c` owns explicit control and dynamic state, `io.c` owns ports/external I/O, and `lexer.c` owns bootstrap lexer hooks. Ports support textual files, binary files, memory bytevectors, optional-port character/byte operations, bulk bytevector I/O, EOF, stream-aware display/write, and ASCII single-datum read. Unused SIMD code is deferred until the tensor CPU-optimization phase; live collector root discovery remains in `gc.c`.
 
 ## Evidence
 
-`./tools/run_tests.sh` reports `all suites: PASS`. This includes stage0, permanent bootstrap recovery, current gen1/gen2/gen3 byte-identical fixed-point recovery, full compiler suites and contracts, runtime GC, R7RS baseline, and property tests.
+The accepted relay has byte-identical gen1/gen2/gen3 output. GC stress passes one million allocations. `./tools/run_tests.sh --skip-current-fixed-point` reports `all suites: PASS`; permanent bootstrap sources and SSA remain unchanged.
 
 Stable toolchain entry points:
 
-- `tools/check_current_fixed_point.sh` verifies current -> gen1 -> gen2 -> gen3.
-- `tools/update_current_ssa.sh` installs gen3 as `bootstrap/current.ssa` only after verification.
-- `tools/build_nplc.sh` builds `build/bin/nplc` from `bootstrap/current.ssa`.
+- `tools/check_current_fixed_point.sh` verifies the evolving full compiler relay.
+- `tools/update_current_ssa.sh` installs a verified candidate as `bootstrap/current.ssa`.
+- `tools/build_nplc.sh` restores `build/bin/nplc` from `bootstrap/current.ssa`.
 
 ## Next
 
-Execute the approved execution plan in [`docs/plan-stdlib-driver-repl.md`](../docs/plan-stdlib-driver-repl.md). Step 6.1's initial port substrate is complete; next define explicit `(scheme base)`, `(scheme write)`, and `(scheme read)` export surfaces and add the remaining port/string-port operations. Then build the one-command driver and the persistent evaluator-backed REPL. Opportunistic compiler rewrites remain module-local and must pass the same semantic and fixed-point gates.
+Before adding more R7RS APIs, separate standard libraries from compiler implementation:
+
+1. Keep only a private intrinsic/core binding surface in the compiler.
+2. Move `(scheme base)`, `(scheme read)`, `(scheme write)`, and `(scheme file)` to tracked `lib/scheme/*.sld` sources.
+3. Make standard-library resolution deterministic without embedding standard source manifests in compiler SSA.
+4. Prove that an implementation-only standard-library edit does not change canonical compiler SSA.
+
+Then complete string ports and process context, implement the remaining R7RS-small libraries, add the three-stage native driver, and build the persistent evaluator-backed REPL. Use one fixed-point relay per exact source tree, then run the remaining gate with `--skip-current-fixed-point`.

@@ -181,7 +181,10 @@ typedef struct {
 typedef struct {
     NplHeader header;
     FILE *stream;
+    NplVal buffer;
     uint32_t mode;
+    uint32_t position;
+    uint32_t length;
     uint32_t reserved;
 } NplPort;
 
@@ -273,6 +276,12 @@ NplVal npl_current_output_port(void);
 NplVal npl_current_error_port(void);
 NplVal npl_open_input_file(NplVal path);
 NplVal npl_open_output_file(NplVal path);
+NplVal npl_open_binary_input_file(NplVal path);
+NplVal npl_open_binary_output_file(NplVal path);
+NplVal npl_open_input_bytevector(NplVal bytevector);
+NplVal npl_open_output_bytevector(void);
+NplVal npl_get_output_bytevector(NplVal port);
+NplVal npl_close_port(NplVal port);
 NplVal npl_close_input_port(NplVal port);
 NplVal npl_close_output_port(NplVal port);
 NplVal npl_flush_output_port(NplVal port);
@@ -282,11 +291,22 @@ NplVal npl_write_char(NplVal character, NplVal port);
 NplVal npl_read_byte(NplVal port);
 NplVal npl_peek_byte(NplVal port);
 NplVal npl_write_byte(NplVal byte, NplVal port);
+NplVal npl_read_bytevector(int64_t argc, NplVal *argv);
+NplVal npl_read_bytevector_into(int64_t argc, NplVal *argv);
+NplVal npl_write_bytevector(int64_t argc, NplVal *argv);
 NplVal npl_eof_object(void);
 NplVal npl_eof_object_p(NplVal value);
 NplVal npl_input_port_p(NplVal value);
 NplVal npl_output_port_p(NplVal value);
 NplVal npl_port_p(NplVal value);
+NplVal npl_input_port_open_p(NplVal value);
+NplVal npl_output_port_open_p(NplVal value);
+NplVal npl_textual_port_p(NplVal value);
+NplVal npl_binary_port_p(NplVal value);
+NplVal npl_display_port(NplVal value, NplVal port);
+NplVal npl_write_port(NplVal value, NplVal port);
+NplVal npl_newline_port(NplVal port);
+NplVal npl_read_datum(NplVal port);
 
 
 /* Initialize the runtime (call once at startup) */
@@ -298,8 +318,12 @@ NplVal npl_cons(NplVal car, NplVal cdr);
 /* Allocate a string */
 NplVal npl_string(const char *s, uint32_t len);
 
-/* Allocate a float */
+/* Allocate a symbol. */
+NplVal npl_symbol(const char *s, uint32_t len);
+
+/* Allocate a float. */
 NplVal npl_float(double v);
+
 
 NplVal npl_make_vector(int64_t argc, NplVal *argv);
 NplVal npl_vector_length(NplVal vector);
@@ -420,8 +444,16 @@ NplVal npl_lex_tokens(NplVal source);
 /* Convert fixnum to string (for printing) */
 char *npl_fixnum_to_string(int64_t v);
 
-#endif /* NPL_RUNTIME_H */
+/* Internal module interfaces. */
+void *npl_alloc_object(size_t size);
+void npl_runtime_oom_internal(void);
+void npl_gc_mark_candidate_internal(NplVal value);
+uintptr_t npl_gc_swap_stack_bottom(uintptr_t stack_bottom);
+NplVal npl_box_bytes_internal(const char *bytes, uint32_t len,
+                              uint32_t box_tag);
+const NplString *npl_require_bytes_internal(NplVal value, const char *who);
+void npl_control_init(void);
+void npl_control_mark_roots(void);
+void npl_io_init(void);
 
-/* debug hooks (bootstrap diagnosis) */
-void npl_tracev(unsigned long v);
-void npl_trace2(unsigned long tag, unsigned long v);
+#endif /* NPL_RUNTIME_H */

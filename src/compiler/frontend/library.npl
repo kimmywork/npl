@@ -175,13 +175,11 @@
                     ((string=? name "library")
                      (if (not (= (raw-list-count (cdr requirement) 0) 1))
                          (fatal "library feature requirement needs one name")
-                         (let ((key
-                                 (library-name-key
-                                   (car (cdr requirement)))))
-                           (if (string=? key "scheme/base")
+                         (let ((library-name (car (cdr requirement))))
+                           (if (library-standard-name? library-name)
                                #t
                                (not (null?
-                                 (library-find key
+                                 (library-find (library-name-key library-name)
                                    (cell-get LIBRARY-REGISTRY))))))))
                     (else #f))))))))
 
@@ -406,30 +404,45 @@
 
 (define STANDARD-BASE-VALUE-SOURCE
 "(+ - * < <= = > >= append bytevector bytevector-length
-bytevector-u8-ref bytevector-u8-set! bytevector? car cdr char->integer
-char? close-input-port close-output-port cons current-error-port
+bytevector-u8-ref bytevector-u8-set! bytevector? binary-port? car cdr
+char->integer char? close-input-port close-output-port close-port cons
+current-error-port
 current-input-port current-output-port dynamic-wind eof-object eof-object?
-eq? eqv? flush-output-port input-port? integer->char list->vector newline
-not null? number->string number? open-input-file open-output-file
+eq? eqv? flush-output-port get-output-bytevector input-port-open?
+input-port? integer->char list->vector newline not null? number->string
+number? open-input-bytevector open-output-bytevector open-input-file
+open-output-file output-port-open?
 output-port? pair? peek-char peek-u8 port? raise raise-continuable
-read-char read-u8 set-car! set-cdr! string-append string-length
+read-bytevector read-bytevector! read-char read-u8 set-car! set-cdr!
+string-append string-length
 string-ref string=? substring symbol->string values vector vector-length
 vector-ref vector-set! vector? call-with-current-continuation call/cc
-call-with-values with-exception-handler write-char write-u8)" )
+call-with-values with-exception-handler write-bytevector write-char write-u8
+textual-port?)" )
 
 (define STANDARD-BASE-MACRO-SOURCE
 "(and or when unless cond case do let*-values guard make-parameter
 parameterize make-promise promise? force delay delay-force)" )
 
+(define STANDARD-FILE-VALUE-SOURCE
+"(open-input-file open-output-file open-binary-input-file
+open-binary-output-file)" )
+
+(define STANDARD-WRITE-VALUE-SOURCE
+"(display write write-shared write-simple)" )
+
+(define STANDARD-READ-VALUE-SOURCE
+"(read)" )
+
 (define (library-standard-names source)
   (car (parse-source-text source)))
 
-(define (library-base-value-bindings identifiers)
+(define (library-direct-value-bindings identifiers)
   (if (null? identifiers)
       ()
       (let ((name (datum-symbol-name (car identifiers))))
         (cons (library-binding name 1 name)
-              (library-base-value-bindings (cdr identifiers))))))
+              (library-direct-value-bindings (cdr identifiers))))))
 
 (define (library-base-macro-bindings identifiers)
   (if (null? identifiers)
@@ -446,10 +459,35 @@ parameterize make-promise promise? force delay delay-force)" )
 
 (define (library-base-bindings)
   (append-forms
-    (library-base-value-bindings
+    (library-direct-value-bindings
       (library-standard-names STANDARD-BASE-VALUE-SOURCE))
     (library-base-macro-bindings
       (library-standard-names STANDARD-BASE-MACRO-SOURCE))))
+
+(define (library-standard-name? name)
+  (let ((key (library-name-key name)))
+    (if (string=? key "scheme/base")
+        #t
+        (if (string=? key "scheme/write")
+            #t
+            (if (string=? key "scheme/read")
+                #t
+                (string=? key "scheme/file"))))))
+
+(define (library-standard-bindings name)
+  (let ((key (library-name-key name)))
+    (cond
+      ((string=? key "scheme/base") (library-base-bindings))
+      ((string=? key "scheme/write")
+       (library-direct-value-bindings
+         (library-standard-names STANDARD-WRITE-VALUE-SOURCE)))
+      ((string=? key "scheme/read")
+       (library-direct-value-bindings
+         (library-standard-names STANDARD-READ-VALUE-SOURCE)))
+      ((string=? key "scheme/file")
+       (library-direct-value-bindings
+         (library-standard-names STANDARD-FILE-VALUE-SOURCE)))
+      (else (fatal "unknown standard library")))))
 
 (define (library-base-name? name)
   (string=? (library-name-key name) "scheme/base"))
@@ -499,11 +537,11 @@ parameterize make-promise promise? force delay delay-force)" )
                (library-rename-bindings
                  bindings (cdr (cdr import-set)))))
             (else
-             (if (library-base-name? import-set)
-                 (library-base-bindings)
+             (if (library-standard-name? import-set)
+                 (library-standard-bindings import-set)
                  (library-load import-set)))))
-        (if (library-base-name? import-set)
-            (library-base-bindings)
+        (if (library-standard-name? import-set)
+            (library-standard-bindings import-set)
             (library-load import-set)))))
 
 ; Import bundle is (value-env macro-env).

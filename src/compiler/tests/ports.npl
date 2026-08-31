@@ -7,7 +7,7 @@
                      (lambda () (output-port? output))
                      #t)
       (write-char #\A output)
-      (write-u8 66 output)
+      (write-char #\B output)
       (flush-output-port output)
       (close-output-port output)
       (let ((input (open-input-file path)))
@@ -23,11 +23,11 @@
         (test-identity "read-char"
                        (lambda () (eq? (read-char input) #\A))
                        #t)
-        (test-equal "read-u8"
-                    (lambda () (read-u8 input))
-                    66)
+        (test-identity "read-char second"
+                       (lambda () (eq? (read-char input) #\B))
+                       #t)
         (test-identity "eof object"
-                       (lambda () (eof-object? (read-u8 input)))
+                       (lambda () (eof-object? (read-char input)))
                        #t)
         (close-input-port input))))
   (finish-tests "ports"))

@@ -1,0 +1,2 @@
+(define (main)
+  (write-bytevector (bytevector 1) (open-output-bytevector) 0 2))
