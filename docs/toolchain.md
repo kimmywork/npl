@@ -16,7 +16,7 @@ The command builds a compiler from `bootstrap/current.ssa`, emits `gen1.ssa`, re
 ./tools/check_current_fixed_point.sh --keep --work-dir /tmp/npl-fixed-point
 ```
 
-The current artifact is presently 340,067 lines with SHA-256 `7a1583ceed18fe8e0977437b734a3473d2f9918d1b3ea9526157b60844685a46`.
+The current artifact is presently 340,925 lines with SHA-256 `7f60cf9501a997ee1df137783639afd5a42248e4c05cce9a45344c325507e945`.
 
 ## Update Current SSA
 
@@ -58,4 +58,4 @@ Run the full repository gate with:
 ./tools/run_tests.sh
 ```
 
-The gate includes permanent bootstrap recovery, current fixed-point recovery, full compiler language and contract suites, runtime GC, stage0 checks, the R7RS baseline, and property tests. `tools/check_simd.sh` remains an independent Phase 9 benchmark because its `simd_bench` target exists, but it is not part of the default gate. No existing tool script was removed: the remaining scripts have live build targets or current acceptance coverage.
+The gate includes permanent bootstrap recovery, current fixed-point recovery, full compiler language and contract suites, runtime GC, stage0 checks, the R7RS baseline, and property tests. After `check_current_fixed_point.sh` has already passed for the exact same tree, run `./tools/run_tests.sh --skip-current-fixed-point` to execute the remaining gate without repeating the three-generation relay. `tools/check_simd.sh` remains an independent Phase 9 benchmark because its `simd_bench` target exists, but it is not part of the default gate. No existing tool script was removed: the remaining scripts have live build targets or current acceptance coverage.

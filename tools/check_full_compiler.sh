@@ -95,7 +95,7 @@ run_suite exceptions "PASS exceptions 6"
 run_suite guard "PASS guard 5"
 run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
-run_suite libraries "PASS libraries 10"
+run_suite libraries "PASS libraries 12"
 run_suite ports "PASS ports 7"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2

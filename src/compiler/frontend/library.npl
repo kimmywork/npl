@@ -404,6 +404,53 @@
             (fatal "rename import name not exported"))
         (library-validate-renames (cdr renames) bindings))))
 
+(define STANDARD-BASE-VALUE-SOURCE
+"(+ - * < <= = > >= append bytevector bytevector-length
+bytevector-u8-ref bytevector-u8-set! bytevector? car cdr char->integer
+char? close-input-port close-output-port cons current-error-port
+current-input-port current-output-port dynamic-wind eof-object eof-object?
+eq? eqv? flush-output-port input-port? integer->char list->vector newline
+not null? number->string number? open-input-file open-output-file
+output-port? pair? peek-char peek-u8 port? raise raise-continuable
+read-char read-u8 set-car! set-cdr! string-append string-length
+string-ref string=? substring symbol->string values vector vector-length
+vector-ref vector-set! vector? call-with-current-continuation call/cc
+call-with-values with-exception-handler write-char write-u8)" )
+
+(define STANDARD-BASE-MACRO-SOURCE
+"(and or when unless cond case do let*-values guard make-parameter
+parameterize make-promise promise? force delay delay-force)" )
+
+(define (library-standard-names source)
+  (car (parse-source-text source)))
+
+(define (library-base-value-bindings identifiers)
+  (if (null? identifiers)
+      ()
+      (let ((name (datum-symbol-name (car identifiers))))
+        (cons (library-binding name 1 name)
+              (library-base-value-bindings (cdr identifiers))))))
+
+(define (library-base-macro-bindings identifiers)
+  (if (null? identifiers)
+      ()
+      (let ((identifier (car identifiers)))
+        (let ((macro
+                (lookup-macro-cell
+                  identifier (cell-get LIBRARY-BASE-MACROS))))
+          (if (null? macro)
+              (fatal "missing standard base syntax binding"))
+          (cons
+            (library-binding (datum-symbol-name identifier) 2 macro)
+            (library-base-macro-bindings (cdr identifiers)))))))
+
+(define (library-base-bindings)
+  (append-forms
+    (library-base-value-bindings
+      (library-standard-names STANDARD-BASE-VALUE-SOURCE))
+    (library-base-macro-bindings
+      (library-standard-names STANDARD-BASE-MACRO-SOURCE))))
+
 (define (library-base-name? name)
   (string=? (library-name-key name) "scheme/base"))
 
@@ -453,10 +500,10 @@
                  bindings (cdr (cdr import-set)))))
             (else
              (if (library-base-name? import-set)
-                 ()
+                 (library-base-bindings)
                  (library-load import-set)))))
         (if (library-base-name? import-set)
-            ()
+            (library-base-bindings)
             (library-load import-set)))))
 
 ; Import bundle is (value-env macro-env).

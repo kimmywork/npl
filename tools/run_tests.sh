@@ -3,6 +3,16 @@ set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 FAILED=0
+SKIP_CURRENT_FIXED_POINT=0
+
+if [ "${1:-}" = "--skip-current-fixed-point" ]; then
+    SKIP_CURRENT_FIXED_POINT=1
+    shift
+fi
+if [ "$#" -ne 0 ]; then
+    echo "usage: $0 [--skip-current-fixed-point]" >&2
+    exit 2
+fi
 
 run() {
     name=$1
@@ -20,7 +30,10 @@ run() {
 run "stage0 reader/executable" "$ROOT/tools/check_stage0.sh"
 run "stage0 QBE" "$ROOT/tools/check_stage0_qbe.sh"
 run "bootstrap SSA" "$ROOT/tools/check_bootstrap.sh"
-run "current compiler fixed point" "$ROOT/tools/check_current_fixed_point.sh"
+if [ "$SKIP_CURRENT_FIXED_POINT" -eq 0 ]; then
+    run "current compiler fixed point" \
+        "$ROOT/tools/check_current_fixed_point.sh"
+fi
 run "full compiler language" "$ROOT/tools/check_full_compiler.sh"
 run "runtime GC" "$ROOT/tools/check_gc.sh"
 run "stage0 dynamic core" "$ROOT/tools/check_core.sh"

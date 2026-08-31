@@ -8,11 +8,11 @@ The permanent bootstrap language and compiler are frozen. The evolving full comp
 - `bootstrap/compiler/`: permanent NPL bootstrap compiler.
 - `src/compiler/`: full compiler split into `common/`, `reader/`, `frontend/`, and `backend/`.
 - `bootstrap/bootstrap.ssa`: permanent 6,753-line bootstrap fixed point.
-- `bootstrap/current.ssa`: current 340,067-line full-compiler fixed point, SHA-256 `7a1583ceed18fe8e0977437b734a3473d2f9918d1b3ea9526157b60844685a46`.
+- `bootstrap/current.ssa`: current 340,925-line full-compiler fixed point, SHA-256 `7f60cf9501a997ee1df137783639afd5a42248e4c05cce9a45344c325507e945`.
 
 The library system supports deterministic `.sld` resolution, `define-library`, top-level `import`, `export`, `only`, `except`, `prefix`, `rename`, `begin`, `include`, `include-ci`, `include-library-declarations`, and `cond-expand`. Per-compilation library caching and circular dependency detection are included. Package management, versions, dynamic loading, precompiled caches, and cyclic libraries are intentionally out of scope.
 
-Step 6.1 now provides the initial runtime substrate for standard input/output/error ports, file ports, character and byte I/O, EOF objects, flushing, closing, and port predicates. The allocator uses explicit runtime initialization, a 1 GiB minimum GC threshold, 1 MiB chunks, direct chunk ownership, indexed conservative marking, and size-class reuse so self-hosting remains bounded.
+Step 6.1 now provides the initial runtime substrate for standard input/output/error ports, file ports, character and byte I/O, EOF objects, flushing, closing, and port predicates. The allocator uses explicit runtime initialization, a 1 GiB minimum GC threshold, 1 MiB chunks, direct chunk ownership, indexed conservative marking, and size-class reuse so self-hosting remains bounded. `(scheme base)` now has an explicit manifest for the procedures, control operations, and derived syntax currently implemented; import-set modifiers no longer treat it as an empty special case.
 
 ## Evidence
 

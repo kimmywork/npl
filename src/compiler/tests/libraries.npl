@@ -10,7 +10,9 @@
         (rename (libraries core) (old-name renamed-old))
         (libraries syntax)
         (libraries included)
-        (libraries inline))
+        (libraries inline)
+        (prefix (only (scheme base) + car) base-)
+        (rename (only (scheme base) when) (when standard-when)))
 
 (include "framework.npl")
 
@@ -45,4 +47,13 @@
   (test-equal "library cache initializes once"
               (lambda () (+ base-value core-base-value))
               40)
+  (test-equal "standard base procedure manifest"
+              (lambda () (base-+ (base-car '(40 2)) 2))
+              42)
+  (test-equal "standard base syntax manifest"
+              (lambda ()
+                (let ((value 0))
+                  (standard-when #t (set! value 42))
+                  value))
+              42)
   (finish-tests "libraries"))
