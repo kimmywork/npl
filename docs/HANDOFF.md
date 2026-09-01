@@ -1,43 +1,26 @@
 # NPL Implementation Handoff
 
-Status: active handoff as of 2026-09-01 15:00 CST.
+Status: active handoff as of 2026-09-01 16:55 CST.
 
 ## Immediate Directive
 
-Continue product delivery from the current dirty worktree. Do not restart the evaluator architecture, introduce a control IR, migrate `runtime/control.c` to NPL, or extract/refactor the 924-line evaluator before the user explicitly reopens that discussion.
+Continue product delivery from the clean worktree after `c51f412 feat(evaluator): add promise support`. Do not restart the evaluator architecture, introduce a control IR, migrate `runtime/control.c` to NPL, or extract/refactor the evaluator before the user explicitly reopens that discussion.
 
 The immediate order is:
 
-1. accept and commit the current evaluator dynamic-control increment after focused verification;
-2. complete evaluator promises using the existing promise contract;
-3. close interactive library and recoverable frontend failure coverage;
-4. declare the practical REPL ready for the implemented language surface;
-5. proceed through the remaining R7RS-small work without adding unrelated facilities.
+1. close interactive library and recoverable frontend failure coverage;
+2. declare the practical REPL ready for the implemented language surface;
+3. proceed through the remaining R7RS-small work without adding unrelated facilities.
 
 Follow root `AGENTS.md`: reuse before reinvention, NPL-first implementation, differential evidence for compiler/evaluator behavior, frozen permanent bootstrap, and proportional verification.
 
 ## Repository State
 
-- HEAD: `8bd5603 feat(repl): share compiler frontend semantics`.
-- Branch: `master`, aligned with `origin/master` before the dirty increment.
+- HEAD: `c51f412 feat(evaluator): add promise support`.
+- Branch: `master`.
 - Canonical full compiler: `bootstrap/current.ssa`, 348,700 lines, SHA-256 `1df230fac643aabf7259b881371a07a40d6b1f43d2eb4ee715eaee2a0964beb5`.
 - `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` are unchanged and must remain frozen.
-- The current dirty worktree is intentional. Do not revert it.
-
-Dirty files at handoff:
-
-```text
-.agents/worklog/2026-09-01.md
-.agents/workstate.md
-PLAN.md
-docs/plan-stdlib-driver-repl.md
-lib/npl/evaluator-core.scm
-src/evaluator/core-tests.npl
-src/repl/tests/differential-fixture.scm
-tools/check_repl.sh
-```
-
-This handoff document and its discovery references are additional documentation-only changes.
+- The dynamic-control and promise increments are committed; the worktree was clean before this handoff alignment update.
 
 Latest verified commands:
 
@@ -55,7 +38,7 @@ PASS (no output)
 The current native/evaluator differential output is:
 
 ```text
-(42 42 42 42 42 42 42123 42123 42 42 4212)
+(42 42 42 42 42 42 42123 42123 42 42 4212 85 42 42)
 ```
 
 No compiler or runtime source changed in the dirty increment, so no new fixed-point relay was required.
@@ -94,9 +77,9 @@ The deviation happened because the work treated a shared control IR/CPS adaptati
 
 Do not repeat or conceal this deviation. Also do not stop current delivery to repair it now. The user explicitly decided to finish promises and R7RS work using the current evaluator approach, then discuss evaluator extraction separately.
 
-## Current Dirty Increment
+## Completed Increments
 
-`lib/npl/evaluator-core.scm` now contains evaluator-side support for:
+`cb2ebb9 feat(evaluator): add dynamic control` added evaluator-side support for:
 
 - continuation snapshots of wind, handler, and parameter state;
 - wind exit and re-entry ordering;
@@ -107,19 +90,18 @@ Do not repeat or conceal this deviation. Also do not stop current delivery to re
 - core tag 221 (`letrec`), required by the existing shared `parameterize` macro;
 - vector operations required by that macro.
 
-Focused evaluator coverage increased from 17 to 28 checks. It includes normal wind order, wind exit/re-entry, non-continuable raise across wind, nested/continuable handlers, handler restoration before re-entry `before`, parameter conversion/restoration, and parameter continuation re-entry.
+`c51f412 feat(evaluator): add promise support` added evaluator promise vectors with the native `DONE`, `DELAY`, `CHAIN`, and `REDIRECT` state contract. It dispatches the shared `npl_promise_op` operations, treats a promise as a zero-source-argument callable, memoizes final values, preserves recursive forcing behavior, observes active evaluator parameter/handler state during first force, and uses tail-style chain traversal. Focused evaluator coverage is now 38 checks and includes the ten native promise scenarios, including the million-element `delay-force` chain.
 
 Known limitations that must remain visible:
 
 - evaluator dynamic state is library-global and therefore suitable for the current singleton REPL, not yet multiple independent public `(scheme eval)` environments;
 - evaluator continuations currently enforce one argument rather than the already-supported native multiple-value continuation contract;
 - primitive type/range errors are not uniformly converted to recoverable evaluator errors;
-- promise behavior is not implemented in the evaluator;
 - the evaluator contains parallel control-state machinery that must be reconsidered later, but not during the next delivery increments.
 
-## Next Increment: Promises
+## Promise Contract
 
-Do not invent a new promise surface. The shared derived forms already lower as follows in `src/compiler/frontend/derived.npl`:
+The shared derived forms lower as follows in `src/compiler/frontend/derived.npl`:
 
 ```text
 make-promise -> (npl_promise_op 0 value)
@@ -129,33 +111,7 @@ delay-force   -> (npl_promise_op 3 thunk)
 force         -> call the promise returned by operation 0
 ```
 
-Use the existing behavior as the contract:
-
-- `runtime/control.c`: `PROMISE_DONE`, `PROMISE_DELAY`, `PROMISE_CHAIN`, `PROMISE_REDIRECT`, `npl_promise_op`, and `npl_force`;
-- `runtime/control.c`: `npl_tail_request_closure` treats a promise as a zero-argument callable after CPS adds its continuation;
-- `src/compiler/tests/promises.npl`: ten positive native tests, including memoization, recursive forcing, dynamic parameter/handler interaction, and a million-element `delay-force` chain.
-
-Implement only the evaluator representation and dispatch required by those already-shared forms:
-
-1. add an evaluator promise value/state representation;
-2. add evaluator handling for `npl_promise_op` operations 0 through 3;
-3. make evaluator promise application with zero source arguments perform `force`;
-4. preserve memoization and redirect/chaining semantics exactly;
-5. ensure the first force observes the active evaluator parameter and handler state;
-6. use continuation/tail-style iteration so the million-link `delay-force` contract does not consume host stack;
-7. return evaluator errors instead of terminating the REPL.
-
-Reuse `src/compiler/tests/promises.npl` as the behavior inventory. Add focused evaluator tests and extend the existing `src/repl/tests/differential-fixture.scm`; do not create a second promise macro or alternate public API.
-
-Acceptance for the promise increment:
-
-```bash
-./tools/check_repl.sh
-git diff --check
-./tools/run_tests.sh --skip-current-fixed-point
-```
-
-Do not modify or relay `bootstrap/current.ssa` unless compiler/runtime source actually changes.
+The evaluator implementation follows `runtime/control.c` and `src/compiler/tests/promises.npl`; it adds no promise macro or alternate public API. Its acceptance evidence is the three commands above, all passing without compiler/runtime changes or a fixed-point relay.
 
 ## Then Close Practical REPL
 
