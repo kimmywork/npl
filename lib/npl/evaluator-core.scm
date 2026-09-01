@@ -9,7 +9,13 @@
 (define EVAL-WIND-TAG 908)
 (define EVAL-HANDLER-TAG 909)
 (define EVAL-PARAMETER-BINDING-TAG 910)
+(define EVAL-PROMISE-TAG 912)
 (define EVAL-UNSPECIFIED (vector 906))
+
+(define EVAL-PROMISE-DONE 0)
+(define EVAL-PROMISE-DELAY 1)
+(define EVAL-PROMISE-CHAIN 2)
+(define EVAL-PROMISE-REDIRECT 3)
 
 (define EVAL-CURRENT-WIND '())
 (define EVAL-CURRENT-HANDLER '())
@@ -37,6 +43,12 @@
 (define (eval-parameter? value) (eval-tagged? value EVAL-PARAMETER-TAG))
 (define (eval-parameter-binding? value)
   (eval-tagged? value EVAL-PARAMETER-BINDING-TAG))
+(define (eval-promise? value) (eval-tagged? value EVAL-PROMISE-TAG))
+(define (eval-promise-state promise) (vector-ref promise 1))
+(define (eval-promise-value promise) (vector-ref promise 2))
+(define (eval-promise-set! promise state value)
+  (vector-set! promise 1 state)
+  (vector-set! promise 2 value))
 
 (define (eval-wind-parent frame) (vector-ref frame 3))
 (define (eval-handler-parent frame) (vector-ref frame 2))
@@ -167,8 +179,80 @@
   (if (if (eval-tagged? value EVAL-PRIMITIVE-TAG) #t
           (if (eval-tagged? value EVAL-CLOSURE-TAG) #t
               (if (eval-tagged? value EVAL-CONTINUATION-TAG) #t
-                  (eval-parameter? value))))
+                  (if (eval-parameter? value) #t
+                      (eval-promise? value)))))
       #t #f))
+
+(define (eval-force-complete root value continuation)
+  (if (= (eval-promise-state root) EVAL-PROMISE-DONE)
+      (continuation (eval-promise-value root))
+      (begin
+        (eval-promise-set! root EVAL-PROMISE-DONE value)
+        (continuation value))))
+
+(define (eval-force-step root value environment continuation)
+  (if (eval-promise? value)
+      (let ((state (eval-promise-state value)))
+        (cond
+          ((= state EVAL-PROMISE-DONE)
+           (eval-force-complete root (eval-promise-value value) continuation))
+          ((= state EVAL-PROMISE-REDIRECT)
+           (eval-force-step root (eval-promise-value value)
+                            environment continuation))
+          ((if (= state EVAL-PROMISE-DELAY) #t
+               (= state EVAL-PROMISE-CHAIN))
+           (eval-apply (eval-promise-value value) '() environment
+             (lambda (result)
+               (if (eval-error? result)
+                   (continuation result)
+                   (if (= (eval-promise-state value) EVAL-PROMISE-DELAY)
+                       (begin
+                         (eval-promise-set! value EVAL-PROMISE-DONE result)
+                         (eval-force-step root value environment continuation))
+                       (if (= (eval-promise-state value) EVAL-PROMISE-CHAIN)
+                           (begin
+                             (eval-promise-set! value EVAL-PROMISE-REDIRECT
+                                                result)
+                             (eval-force-step root result
+                                              environment continuation))
+                           (eval-force-step root value
+                                            environment continuation)))))))
+          (else (continuation (eval-error "force: invalid promise state")))))
+      (eval-force-complete root value continuation)))
+
+(define (eval-force promise environment continuation)
+  (eval-force-step promise promise environment continuation))
+
+(define (eval-promise-op arguments continuation)
+  (let ((error (eval-arity arguments 2 "promise operation")))
+    (if error
+        (continuation error)
+        (let ((operation (car arguments))
+              (value (car (cdr arguments))))
+          (if (not (number? operation))
+              (continuation
+                (eval-error "promise operation: expected two arguments"))
+              (cond
+                ((= operation 0)
+                 (continuation
+                   (if (eval-promise? value)
+                       value
+                       (vector EVAL-PROMISE-TAG EVAL-PROMISE-DONE value))))
+                ((= operation 1) (continuation (eval-promise? value)))
+                ((= operation 2)
+                 (if (eval-tagged? value EVAL-CLOSURE-TAG)
+                     (continuation
+                       (vector EVAL-PROMISE-TAG EVAL-PROMISE-DELAY value))
+                     (continuation (eval-error "delay: not a procedure"))))
+                ((= operation 3)
+                 (if (eval-tagged? value EVAL-CLOSURE-TAG)
+                     (continuation
+                       (vector EVAL-PROMISE-TAG EVAL-PROMISE-CHAIN value))
+                     (continuation
+                       (eval-error "delay-force: not a procedure"))))
+                (else
+                 (continuation
+                   (eval-error "promise operation: invalid operation")))))))))
 
 (define (eval-install-wind before thunk after environment continuation)
   (let ((frame (vector EVAL-WIND-TAG before after EVAL-CURRENT-WIND)))
@@ -561,6 +645,8 @@
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
            (continuation (eval-parameter-leave (car arguments))))))
+    ((string=? name "npl_promise_op")
+     (eval-promise-op arguments continuation))
     ((string=? name "with-exception-handler")
      (if (= (length arguments) 2)
          (if (if (eval-callable? (car arguments))
@@ -626,6 +712,10 @@
              (eval-parameter-update procedure (car arguments) continuation)
              (continuation
                (eval-error "parameter: expected zero or one argument")))))
+    ((eval-promise? procedure)
+     (if (null? arguments)
+         (eval-force procedure environment continuation)
+         (continuation (eval-error "force: expected zero arguments"))))
     (else (continuation (eval-error "application: not a procedure")))))
 
 (define (eval-if form environment continuation)
@@ -893,7 +983,7 @@
         "call/cc" "call-with-current-continuation"
         "with-exception-handler" "raise" "raise-continuable"
         "dynamic-wind" "npl_make_parameter" "npl_parameter_converter"
-        "npl_parameters_enter" "npl_parameters_leave"
+        "npl_parameters_enter" "npl_parameters_leave" "npl_promise_op"
         "display" "write" "newline"))
 
 (define (eval-install-primitives environment names)

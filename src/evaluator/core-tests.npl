@@ -265,4 +265,94 @@
                              (saved-handler-wind 20))
                            (+ (* value 10) handler-wind-log))))"))
               202)
+  (test-equal "delay memoizes once"
+              (lambda ()
+                (evaluated
+                  "(begin
+                     (define promise-count 0)
+                     (let ((promise
+                             (delay
+                               (begin
+                                 (set! promise-count (+ promise-count 1))
+                                 42))))
+                       (+ (force promise) (force promise))
+                       promise-count))"))
+              1)
+  (test-equal "memoized value ignores later mutation"
+              (lambda ()
+                (evaluated
+                  "(let ((value 20))
+                     (let ((promise (delay (+ value 22))))
+                       (force promise)
+                       (set! value 100)
+                       (force promise)))"))
+              42)
+  (test-identity "make-promise is idempotent"
+                 (lambda ()
+                   (evaluated
+                     "(let ((promise (make-promise 42)))
+                        (eq? promise (make-promise promise)))"))
+                 #t)
+  (test-identity "promise predicate"
+                 (lambda ()
+                   (evaluated
+                     "(if (promise? (delay 42))
+                          (not (promise? 42))
+                          #f)"))
+                 #t)
+  (test-equal "forcing non-promise returns it"
+              (lambda () (evaluated "(force 42)"))
+              42)
+  (test-equal "recursive forcing update"
+              (lambda ()
+                (evaluated
+                  "(begin
+                     (define recursive-count 0)
+                     (define recursive-limit 5)
+                     (define recursive-promise #f)
+                     (set! recursive-promise
+                       (delay
+                         (begin
+                           (set! recursive-count (+ recursive-count 1))
+                           (if (> recursive-count recursive-limit)
+                               recursive-count
+                               (force recursive-promise)))))
+                     (let ((first (force recursive-promise)))
+                       (set! recursive-limit 10)
+                       (+ (* first 6) (force recursive-promise))))"))
+              42)
+  (test-equal "first force parameter environment"
+              (lambda ()
+                (evaluated
+                  "(let ((parameter (make-parameter 1)))
+                     (let ((promise (delay (parameter))))
+                       (parameterize ((parameter 42)) (force promise))
+                       (parameterize ((parameter 10)) (force promise))))"))
+              42)
+  (test-equal "first force exception handler"
+              (lambda ()
+                (evaluated
+                  "(guard (condition (else 42))
+                     (force (delay (raise 1))))"))
+              42)
+  (test-equal "delay-force chain"
+              (lambda ()
+                (evaluated
+                  "(letrec ((chain
+                              (lambda (count)
+                                (if (= count 0)
+                                    (delay 42)
+                                    (delay-force (chain (- count 1)))))))
+                     (force (chain 1000)))"))
+              42)
+  (test-equal "million delay-force chain"
+              (lambda ()
+                (evaluated
+                  "(letrec ((chain
+                              (lambda (count)
+                                (if (= count 0)
+                                    (delay 42)
+                                    (delay-force (chain (- count 1)))))))
+                     (force (chain 1000000)))"))
+              42)
   (finish-tests "evaluator-core"))
