@@ -1,0 +1,3 @@
+error: syntax rule must contain a pattern and template
+error: only import name not exported
+error: library cycle: libraries/repl-cycle-a

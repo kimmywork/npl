@@ -86,6 +86,14 @@
   (test-identity "recoverable unbound error"
                  (lambda () (eval-error? (evaluated "missing"))) #t)
   (test-equal "state survives error" (lambda () (evaluated "answer")) 42)
+  (test-identity "recoverable arithmetic type error"
+                 (lambda () (eval-error? (evaluated "(+ #t 1)"))) #t)
+  (test-identity "recoverable pair type error"
+                 (lambda () (eval-error? (evaluated "(car 1)"))) #t)
+  (test-identity "recoverable vector bounds error"
+                 (lambda () (eval-error? (evaluated "(vector-ref #(42) 1)"))) #t)
+  (test-equal "state survives primitive errors"
+              (lambda () (evaluated "answer")) 42)
   (test-equal "dynamic-wind normal order"
               (lambda ()
                 (evaluated

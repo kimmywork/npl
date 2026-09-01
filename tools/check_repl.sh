@@ -9,7 +9,7 @@ trap 'rm -rf "$WORK"' EXIT
 "$ROOT/build/bin/nplc" "$ROOT/src/evaluator/core-tests.npl" \
     -o "$WORK/evaluator-core"
 "$WORK/evaluator-core" > "$WORK/evaluator.out"
-grep -Fx 'PASS evaluator-core 38' "$WORK/evaluator.out" >/dev/null
+grep -Fx 'PASS evaluator-core 42' "$WORK/evaluator.out" >/dev/null
 
 "$ROOT/build/bin/nplc" "$ROOT/src/repl/differential-native.npl" \
     -o "$WORK/differential-native"
@@ -33,6 +33,22 @@ cmp "$WORK/differential-native.out" "$WORK/differential-evaluator.out"
     > "$WORK/persistent.out" 2> "$WORK/persistent.err"
 cmp "$ROOT/src/repl/tests/persistent.out" "$WORK/persistent.out"
 cmp "$ROOT/src/repl/tests/persistent.err" "$WORK/persistent.err"
+
+(
+    cd "$ROOT/src/repl/tests"
+    "$ROOT/build/bin/npl-repl" --no-prompt
+) < "$ROOT/src/repl/tests/libraries.in" \
+    > "$WORK/libraries.out" 2> "$WORK/libraries.err"
+cmp "$ROOT/src/repl/tests/libraries.out" "$WORK/libraries.out"
+cmp "$ROOT/src/repl/tests/libraries.err" "$WORK/libraries.err"
+
+(
+    cd "$WORK"
+    "$ROOT/build/bin/npl-repl" --no-prompt
+) < "$ROOT/src/repl/tests/primitive-errors.in" \
+    > "$WORK/primitive-errors.out" 2> "$WORK/primitive-errors.err"
+cmp "$ROOT/src/repl/tests/primitive-errors.out" "$WORK/primitive-errors.out"
+cmp "$ROOT/src/repl/tests/primitive-errors.err" "$WORK/primitive-errors.err"
 
 printf '(+ 40 2)\n' | "$ROOT/build/bin/npl-repl" \
     > "$WORK/prompt.out" 2> "$WORK/prompt.err"

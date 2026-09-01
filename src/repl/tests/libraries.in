@@ -1,0 +1,15 @@
+(define-syntax stable
+  (syntax-rules ()
+    ((_ value) (+ value 1))))
+(import (except (libraries repl-library) hidden))
+cached-value
+(import (prefix (only (libraries repl-library) plus-forty) pref-))
+(pref-plus-forty 2)
+(import (prefix (except (libraries repl-library) hidden) all-))
+all-included-value
+(define-syntax broken (syntax-rules () ((broken value) value value)))
+(stable 41)
+(import (only (libraries repl-library) missing))
+(stable 41)
+(import (libraries repl-cycle-a))
+(+ cached-value (stable 40))
