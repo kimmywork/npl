@@ -1,26 +1,26 @@
 # NPL Implementation Handoff
 
-Status: active handoff as of 2026-09-01 16:55 CST.
+Status: active handoff as of 2026-09-01 17:33 CST.
 
 ## Immediate Directive
 
-Continue product delivery from the clean worktree after `c51f412 feat(evaluator): add promise support`. Do not restart the evaluator architecture, introduce a control IR, migrate `runtime/control.c` to NPL, or extract/refactor the evaluator before the user explicitly reopens that discussion.
+Continue R7RS-small product delivery from the clean worktree after `6e50632 feat(repl): cover interactive library recovery`. The practical REPL is ready for the implemented language subset. Do not restart the evaluator architecture, introduce a control IR, migrate `runtime/control.c` to NPL, or extract/refactor the evaluator before the user explicitly reopens that discussion.
 
 The immediate order is:
 
-1. close interactive library and recoverable frontend failure coverage;
-2. declare the practical REPL ready for the implemented language surface;
+1. implement the public `(scheme eval)` environment API over the shared persistent frontend/evaluator engine;
+2. implement `(scheme load)` using ports and shared source/frontend loading;
 3. proceed through the remaining R7RS-small work without adding unrelated facilities.
 
 Follow root `AGENTS.md`: reuse before reinvention, NPL-first implementation, differential evidence for compiler/evaluator behavior, frozen permanent bootstrap, and proportional verification.
 
 ## Repository State
 
-- HEAD: `c51f412 feat(evaluator): add promise support`.
+- HEAD: `6e50632 feat(repl): cover interactive library recovery`.
 - Branch: `master`.
 - Canonical full compiler: `bootstrap/current.ssa`, 348,700 lines, SHA-256 `1df230fac643aabf7259b881371a07a40d6b1f43d2eb4ee715eaee2a0964beb5`.
 - `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` are unchanged and must remain frozen.
-- The dynamic-control and promise increments are committed; the worktree was clean before this handoff alignment update.
+- Dynamic control, promises, and practical REPL recovery coverage are committed; the worktree was clean before this handoff alignment update.
 
 Latest verified commands:
 
@@ -41,7 +41,7 @@ The current native/evaluator differential output is:
 (42 42 42 42 42 42 42123 42123 42 42 4212 85 42 42)
 ```
 
-No compiler or runtime source changed in the dirty increment, so no new fixed-point relay was required.
+No compiler or runtime source changed in these evaluator/library-only increments, so no new fixed-point relay was required.
 
 ## What Is Shared
 
@@ -92,11 +92,13 @@ Do not repeat or conceal this deviation. Also do not stop current delivery to re
 
 `c51f412 feat(evaluator): add promise support` added evaluator promise vectors with the native `DONE`, `DELAY`, `CHAIN`, and `REDIRECT` state contract. It dispatches the shared `npl_promise_op` operations, treats a promise as a zero-source-argument callable, memoizes final values, preserves recursive forcing behavior, observes active evaluator parameter/handler state during first force, and uses tail-style chain traversal. Focused evaluator coverage is now 38 checks and includes the ten native promise scenarios, including the million-element `delay-force` chain.
 
+`6e50632 feat(repl): cover interactive library recovery` expanded focused evaluator coverage to 42 checks and added real persistent REPL transcripts for `except`, `prefix`, combined modifiers, library includes, exported macros, cache reuse, malformed `define-syntax`, unknown import names, library cycles, and session survival after each failure. It also converts common arithmetic, pair, symbol, and vector-index primitive misuse into `eval-error` values, so normal REPL use no longer exits through those underlying operations.
+
 Known limitations that must remain visible:
 
 - evaluator dynamic state is library-global and therefore suitable for the current singleton REPL, not yet multiple independent public `(scheme eval)` environments;
 - evaluator continuations currently enforce one argument rather than the already-supported native multiple-value continuation contract;
-- primitive type/range errors are not uniformly converted to recoverable evaluator errors;
+- primitive type/range errors are not uniformly converted to recoverable evaluator errors; the practical REPL coverage currently guarantees arithmetic, comparison, pair, symbol, and vector-index cases;
 - the evaluator contains parallel control-state machinery that must be reconsidered later, but not during the next delivery increments.
 
 ## Promise Contract
@@ -113,32 +115,11 @@ force         -> call the promise returned by operation 0
 
 The evaluator implementation follows `runtime/control.c` and `src/compiler/tests/promises.npl`; it adds no promise macro or alternate public API. Its acceptance evidence is the three commands above, all passing without compiler/runtime changes or a fixed-point relay.
 
-## Then Close Practical REPL
+## Practical REPL Result
 
-Use the existing shared frontend/library implementation. Do not add evaluator import logic.
+The practical REPL is ready for the implemented language subset. `build/bin/npl-repl` persists definitions and macros, uses the shared compiler frontend for all reader, expansion, import, library, and lowering behavior, and survives reader, frontend, and covered evaluator errors. `./tools/check_repl.sh` verifies the standard library from an external CWD through the injected absolute root, native/evaluator differential behavior, interactive library modifiers/includes/exported macros/cache behavior, frontend failure recovery, and common recoverable primitive failures.
 
-Add focused interactive coverage for:
-
-- `except`, `prefix`, and combined import modifiers;
-- library includes and exported macros;
-- library cache behavior and cycle/unknown-library errors;
-- external-CWD operation through the injected absolute stdlib root;
-- malformed `define-syntax`, unsupported imports, and failed library expansion;
-- proof that failed expansion does not corrupt prior value or macro session state;
-- required core AST tags and primitives encountered by real standard-library workflows;
-- recoverable primitive arity/type failures needed for normal REPL use.
-
-Relevant shared APIs:
-
-```text
-frontend-expand-datum
-library-resolve-import-set
-library-import-sets
-library-load
-with-frontend-errors
-```
-
-Practical REPL readiness means the implemented language subset works persistently through `build/bin/npl-repl`, survives reader/frontend/evaluator errors, and matches native observable behavior on common fixtures. Do not call this full R7RS-small GA.
+This is not full R7RS-small availability. Public `(scheme eval)`, `(scheme load)`, the full numeric tower, Unicode completion, time/process completion, and broader primitive-error normalization remain separate increments.
 
 ## Remaining R7RS-Small Flow
 

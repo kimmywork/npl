@@ -140,7 +140,7 @@ Verification:
 
 ### Step 8.1: Persistent REPL Core
 
-Status: in progress. The NPL interaction loop and persistent core evaluator now consume the existing compiler frontend through private `(npl frontend)`: compiler reader, hygienic `syntax-rules`, derived forms, library/import resolution, and core lowering are shared rather than reimplemented. Persistent definitions, mutation, closures, recursion, macros, `only`/`rename` imports, multiple values, `call/cc`, `dynamic-wind`, exceptions, parameters, continuation-aware dynamic state, the shared promise contract, prompts/EOF, value printing, and recoverable evaluator/reader errors are implemented. Broader interactive library coverage and recoverable frontend/primitive failures are still required for completion.
+Status: complete for the implemented language subset. The NPL interaction loop and persistent core evaluator consume the existing compiler frontend through private `(npl frontend)`: compiler reader, hygienic `syntax-rules`, derived forms, library/import resolution, and core lowering are shared rather than reimplemented. Persistent definitions, mutation, closures, recursion, macros, `only`/`rename`/`except`/`prefix` imports, multiple values, `call/cc`, `dynamic-wind`, exceptions, parameters, continuation-aware dynamic state, the shared promise contract, prompts/EOF, value printing, and recoverable evaluator/reader errors are implemented. Interactive library includes/exported macros/cache behavior and recoverable malformed macro/import/library/common primitive failures are also verified. Public `(scheme eval)` and the remaining R7RS-small conformance work remain deferred.
 
 Result: a native `npl-repl` process reads, evaluates, and prints multiple forms while preserving definitions between inputs.
 
@@ -157,7 +157,8 @@ Actions:
 
 Verification:
 
-- Golden transcript and focused evaluator tests cover literals, arithmetic, definitions, mutation, closures, recursive definitions, shared macros/imports, multiple values, `dynamic-wind`, exceptions, parameters, continuation-aware dynamic-state restoration, promises (including memoization, recursive forcing, dynamic parameter/handler context, and a million-element `delay-force` chain), recoverable errors, and EOF; broader interactive library/error coverage remains pending.
+- Golden transcript and focused evaluator tests cover literals, arithmetic, definitions, mutation, closures, recursive definitions, shared macros/imports, multiple values, `dynamic-wind`, exceptions, parameters, continuation-aware dynamic-state restoration, promises (including memoization, recursive forcing, dynamic parameter/handler context, and a million-element `delay-force` chain), recoverable errors, and EOF.
+- Dedicated persistent REPL transcripts cover `except`, `prefix`, combined modifiers, library includes/exported macros/cache reuse, malformed `define-syntax`, unsupported import names, library cycles, and session recovery after each failure; an external-CWD transcript proves the injected absolute standard-library root and common primitive type/range errors recover without process termination.
 - A separate transcript proves state persists across ten or more inputs and that an error does not destroy prior definitions.
 - Redirected stdin tests prove the REPL is deterministic without a TTY.
 - Test output formatting, prompt behavior, non-zero exits, and no leaked open ports.

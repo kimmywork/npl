@@ -80,11 +80,11 @@ Status: complete.
 
 ## 8. REPL
 
-Status: persistent core in progress.
+Status: practical REPL ready for the implemented language subset.
 
 Implemented the shared evaluator and interaction loop in NPL. `(npl frontend)` packages the existing compiler reader, hygienic macro expander, derived-form expansion, library/import resolver, and core lowering as a persistent interaction session. `(npl evaluator)` executes that shared core AST with persistent lexical environments, definitions, mutation, closures, recursion, core conditionals/sequencing, primitive procedures, multiple values, and `call/cc`; macro and import semantics are not reimplemented in the evaluator. `src/repl/main.npl` provides prompts, EOF/`(exit)` handling, result printing, and recovery from both evaluator and malformed-reader errors. `build/bin/npl-repl` is an NPL compiler output; C only supplies the existing datum reader plus a structured recoverable `read-result` boundary.
 
-Persistent top-level `syntax-rules`, hygiene, derived syntax, and shared `only`/`rename` import resolution are implemented and covered by evaluator/native differential fixtures. Evaluator `dynamic-wind`, continuable/non-continuable exception dispatch, parameters, continuation restoration across wind, handler, and parameter state, and the shared promise contract are implemented against the existing native control contract. Still required before this step is complete: broader interactive library coverage and recoverable frontend/primitive failures. Full public `(scheme eval)` remains deferred.
+Persistent top-level `syntax-rules`, hygiene, derived syntax, shared `only`/`rename` import resolution, `dynamic-wind`, continuable/non-continuable exception dispatch, parameters, continuation restoration across wind/handler/parameter state, and the shared promise contract are implemented against the existing native control contract. Interactive transcripts now cover `except`, `prefix`, combined modifiers, library includes/exported macros/cache reuse, external-CWD standard library use, malformed macro/import/library failures, and recoverable common primitive errors without corrupting the persistent session. Full public `(scheme eval)` remains deferred, along with the numeric, Unicode, and other explicit R7RS completion work.
 
 Detailed increments, rewrite policy, and acceptance evidence: [`docs/plan-stdlib-driver-repl.md`](docs/plan-stdlib-driver-repl.md).
 
