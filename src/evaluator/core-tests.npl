@@ -86,4 +86,183 @@
   (test-identity "recoverable unbound error"
                  (lambda () (eval-error? (evaluated "missing"))) #t)
   (test-equal "state survives error" (lambda () (evaluated "answer")) 42)
+  (test-equal "dynamic-wind normal order"
+              (lambda ()
+                (evaluated
+                  "(begin
+                     (define wind-log 0)
+                     (define (wind-digit digit)
+                       (set! wind-log (+ (* wind-log 10) digit)))
+                     (let ((value
+                             (dynamic-wind
+                               (lambda () (wind-digit 1))
+                               (lambda () (wind-digit 2) 42)
+                               (lambda () (wind-digit 3)))))
+                       (+ (* value 1000) wind-log)))"))
+              42123)
+  (test-equal "dynamic-wind continuation exit"
+              (lambda ()
+                (evaluated
+                  "(begin
+                     (set! wind-log 0)
+                     (let ((value
+                             (call/cc
+                               (lambda (escape)
+                                 (dynamic-wind
+                                   (lambda () (wind-digit 1))
+                                   (lambda () (wind-digit 2) (escape 42))
+                                   (lambda () (wind-digit 3)))))))
+                       (+ (* value 1000) wind-log)))"))
+              42123)
+  (test-equal "continuable exception"
+              (lambda ()
+                (evaluated
+                  "(with-exception-handler
+                     (lambda (object) (+ object 2))
+                     (lambda () (raise-continuable 40)))"))
+              42)
+  (test-equal "nested handler uses previous handler"
+              (lambda ()
+                (evaluated
+                  "(with-exception-handler
+                     (lambda (object) (+ object 2))
+                     (lambda ()
+                       (with-exception-handler
+                         (lambda (object) (raise-continuable object))
+                         (lambda () (raise-continuable 40)))))"))
+              42)
+  (test-equal "raise exits dynamic-wind"
+              (lambda ()
+                (evaluated
+                  "(begin
+                     (set! wind-log 0)
+                     (let ((value
+                             (call/cc
+                               (lambda (escape)
+                                 (with-exception-handler
+                                   (lambda (object) (escape object))
+                                   (lambda ()
+                                     (dynamic-wind
+                                       (lambda () (wind-digit 1))
+                                       (lambda () (raise 42))
+                                       (lambda () (wind-digit 2)))))))))
+                       (+ (* value 100) wind-log)))"))
+              4212)
+  (test-equal "parameter dynamic restoration"
+              (lambda ()
+                (evaluated
+                  "(let ((parameter (make-parameter 1)))
+                     (+ (parameterize ((parameter 41)) (parameter))
+                        (parameter)))"))
+              42)
+  (test-equal "parameter converter"
+              (lambda ()
+                (evaluated
+                  "(let ((parameter
+                           (make-parameter 20
+                             (lambda (value) (+ value 22)))))
+                     (parameter))"))
+              42)
+  (test-equal "dynamic-wind continuation reentry"
+              (lambda ()
+                (evaluated
+                  "(begin
+                     (define saved-wind #f)
+                     (define wind-phase 0)
+                     (set! wind-log 0)
+                     (let ((value
+                             (dynamic-wind
+                               (lambda () (wind-digit 1))
+                               (lambda ()
+                                 (call/cc
+                                   (lambda (continuation)
+                                     (set! saved-wind continuation)
+                                     10)))
+                               (lambda () (wind-digit 3)))))
+                       (cond
+                         ((= wind-phase 0)
+                          (set! wind-phase 1)
+                          (saved-wind 20))
+                         ((= wind-phase 1)
+                          (set! wind-phase 2)
+                          (saved-wind 30))
+                         (else (+ (* value 1000000) wind-log)))))"))
+              30131313)
+  (test-equal "continuation restores handler"
+              (lambda ()
+                (evaluated
+                  "(begin
+                     (define saved-handler #f)
+                     (define handler-phase 0)
+                     (with-exception-handler
+                       (lambda (object) (+ object 2))
+                       (lambda ()
+                         (let ((value
+                                 (call/cc
+                                   (lambda (continuation)
+                                     (set! saved-handler continuation)
+                                     10))))
+                           (if (= handler-phase 0)
+                               (begin
+                                 (set! handler-phase 1)
+                                 (saved-handler 20))
+                               (raise-continuable 40))))))"))
+              42)
+  (test-equal "continuation restores parameter binding"
+              (lambda ()
+                (evaluated
+                  "(begin
+                     (define saved-parameter #f)
+                     (define parameter-phase 0)
+                     (let ((parameter (make-parameter 0)))
+                       (let ((result
+                               (parameterize ((parameter 10))
+                                 (let ((value
+                                         (call/cc
+                                           (lambda (continuation)
+                                             (set! saved-parameter continuation)
+                                             0))))
+                                   (if (= parameter-phase 0)
+                                       (begin
+                                         (parameter 41)
+                                         (set! parameter-phase 1)
+                                         10)
+                                       (+ (parameter) value))))))
+                         (if (= parameter-phase 1)
+                             (begin
+                               (set! parameter-phase 2)
+                               (saved-parameter 1))
+                             result))))"))
+              42)
+  (test-equal "wind before sees restored handler"
+              (lambda ()
+                (evaluated
+                  "(begin
+                     (define saved-handler-wind #f)
+                     (define handler-wind-phase 0)
+                     (define handler-wind-log 0)
+                     (let ((value
+                             (with-exception-handler
+                               (lambda (object)
+                                 (set! handler-wind-log
+                                       (+ handler-wind-log object))
+                                 0)
+                               (lambda ()
+                                 (dynamic-wind
+                                   (lambda ()
+                                     (if (= handler-wind-phase 1)
+                                         (raise-continuable 2)
+                                         0))
+                                   (lambda ()
+                                     (call/cc
+                                       (lambda (continuation)
+                                         (set! saved-handler-wind continuation)
+                                         10)))
+                                   (lambda () 0))))))
+                       (if (= handler-wind-phase 0)
+                           (begin
+                             (set! handler-wind-phase 1)
+                             (saved-handler-wind 20))
+                           (+ (* value 10) handler-wind-log))))"))
+              202)
   (finish-tests "evaluator-core"))

@@ -140,7 +140,7 @@ Verification:
 
 ### Step 8.1: Persistent REPL Core
 
-Status: in progress. The NPL interaction loop and persistent core evaluator now consume the existing compiler frontend through private `(npl frontend)`: compiler reader, hygienic `syntax-rules`, derived forms, library/import resolution, and core lowering are shared rather than reimplemented. Persistent definitions, mutation, closures, recursion, macros, `only`/`rename` imports, multiple values, `call/cc`, prompts/EOF, value printing, and recoverable evaluator/reader errors are implemented. Exception, parameter, promise, `dynamic-wind`, continuation-aware dynamic state, and broader interactive library coverage are still required for completion.
+Status: in progress. The NPL interaction loop and persistent core evaluator now consume the existing compiler frontend through private `(npl frontend)`: compiler reader, hygienic `syntax-rules`, derived forms, library/import resolution, and core lowering are shared rather than reimplemented. Persistent definitions, mutation, closures, recursion, macros, `only`/`rename` imports, multiple values, `call/cc`, `dynamic-wind`, exceptions, parameters, continuation-aware dynamic state, prompts/EOF, value printing, and recoverable evaluator/reader errors are implemented. Promises and broader interactive library coverage are still required for completion.
 
 Result: a native `npl-repl` process reads, evaluates, and prints multiple forms while preserving definitions between inputs.
 
@@ -157,7 +157,7 @@ Actions:
 
 Verification:
 
-- Golden transcript tests cover literals, arithmetic, definitions, mutation, closures, recursive definitions, shared macros/imports, multiple values, recoverable errors, and EOF; exceptions, parameters, and promises remain pending.
+- Golden transcript and focused evaluator tests cover literals, arithmetic, definitions, mutation, closures, recursive definitions, shared macros/imports, multiple values, `dynamic-wind`, exceptions, parameters, continuation-aware dynamic-state restoration, recoverable errors, and EOF; promises remain pending.
 - A separate transcript proves state persists across ten or more inputs and that an error does not destroy prior definitions.
 - Redirected stdin tests prove the REPL is deterministic without a TTY.
 - Test output formatting, prompt behavior, non-zero exits, and no leaked open ports.

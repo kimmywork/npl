@@ -9,7 +9,7 @@ trap 'rm -rf "$WORK"' EXIT
 "$ROOT/build/bin/nplc" "$ROOT/src/evaluator/core-tests.npl" \
     -o "$WORK/evaluator-core"
 "$WORK/evaluator-core" > "$WORK/evaluator.out"
-grep -Fx 'PASS evaluator-core 17' "$WORK/evaluator.out" >/dev/null
+grep -Fx 'PASS evaluator-core 28' "$WORK/evaluator.out" >/dev/null
 
 "$ROOT/build/bin/nplc" "$ROOT/src/repl/differential-native.npl" \
     -o "$WORK/differential-native"
