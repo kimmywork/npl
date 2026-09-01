@@ -1,3 +1,5 @@
+#define _DARWIN_C_SOURCE
+
 /* Runtime ports, external I/O, and process entry services. */
 
 #include "npl.h"
@@ -1210,6 +1212,50 @@ NplVal npl_get_environment_variables(void)
         variables = npl_cons(npl_cons(name, value), variables);
     }
     return variables;
+}
+
+NplVal npl_file_exists(NplVal path_value)
+{
+    const NplString *path = process_string(path_value, "file-exists?");
+    return access(path->data, F_OK) == 0 ? npl_true() : npl_false();
+}
+
+NplVal npl_delete_file(NplVal path_value)
+{
+    const NplString *path = process_string(path_value, "delete-file");
+    if (unlink(path->data) != 0) {
+        fprintf(stderr, "delete-file: cannot remove '%s'\n", path->data);
+        exit(1);
+    }
+    return npl_nil();
+}
+
+NplVal npl_make_temporary_directory(void)
+{
+    const char *root = getenv("TMPDIR");
+    if (!root || root[0] == '\0') root = "/tmp";
+    size_t length = strlen(root) + sizeof("/npl-driver.XXXXXX");
+    char *path = (char *)malloc(length);
+    if (!path) npl_runtime_oom_internal();
+    (void)snprintf(path, length, "%s/npl-driver.XXXXXX", root);
+    if (!mkdtemp(path)) {
+        free(path);
+        fprintf(stderr, "make-temporary-directory: cannot create directory\n");
+        exit(1);
+    }
+    NplVal value = npl_string(path, (uint32_t)strlen(path));
+    free(path);
+    return value;
+}
+
+NplVal npl_delete_directory(NplVal path_value)
+{
+    const NplString *path = process_string(path_value, "delete-directory");
+    if (rmdir(path->data) != 0) {
+        fprintf(stderr, "delete-directory: cannot remove '%s'\n", path->data);
+        exit(1);
+    }
+    return npl_nil();
 }
 
 void npl_exit(NplVal code) {

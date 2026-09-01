@@ -454,17 +454,19 @@
 "(+ - * < <= = > >= append bytevector bytevector-length
 bytevector-u8-ref bytevector-u8-set! bytevector? binary-port? car cdr
 char->integer char? close-input-port close-output-port close-port cons
-current-error-port current-input-port current-output-port dynamic-wind exit
+current-error-port current-input-port current-output-port delete-directory
+delete-file dynamic-wind exit
 eof-object eof-object? eq? eqv? flush-output-port get-environment-variable
 get-environment-variables get-output-bytevector
 get-output-string
-input-port-open? input-port? integer->char list->vector newline not null?
+input-port-open? input-port? integer->char list->vector make-temporary-directory
+newline not null?
 number->string number? npl_make_parameter npl_parameter_converter
 npl_parameters_enter npl_parameters_leave npl_promise_op program-arguments
 run-process
 open-binary-input-file open-binary-output-file
 open-input-bytevector open-input-file open-input-string
-open-output-bytevector open-output-file open-output-string
+open-output-bytevector open-output-file open-output-string file-exists?
 output-port-open? output-port? pair? peek-char peek-u8 port? raise
 raise-continuable read read-bytevector read-bytevector! read-char read-u8
 set-car! set-cdr! string-append string-length string-ref string=? substring

@@ -1,3 +1,4 @@
 (define-library (npl process)
-  (export run-process)
-  (import (only (npl primitive) run-process)))
+  (export delete-directory make-temporary-directory run-process)
+  (import (only (npl primitive)
+                delete-directory make-temporary-directory run-process)))

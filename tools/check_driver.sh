@@ -57,7 +57,7 @@ TMPDIR="$WORK/tmp" "$DRIVER" --qbe "$WORK/missing-qbe" \
 qbe_status=$?
 set -e
 [ "$qbe_status" -eq 127 ]
-grep -F 'cannot execute' "$WORK/qbe.err" >/dev/null
+grep -F 'nplc: qbe failed' "$WORK/qbe.err" >/dev/null
 [ ! -e "$WORK/qbe-failure" ]
 [ -z "$(find "$WORK/tmp" -mindepth 1 -maxdepth 1 -print -quit)" ]
 

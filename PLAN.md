@@ -74,13 +74,13 @@ Complete the practical R7RS dependency closure for native tooling and interactiv
 
 ## 7. Unified Compilation Driver
 
-Status: native three-stage driver complete; NPL wrapper next.
+Status: complete.
 
-`build/bin/nplc source.npl -o output` now performs raw SSA emission, QBE assembly generation, and native linking while retaining `--emit-qbe`. The driver uses argv child processes, explicit configured toolchain/stdlib paths, isolated temporary directories, failure propagation, and cleanup. Next implement the equivalent NPL orchestration wrapper over `(npl process)`.
+`build/bin/nplc source.npl -o output` is implemented in `src/driver/main.npl`. The NPL driver performs raw SSA emission, QBE assembly generation, and native linking while retaining `--emit-qbe`. It owns option parsing, configured toolchain paths, failure diagnostics, status propagation, and temporary-file cleanup. `tools/build_nplc.sh` only restores the raw compiler from canonical SSA, injects absolute build paths into a generated NPL entry file, and compiles that NPL driver.
 
 ## 8. REPL
 
-Status: next after the native driver core.
+Status: next.
 
 Implement a persistent `npl-repl` over the shared evaluator engine that will later back `(scheme eval)`. The evaluator core, persistent environments, macro/import behavior, and error recovery are hard REPL dependencies; only the complete public `(scheme eval)` environment API and remaining conformance are deferred. Repeated whole-program recompilation is not the implementation strategy.
 

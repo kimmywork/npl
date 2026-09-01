@@ -438,6 +438,10 @@ NplVal npl_read_file(NplVal path);            /* whole file as string; aborts on
 NplVal npl_process_run(NplVal arguments, NplVal output_path);
 NplVal npl_get_environment_variable(NplVal name);
 NplVal npl_get_environment_variables(void);
+NplVal npl_file_exists(NplVal path);
+NplVal npl_delete_file(NplVal path);
+NplVal npl_make_temporary_directory(void);
+NplVal npl_delete_directory(NplVal path);
 void npl_exit(NplVal code);                   /* untagged fixnum, low byte */
 
 /* bootstrap lexer hooks — all take TAGGED values */

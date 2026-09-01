@@ -1,0 +1,162 @@
+; NPL implementation of the source -> SSA -> QBE -> native driver.
+; DRIVER-* defaults are injected by tools/build_nplc.sh.
+
+(define (driver-fail message)
+  (display "nplc: " (current-error-port))
+  (display message (current-error-port))
+  (newline (current-error-port))
+  (exit 2))
+
+(define (driver-usage)
+  (display "usage: nplc [options] <source.npl> -o <output>\n"
+           (current-error-port))
+  (display "       nplc --emit-qbe [options] <source.npl>\n"
+           (current-error-port))
+  (exit 2))
+
+(define (driver-stage-failure stage status)
+  (display (string-append "nplc: " stage " failed (status "
+                          (number->string status) ")\n")
+           (current-error-port))
+  status)
+
+(define (driver-option-like? argument)
+  (if (= (string-length argument) 0)
+      #f
+      (= (string-ref argument 0) 45)))
+
+(define (driver-option-value option arguments)
+  (if (null? arguments)
+      (driver-fail (string-append option " needs a value"))
+      (car arguments)))
+
+(define (driver-config raw qbe cc runtime stdlib source output emit?)
+  (list raw qbe cc runtime stdlib source output emit?))
+
+(define (driver-parse arguments raw qbe cc runtime stdlib source output emit?)
+  (if (null? arguments)
+      (driver-config raw qbe cc runtime stdlib source output emit?)
+      (let ((argument (car arguments))
+            (remaining (cdr arguments)))
+        (cond
+          ((string=? argument "--emit-qbe")
+           (driver-parse remaining raw qbe cc runtime stdlib
+                         source output #t))
+          ((string=? argument "-o")
+           (let ((value (driver-option-value argument remaining)))
+             (driver-parse (cdr remaining) raw qbe cc runtime stdlib
+                           source value emit?)))
+          ((string=? argument "--raw-compiler")
+           (let ((value (driver-option-value argument remaining)))
+             (driver-parse (cdr remaining) value qbe cc runtime stdlib
+                           source output emit?)))
+          ((string=? argument "--qbe")
+           (let ((value (driver-option-value argument remaining)))
+             (driver-parse (cdr remaining) raw value cc runtime stdlib
+                           source output emit?)))
+          ((string=? argument "--cc")
+           (let ((value (driver-option-value argument remaining)))
+             (driver-parse (cdr remaining) raw qbe value runtime stdlib
+                           source output emit?)))
+          ((string=? argument "--runtime")
+           (let ((value (driver-option-value argument remaining)))
+             (driver-parse (cdr remaining) raw qbe cc value stdlib
+                           source output emit?)))
+          ((string=? argument "--stdlib-root")
+           (let ((value (driver-option-value argument remaining)))
+             (driver-parse (cdr remaining) raw qbe cc runtime value
+                           source output emit?)))
+          ((driver-option-like? argument)
+           (driver-fail (string-append "unknown option " argument)))
+          (source
+           (driver-fail "multiple source files are not supported"))
+          (else
+           (driver-parse remaining raw qbe cc runtime stdlib
+                         argument output emit?))))))
+
+(define (driver-second values) (car (cdr values)))
+(define (driver-third values) (car (cdr (cdr values))))
+(define (driver-fourth values) (car (cdr (cdr (cdr values)))))
+(define (driver-fifth values) (car (cdr (cdr (cdr (cdr values))))))
+(define (driver-sixth values) (car (cdr (cdr (cdr (cdr (cdr values)))))))
+(define (driver-seventh values)
+  (car (cdr (cdr (cdr (cdr (cdr (cdr values))))))))
+(define (driver-eighth values)
+  (car (cdr (cdr (cdr (cdr (cdr (cdr (cdr values)))))))))
+
+(define (driver-delete-if-present path)
+  (if (file-exists? path) (delete-file path) #f))
+
+(define (driver-relay-file path port)
+  (let ((input (open-input-file path)))
+    (define (relay)
+      (let ((value (read-char input)))
+        (if (eof-object? value)
+            (close-port input)
+            (begin
+              (write-char value port)
+              (relay)))))
+    (relay)))
+
+(define (driver-cleanup directory ssa assembly)
+  (driver-delete-if-present assembly)
+  (driver-delete-if-present ssa)
+  (delete-directory directory))
+
+(define (driver-native raw qbe cc runtime stdlib source output)
+  (let ((directory (make-temporary-directory)))
+    (let ((ssa (string-append directory "/source.ssa"))
+          (assembly (string-append directory "/source.s")))
+      (let ((compile-status
+              (run-process
+                (list raw "--emit-qbe" "--stdlib-root" stdlib source)
+                ssa)))
+        (if (= compile-status 44)
+            (let ((qbe-status
+                    (run-process (list qbe "-o" assembly ssa) #f)))
+              (if (= qbe-status 0)
+                  (let ((link-status
+                          (run-process
+                            (list cc "-o" output assembly runtime) #f)))
+                    (driver-cleanup directory ssa assembly)
+                    (if (= link-status 0)
+                        0
+                        (begin
+                          (driver-delete-if-present output)
+                          (driver-stage-failure "link" link-status))))
+                  (begin
+                    (driver-cleanup directory ssa assembly)
+                    (driver-stage-failure "qbe" qbe-status))))
+            (begin
+              (driver-relay-file ssa (current-error-port))
+              (driver-cleanup directory ssa assembly)
+              (if (= compile-status 0) 1 compile-status)))))))
+
+(define (driver-run config)
+  (let ((raw (car config))
+        (qbe (driver-second config))
+        (cc (driver-third config))
+        (runtime (driver-fourth config))
+        (stdlib (driver-fifth config))
+        (source (driver-sixth config))
+        (output (driver-seventh config))
+        (emit? (driver-eighth config)))
+    (if (not source) (driver-usage))
+    (if emit?
+        (if output
+            (driver-usage)
+            (run-process
+              (list raw "--emit-qbe" "--stdlib-root" stdlib source)
+              #f))
+        (if (not output)
+            (driver-usage)
+            (driver-native raw qbe cc runtime stdlib source output)))))
+
+(define (main)
+  (exit
+    (driver-run
+      (driver-parse
+        (command-line)
+        DRIVER-RAW-COMPILER DRIVER-QBE DRIVER-CC
+        DRIVER-RUNTIME DRIVER-STDLIB
+        #f #f #f))))

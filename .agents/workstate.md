@@ -12,7 +12,7 @@ The permanent bootstrap language and compiler are frozen. The evolving full comp
 
 The first-wave standard-library closure for driver/REPL is complete. Independent sources under `lib/` provide `(scheme base)`, `(scheme read)`, `(scheme write)`, `(scheme file)`, `(scheme process-context)`, `(scheme cxr)`, `(scheme char)`, `(scheme case-lambda)`, `(scheme lazy)`, and private `(npl process)`. Ports support textual/binary files, string/bytevector memory ports, bulk binary I/O, and single-datum read/write. The compiler accepts explicit `--stdlib-root` configuration.
 
-The native three-stage driver is usable: `tools/build_nplc.sh` restores `build/bin/nplc-raw` and builds `build/bin/nplc`; native mode emits SSA, invokes QBE, and links with the runtime, while `--emit-qbe` remains available. Toolchain and stdlib paths are explicit and overridable, and driver failures clean their isolated temporary directories.
+The native three-stage driver is implemented in `src/driver/main.npl`: `build/bin/nplc source.npl -o output` performs raw SSA emission, QBE assembly generation, and native linking, while `--emit-qbe` remains available. `tools/build_nplc.sh` is only the minimal C/host bootstrap that restores canonical raw compiler SSA, injects absolute paths, and compiles the NPL driver. Toolchain and stdlib paths are explicit and overridable, and driver failures clean their isolated temporary directories.
 
 The hygienic macro engine now correctly handles nested dotted patterns whose atomic symbol tail is used as a binding identifier. The root cause was repeated matching treating pair-backed datum symbols as list structure; focused regressions cover nested dotted capture and binding transcription.
 
@@ -28,9 +28,8 @@ The hygienic macro engine now correctly handles nested dotted patterns whose ato
 
 Deliver a concrete usable product before further R7RS conformance expansion:
 
-1. Implement the NPL orchestration wrapper using `(npl process)` and explicit stdlib/toolchain configuration.
-2. Build the shared persistent evaluator engine and native REPL core; full public `(scheme eval)` wraps this engine later.
-3. Return to remaining R7RS-small numeric, `eval`/`load`, time, Unicode, and compatibility conformance using native driver and REPL workflows.
-4. Measure compiler phases and consider output-path optimization only after driver/REPL completion.
+1. Build the shared persistent evaluator engine and native REPL core in NPL; full public `(scheme eval)` wraps this engine later.
+2. Return to remaining R7RS-small numeric, `eval`/`load`, time, Unicode, and compatibility conformance using native driver and REPL workflows.
+3. Measure compiler phases and consider output-path optimization only after driver/REPL completion.
 
 Use one fixed-point relay per exact compiler/runtime source tree, then run the remaining gate with `--skip-current-fixed-point`.
