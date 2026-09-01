@@ -140,6 +140,8 @@ Verification:
 
 ### Step 8.1: Persistent REPL Core
 
+Status: in progress. The shared evaluator, persistent lexical state, core procedures/control, NPL interaction loop, prompts/EOF, value printing, and recoverable evaluator/reader errors are implemented. Hygienic macros, full import behavior, and remaining exception/parameter/promise semantics are still required for completion.
+
 Result: a native `npl-repl` process reads, evaluates, and prints multiple forms while preserving definitions between inputs.
 
 Implementation choice: use a persistent interpreter/evaluator, not repeated whole-program recompilation. Recompiling a growing temporary source file cannot provide correct interactive state, error recovery, or practical latency.

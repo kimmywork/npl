@@ -499,6 +499,8 @@
      (checked-call "npl_number_to_string" 1 args env))
     ((string=? nm "symbol->string")
      (checked-call "npl_symbol_to_string" 1 args env))
+    ((string=? nm "symbol?")
+     (checked-call "npl_symbol_predicate" 1 args env))
     ((string=? nm "string-length") (len-as-fixnum args env))
     ((string=? nm "string=?") (streq-builtin args env))
     ((string=? nm "read-file") (checked-call "npl_read_file" 1 args env))
@@ -566,6 +568,8 @@
     ((string=? nm "write-bytevector")
      (bytevector-range-call "npl_write_bytevector"
                             "npl_current_output_port" args env))
+    ((string=? nm "read-result")
+     (optional-input-call "npl_read_result" args env))
     ((string=? nm "read")
      (optional-input-call "npl_read_datum" args env))
     ((string=? nm "eof-object")

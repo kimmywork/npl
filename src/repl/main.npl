@@ -1,0 +1,74 @@
+; Persistent interaction loop over the shared NPL evaluator.
+
+(import (scheme base)
+        (scheme read)
+        (scheme write)
+        (scheme process-context)
+        (npl evaluator)
+        (npl repl-io))
+
+(define (repl-exit-form? expression)
+  (if (pair? expression)
+      (if (if (symbol? (car expression))
+              (string=? (symbol->string (car expression)) "exit") #f)
+          (null? (cdr expression))
+          #f)
+      #f))
+
+(define (repl-print-value value)
+  (if (eval-unspecified? value)
+      #f
+      (if (eval-values? value)
+          (repl-print-values (eval-values-list value))
+          (begin (write value) (newline)))))
+
+(define (repl-print-values values)
+  (if (null? values)
+      #f
+      (begin
+        (write (car values))
+        (newline)
+        (repl-print-values (cdr values)))))
+
+(define (repl-report-error error)
+  (display "error: " (current-error-port))
+  (display (eval-error-message error) (current-error-port))
+  (newline (current-error-port)))
+
+(define (repl-loop environment prompt?)
+  (if prompt?
+      (begin
+        (display "> ")
+        (flush-output-port (current-output-port))))
+  (let ((result (read-result)))
+    (if (not (vector-ref result 0))
+        (begin
+          (display "read error: " (current-error-port))
+          (display (vector-ref result 1) (current-error-port))
+          (newline (current-error-port))
+          (repl-loop environment prompt?))
+        (let ((expression (vector-ref result 1)))
+          (if (eof-object? expression)
+              0
+              (if (repl-exit-form? expression)
+                  0
+                  (let ((value (eval-in-environment expression environment)))
+                    (if (eval-error? value)
+                        (repl-report-error value)
+                        (repl-print-value value))
+                    (repl-loop environment prompt?))))))))
+
+(define (repl-prompt? arguments)
+  (if (null? arguments)
+      #t
+      (if (if (string=? (car arguments) "--no-prompt")
+              (null? (cdr arguments)) #f)
+          #f
+          (begin
+            (display "usage: npl-repl [--no-prompt]\n"
+                     (current-error-port))
+            (exit 2)))))
+
+(define (main)
+  (exit (repl-loop (make-eval-environment)
+                   (repl-prompt? (command-line)))))

@@ -1,0 +1,15 @@
+42
+(+ 20 22)
+(define answer 42)
+answer
+(define (add-to-answer value) (+ answer value))
+(add-to-answer 8)
+(set! answer (+ answer 1))
+answer
+missing
+answer
+)
+answer
+(call-with-values (lambda () (values 20 22)) +)
+(+ 2 (call/cc (lambda (escape) (escape 40))))
+(exit)

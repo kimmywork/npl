@@ -80,9 +80,11 @@ Status: complete.
 
 ## 8. REPL
 
-Status: next.
+Status: persistent core in progress.
 
-Implement a persistent `npl-repl` over the shared evaluator engine that will later back `(scheme eval)`. The evaluator core, persistent environments, macro/import behavior, and error recovery are hard REPL dependencies; only the complete public `(scheme eval)` environment API and remaining conformance are deferred. Repeated whole-program recompilation is not the implementation strategy.
+Implemented the shared evaluator and interaction loop in NPL. `(npl evaluator)` provides persistent lexical environments, definitions, mutation, closures, recursion, core conditionals/sequencing, primitive procedures, multiple values, and `call/cc`. `src/repl/main.npl` provides prompts, EOF/`(exit)` handling, result printing, and recovery from both evaluator and malformed-reader errors. `build/bin/npl-repl` is an NPL compiler output; C only supplies the existing datum reader plus a structured recoverable `read-result` boundary.
+
+Still required before this step is complete: persistent hygienic macro definitions and expansion, meaningful import-set behavior beyond the initial built-in environment, and the remaining exception/parameter/promise control semantics on the shared evaluator. Full public `(scheme eval)` remains deferred.
 
 Detailed increments, rewrite policy, and acceptance evidence: [`docs/plan-stdlib-driver-repl.md`](docs/plan-stdlib-driver-repl.md).
 

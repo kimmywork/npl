@@ -534,6 +534,12 @@ NplVal npl_symbol_to_string(NplVal s) {
     return retag_box(s, BOX_STRING);
 }
 
+NplVal npl_symbol_predicate(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_SYMBOL
+        ? npl_true() : npl_false();
+}
+
 NplVal npl_substring(NplVal s, NplVal i, NplVal j) {
     const NplString *st = npl_require_bytes_internal(s, "substring");
     int64_t a = (int64_t)(i >> 2);

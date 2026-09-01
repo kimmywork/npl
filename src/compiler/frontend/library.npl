@@ -468,8 +468,10 @@ open-binary-input-file open-binary-output-file
 open-input-bytevector open-input-file open-input-string
 open-output-bytevector open-output-file open-output-string file-exists?
 output-port-open? output-port? pair? peek-char peek-u8 port? raise
-raise-continuable read read-bytevector read-bytevector! read-char read-u8
-set-car! set-cdr! string-append string-length string-ref string=? substring
+raise-continuable read read-result read-bytevector read-bytevector! read-char
+read-u8
+set-car! set-cdr! string-append string-length string-ref string=? symbol?
+substring
 symbol->string textual-port? values vector vector-length vector-ref vector-set!
 vector? call-with-current-continuation call/cc call-with-values
 display with-exception-handler write write-bytevector write-char write-shared

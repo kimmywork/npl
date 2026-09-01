@@ -4,6 +4,7 @@
 
 #include "npl.h"
 #include <fcntl.h>
+#include <setjmp.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -829,10 +830,24 @@ typedef struct {
     int has_lookahead;
 } NplDatumReader;
 
+static jmp_buf *g_read_recovery = NULL;
+static char g_read_error_message[128];
+
 static void read_error(const char *message)
 {
+    if (g_read_recovery) {
+        (void)snprintf(g_read_error_message, sizeof(g_read_error_message),
+                       "%s", message);
+        longjmp(*g_read_recovery, 1);
+    }
     fprintf(stderr, "read: %s\n", message);
     exit(1);
+}
+
+static void read_buffer_error(char *buffer, const char *message)
+{
+    free(buffer);
+    read_error(message);
 }
 
 static int reader_get(NplDatumReader *reader)
@@ -896,16 +911,18 @@ static NplVal read_string_datum(NplDatumReader *reader)
     size_t capacity = 0;
     for (;;) {
         int code = reader_get(reader);
-        if (code == EOF) read_error("unexpected EOF in string");
+        if (code == EOF)
+            read_buffer_error(buffer, "unexpected EOF in string");
         if (code == '"') break;
         if (code == '\\') {
             code = reader_get(reader);
-            if (code == EOF) read_error("unexpected EOF in string escape");
+            if (code == EOF)
+                read_buffer_error(buffer, "unexpected EOF in string escape");
             if (code == 'n') code = '\n';
             else if (code == 'r') code = '\r';
             else if (code == 't') code = '\t';
             else if (code != '"' && code != '\\')
-                read_error("unknown string escape");
+                read_buffer_error(buffer, "unknown string escape");
         }
         buffer_push(&buffer, &length, &capacity, code);
     }
@@ -1060,6 +1077,24 @@ NplVal npl_read_datum(NplVal port_value_arg)
             (void)ungetc(reader.lookahead, port->stream);
     }
     return value;
+}
+
+NplVal npl_read_result(NplVal port_value)
+{
+    jmp_buf recovery;
+    jmp_buf *previous = g_read_recovery;
+    g_read_recovery = &recovery;
+    NplVal items[2];
+    if (setjmp(recovery) == 0) {
+        items[0] = npl_true();
+        items[1] = npl_read_datum(port_value);
+    } else {
+        items[0] = npl_false();
+        items[1] = npl_string(g_read_error_message,
+                              (uint32_t)strlen(g_read_error_message));
+    }
+    g_read_recovery = previous;
+    return npl_make_vector(2, items);
 }
 
 /* ---- process arguments and whole-file input ---- */

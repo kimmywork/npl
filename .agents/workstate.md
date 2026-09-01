@@ -14,13 +14,14 @@ The first-wave standard-library closure for driver/REPL is complete. Independent
 
 The native three-stage driver is implemented in `src/driver/main.npl`: `build/bin/nplc source.npl -o output` performs raw SSA emission, QBE assembly generation, and native linking, while `--emit-qbe` remains available. `tools/build_nplc.sh` is only the minimal C/host bootstrap that restores canonical raw compiler SSA, injects absolute paths, and compiles the NPL driver. Toolchain and stdlib paths are explicit and overridable, and driver failures clean their isolated temporary directories.
 
-The hygienic macro engine now correctly handles nested dotted patterns whose atomic symbol tail is used as a binding identifier. The root cause was repeated matching treating pair-backed datum symbols as list structure; focused regressions cover nested dotted capture and binding transcription.
+The persistent REPL core is now in progress under the same NPL-first rule. `(npl evaluator)` is a shared NPL library with persistent lexical environments, definitions, mutation, closures, recursion, core forms, primitive procedures, multiple values, and evaluator-level `call/cc`. `src/repl/main.npl` implements prompts, EOF/exit, value printing, and recovery from evaluator and malformed-reader errors. C only exposes `symbol?` and structured recoverable datum-read boundaries required by the NPL engine. Hygienic macros, complete import behavior, and remaining exception/parameter/promise semantics are not yet complete.
+
 
 ## Evidence
 
-- Current gen1/gen2/gen3 are byte-identical when linked with the final runtime.
+- Current gen1/gen2/gen3 are byte-identical at 347,829 lines, SHA-256 `8ca387dfc379f379cbb7b331ff4b55e7beda4d79a04c7fc4a693eef3f3c86b26`.
 - `./tools/run_tests.sh --skip-current-fixed-point` reports `all suites: PASS`.
-- `./tools/check_driver.sh` passes native output, raw SSA equality, path-space, external-CWD, failure propagation, and cleanup checks.
+- `./tools/check_repl.sh` passes shared evaluator semantics, persistent transcript, prompt/EOF behavior, and evaluator/reader error recovery.
 - A compiler launched from `/tmp` can compile a standard-library program with explicit `--stdlib-root`.
 - GC stress passes one million allocations; permanent bootstrap sources and SSA remain unchanged.
 
@@ -28,8 +29,10 @@ The hygienic macro engine now correctly handles nested dotted patterns whose ato
 
 Deliver a concrete usable product before further R7RS conformance expansion:
 
-1. Build the shared persistent evaluator engine and native REPL core in NPL; full public `(scheme eval)` wraps this engine later.
-2. Return to remaining R7RS-small numeric, `eval`/`load`, time, Unicode, and compatibility conformance using native driver and REPL workflows.
-3. Measure compiler phases and consider output-path optimization only after driver/REPL completion.
+1. Complete persistent hygienic macro expansion and import-set behavior in `(npl evaluator)`.
+2. Add evaluator exception, parameter, promise, and dynamic control semantics required by the REPL contract.
+3. Expose `(scheme repl)`, then wrap the same engine with full public `(scheme eval)` after REPL completion.
+4. Return to remaining R7RS-small numeric, `load`, time, Unicode, and compatibility conformance using native driver and REPL workflows.
+5. Measure compiler phases and consider output-path optimization only after driver/REPL completion.
 
 Use one fixed-point relay per exact compiler/runtime source tree, then run the remaining gate with `--skip-current-fixed-point`.

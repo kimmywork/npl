@@ -1,0 +1,59 @@
+(import (scheme base)
+        (scheme read)
+        (scheme write)
+        (scheme process-context)
+        (npl evaluator))
+
+(include "../compiler/tests/framework.npl")
+
+(define environment (make-eval-environment))
+
+(define (source-datum source)
+  (read (open-input-string source)))
+
+(define (evaluated source)
+  (eval-in-environment (source-datum source) environment))
+
+(define (main)
+  (test-equal "literal" (lambda () (evaluated "42")) 42)
+  (test-equal "arithmetic" (lambda () (evaluated "(+ 20 22)")) 42)
+  (test-identity "define result unspecified"
+                 (lambda ()
+                   (eval-unspecified? (evaluated "(define answer 42)"))) #t)
+  (test-equal "persistent definition" (lambda () (evaluated "answer")) 42)
+  (test-equal "lexical closure"
+              (lambda ()
+                (evaluated
+                  "(((lambda (x) (lambda (y) (+ x y))) 20) 22)"))
+              42)
+  (test-equal "recursive procedure"
+              (lambda ()
+                (evaluated
+                  "(begin
+                     (define (sum n)
+                       (if (= n 0) 0 (+ n (sum (- n 1)))))
+                     (sum 6))"))
+              21)
+  (test-equal "mutation"
+              (lambda ()
+                (evaluated
+                  "(begin (define mutable 40)
+                          (set! mutable (+ mutable 2))
+                          mutable)"))
+              42)
+  (test-equal "multiple values"
+              (lambda ()
+                (evaluated
+                  "(call-with-values
+                     (lambda () (values 20 22))
+                     (lambda (left right) (+ left right)))"))
+              42)
+  (test-equal "call/cc"
+              (lambda ()
+                (evaluated
+                  "(+ 2 (call/cc (lambda (escape) (escape 40))))"))
+              42)
+  (test-identity "recoverable unbound error"
+                 (lambda () (eval-error? (evaluated "missing"))) #t)
+  (test-equal "state survives error" (lambda () (evaluated "answer")) 42)
+  (finish-tests "evaluator-core"))

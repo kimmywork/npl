@@ -310,6 +310,7 @@ NplVal npl_display_port(NplVal value, NplVal port);
 NplVal npl_write_port(NplVal value, NplVal port);
 NplVal npl_newline_port(NplVal port);
 NplVal npl_read_datum(NplVal port);
+NplVal npl_read_result(NplVal port);
 
 
 /* Initialize the runtime (call once at startup) */
@@ -426,6 +427,7 @@ NplVal npl_string_ref(NplVal s, NplVal i);   /* returns fixnum byte value */
 int npl_string_equal(NplVal a, NplVal b);    /* raw 0/1 */
 NplVal npl_number_to_string(NplVal v);
 NplVal npl_symbol_to_string(NplVal s);
+NplVal npl_symbol_predicate(NplVal s);
 /* NOTE: no string->symbol in stage0 — v1 does not maintain a global
  * symbol intern table spanning static quotes and runtime boxes. */
 NplVal npl_substring(NplVal s, NplVal i, NplVal j); /* bytes [i,j) as new box */
