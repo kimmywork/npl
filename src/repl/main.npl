@@ -1,12 +1,5 @@
 ; Persistent interaction loop over the shared NPL evaluator.
 
-(import (scheme base)
-        (scheme read)
-        (scheme write)
-        (scheme process-context)
-        (npl evaluator)
-        (npl repl-io))
-
 (define (repl-exit-form? expression)
   (if (pair? expression)
       (if (if (symbol? (car expression))
@@ -70,5 +63,6 @@
             (exit 2)))))
 
 (define (main)
-  (exit (repl-loop (make-eval-environment)
+  (set-eval-standard-root! REPL-STDLIB)
+  (exit (repl-loop (interaction-environment)
                    (repl-prompt? (command-line)))))

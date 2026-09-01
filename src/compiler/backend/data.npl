@@ -198,15 +198,3 @@
 
 (define (build-static-pair d)
   (label-ref-op (ensure-static-pair d)))
-
-(define (pair-shape? x) (pair? x))
-
-(define (sym-atom? x)
-  (if (pair-shape? x)
-      (if (number? (car x)) (= (car x) 100) #f)
-      #f))
-
-(define (str-atom? x)
-  (if (pair-shape? x)
-      (if (number? (car x)) (= (car x) 101) #f)
-      #f))

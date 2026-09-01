@@ -1,0 +1,9 @@
+(import (scheme base)
+        (scheme write))
+
+(include "tests/differential-fixture.scm")
+
+(define (main)
+  (write (differential-results))
+  (newline)
+  0)

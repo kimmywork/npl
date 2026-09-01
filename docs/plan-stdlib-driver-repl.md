@@ -140,7 +140,7 @@ Verification:
 
 ### Step 8.1: Persistent REPL Core
 
-Status: in progress. The shared evaluator, persistent lexical state, core procedures/control, NPL interaction loop, prompts/EOF, value printing, and recoverable evaluator/reader errors are implemented. Hygienic macros, full import behavior, and remaining exception/parameter/promise semantics are still required for completion.
+Status: in progress. The NPL interaction loop and persistent core evaluator now consume the existing compiler frontend through private `(npl frontend)`: compiler reader, hygienic `syntax-rules`, derived forms, library/import resolution, and core lowering are shared rather than reimplemented. Persistent definitions, mutation, closures, recursion, macros, `only`/`rename` imports, multiple values, `call/cc`, prompts/EOF, value printing, and recoverable evaluator/reader errors are implemented. Exception, parameter, promise, `dynamic-wind`, continuation-aware dynamic state, and broader interactive library coverage are still required for completion.
 
 Result: a native `npl-repl` process reads, evaluates, and prints multiple forms while preserving definitions between inputs.
 
@@ -149,14 +149,15 @@ Implementation choice: use a persistent interpreter/evaluator, not repeated whol
 Actions:
 
 - Extract or reuse reader functionality behind a runtime-facing API that reads one datum at a time from a port.
-- Implement an evaluator with persistent value environment, macro environment, closures, mutation, derived forms, multiple values, exceptions, parameters, promises, and library imports in the supported subset.
+- Reuse the compiler's reader, hygienic macro expander, import resolver, derived-form expansion, and core lowering through a persistent frontend session; the evaluator interprets the resulting common core AST.
+- Keep the evaluator backend responsible only for persistent runtime environments and core AST execution, without parallel macro/import semantics.
 - Add prompts, EOF handling, `(exit)`/process termination, printed results, error recovery to the next input, and standard streams.
 - Define the initial interaction environment through `(scheme repl)` and explicit library imports.
 - Keep compiler-only QBE lowering out of the first REPL implementation. A later optimizing evaluator or JIT is not a prerequisite.
 
 Verification:
 
-- Golden transcript tests cover literals, arithmetic, definitions, mutation, closures, recursive definitions, macros, imports, multiple values, exceptions, parameters, promises, and EOF.
+- Golden transcript tests cover literals, arithmetic, definitions, mutation, closures, recursive definitions, shared macros/imports, multiple values, recoverable errors, and EOF; exceptions, parameters, and promises remain pending.
 - A separate transcript proves state persists across ten or more inputs and that an error does not destroy prior definitions.
 - Redirected stdin tests prove the REPL is deterministic without a TTY.
 - Test output formatting, prompt behavior, non-zero exits, and no leaked open ports.

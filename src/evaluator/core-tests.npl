@@ -53,6 +53,36 @@
                 (evaluated
                   "(+ 2 (call/cc (lambda (escape) (escape 40))))"))
               42)
+  (test-identity "define-syntax result unspecified"
+                 (lambda ()
+                   (eval-unspecified?
+                     (evaluated
+                       "(define-syntax add-one
+                          (syntax-rules ()
+                            ((_ value) (+ value 1))))"))) #t)
+  (test-equal "persistent syntax-rules"
+              (lambda () (evaluated "(add-one 41)")) 42)
+  (test-equal "hygienic introduced binding"
+              (lambda ()
+                (evaluated "(define temporary 100)")
+                (evaluated
+                  "(define-syntax with-temporary
+                     (syntax-rules ()
+                       ((_ value)
+                        ((lambda (temporary) (+ temporary 1)) value))))")
+                (evaluated
+                  "(+ (with-temporary 40) (- temporary 99))"))
+              42)
+  (test-equal "shared derived syntax"
+              (lambda () (evaluated "(and #t (or #f 42))")) 42)
+  (test-identity "import result unspecified"
+                 (lambda ()
+                   (eval-unspecified?
+                     (evaluated
+                       "(import
+                          (rename (only (scheme base) +) (+ plus)))"))) #t)
+  (test-equal "persistent imported alias"
+              (lambda () (evaluated "(plus 20 22)")) 42)
   (test-identity "recoverable unbound error"
                  (lambda () (eval-error? (evaluated "missing"))) #t)
   (test-equal "state survives error" (lambda () (evaluated "answer")) 42)

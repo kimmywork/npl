@@ -459,16 +459,19 @@ delete-file dynamic-wind exit
 eof-object eof-object? eq? eqv? flush-output-port get-environment-variable
 get-environment-variables get-output-bytevector
 get-output-string
-input-port-open? input-port? integer->char list->vector make-temporary-directory
+input-port-open? input-port? int->string integer->char list->vector
+make-temporary-directory
 newline not null?
-number->string number? npl_make_parameter npl_parameter_converter
+number->string number? npl_lex_class_w npl_lex_number npl_lex_scan_sym_end
+npl_make_parameter npl_parameter_converter
 npl_parameters_enter npl_parameters_leave npl_promise_op program-arguments
 run-process
 open-binary-input-file open-binary-output-file
 open-input-bytevector open-input-file open-input-string
 open-output-bytevector open-output-file open-output-string file-exists?
 output-port-open? output-port? pair? peek-char peek-u8 port? raise
-raise-continuable read read-result read-bytevector read-bytevector! read-char
+raise-continuable read read-file read-result read-bytevector read-bytevector!
+read-char
 read-u8
 set-car! set-cdr! string-append string-length string-ref string=? symbol?
 substring

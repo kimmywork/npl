@@ -36,11 +36,20 @@
                     (string-append who " needs one value")))))
           (continuation value))))
 
+(define (eval-core-tagged? value tag)
+  (if (pair? value)
+      (if (number? (car value)) (= (car value) tag) #f)
+      #f))
+
+(define (eval-core-symbol? value) (eval-core-tagged? value 100))
+
 (define (eval-name value)
-  (if (symbol? value) (symbol->string value) ""))
+  (if (eval-core-symbol? value)
+      (cdr value)
+      (if (symbol? value) (symbol->string value) "")))
 
 (define (eval-named? value name)
-  (if (symbol? value) (string=? (symbol->string value) name) #f))
+  (string=? (eval-name value) name))
 
 (define (eval-proper-list? value)
   (if (null? value)
@@ -100,9 +109,9 @@
       (eval-error (string-append who ": improper argument list"))))
 
 (define (eval-bind-formals formals arguments frame)
-  (if (symbol? formals)
+  (if (eval-core-symbol? formals)
       (begin
-        (eval-define! (cons frame '()) (symbol->string formals) arguments)
+        (eval-define! (cons frame '()) (eval-name formals) arguments)
         #f)
       (if (null? formals)
           (if (null? arguments)
@@ -112,11 +121,11 @@
               (eval-error "lambda: malformed formals")
               (if (null? arguments)
                   (eval-error "procedure: too few arguments")
-                  (if (not (symbol? (car formals)))
+                  (if (not (eval-core-symbol? (car formals)))
                       (eval-error "lambda: formal is not an identifier")
                       (begin
                         (eval-define! (cons frame '())
-                                      (symbol->string (car formals))
+                                      (eval-name (car formals))
                                       (car arguments))
                         (eval-bind-formals
                           (cdr formals) (cdr arguments) frame))))))))
@@ -329,56 +338,61 @@
       (continuation (eval-error "if: malformed form"))))
 
 (define (eval-lambda form environment continuation)
-  (if (if (pair? (cdr form)) (pair? (cdr (cdr form))) #f)
-      (continuation
-        (eval-closure (car (cdr form)) (cdr (cdr form)) environment))
-      (continuation (eval-error "lambda: malformed form"))))
+  (continuation
+    (eval-closure (car (cdr form))
+                  (car (cdr (cdr form)))
+                  environment)))
 
-(define (eval-define form environment continuation)
-  (if (not (pair? (cdr form)))
-      (continuation (eval-error "define: malformed form"))
-      (let ((target (car (cdr form))))
-        (if (symbol? target)
-            (if (if (pair? (cdr (cdr form)))
-                    (null? (cdr (cdr (cdr form)))) #f)
-                (eval-expression
-                  (car (cdr (cdr form))) environment
-                  (lambda (value)
-                    (eval-single
-                      value "define"
-                      (lambda (single)
-                        (if (eval-error? single)
-                            (continuation single)
-                            (continuation
-                              (eval-define! environment
-                                            (symbol->string target)
-                                            single)))))))
-                (continuation (eval-error "define: needs one expression")))
-            (if (if (pair? target) (symbol? (car target)) #f)
+(define (eval-define-variable form environment continuation)
+  (let ((target (car (cdr form)))
+        (initializer (car (cdr (cdr form)))))
+    (eval-expression
+      initializer environment
+      (lambda (value)
+        (eval-single
+          value "define"
+          (lambda (single)
+            (if (eval-error? single)
+                (continuation single)
                 (continuation
-                  (eval-define! environment
-                    (symbol->string (car target))
-                    (eval-closure (cdr target) (cdr (cdr form)) environment)))
-                (continuation (eval-error "define: invalid target")))))))
+                  (eval-define! environment (eval-name target) single)))))))))
+
+(define (eval-define-function form environment continuation)
+  (let ((signature (car (cdr form)))
+        (body (car (cdr (cdr form)))))
+    (continuation
+      (eval-define! environment
+        (eval-name (car signature))
+        (eval-closure (cdr signature) body environment)))))
 
 (define (eval-set-form form environment continuation)
-  (if (if (pair? (cdr form))
-          (if (symbol? (car (cdr form)))
-              (if (pair? (cdr (cdr form)))
-                  (null? (cdr (cdr (cdr form)))) #f)
-              #f)
-          #f)
-      (eval-expression
-        (car (cdr (cdr form))) environment
-        (lambda (value)
-          (eval-single
-            value "set!"
-            (lambda (single)
-              (if (eval-error? single)
-                  (continuation single)
-                  (continuation
-                    (eval-set! environment (car (cdr form)) single)))))))
-      (continuation (eval-error "set!: malformed form"))))
+  (eval-expression
+    (car (cdr (cdr form))) environment
+    (lambda (value)
+      (eval-single
+        value "set!"
+        (lambda (single)
+          (if (eval-error? single)
+              (continuation single)
+              (continuation
+                (eval-set! environment (car (cdr form)) single))))))))
+
+(define (eval-application expression environment continuation)
+  (eval-expression
+    (car expression) environment
+    (lambda (procedure)
+      (eval-single
+        procedure "application"
+        (lambda (single)
+          (if (eval-error? single)
+              (continuation single)
+              (eval-arguments
+                (cdr expression) environment
+                (lambda (arguments)
+                  (if (eval-error? arguments)
+                      (continuation arguments)
+                      (eval-apply single arguments
+                                  environment continuation))))))))))
 
 (define (eval-and expressions environment continuation)
   (if (null? expressions)
@@ -409,49 +423,101 @@
                       (eval-disjunction (cdr expressions) environment continuation)
                       (continuation single)))))))))
 
+(define (eval-binding-arguments bindings environment continuation)
+  (if (null? bindings)
+      (continuation '())
+      (eval-expression
+        (cdr (car bindings)) environment
+        (lambda (value)
+          (eval-single
+            value "let"
+            (lambda (single)
+              (if (eval-error? single)
+                  (continuation single)
+                  (eval-binding-arguments
+                    (cdr bindings) environment
+                    (lambda (rest)
+                      (if (eval-error? rest)
+                          (continuation rest)
+                          (continuation (cons single rest))))))))))))
+
+(define (eval-binding-formals bindings)
+  (if (null? bindings)
+      '()
+      (cons (car (car bindings))
+            (eval-binding-formals (cdr bindings)))))
+
+(define (eval-let form environment continuation)
+  (let ((bindings (car (cdr form)))
+        (body (car (cdr (cdr form)))))
+    (eval-binding-arguments
+      bindings environment
+      (lambda (arguments)
+        (if (eval-error? arguments)
+            (continuation arguments)
+            (eval-apply
+              (eval-closure
+                (eval-binding-formals bindings) body environment)
+              arguments environment continuation))))))
+
+(define (eval-core-literal expression continuation)
+  (let ((tag (car expression)))
+    (cond
+      ((= tag 101) (continuation (cdr expression)))
+      ((= tag 102) (continuation (integer->char (cdr expression))))
+      ((= tag 103)
+       (continuation
+         (list->vector
+           (frontend-datum->runtime (car (cdr expression))))))
+      ((= tag 104)
+       (continuation
+         (frontend-bytevector-items->runtime
+           (car (cdr expression)))))
+      ((= tag 108) (continuation #t))
+      ((= tag 109) (continuation #f))
+      ((= tag 204)
+       (continuation
+         (frontend-datum->runtime (car (cdr expression)))))
+      (else (continuation (eval-error "unknown core literal"))))))
+
 (define (eval-expression expression environment continuation)
   (cond
-    ((symbol? expression) (continuation (eval-lookup environment expression)))
+    ((eval-core-symbol? expression)
+     (continuation (eval-lookup environment expression)))
     ((not (pair? expression)) (continuation expression))
+    ((eval-core-tagged? expression 101)
+     (eval-core-literal expression continuation))
+    ((eval-core-tagged? expression 102)
+     (eval-core-literal expression continuation))
+    ((eval-core-tagged? expression 103)
+     (eval-core-literal expression continuation))
+    ((eval-core-tagged? expression 104)
+     (eval-core-literal expression continuation))
+    ((eval-core-tagged? expression 108)
+     (eval-core-literal expression continuation))
+    ((eval-core-tagged? expression 109)
+     (eval-core-literal expression continuation))
+    ((eval-core-tagged? expression 204)
+     (eval-core-literal expression continuation))
+    ((eval-core-tagged? expression 200)
+     (eval-define-variable expression environment continuation))
+    ((eval-core-tagged? expression 211)
+     (eval-define-function expression environment continuation))
+    ((eval-core-tagged? expression 212)
+     (eval-lambda expression environment continuation))
+    ((eval-core-tagged? expression 213)
+     (eval-if expression environment continuation))
+    ((eval-core-tagged? expression 214)
+     (eval-let expression environment continuation))
+    ((eval-core-tagged? expression 216)
+     (eval-sequence (cdr expression) environment continuation))
+    ((eval-core-tagged? expression 217)
+     (eval-set-form expression environment continuation))
+    ((number? (car expression))
+     (continuation (eval-error "unsupported core expression")))
     ((not (eval-proper-list? expression))
      (continuation (eval-error "malformed application")))
-    ((eval-named? (car expression) "quote")
-     (if (if (pair? (cdr expression))
-             (null? (cdr (cdr expression))) #f)
-         (continuation (car (cdr expression)))
-         (continuation (eval-error "quote: malformed form"))))
-    ((eval-named? (car expression) "if")
-     (eval-if expression environment continuation))
-    ((eval-named? (car expression) "begin")
-     (eval-sequence (cdr expression) environment continuation))
-    ((eval-named? (car expression) "lambda")
-     (eval-lambda expression environment continuation))
-    ((eval-named? (car expression) "define")
-     (eval-define expression environment continuation))
-    ((eval-named? (car expression) "set!")
-     (eval-set-form expression environment continuation))
-    ((eval-named? (car expression) "and")
-     (eval-and (cdr expression) environment continuation))
-    ((eval-named? (car expression) "or")
-     (eval-disjunction (cdr expression) environment continuation))
-    ((eval-named? (car expression) "import")
-     (continuation EVAL-UNSPECIFIED))
-    (else
-     (eval-expression
-       (car expression) environment
-       (lambda (procedure)
-         (eval-single
-           procedure "application"
-           (lambda (single)
-             (if (eval-error? single)
-                 (continuation single)
-                 (eval-arguments
-                   (cdr expression) environment
-                   (lambda (arguments)
-                     (if (eval-error? arguments)
-                         (continuation arguments)
-                         (eval-apply single arguments
-                                     environment continuation))))))))))))
+    (else (eval-application expression environment continuation))))
 
 (define EVAL-PRIMITIVE-NAMES
   (list "+" "-" "*" "=" "<" "<=" ">" ">="
@@ -468,10 +534,19 @@
         (eval-define! environment (car names) (eval-primitive (car names)))
         (eval-install-primitives environment (cdr names)))))
 
+(define (set-eval-standard-root! root)
+  (frontend-set-standard-root! root))
+
 (define (make-eval-environment)
   (let ((environment (eval-environment (eval-frame) '())))
     (eval-install-primitives environment EVAL-PRIMITIVE-NAMES)
+    (eval-define! environment "%frontend-session" (make-frontend-session))
     environment))
 
 (define (eval-in-environment expression environment)
-  (eval-expression expression environment (lambda (value) value)))
+  (let ((frontend-session
+          (car (cdr (eval-find-binding "%frontend-session" environment)))))
+    (let ((core (frontend-expand-datum frontend-session expression)))
+      (if (frontend-error? core)
+          (eval-error (frontend-error-message core))
+          (eval-sequence core environment (lambda (value) value))))))

@@ -1,11 +1,22 @@
 ; Shared compiler state, list helpers, and QBE name sanitization.
 
-(define (fatal msg)
-  (begin (display "nplc1: ") (display msg) (newline) (exit 21)))
-
 (define (cell v) (cons v ()))
 (define (cell-get c) (car c))
 (define (cell-set! c v) (set-car! c v))
+
+(define FRONTEND-ERROR-HANDLER (cell ()))
+
+(define (with-frontend-error-handler handler thunk)
+  (let ((previous (cell-get FRONTEND-ERROR-HANDLER)))
+    (cell-set! FRONTEND-ERROR-HANDLER handler)
+    (let ((result (thunk)))
+      (cell-set! FRONTEND-ERROR-HANDLER previous)
+      result)))
+
+(define (fatal msg)
+  (if (null? (cell-get FRONTEND-ERROR-HANDLER))
+      (begin (display "nplc1: ") (display msg) (newline) (exit 21))
+      ((cell-get FRONTEND-ERROR-HANDLER) msg)))
 
 (define (and2 a b) (if a b #f))
 (define (or2 a b) (if a #t b))
@@ -16,6 +27,19 @@
   (if (null? lst) acc (rev-into (cdr lst) (cons (car lst) acc))))
 
 (define DATUM-SYMBOL-TAG '(_datum_symbol_tag_))
+
+(define (pair-shape? x) (pair? x))
+
+(define (sym-atom? x)
+  (if (pair-shape? x)
+      (if (number? (car x)) (= (car x) 100) #f)
+      #f))
+
+(define (str-atom? x)
+  (if (pair-shape? x)
+      (if (number? (car x)) (= (car x) 101) #f)
+      #f))
+
 (define DATUM-STRING-TAG '(_datum_string_tag_))
 (define DATUM-CHAR-TAG '(_datum_char_tag_))
 (define DATUM-VECTOR-TAG '(_datum_vector_tag_))

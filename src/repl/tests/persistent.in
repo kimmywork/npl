@@ -12,4 +12,8 @@ answer
 answer
 (call-with-values (lambda () (values 20 22)) +)
 (+ 2 (call/cc (lambda (escape) (escape 40))))
+(define-syntax add-one (syntax-rules () ((_ value) (+ value 1))))
+(add-one answer)
+(import (rename (only (scheme base) +) (+ plus)))
+(plus 20 22)
 (exit)

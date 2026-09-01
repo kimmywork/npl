@@ -82,9 +82,9 @@ Status: complete.
 
 Status: persistent core in progress.
 
-Implemented the shared evaluator and interaction loop in NPL. `(npl evaluator)` provides persistent lexical environments, definitions, mutation, closures, recursion, core conditionals/sequencing, primitive procedures, multiple values, and `call/cc`. `src/repl/main.npl` provides prompts, EOF/`(exit)` handling, result printing, and recovery from both evaluator and malformed-reader errors. `build/bin/npl-repl` is an NPL compiler output; C only supplies the existing datum reader plus a structured recoverable `read-result` boundary.
+Implemented the shared evaluator and interaction loop in NPL. `(npl frontend)` packages the existing compiler reader, hygienic macro expander, derived-form expansion, library/import resolver, and core lowering as a persistent interaction session. `(npl evaluator)` executes that shared core AST with persistent lexical environments, definitions, mutation, closures, recursion, core conditionals/sequencing, primitive procedures, multiple values, and `call/cc`; macro and import semantics are not reimplemented in the evaluator. `src/repl/main.npl` provides prompts, EOF/`(exit)` handling, result printing, and recovery from both evaluator and malformed-reader errors. `build/bin/npl-repl` is an NPL compiler output; C only supplies the existing datum reader plus a structured recoverable `read-result` boundary.
 
-Still required before this step is complete: persistent hygienic macro definitions and expansion, meaningful import-set behavior beyond the initial built-in environment, and the remaining exception/parameter/promise control semantics on the shared evaluator. Full public `(scheme eval)` remains deferred.
+Persistent top-level `syntax-rules`, hygiene, derived syntax, and shared `only`/`rename` import resolution are implemented and covered by evaluator/native differential fixtures. Still required before this step is complete: exception, parameter, promise, `dynamic-wind`, and continuation-aware dynamic-state semantics, plus broader interactive library coverage. Full public `(scheme eval)` remains deferred.
 
 Detailed increments, rewrite policy, and acceptance evidence: [`docs/plan-stdlib-driver-repl.md`](docs/plan-stdlib-driver-repl.md).
 

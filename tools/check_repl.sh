@@ -9,10 +9,27 @@ trap 'rm -rf "$WORK"' EXIT
 "$ROOT/build/bin/nplc" "$ROOT/src/evaluator/core-tests.npl" \
     -o "$WORK/evaluator-core"
 "$WORK/evaluator-core" > "$WORK/evaluator.out"
-grep -Fx 'PASS evaluator-core 11' "$WORK/evaluator.out" >/dev/null
+grep -Fx 'PASS evaluator-core 17' "$WORK/evaluator.out" >/dev/null
 
-"$ROOT/build/bin/npl-repl" --no-prompt \
-    < "$ROOT/src/repl/tests/persistent.in" \
+"$ROOT/build/bin/nplc" "$ROOT/src/repl/differential-native.npl" \
+    -o "$WORK/differential-native"
+"$ROOT/build/bin/nplc" "$ROOT/src/repl/differential-evaluator.npl" \
+    -o "$WORK/differential-evaluator"
+"$WORK/differential-native" \
+    > "$WORK/differential-native.out" \
+    2> "$WORK/differential-native.err"
+"$WORK/differential-evaluator" \
+    "$ROOT/src/repl/tests/differential-fixture.scm" \
+    > "$WORK/differential-evaluator.out" \
+    2> "$WORK/differential-evaluator.err"
+cmp "$WORK/differential-native.out" "$WORK/differential-evaluator.out"
+[ ! -s "$WORK/differential-native.err" ]
+[ ! -s "$WORK/differential-evaluator.err" ]
+
+(
+    cd "$WORK"
+    "$ROOT/build/bin/npl-repl" --no-prompt
+) < "$ROOT/src/repl/tests/persistent.in" \
     > "$WORK/persistent.out" 2> "$WORK/persistent.err"
 cmp "$ROOT/src/repl/tests/persistent.out" "$WORK/persistent.out"
 cmp "$ROOT/src/repl/tests/persistent.err" "$WORK/persistent.err"

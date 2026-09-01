@@ -1,0 +1,12 @@
+(define-library (scheme repl)
+  (export interaction-environment)
+  (import (only (scheme base) cons car set-car!)
+          (npl evaluator))
+  (begin
+    (define interaction-environment-value (cons #f '()))
+    (define (interaction-environment)
+      (if (car interaction-environment-value)
+          (car interaction-environment-value)
+          (let ((environment (make-eval-environment)))
+            (set-car! interaction-environment-value environment)
+            environment)))))
