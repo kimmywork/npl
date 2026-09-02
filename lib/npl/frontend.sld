@@ -1,6 +1,9 @@
 (define-library (npl frontend)
   (export make-frontend-session
           frontend-expand-datum
+          frontend-register-runtime-library!
+          frontend-reset-interaction-bindings!
+          frontend-require-bound!
           frontend-error?
           frontend-error-message
           frontend-set-standard-root!
@@ -44,6 +47,48 @@
               (cell-set! FRONTEND-ERROR-HANDLER previous)
               result)))))
 
+    (define (frontend-capture-state! session)
+      (vector-set! session 3 (cell-get DATUM-LABELS))
+      (vector-set! session 4 (cell-get ACTIVE-DATUM-LABELS))
+      (vector-set! session 5 (cell-get QUASIQUOTE-LEVEL))
+      (vector-set! session 6 (cell-get SYNTAX-MARKS))
+      (vector-set! session 7 (cell-get SYNTAX-NEXT-MARK))
+      (vector-set! session 8 (cell-get CURRENT-PATTERN-VARIABLES))
+      (vector-set! session 9 (cell-get CURRENT-REPEAT-DRIVER-DEPTH))
+      (vector-set! session 10 (cell-get EXPAND-NEXT-VALUE))
+      (vector-set! session 11 (cell-get EXPAND-REQUIRE-BOUND))
+      (vector-set! session 12 (cell-get LIBRARY-ROOT))
+      (vector-set! session 13 (cell-get LIBRARY-STANDARD-INDEX))
+      (vector-set! session 14 (cell-get LIBRARY-REGISTRY))
+      (vector-set! session 15 (cell-get LIBRARY-OUTPUT))
+      (vector-set! session 16 (cell-get LIBRARY-PRIMITIVE-MACROS))
+      (vector-set! session 17 (cell-get LIBRARY-NEXT-ID))
+      session)
+
+    (define (frontend-activate-state! session)
+      (cell-set! DATUM-LABELS (vector-ref session 3))
+      (cell-set! ACTIVE-DATUM-LABELS (vector-ref session 4))
+      (cell-set! QUASIQUOTE-LEVEL (vector-ref session 5))
+      (cell-set! SYNTAX-MARKS (vector-ref session 6))
+      (cell-set! SYNTAX-NEXT-MARK (vector-ref session 7))
+      (cell-set! CURRENT-PATTERN-VARIABLES (vector-ref session 8))
+      (cell-set! CURRENT-REPEAT-DRIVER-DEPTH (vector-ref session 9))
+      (cell-set! EXPAND-NEXT-VALUE (vector-ref session 10))
+      (cell-set! EXPAND-REQUIRE-BOUND (vector-ref session 11))
+      (cell-set! LIBRARY-ROOT (vector-ref session 12))
+      (cell-set! LIBRARY-STANDARD-INDEX (vector-ref session 13))
+      (cell-set! LIBRARY-REGISTRY (vector-ref session 14))
+      (cell-set! LIBRARY-OUTPUT (vector-ref session 15))
+      (cell-set! LIBRARY-PRIMITIVE-MACROS (vector-ref session 16))
+      (cell-set! LIBRARY-NEXT-ID (vector-ref session 17))
+      session)
+
+    (define (frontend-current-state)
+      (frontend-capture-state!
+        (vector FRONTEND-SESSION-TAG () ()
+                () () 0 () 0 () 1000000000 0 0
+                "" () () () () 0)))
+
     (define (frontend-set-standard-root! root)
       (library-set-standard-root! root))
 
@@ -55,18 +100,55 @@
       (cell-set! LIBRARY-NEXT-ID 0))
 
     (define (make-frontend-session)
-      (cell-set! EXPAND-REQUIRE-BOUND 0)
-      (cell-set! SYNTAX-MARKS ())
-      (cell-set! SYNTAX-NEXT-MARK 0)
-      (cell-set! EXPAND-NEXT-VALUE 0)
-      (frontend-reset-library-state)
-      (let ((derived
-              (expand-top-sequence
-                (parse-source-text DERIVED-SYNTAX-SOURCE) () () ())))
-        (if (not (null? (car derived)))
-            (fatal "derived syntax source emitted runtime forms"))
-        (cell-set! LIBRARY-PRIMITIVE-MACROS (cdr derived))
-        (vector FRONTEND-SESSION-TAG () (cdr derived))))
+      (let ((previous (frontend-current-state))
+            (session
+              (vector FRONTEND-SESSION-TAG () ()
+                      () () 0 () 0 () 1000000000 0 0
+                      "" () () () () 0)))
+        (cell-set! EXPAND-REQUIRE-BOUND 0)
+        (cell-set! SYNTAX-MARKS ())
+        (cell-set! SYNTAX-NEXT-MARK 0)
+        (cell-set! EXPAND-NEXT-VALUE 0)
+        (frontend-reset-library-state)
+        (let ((derived
+                (expand-top-sequence
+                  (parse-source-text DERIVED-SYNTAX-SOURCE) () () ())))
+          (if (not (null? (car derived)))
+              (fatal "derived syntax source emitted runtime forms"))
+          (cell-set! LIBRARY-PRIMITIVE-MACROS (cdr derived))
+          (vector-set! session 2 (cdr derived)))
+        (frontend-capture-state! session)
+        (frontend-activate-state! previous)
+        session))
+
+    (define (frontend-runtime-bindings exports)
+      (if (null? exports)
+          ()
+          (cons
+            (library-binding (car (car exports)) 1 (cdr (car exports)))
+            (frontend-runtime-bindings (cdr exports)))))
+
+    (define (frontend-register-runtime-library! session key exports)
+      (let ((previous (frontend-current-state)))
+        (frontend-activate-state! session)
+        (let ((entry (library-entry key () "")))
+          (cell-set! (library-entry-state entry) 2)
+          (cell-set! (library-entry-exports entry)
+                     (frontend-runtime-bindings exports))
+          (cell-set! LIBRARY-REGISTRY
+                     (cons entry (cell-get LIBRARY-REGISTRY))))
+        (frontend-capture-state! session)
+        (frontend-activate-state! previous)
+        session))
+
+    (define (frontend-require-bound! session)
+      (vector-set! session 11 2)
+      session)
+
+    (define (frontend-reset-interaction-bindings! session)
+      (vector-set! session 1 '())
+      (vector-set! session 2 '())
+      session)
 
     (define (frontend-session-value-environment session)
       (vector-ref session 1))
@@ -158,10 +240,16 @@
         (else (fatal "cannot convert frontend datum"))))
 
     (define (frontend-expand-datum session datum)
-      (with-frontend-errors
-        (lambda ()
-          (let ((forms
-                  (parse-source-text (frontend-datum-source datum))))
-            (if (not (= (raw-list-count forms 0) 1))
-                (fatal "interaction must contain one datum"))
-            (frontend-expand-form session (car forms))))))))
+      (let ((previous (frontend-current-state)))
+        (frontend-activate-state! session)
+        (let ((result
+                (with-frontend-errors
+                  (lambda ()
+                    (let ((forms
+                            (parse-source-text (frontend-datum-source datum))))
+                      (if (not (= (raw-list-count forms 0) 1))
+                          (fatal "interaction must contain one datum"))
+                      (frontend-expand-form session (car forms)))))))
+          (frontend-capture-state! session)
+          (frontend-activate-state! previous)
+          result)))))

@@ -1,0 +1,80 @@
+(import (scheme base)
+        (scheme eval)
+        (scheme write)
+        (scheme process-context))
+
+(include "framework.npl")
+
+(define base-environment (environment '(scheme base)))
+(define arithmetic-environment (environment '(only (scheme base) +)))
+
+(define (main)
+  (test-equal "eval expression"
+              (lambda () (eval '(+ 20 22) base-environment))
+              42)
+  (test-equal "eval imported subset"
+              (lambda ()
+                (eval '(+ 20 22) arithmetic-environment))
+              42)
+  (test-equal "eval imported syntax"
+              (lambda ()
+                (eval '(cond ((= 20 20) (+ 20 22)) (else 0))
+                      (environment '(only (scheme base) cond = +))))
+              42)
+  (test-equal "eval closure"
+              (lambda ()
+                ((eval '(lambda (value) (+ value 2)) base-environment) 40))
+              42)
+  (test-equal "eval library inside environment"
+              (lambda ()
+                (eval '(eval '(+ 20 22) (environment '(scheme base)))
+                      (environment '(scheme base) '(scheme eval))))
+              42)
+  (test-equal "macro imports are isolated"
+              (lambda ()
+                (guard (condition (else 42))
+                  (eval '(cond (else 0)) arithmetic-environment)
+                  0))
+              42)
+  (test-identity "distinct environments"
+                 (lambda ()
+                   (not (eq? base-environment
+                             (environment '(scheme base)))))
+                 #t)
+  (test-identity "environment is opaque"
+                 (lambda () (vector? base-environment))
+                 #f)
+  (test-equal "immutable definition rejected"
+              (lambda ()
+                (guard (condition (else 42))
+                  (eval '(define forbidden 1) base-environment)
+                  0))
+              42)
+  (test-equal "immutable imported binding rejected"
+              (lambda ()
+                (guard (condition (else 42))
+                  (eval '(set! + 0) base-environment)
+                  0))
+              42)
+  (test-equal "unbound identifier rejected"
+              (lambda ()
+                (guard (condition (else 42))
+                  (eval 'missing base-environment)
+                  0))
+              42)
+  (test-equal "empty environment rejects primitives"
+              (lambda ()
+                (guard (condition (else 42))
+                  (eval '(+ 20 22) (environment))
+                  0))
+              42)
+  (test-equal "environment hides evaluator internals"
+              (lambda ()
+                (guard (condition (else 42))
+                  (eval '%frontend-session (environment))
+                  0))
+              42)
+  (test-equal "environment survives failure"
+              (lambda () (eval '(+ 20 22) base-environment))
+              42)
+  (finish-tests "eval"))

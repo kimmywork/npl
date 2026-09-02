@@ -2,6 +2,7 @@
 (scheme case-lambda)
 (scheme char)
 (scheme cxr)
+(scheme eval)
 (scheme file)
 (scheme lazy)
 (scheme process-context)

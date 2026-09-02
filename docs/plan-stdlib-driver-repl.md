@@ -140,7 +140,7 @@ Verification:
 
 ### Step 8.1: Persistent REPL Core
 
-Status: complete for the implemented language subset. The NPL interaction loop and persistent core evaluator consume the existing compiler frontend through private `(npl frontend)`: compiler reader, hygienic `syntax-rules`, derived forms, library/import resolution, and core lowering are shared rather than reimplemented. Persistent definitions, mutation, closures, recursion, macros, `only`/`rename`/`except`/`prefix` imports, multiple values, `call/cc`, `dynamic-wind`, exceptions, parameters, continuation-aware dynamic state, the shared promise contract, prompts/EOF, value printing, and recoverable evaluator/reader errors are implemented. Interactive library includes/exported macros/cache behavior and recoverable malformed macro/import/library/common primitive failures are also verified. Public `(scheme eval)` and the remaining R7RS-small conformance work remain deferred.
+Status: complete for the implemented language subset. The NPL interaction loop and persistent core evaluator consume the existing compiler frontend through private `(npl frontend)`: compiler reader, hygienic `syntax-rules`, derived forms, library/import resolution, and core lowering are shared rather than reimplemented. Persistent definitions, mutation, closures, recursion, macros, `only`/`rename`/`except`/`prefix` imports, multiple values, `call/cc`, `dynamic-wind`, exceptions, parameters, continuation-aware dynamic state, the shared promise contract, prompts/EOF, value printing, and recoverable evaluator/reader errors are implemented. Interactive library includes/exported macros/cache behavior and recoverable malformed macro/import/library/common primitive failures are also verified. Public `(scheme eval)` was subsequently implemented over the same engine; the remaining R7RS-small conformance work stays separate.
 
 Result: a native `npl-repl` process reads, evaluates, and prints multiple forms while preserving definitions between inputs.
 
@@ -164,24 +164,24 @@ Verification:
 - Test output formatting, prompt behavior, non-zero exits, and no leaked open ports.
 - Compare REPL evaluation with compiled execution for the same expression fixtures.
 
-Complete when the REPL behaves as a persistent Scheme interaction environment for the implemented language subset, with explicit limitations recorded for unsupported `eval`, numeric, Unicode, or implementation-specific features.
+Complete when the REPL behaves as a persistent Scheme interaction environment for the implemented language subset, with explicit limitations recorded for numeric, Unicode, or implementation-specific features.
 
-The REPL must use the shared evaluator engine intended for `(scheme eval)`. Full public `eval` conformance is deferred, but the evaluator itself is not: persistent environments, lexical evaluation, macro expansion, imports, control behavior, and recoverable errors are REPL-core requirements.
+The REPL uses the shared evaluator engine now exposed through `(scheme eval)`. Public environments use independent frontend, library, macro, and evaluator dynamic sessions; the REPL connects through private `(npl eval-runtime)` instead of self-interpreting the evaluator source.
 
 ### Step 9.1: Remaining R7RS-small Conformance
 
 This work starts only after the three-stage driver and persistent REPL core are usable. The driver and REPL become primary acceptance surfaces for the remaining standardization work.
 
-Result: complete the public `(scheme eval)` environment API and the remaining R7RS-small libraries in dependency order:
+Current status: `(scheme eval)` now exports `environment` and `eval` over the shared evaluator. Native and REPL tests cover imported expressions and macros, closure results with ordinary data arguments, independent environments, immutable bindings, hidden evaluator internals, import errors, and post-error recovery. Native procedure arguments, native multiple-value conversion, and exact syntax-binding visibility remain explicit eval gaps.
 
-- `(scheme complex)` and `(scheme inexact)` with the numeric operations supported by the numeric representation.
-- `(scheme load)` on top of ports and the source loader.
+Result: complete the remaining R7RS-small libraries in dependency order:
+
+- `(scheme load)` on top of ports and the shared source/frontend loader.
+- the numeric tower, including `(scheme complex)` and `(scheme inexact)`, with exact rational, bignum, complex, and inexact behavior;
 - remaining `(scheme process-context)` and `(scheme time)` behavior;
-- full `(scheme eval)` environment construction and conformance over the shared evaluator engine;
+- the remaining `(scheme eval)` crossing and syntax-visibility gaps;
 - `(scheme repl)` interaction-environment exports;
 - `(scheme r5rs)` as a compatibility export layer only where semantics are actually implemented.
-
-The numeric tower is a separate increment when exact rationals, complex values, and bignum promotion are ready. A library is not marked complete merely because its name resolves.
 
 Verification:
 

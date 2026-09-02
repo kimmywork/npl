@@ -105,7 +105,11 @@
 (define (resolve-identifier identifier environment)
   (let ((binding (lookup-value-binding identifier environment)))
     (if (= (string-length binding) 0)
-        identifier
+        (if (= (cell-get EXPAND-REQUIRE-BOUND) 2)
+            (fatal
+              (string-append
+                "unbound identifier: " (datum-symbol-name identifier)))
+            identifier)
         (datum-symbol binding))))
 
 (define (head-value-bound? identifier environment)
@@ -294,7 +298,7 @@
     ((string=? name "syntax-rules")
      (fatal "syntax-rules is not valid in expression position"))
     (else
-     (if (= (cell-get EXPAND-REQUIRE-BOUND) 1)
+     (if (> (cell-get EXPAND-REQUIRE-BOUND) 0)
          (fatal (string-append "unbound identifier: " name))
          (expand-application form value-env macro-env)))))
 

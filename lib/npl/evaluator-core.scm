@@ -10,6 +10,8 @@
 (define EVAL-HANDLER-TAG 909)
 (define EVAL-PARAMETER-BINDING-TAG 910)
 (define EVAL-PROMISE-TAG 912)
+(define EVAL-ENVIRONMENT-TAG 913)
+(define EVAL-SESSION-TAG 914)
 (define EVAL-UNSPECIFIED (vector 906))
 
 (define EVAL-PROMISE-DONE 0)
@@ -20,6 +22,25 @@
 (define EVAL-CURRENT-WIND '())
 (define EVAL-CURRENT-HANDLER '())
 (define EVAL-CURRENT-PARAMETERS '())
+
+(define (eval-session)
+  (vector EVAL-SESSION-TAG '() '() '()))
+
+(define (eval-current-session)
+  (vector EVAL-SESSION-TAG EVAL-CURRENT-WIND
+          EVAL-CURRENT-HANDLER EVAL-CURRENT-PARAMETERS))
+
+(define (eval-capture-session! session)
+  (vector-set! session 1 EVAL-CURRENT-WIND)
+  (vector-set! session 2 EVAL-CURRENT-HANDLER)
+  (vector-set! session 3 EVAL-CURRENT-PARAMETERS)
+  session)
+
+(define (eval-activate-session! session)
+  (set! EVAL-CURRENT-WIND (vector-ref session 1))
+  (set! EVAL-CURRENT-HANDLER (vector-ref session 2))
+  (set! EVAL-CURRENT-PARAMETERS (vector-ref session 3))
+  session)
 
 (define (eval-tagged? value tag)
   (if (vector? value)
@@ -367,9 +388,33 @@
       #t
       (if (pair? value) (eval-proper-list? (cdr value)) #f)))
 
-; A frame is a pair whose car is a mutable association list.
+; Lexical environments carry their frame, parent, and mutability.
 (define (eval-frame) (cons '() '()))
-(define (eval-environment frame parent) (cons frame parent))
+(define (eval-environment frame parent mutable frontend-session evaluator-session)
+  (vector EVAL-ENVIRONMENT-TAG frame parent mutable
+          frontend-session evaluator-session))
+(define (eval-environment? value)
+  (eval-tagged? value EVAL-ENVIRONMENT-TAG))
+(define (eval-environment-frame environment) (vector-ref environment 1))
+(define (eval-environment-parent environment) (vector-ref environment 2))
+(define (eval-environment-mutable? environment) (vector-ref environment 3))
+(define (eval-environment-frontend-session environment)
+  (let ((session (vector-ref environment 4)))
+    (if session session
+        (eval-environment-frontend-session
+          (eval-environment-parent environment)))))
+(define (eval-environment-session environment)
+  (let ((session (vector-ref environment 5)))
+    (if session session
+        (eval-environment-session
+          (eval-environment-parent environment)))))
+(define (eval-environment-freeze! environment)
+  (if (null? environment)
+      #f
+      (begin
+        (vector-set! environment 3 #f)
+        (eval-environment-freeze!
+          (eval-environment-parent environment)))))
 
 (define (eval-frame-find name bindings)
   (if (null? bindings)
@@ -378,21 +423,32 @@
           (car bindings)
           (eval-frame-find name (cdr bindings)))))
 
-(define (eval-find-binding name environment)
+(define (eval-find-binding-owner name environment)
   (if (null? environment)
       #f
-      (let ((binding (eval-frame-find name (car (car environment)))))
-        (if binding binding
-            (eval-find-binding name (cdr environment))))))
+      (let ((binding
+              (eval-frame-find
+                name (car (eval-environment-frame environment)))))
+        (if binding environment
+            (eval-find-binding-owner
+              name (eval-environment-parent environment))))))
+
+(define (eval-find-binding name environment)
+  (let ((owner (eval-find-binding-owner name environment)))
+    (if owner
+        (eval-frame-find name (car (eval-environment-frame owner)))
+        #f)))
 
 (define (eval-define! environment name value)
-  (let ((frame (car environment)))
-    (let ((binding (eval-frame-find name (car frame))))
-      (if binding
-          (set-car! (cdr binding) value)
-          (set-car! frame
-                    (cons (cons name (cons value '())) (car frame))))))
-  EVAL-UNSPECIFIED)
+  (if (not (eval-environment-mutable? environment))
+      (eval-error "eval: immutable environment")
+      (let ((frame (eval-environment-frame environment)))
+        (let ((binding (eval-frame-find name (car frame))))
+          (if binding
+              (set-car! (cdr binding) value)
+              (set-car! frame
+                        (cons (cons name (cons value '())) (car frame)))))
+        EVAL-UNSPECIFIED)))
 
 (define (eval-lookup environment identifier)
   (let ((name (eval-name identifier)))
@@ -403,9 +459,14 @@
 
 (define (eval-set! environment identifier value)
   (let ((name (eval-name identifier)))
-    (let ((binding (eval-find-binding name environment)))
-      (if binding
-          (begin (set-car! (cdr binding) value) EVAL-UNSPECIFIED)
+    (let ((owner (eval-find-binding-owner name environment)))
+      (if owner
+          (if (eval-environment-mutable? owner)
+              (let ((binding (eval-frame-find
+                               name (car (eval-environment-frame owner)))))
+                (set-car! (cdr binding) value)
+                EVAL-UNSPECIFIED)
+              (eval-error "eval: immutable binding"))
           (eval-error (string-append "unbound identifier: " name))))))
 
 (define (eval-primitive name) (vector EVAL-PRIMITIVE-TAG name))
@@ -422,7 +483,8 @@
 (define (eval-bind-formals formals arguments frame)
   (if (eval-core-symbol? formals)
       (begin
-        (eval-define! (cons frame '()) (eval-name formals) arguments)
+        (eval-define! (eval-environment frame '() #t #f #f)
+                      (eval-name formals) arguments)
         #f)
       (if (null? formals)
           (if (null? arguments)
@@ -435,7 +497,7 @@
                   (if (not (eval-core-symbol? (car formals)))
                       (eval-error "lambda: formal is not an identifier")
                       (begin
-                        (eval-define! (cons frame '())
+                        (eval-define! (eval-environment frame '() #t #f #f)
                                       (eval-name (car formals))
                                       (car arguments))
                         (eval-bind-formals
@@ -503,8 +565,20 @@
       (eval-number-binary-result name left right)
       (eval-error (string-append name ": expected numbers"))))
 
+(define (eval-user-vector? value)
+  (if (not (vector? value))
+      #f
+      (if (= (vector-length value) 0)
+          #t
+          (let ((tag (vector-ref value 0)))
+            (if (number? tag)
+                (if (>= tag EVAL-PRIMITIVE-TAG)
+                    (> tag EVAL-SESSION-TAG)
+                    #t)
+                #t)))))
+
 (define (eval-vector-index? value index)
-  (if (vector? value)
+  (if (eval-user-vector? value)
       (if (number? index)
           (if (if (>= index 0) (< index (vector-length value)) #f)
               #t
@@ -591,6 +665,10 @@
     ((string=? name "number?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error) (continuation (number? (car arguments))))))
+    ((string=? name "vector?")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (eval-user-vector? (car arguments))))))
     ((string=? name "symbol?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error) (continuation (symbol? (car arguments))))))
@@ -617,7 +695,7 @@
     ((string=? name "vector-length")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
-           (if (vector? (car arguments))
+           (if (eval-user-vector? (car arguments))
                (continuation (vector-length (car arguments)))
                (continuation
                  (eval-error "vector-length: expected a vector"))))))
@@ -700,6 +778,23 @@
            (continuation (eval-parameter-leave (car arguments))))))
     ((string=? name "npl_promise_op")
      (eval-promise-op arguments continuation))
+    ((string=? name "%eval-make-environment")
+     (let ((error (eval-arity arguments 1 "environment")))
+       (if error (continuation error)
+           (if (eval-proper-list? (car arguments))
+               (continuation
+                 (make-eval-environment-from-imports (car arguments)))
+               (continuation
+                 (eval-error "environment: expected import sets"))))))
+    ((string=? name "%eval-evaluate")
+     (let ((error (eval-arity arguments 2 "eval")))
+       (if error (continuation error)
+           (if (eval-environment? (car (cdr arguments)))
+               (continuation
+                 (eval-in-environment
+                   (car arguments) (car (cdr arguments))))
+               (continuation
+                 (eval-error "eval: expected an environment"))))))
     ((string=? name "with-exception-handler")
      (if (= (length arguments) 2)
          (if (if (eval-callable? (car arguments))
@@ -752,7 +847,8 @@
              (continuation error)
              (eval-sequence
                (vector-ref procedure 2)
-               (eval-environment frame (vector-ref procedure 3))
+               (eval-environment frame (vector-ref procedure 3)
+                                 #t #f #f)
                continuation)))))
     ((eval-tagged? procedure EVAL-CONTINUATION-TAG)
      (let ((error (eval-arity arguments 1 "continuation")))
@@ -952,7 +1048,7 @@
   (let ((bindings (car (cdr form)))
         (body (car (cdr (cdr form))))
         (recursive-environment
-          (eval-environment (eval-frame) environment)))
+          (eval-environment (eval-frame) environment #t #f #f)))
     (eval-predeclare-bindings bindings recursive-environment)
     (eval-letrec-initializers bindings recursive-environment
       (lambda (values)
@@ -1030,13 +1126,15 @@
 (define EVAL-PRIMITIVE-NAMES
   (list "+" "-" "*" "=" "<" "<=" ">" ">="
         "cons" "car" "cdr" "list" "vector" "list->vector"
-        "vector-length" "vector-ref" "vector-set!" "null?" "pair?"
+        "vector-length" "vector-ref" "vector-set!" "vector?"
+        "null?" "pair?"
         "eq?" "eqv?" "not" "number?" "symbol?" "symbol->string"
         "string=?" "apply" "values" "call-with-values"
         "call/cc" "call-with-current-continuation"
         "with-exception-handler" "raise" "raise-continuable"
         "dynamic-wind" "npl_make_parameter" "npl_parameter_converter"
         "npl_parameters_enter" "npl_parameters_leave" "npl_promise_op"
+        "%eval-make-environment" "%eval-evaluate"
         "display" "write" "newline"))
 
 (define (eval-install-primitives environment names)
@@ -1049,19 +1147,87 @@
 (define (set-eval-standard-root! root)
   (frontend-set-standard-root! root))
 
+(define EVAL-RUNTIME-LIBRARY-EXPORTS
+  (list
+    (cons "make-environment" "%eval-make-environment")
+    (cons "evaluate" "%eval-evaluate")))
+
 (define (make-eval-environment)
-  (set! EVAL-CURRENT-WIND '())
-  (set! EVAL-CURRENT-HANDLER '())
-  (set! EVAL-CURRENT-PARAMETERS '())
-  (let ((environment (eval-environment (eval-frame) '())))
-    (eval-install-primitives environment EVAL-PRIMITIVE-NAMES)
-    (eval-define! environment "%frontend-session" (make-frontend-session))
-    environment))
+  (let ((frontend-session (make-frontend-session)))
+    (frontend-register-runtime-library!
+      frontend-session "npl/eval-runtime"
+      EVAL-RUNTIME-LIBRARY-EXPORTS)
+    (let ((environment
+            (eval-environment (eval-frame) '() #t
+                              frontend-session (eval-session))))
+      (eval-install-primitives environment EVAL-PRIMITIVE-NAMES)
+      environment)))
+
+(define (eval-definition? expression)
+  (if (pair? expression)
+      (if (symbol? (car expression))
+          (let ((name (symbol->string (car expression))))
+            (if (string=? name "define") #t
+                (string=? name "define-syntax")))
+          #f)
+      #f))
 
 (define (eval-in-environment expression environment)
-  (let ((frontend-session
-          (car (cdr (eval-find-binding "%frontend-session" environment)))))
-    (let ((core (frontend-expand-datum frontend-session expression)))
-      (if (frontend-error? core)
-          (eval-error (frontend-error-message core))
-          (eval-sequence core environment (lambda (value) value))))))
+  (if (not (eval-environment? environment))
+      (eval-error "eval: expected an environment")
+      (if (if (not (eval-environment-mutable? environment))
+              (eval-definition? expression) #f)
+          (eval-error "eval: immutable environment")
+          (let ((session (eval-environment-session environment)))
+            (if (not session)
+                (eval-error "eval: invalid environment")
+                (let ((previous (eval-current-session)))
+                  (eval-activate-session! session)
+                  (let ((frontend-session
+                          (eval-environment-frontend-session environment)))
+                    (let ((core
+                            (frontend-expand-datum
+                              frontend-session expression)))
+                      (let ((result
+                              (if (frontend-error? core)
+                                  (eval-error (frontend-error-message core))
+                                  (eval-sequence
+                                    core environment (lambda (value) value)))))
+                        (eval-capture-session! session)
+                        (eval-activate-session! previous)
+                        result)))))))))
+
+(define (eval-apply-in-environment procedure arguments environment)
+  (if (if (eval-environment? environment) (eval-callable? procedure) #f)
+      (let ((session (eval-environment-session environment))
+            (previous (eval-current-session)))
+        (eval-activate-session! session)
+        (let ((result
+                (eval-apply procedure arguments
+                            environment (lambda (value) value))))
+          (eval-capture-session! session)
+          (eval-activate-session! previous)
+          result))
+      (eval-error "eval: expected a procedure and environment")))
+
+(define (make-eval-environment-from-imports import-sets)
+  (if (not (eval-proper-list? import-sets))
+      (eval-error "environment: expected import sets")
+      (let ((bootstrap (make-eval-environment)))
+        (let ((environment
+                (eval-environment
+                  (eval-frame) bootstrap #t
+                  (eval-environment-frontend-session bootstrap)
+                  (eval-environment-session bootstrap))))
+          (frontend-reset-interaction-bindings!
+            (eval-environment-frontend-session environment))
+          (let ((result
+                  (eval-in-environment
+                    (cons 'import import-sets) environment)))
+            (if (eval-error? result)
+                result
+                (begin
+                  (frontend-require-bound!
+                    (eval-environment-frontend-session environment))
+                  (eval-environment-freeze! environment)
+                  environment)))))))

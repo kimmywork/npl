@@ -68,9 +68,9 @@ Evidence: `src/compiler/tests/libraries.npl`, its `.sld`/include fixtures, and l
 
 ## 6. First-Wave Standard Libraries
 
-Status: in progress.
+Status: complete for the original driver/REPL dependency scope.
 
-Complete the practical R7RS dependency closure for native tooling and interactive evaluation: textual/string and binary/bytevector ports, explicit source-based libraries, base collections, `cxr`, `char`, `case-lambda`, file/process context, read/write, and promises. This wave is broad but is not claimed as full R7RS conformance; numeric tower completion, full public `eval`, `load`, and compatibility layers are deferred until a usable driver and REPL exist.
+The practical dependency closure is implemented: textual/string and binary/bytevector ports, explicit source-based libraries, base collections, `cxr`, `char`, `case-lambda`, file/process context, read/write, and promises. This wave is broad but is not claimed as full R7RS conformance. Public `(scheme eval)` has since been added in the remaining-conformance phase; `load`, number-tower, Unicode, time, and compatibility work remain.
 
 ## 7. Unified Compilation Driver
 
@@ -84,7 +84,9 @@ Status: practical REPL ready for the implemented language subset.
 
 Implemented the shared evaluator and interaction loop in NPL. `(npl frontend)` packages the existing compiler reader, hygienic macro expander, derived-form expansion, library/import resolver, and core lowering as a persistent interaction session. `(npl evaluator)` executes that shared core AST with persistent lexical environments, definitions, mutation, closures, recursion, core conditionals/sequencing, primitive procedures, multiple values, and `call/cc`; macro and import semantics are not reimplemented in the evaluator. `src/repl/main.npl` provides prompts, EOF/`(exit)` handling, result printing, and recovery from both evaluator and malformed-reader errors. `build/bin/npl-repl` is an NPL compiler output; C only supplies the existing datum reader plus a structured recoverable `read-result` boundary.
 
-Persistent top-level `syntax-rules`, hygiene, derived syntax, shared `only`/`rename` import resolution, `dynamic-wind`, continuable/non-continuable exception dispatch, parameters, continuation restoration across wind/handler/parameter state, and the shared promise contract are implemented against the existing native control contract. Interactive transcripts now cover `except`, `prefix`, combined modifiers, library includes/exported macros/cache reuse, external-CWD standard library use, malformed macro/import/library failures, and recoverable common primitive errors without corrupting the persistent session. Full public `(scheme eval)` remains deferred, along with the numeric, Unicode, and other explicit R7RS completion work.
+Persistent top-level `syntax-rules`, hygiene, derived syntax, shared `only`/`rename` import resolution, `dynamic-wind`, continuable/non-continuable exception dispatch, parameters, continuation restoration across wind/handler/parameter state, and the shared promise contract are implemented against the existing native control contract. Interactive transcripts cover `except`, `prefix`, combined modifiers, library includes/exported macros/cache reuse, external-CWD standard library use, malformed macro/import/library failures, and recoverable common primitive errors without corrupting the persistent session.
+
+Public `(scheme eval)` now reuses this engine through isolated frontend/evaluator sessions and a private runtime-library bridge, with native and REPL coverage for imports, macros, closures, immutability, hidden internals, and failure recovery. Native procedure-argument and multiple-value crossings, exact syntax visibility, `load`, numeric, Unicode, and other R7RS completion work remain explicit gaps.
 
 Detailed increments, rewrite policy, and acceptance evidence: [`docs/plan-stdlib-driver-repl.md`](docs/plan-stdlib-driver-repl.md).
 

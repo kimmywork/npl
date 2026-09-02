@@ -1,26 +1,25 @@
 # NPL Implementation Handoff
 
-Status: active handoff as of 2026-09-01 17:33 CST.
+Status: active handoff as of 2026-09-03 02:14 CST.
 
 ## Immediate Directive
 
-Continue R7RS-small product delivery from the clean worktree after `6e50632 feat(repl): cover interactive library recovery`. The practical REPL is ready for the implemented language subset. Do not restart the evaluator architecture, introduce a control IR, migrate `runtime/control.c` to NPL, or extract/refactor the evaluator before the user explicitly reopens that discussion.
+Continue R7RS-small product delivery from the public `(scheme eval)` increment. The evaluator was not made self-hosting; instead, a private `(npl eval-runtime)` bridge connects the public library to the existing engine in both native programs and the persistent REPL. Keep the extraction limited to the session/API boundary already required by public environments.
 
 The immediate order is:
 
-1. implement the public `(scheme eval)` environment API over the shared persistent frontend/evaluator engine;
-2. implement `(scheme load)` using ports and shared source/frontend loading;
-3. proceed through the remaining R7RS-small work without adding unrelated facilities.
+1. implement `(scheme load)` using ports and shared source/frontend loading;
+2. establish and execute the number-tower increment explicitly rather than extending evaluator internals;
+3. proceed through time, Unicode, and compatibility work without adding unrelated facilities.
 
 Follow root `AGENTS.md`: reuse before reinvention, NPL-first implementation, differential evidence for compiler/evaluator behavior, frozen permanent bootstrap, and proportional verification.
 
 ## Repository State
 
-- HEAD: `6e50632 feat(repl): cover interactive library recovery`.
 - Branch: `master`.
-- Canonical full compiler: `bootstrap/current.ssa`, 348,700 lines, SHA-256 `1df230fac643aabf7259b881371a07a40d6b1f43d2eb4ee715eaee2a0964beb5`.
+- Canonical full compiler: `bootstrap/current.ssa`, 348,879 lines, SHA-256 `ed6f3a59116ac86cff1dc24bbc07562470ab140b2dc5cb058e054cf66f93509e`.
 - `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` are unchanged and must remain frozen.
-- Dynamic control, promises, and practical REPL recovery coverage are committed; the worktree was clean before this handoff alignment update.
+- Dynamic control, promises, and practical REPL recovery coverage are committed; the public `(scheme eval)` increment is the current logical change.
 
 Latest verified commands:
 
@@ -28,20 +27,17 @@ Latest verified commands:
 ./tools/check_repl.sh
 persistent NPL REPL: PASS
 
+src/compiler/tests/eval.npl
+PASS eval 14
+
 ./tools/run_tests.sh --skip-current-fixed-point
 all suites: PASS
 
-git diff --check
-PASS (no output)
+./tools/update_current_ssa.sh
+current compiler fixed point: PASS
 ```
 
-The current native/evaluator differential output is:
-
-```text
-(42 42 42 42 42 42 42123 42123 42 42 4212 85 42 42)
-```
-
-No compiler or runtime source changed in these evaluator/library-only increments, so no new fixed-point relay was required.
+The compiler frontend changed only to distinguish normal library bound-call checking from the stricter atomic-identifier checking used by public eval environments. The accepted relay is byte-identical across gen1/gen2/gen3 at the line count and hash above.
 
 ## What Is Shared
 
@@ -59,7 +55,7 @@ src/compiler/frontend/source.npl
 src/compiler/frontend/library.npl
 ```
 
-This provides one persistent implementation of reader/datum handling, hygienic `syntax-rules`, derived forms, binding expansion, imports, library loading, and core AST lowering. Do not add evaluator-specific macro, import, library, binding, or surface-lowering implementations.
+This provides one implementation of reader/datum handling, hygienic `syntax-rules`, derived forms, binding expansion, imports, library loading, and core AST lowering. Frontend state is now captured in explicit sessions so multiple eval environments do not overwrite each other's value, macro, syntax-mark, or library registry state. Do not add evaluator-specific macro, import, library, binding, or surface-lowering implementations.
 
 Important boundary: `lib/npl/frontend.sld` does **not** include `src/compiler/frontend/control.npl`. The evaluator currently receives pre-CPS core AST from `lower-program`; it does not execute the compiler's `control-program` output.
 
@@ -75,7 +71,7 @@ This duplicated part of the semantic algorithm already represented by:
 
 The deviation happened because the work treated a shared control IR/CPS adaptation as excessive scope and chose a local evaluator implementation. That decision conflicted with the stronger reuse-first expectation and increased `lib/npl/evaluator-core.scm` to 924 lines.
 
-Do not repeat or conceal this deviation. Also do not stop current delivery to repair it now. The user explicitly decided to finish promises and R7RS work using the current evaluator approach, then discuss evaluator extraction separately.
+The evaluator still contains the previously accepted parallel control-state machinery. The public eval increment did not add another control implementation: it scoped existing wind, handler, and parameter globals into evaluator sessions and added a narrow engine API for imported environments and closure invocation. Do not stop product delivery for a broad control rewrite, but do preserve this boundary and avoid new semantic duplication.
 
 ## Completed Increments
 
@@ -94,9 +90,13 @@ Do not repeat or conceal this deviation. Also do not stop current delivery to re
 
 `6e50632 feat(repl): cover interactive library recovery` expanded focused evaluator coverage to 42 checks and added real persistent REPL transcripts for `except`, `prefix`, combined modifiers, library includes, exported macros, cache reuse, malformed `define-syntax`, unknown import names, library cycles, and session survival after each failure. It also converts common arithmetic, pair, symbol, and vector-index primitive misuse into `eval-error` values, so normal REPL use no longer exits through those underlying operations.
 
+The public `(scheme eval)` increment adds source libraries `(npl eval-runtime)` and `(scheme eval)`. Native code reuses `(npl evaluator)` through a thin NPL wrapper; the REPL registers the same private library name as a host bridge, so it does not recursively interpret the evaluator implementation. Public environments are immutable after import, have isolated frontend/library/macro and dynamic evaluator sessions, honor import modifiers, hide evaluator internals, and continue working after evaluation or import errors. `src/compiler/tests/eval.npl` and `src/repl/tests/eval.*` cover both paths.
+
 Known limitations that must remain visible:
 
-- evaluator dynamic state is library-global and therefore suitable for the current singleton REPL, not yet multiple independent public `(scheme eval)` environments;
+- native wrappers for evaluator closures accept ordinary data arguments, but cannot yet translate native procedure arguments into evaluator-callable values;
+- evaluator multiple-values objects are not yet converted back into native multiple values by `(npl eval-runtime)`;
+- core syntactic forms are still recognized intrinsically, so import sets do not yet control every syntax binding with full R7RS precision;
 - evaluator continuations currently enforce one argument rather than the already-supported native multiple-value continuation contract;
 - primitive type/range errors are not uniformly converted to recoverable evaluator errors; the practical REPL coverage currently guarantees arithmetic, comparison, pair, symbol, and vector-index cases;
 - the evaluator contains parallel control-state machinery that must be reconsidered later, but not during the next delivery increments.
@@ -119,14 +119,14 @@ The evaluator implementation follows `runtime/control.c` and `src/compiler/tests
 
 The practical REPL is ready for the implemented language subset. `build/bin/npl-repl` persists definitions and macros, uses the shared compiler frontend for all reader, expansion, import, library, and lowering behavior, and survives reader, frontend, and covered evaluator errors. `./tools/check_repl.sh` verifies the standard library from an external CWD through the injected absolute root, native/evaluator differential behavior, interactive library modifiers/includes/exported macros/cache behavior, frontend failure recovery, and common recoverable primitive failures.
 
-This is not full R7RS-small availability. Public `(scheme eval)`, `(scheme load)`, the full numeric tower, Unicode completion, time/process completion, and broader primitive-error normalization remain separate increments.
+This is not full R7RS-small availability. Public `(scheme eval)` now supports environment construction, imported expression/macro evaluation, ordinary closure results, isolated sessions, immutable bindings, and native/REPL error recovery. The crossing and syntax-visibility limitations above remain, while `(scheme load)`, the full numeric tower, Unicode completion, time/process completion, and broader primitive-error normalization are separate increments.
 
 ## Remaining R7RS-Small Flow
 
 After practical REPL readiness, advance the existing plan in dependency order. Keep each increment limited to required R7RS behavior and exercise it through both native driver and REPL paths.
 
-1. Implement the full public `(scheme eval)` environment API over the same persistent frontend/evaluator engine. Sessionize dynamic state only when this requirement makes multiple environments concrete; discuss evaluator extraction with the user before doing broader control refactoring.
-2. Implement `(scheme load)` using ports and shared source/frontend loading.
+1. Implement `(scheme load)` using ports and shared source/frontend loading.
+2. Resolve the remaining public eval crossing gaps without self-interpreting `(npl evaluator)`: native procedure arguments, native multiple-value conversion, and exact syntax-binding visibility.
 3. Complete the numeric tower in an explicit representation/runtime/compiler increment: bignum promotion, exact rationals, complex and inexact behavior as required by the accepted R7RS scope.
 4. Complete `(scheme time)` and remaining process-context behavior.
 5. Complete the accepted Unicode/character/string conformance beyond the current ASCII boundary.
@@ -141,12 +141,13 @@ Until the user explicitly changes direction:
 
 - do not introduce a new control IR or switch the evaluator to compiler CPS output;
 - do not migrate `runtime/control.c` semantics to NPL;
-- do not extract, split, or rewrite evaluator control code merely to reduce the 924-line file;
+- do not extract, split, or rewrite evaluator control code beyond a concrete API or correctness requirement;
 - do not add evaluator-specific reader, macro, import, binding, derived-form, library, or lowering logic;
+- do not make `(npl evaluator)` self-hosting or add `npl_lex_*` primitives for that purpose;
 - do not implement package management, version solving, dynamic loading, precompiled module caches, JIT, or performance optimization;
 - do not modify `bootstrap/compiler/` or `bootstrap/bootstrap.ssa`;
-- do not regenerate canonical SSA for evaluator/library-only changes;
-- do not discard or silently rewrite the current dirty increment.
+- do not regenerate canonical SSA unless compiler/runtime source changed and the exact tree passes a fixed-point relay;
+- do not discard or silently rewrite user worktree changes.
 
 ## Verification Discipline
 
@@ -176,9 +177,12 @@ PLAN.md
 docs/plan-stdlib-driver-repl.md
 .agents/workstate.md
 lib/npl/frontend.sld
+lib/npl/eval-runtime.sld
 lib/npl/evaluator.sld
 lib/npl/evaluator-core.scm
+lib/scheme/eval.sld
 lib/scheme/repl.sld
+src/compiler/frontend/expand.npl
 src/compiler/frontend/control.npl
 src/compiler/frontend/derived.npl
 runtime/control.c

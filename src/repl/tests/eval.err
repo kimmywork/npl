@@ -1,0 +1,6 @@
+error: unbound identifier: cond
+error: eval: immutable binding
+error: eval: immutable environment
+error: only import name not exported
+error: unbound identifier: %frontend-session
+error: unbound identifier: +
