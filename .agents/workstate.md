@@ -2,7 +2,7 @@
 
 ## Current
 
-Active implementation handoff: `docs/HANDOFF.md`. The public `(scheme eval)` core and a usable `(scheme load)` subset are implemented over the existing engine for native programs and the persistent REPL. A detailed full R7RS-small implementation, Guile differential-validation, and benchmark plan is written. The baseline implementation audit and binding surface snapshot are complete; the shared fixture runner is not yet built, and no implementation increment is active.
+Active implementation handoff: `docs/HANDOFF.md`. The public `(scheme eval)` core and a usable `(scheme load)` subset are implemented over the existing engine for native programs and the persistent REPL. A detailed full R7RS-small implementation, Guile differential-validation, and benchmark plan is written. The baseline implementation audit, binding surface snapshot, and minimal shared native/REPL/Guile smoke runner are complete; no new standard-library semantic increment is active.
 
 The permanent bootstrap language and compiler remain frozen. The evolving full compiler has completed Dynamic Core, Reader/Datum, hygienic macros and derived forms, explicit-control execution, multiple values, multi-shot continuations, `dynamic-wind`, exceptions, parameters, promises, and the minimal R7RS library loader.
 
@@ -31,8 +31,8 @@ Known `(scheme eval)` gaps remain explicit: the native wrapper cannot yet pass n
 
 ## Next
 
-1. Complete the minimal shared native/REPL/Guile fixture runner from the approved plan.
-2. Do not modify implementation files or begin a new standard-library increment before that runner and audit acceptance are complete.
-3. Afterward, execute only the approved numbered increments, with focused native, persistent REPL, Guile differential, and only-applicable benchmark evidence.
+1. Select and execute one approved semantic increment from the audited dependency graph; do not redo the completed B2 control/exception/multiple-values baseline.
+2. Use `tools/run_r7rs_fixture.sh` for the minimum native/REPL/Guile comparison required by that increment.
+3. Add benchmarks only when the relevant semantic family is complete or its performance-relevant implementation changes; run no unrelated validation.
 
 Use one fixed-point relay per exact compiler/runtime source tree, then run the remaining gate with `--skip-current-fixed-point`.

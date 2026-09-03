@@ -1,0 +1,7 @@
+name=r7rs-smoke
+native=native.npl
+repl=repl.in
+guile=guile.scm
+expected-out=expected.out
+expected-err=expected.err
+expected-status=0

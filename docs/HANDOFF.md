@@ -36,7 +36,7 @@ Until the user explicitly approves that plan:
 ## Current baseline
 
 - Branch: `master`.
-- The current standard-library implementation is partial and must not be described as full R7RS-small conformance.
+- The current standard-library implementation is partial and must not be described as full R7RS-small conformance. The implementation audit and per-export inventory are recorded in `docs/r7rs-implementation-audit.md` and `docs/r7rs-binding-inventory.md`.
 - `(scheme eval)` has a partial `environment`/`eval` implementation with known procedure-crossing, multiple-values, and syntax-visibility gaps.
 - `(scheme load)` has a usable single-argument sequential-loading subset; the optional `environment-specifier` form is incomplete.
 - Commit `880d74d` contains evaluator changes that must be audited before formal conformance work, especially exploratory primitives not proven necessary by the final path.
@@ -189,4 +189,13 @@ Wait for explicit user approval of:
 docs/plan-r7rs-conformance-guile.md
 ```
 
-The baseline audit A1/A2 and Guile version check are complete. The next action is A3: build the minimal shared native/REPL/Guile fixture runner. Do not implement a new standard-library feature before A3 is complete and the audit result is accepted. Do not schedule a new B2 implementation or repeat the completed control/exception/multiple-values work.
+The baseline audit A1/A2 and Guile version check are complete. A3 is now complete as the minimal shared runner:
+
+```text
+tools/run_r7rs_fixture.sh
+tests/r7rs/fixtures/smoke/
+```
+
+It runs one metadata-described behavior through NPL native, the persistent REPL, and Guile R7RS, compares stdout/stderr/status, and reports classifications. It is intentionally only a smoke harness; it does not implement standard-library behavior or benchmark tooling.
+
+The next implementation work may begin only as one approved semantic increment from the dependency graph. Do not schedule a new B2 implementation or repeat the completed control/exception/multiple-values work.

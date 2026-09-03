@@ -228,7 +228,9 @@ A1 binding inventory + A2 shared fixture runner
 
 ### A3. 建立统一 conformance harness
 
-**结果：** 三方可重复运行的验证工具和 fixture 目录。
+状态：**完成（最小 smoke harness）**。
+
+**结果：** 三方可重复运行的验证工具和 fixture 目录。当前实现为 `tools/run_r7rs_fixture.sh` 及 `tests/r7rs/fixtures/smoke/`；它使用 fixture metadata 驱动 NPL native、持久 REPL 和 Guile R7RS，比较 expected stdout/stderr/status，并报告各 surface 与三方 observable-result 分类。
 
 建议目录：
 
@@ -265,7 +267,7 @@ tests/r7rs/
 | 动态状态 | 必须 | 必须 | 必须 |
 | 性能样本 | 必须 | 必须 | 必须 |
 
-**完成条件：** 同一 fixture 的三方 runner 已能独立运行；差异报告能指出 fixture、输入、三方结果和分类。
+**完成条件：** 已满足最小要求：同一 smoke fixture 的三方 runner 能独立运行；差异报告指出 fixture、surface、比较字段和分类。A3 不建立全量标准库 fixture，不实现标准语义，不建立 benchmark。
 
 ### A4. Guile 基准环境确认
 
