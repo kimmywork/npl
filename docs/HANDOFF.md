@@ -1,191 +1,185 @@
-# NPL Implementation Handoff
+# NPL Current Handoff
 
-Status: active handoff as of 2026-09-03 14:18 CST.
+Status: **approval-gated; no new implementation increment may start before user approval**.
 
-## Immediate Directive
+## Current objective
 
-The current full R7RS-small implementation and Guile validation plan is approval-gated in [`docs/plan-r7rs-conformance-guile.md`](plan-r7rs-conformance-guile.md). Until the user approves that plan, do not modify implementation files or begin a new standard-library increment.
+Complete the R7RS-small standard libraries specified by `docs/reference/r7rs.html` and validate one observable behavior contract through all three surfaces:
 
-After approval, execute only the approved numbered increments. Every increment must validate the same observable behavior through NPL native execution, the persistent NPL REPL, and Guile's R7RS environment, and must include the specified benchmark and repository gates.
+- NPL compiled native executables;
+- the persistent NPL REPL;
+- Guile in its R7RS environment.
 
-Follow root `AGENTS.md`: reuse before reinvention, NPL-first implementation, differential evidence for compiler/evaluator behavior, frozen permanent bootstrap, and proportional verification.
+Native and REPL execution must not have different R7RS semantics. Execution paths may differ internally, but results, error classes, dynamic state, port behavior, file effects, resource closure, and exit status must agree. Guile is an external reference for finding differences; Guile extensions do not define the NPL contract.
 
-## Repository State
+The complete approved-for-review plan is:
+
+```text
+docs/plan-r7rs-conformance-guile.md
+```
+
+Until the user explicitly approves that plan:
+
+- do not modify implementation files;
+- do not start number-tower, Unicode, time, eval/load/repl, or any other library increment;
+- do not add primitives, bridges, runtime interfaces, or architecture;
+- do not implement benchmark tooling;
+- only revise the plan, dependency order, or handoff if requested.
+
+## Current baseline
 
 - Branch: `master`.
-- Canonical full compiler: `bootstrap/current.ssa`, 348,879 lines, SHA-256 `ed6f3a59116ac86cff1dc24bbc07562470ab140b2dc5cb058e054cf66f93509e`.
-- `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` are unchanged and must remain frozen.
-- Dynamic control, promises, practical REPL recovery, public `(scheme eval)`, and the usable `(scheme load)` subset are implemented; the number tower is the next logical increment.
-
-Latest verified commands:
-
-```text
-./tools/check_repl.sh
-persistent NPL REPL: PASS
-
-src/compiler/tests/eval.npl
-PASS eval 14
-
-./tools/run_tests.sh --skip-current-fixed-point
-all suites: PASS
-
-./tools/update_current_ssa.sh
-current compiler fixed point: PASS
-```
-
-The compiler frontend changed only to distinguish normal library bound-call checking from the stricter atomic-identifier checking used by public eval environments. The accepted relay is byte-identical across gen1/gen2/gen3 at the line count and hash above.
-
-## What Is Shared
-
-`lib/npl/frontend.sld` directly includes and reuses:
+- The current standard-library implementation is partial and must not be described as full R7RS-small conformance.
+- `(scheme eval)` has a partial `environment`/`eval` implementation with known procedure-crossing, multiple-values, and syntax-visibility gaps.
+- `(scheme load)` has a usable single-argument sequential-loading subset; the optional `environment-specifier` form is incomplete.
+- Commit `880d74d` contains evaluator changes that must be audited before formal conformance work, especially exploratory primitives not proven necessary by the final path.
+- `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` are permanently frozen.
+- Current `bootstrap/current.ssa`: 348,879 lines, SHA-256:
 
 ```text
-src/compiler/common/base.npl
-src/compiler/reader/lexer.npl
-src/compiler/reader/datum.npl
-src/compiler/frontend/derived.npl
-src/compiler/frontend/syntax.npl
-src/compiler/frontend/expand.npl
-src/compiler/frontend/forms.npl
-src/compiler/frontend/source.npl
-src/compiler/frontend/library.npl
+ed6f3a59116ac86cff1dc24bbc07562470ab140b2dc5cb058e054cf66f93509e
 ```
 
-This provides one implementation of reader/datum handling, hygienic `syntax-rules`, derived forms, binding expansion, imports, library loading, and core AST lowering. Frontend state is now captured in explicit sessions so multiple eval environments do not overwrite each other's value, macro, syntax-mark, or library registry state. Do not add evaluator-specific macro, import, library, binding, or surface-lowering implementations.
-
-Important boundary: `lib/npl/frontend.sld` does **not** include `src/compiler/frontend/control.npl`. The evaluator currently receives pre-CPS core AST from `lower-program`; it does not execute the compiler's `control-program` output.
-
-## Recorded Deviation
-
-The agreed direction was to evaluate reuse of compiler CPS lowering before implementing dynamic control separately. The current dirty increment did not do that. It added evaluator-owned wind transition, handler, parameter, and `letrec` behavior directly in `lib/npl/evaluator-core.scm`.
-
-This duplicated part of the semantic algorithm already represented by:
-
-- `src/compiler/frontend/control.npl`;
-- `runtime/control.c`;
-- the native control test suites.
-
-The deviation happened because the work treated a shared control IR/CPS adaptation as excessive scope and chose a local evaluator implementation. That decision conflicted with the stronger reuse-first expectation and increased `lib/npl/evaluator-core.scm` to 924 lines.
-
-The evaluator still contains the previously accepted parallel control-state machinery. The public eval increment did not add another control implementation: it scoped existing wind, handler, and parameter globals into evaluator sessions and added a narrow engine API for imported environments and closure invocation. Do not stop product delivery for a broad control rewrite, but do preserve this boundary and avoid new semantic duplication.
-
-## Completed Increments
-
-`cb2ebb9 feat(evaluator): add dynamic control` added evaluator-side support for:
-
-- continuation snapshots of wind, handler, and parameter state;
-- wind exit and re-entry ordering;
-- target handler restoration before re-entry `before` thunks;
-- `dynamic-wind` normal return, continuation exit, and multi-shot re-entry;
-- `with-exception-handler`, `raise`, and `raise-continuable`;
-- parameter objects, converter calls, mutation, dynamic binding, and continuation re-entry;
-- core tag 221 (`letrec`), required by the existing shared `parameterize` macro;
-- vector operations required by that macro.
-
-`c51f412 feat(evaluator): add promise support` added evaluator promise vectors with the native `DONE`, `DELAY`, `CHAIN`, and `REDIRECT` state contract. It dispatches the shared `npl_promise_op` operations, treats a promise as a zero-source-argument callable, memoizes final values, preserves recursive forcing behavior, observes active evaluator parameter/handler state during first force, and uses tail-style chain traversal. Focused evaluator coverage is now 38 checks and includes the ten native promise scenarios, including the million-element `delay-force` chain.
-
-`6e50632 feat(repl): cover interactive library recovery` expanded focused evaluator coverage to 42 checks and added real persistent REPL transcripts for `except`, `prefix`, combined modifiers, library includes, exported macros, cache reuse, malformed `define-syntax`, unknown import names, library cycles, and session survival after each failure. It also converts common arithmetic, pair, symbol, and vector-index primitive misuse into `eval-error` values, so normal REPL use no longer exits through those underlying operations.
-
-The public `(scheme eval)` increment adds source libraries `(npl eval-runtime)` and `(scheme eval)`. The `(scheme load)` increment adds a source library that reads one datum at a time, evaluates forms sequentially in the persistent evaluator load environment, closes its input port at EOF or evaluation failure, and returns an unspecified value. The REPL transcript covers definition persistence across multiple loads; the native fixture covers sequential cross-file visibility. Native code reuses `(npl evaluator)` through a thin NPL wrapper; the REPL registers the same private library name as a host bridge, so it does not recursively interpret the evaluator implementation. Public environments are immutable after import, have isolated frontend/library/macro and dynamic evaluator sessions, honor import modifiers, hide evaluator internals, and continue working after evaluation or import errors. `src/compiler/tests/eval.npl` and `src/repl/tests/eval.*` cover both paths.
-
-Known limitations that must remain visible:
-
-- native wrappers for evaluator closures accept ordinary data arguments, but cannot yet translate native procedure arguments into evaluator-callable values;
-- evaluator multiple-values objects are not yet converted back into native multiple values by `(npl eval-runtime)`;
-- core syntactic forms are still recognized intrinsically, so import sets do not yet control every syntax binding with full R7RS precision;
-- evaluator continuations currently enforce one argument rather than the already-supported native multiple-value continuation contract;
-- primitive type/range errors are not uniformly converted to recoverable evaluator errors; the practical REPL coverage currently guarantees arithmetic, comparison, pair, symbol, and vector-index cases;
-- the evaluator contains parallel control-state machinery that must be reconsidered later, but not during the next delivery increments.
-
-## Promise Contract
-
-The shared derived forms lower as follows in `src/compiler/frontend/derived.npl`:
+Recent baseline evidence:
 
 ```text
-make-promise -> (npl_promise_op 0 value)
-promise?     -> (npl_promise_op 1 value)
-delay         -> (npl_promise_op 2 thunk)
-delay-force   -> (npl_promise_op 3 thunk)
-force         -> call the promise returned by operation 0
+./tools/check_repl.sh                            PASS
+./tools/run_tests.sh --skip-current-fixed-point  all suites: PASS
+git diff --check                              PASS
 ```
 
-The evaluator implementation follows `runtime/control.c` and `src/compiler/tests/promises.npl`; it adds no promise macro or alternate public API. Its acceptance evidence is the three commands above, all passing without compiler/runtime changes or a fixed-point relay.
+This evidence covers the current finite implementation and tests only; it does not establish complete conformance.
 
-## Practical REPL Result
+## Dependency order
 
-The practical REPL is ready for the implemented language subset. `build/bin/npl-repl` persists definitions and macros, uses the shared compiler frontend for all reader, expansion, import, library, and lowering behavior, and survives reader, frontend, and covered evaluator errors. `./tools/check_repl.sh` verifies the standard library from an external CWD through the injected absolute root, native/evaluator differential behavior, interactive library modifiers/includes/exported macros/cache behavior, frontend failure recovery, and common recoverable primitive failures.
-
-This is not full R7RS-small availability. Public `(scheme eval)` now supports environment construction, imported expression/macro evaluation, ordinary closure results, isolated sessions, immutable bindings, and native/REPL error recovery. The crossing and syntax-visibility limitations above remain, while the optional `(scheme load)` environment-specifier form, the full numeric tower, Unicode completion, time/process completion, and broader primitive-error normalization are separate increments.
-
-## Remaining R7RS-Small Flow
-
-After practical REPL readiness, advance the existing plan in dependency order. Keep each increment limited to required R7RS behavior and exercise it through both native driver and REPL paths.
-
-1. Complete the optional `(scheme load)` environment-specifier form over the public environment bridge.
-2. Resolve the remaining public eval crossing gaps without self-interpreting `(npl evaluator)`: native procedure arguments, native multiple-value conversion, and exact syntax-binding visibility.
-3. Complete the numeric tower in an explicit representation/runtime/compiler increment: bignum promotion, exact rationals, complex and inexact behavior as required by the accepted R7RS scope.
-4. Complete `(scheme time)` and remaining process-context behavior.
-5. Complete the accepted Unicode/character/string conformance beyond the current ASCII boundary.
-6. Add `(scheme r5rs)` only as a compatibility export layer for semantics that are actually implemented.
-7. Maintain an explicit binding/behavior inventory; a resolving library name is not evidence of conformance.
-
-For every shared compiler/evaluator behavior, use common fixtures or differential tests. Do not mark R7RS generally available until the required library inventory and behavioral gates are complete.
-
-## Prohibited Scope
-
-Until the user explicitly changes direction:
-
-- do not introduce a new control IR or switch the evaluator to compiler CPS output;
-- do not migrate `runtime/control.c` semantics to NPL;
-- do not extract, split, or rewrite evaluator control code beyond a concrete API or correctness requirement;
-- do not add evaluator-specific reader, macro, import, binding, derived-form, library, or lowering logic;
-- do not make `(npl evaluator)` self-hosting or add `npl_lex_*` primitives for that purpose;
-- do not implement package management, version solving, dynamic loading, precompiled module caches, JIT, or performance optimization;
-- do not modify `bootstrap/compiler/` or `bootstrap/bootstrap.ssa`;
-- do not regenerate canonical SSA unless compiler/runtime source changed and the exact tree passes a fixed-point relay;
-- do not discard or silently rewrite user worktree changes.
-
-## Verification Discipline
-
-For evaluator/library-only increments:
-
-```bash
-./tools/check_repl.sh
-git diff --check
-./tools/run_tests.sh --skip-current-fixed-point
-```
-
-For compiler/runtime source changes, perform one fixed-point relay for the exact source tree, accept the canonical SSA only after gen1/gen2/gen3 byte equality, then use `--skip-current-fixed-point` for the remaining gates.
-
-Before committing:
-
-- inspect the complete dirty diff;
-- confirm permanent bootstrap files are unchanged;
-- report any intentional semantic duplication;
-- update `.agents/worklog/YYYY-MM-DD.md` and `.agents/workstate.md`;
-- use a Conventional Commit message.
-
-## Key Files
+This is the only permitted semantic order. Public standard-library source may use private implementation boundaries to avoid import cycles, but it may not bypass these semantic prerequisites.
 
 ```text
-AGENTS.md
-PLAN.md
-docs/plan-stdlib-driver-repl.md
-.agents/workstate.md
-lib/npl/frontend.sld
-lib/npl/eval-runtime.sld
-lib/npl/evaluator.sld
-lib/npl/evaluator-core.scm
-lib/scheme/eval.sld
-lib/scheme/repl.sld
-src/compiler/frontend/expand.npl
-src/compiler/frontend/control.npl
-src/compiler/frontend/derived.npl
-runtime/control.c
-src/compiler/tests/promises.npl
-src/evaluator/core-tests.npl
-src/repl/main.npl
-src/repl/tests/differential-fixture.scm
-tools/check_repl.sh
-tools/run_tests.sh
+A0 baseline audit, R7RS index, Guile environment
+  -> A1 complete binding inventory
+  -> A2 shared native/REPL/Guile fixture runner
+  -> B1 values, types, errors, mutability, identity
+       |----> B2 control, exceptions, dynamic state, multiple values
+       |----> B3 textual/binary ports, EOF, closure, flushing, resources
+       |----> B5 Unicode characters, strings, and UTF-8
+       |----> C4 number tower, complex, inexact, numeric parse/print
+                    B3 + B5 + C4
+                         |
+                         +----> B4 complete datum reader/writer semantics
+                                      B1 + B2 + B3 + B4 + B5 + C4
+                                                   |
+                                                   +----> C1 complete `(scheme base)` export closure
+                                                              |
+                                                              +----> C2a `(scheme cxr)`
+                                                              +----> C2b `(scheme case-lambda)`
+                                                              +----> C3 `(scheme char)`
+                                                              +----> C5 `(scheme read)` and `(scheme write)`
+                                                              +----> C6 `(scheme file)`
+                                                              +----> C7 `(scheme process-context)`
+                                                              +----> C8 `(scheme time)`
+                                                              +----> C9 `(scheme lazy)`
+                                                                         |
+                                                                         +----> C10 `(scheme eval)`
+                                                                                    |
+                                                                                    +----> C10 `(scheme repl)`
+                                                                                               |
+                                                                                               +----> C10 `(scheme load)`
+                                                                                                          |
+                                                                                                          +----> C11 `(scheme r5rs)`
 ```
+
+The dependency details are:
+
+- B1 is the prerequisite for every semantic feature.
+- B2 depends on B1 and supplies the dynamic/control contract used by base, lazy, and eval.
+- B3 depends on B1 and supplies port/resource behavior used by datum I/O, file, and load.
+- B5 depends on B1 and supplies Unicode behavior used by strings, char, and datum I/O.
+- C4 depends on B1, not on Unicode or ports. It must close before base is marked complete because base exports numeric operations and conversions.
+- B4 depends on B3, B5, and C4 so reader/writer behavior covers final ports, Unicode, and numeric representations.
+- C1 depends on B1, B2, B3, B4, B5, and C4. A resolving `(scheme base)` library is not enough; every export must be closed in the inventory.
+- C2a, C2b, C3, C5, C6, C7, C8, and C9 depend only on the prerequisites listed in the plan and may not pull unfinished behavior forward.
+- C10 eval depends on the completed base/control/reader/library contracts.
+- C10 repl depends on eval and the established I/O and interaction-environment contract.
+- C10 load depends on eval, read, file, and the stable interaction-environment contract. It must not be completed with an unapproved temporary environment protocol.
+- C11 is always last and may export only semantics already completed underneath it.
+
+B2, B3, B5, and C4 are independent after B1. They may be executed in the order approved for the current work session, but B4 and C1 may not start until all of their listed prerequisites are complete. This avoids inventing a false dependency while preserving a strict stop point for every increment.
+
+If an implementation step discovers a new prerequisite, stop that increment and request plan review. Do not extend the dependency graph during execution.
+
+## Execution protocol
+
+For each numbered increment, define before editing:
+
+- one unique objective;
+- included libraries, exports, and R7RS sections;
+- completed prerequisites;
+- permitted file categories;
+- explicit exclusions;
+- focused native, persistent-REPL, and Guile fixtures;
+- completion and stop conditions.
+
+Then execute only that increment:
+
+1. Read the relevant R7RS sections and update the inventory.
+2. Inspect existing implementation and tests and choose the smallest necessary change.
+3. Add the common behavior fixture and its expected result/error classification.
+4. Implement only the current increment.
+5. Run the focused correctness checks through native, persistent REPL, and Guile.
+6. Classify every difference.
+7. Run benchmarks only when a performance-relevant representation/algorithm/runtime path changes or a semantic family is complete.
+8. Run the full repository gate only after compiler/runtime changes or completion of a semantic family.
+9. Review the complete diff, bootstrap freeze, inventory, worklog, and workstate.
+10. Commit only after all applicable checks pass.
+
+Unrelated library tests, benchmarks, and full suites must not be repeated for every small edit.
+
+## Minimum correctness evidence
+
+For each applicable export, cover:
+
+- normal result;
+- arity error;
+- type error;
+- range and boundary behavior;
+- EOF, closure, and resource errors;
+- exception and recovery behavior;
+- mutation, identity, sharing, or dynamic state where applicable;
+- native/REPL agreement;
+- Guile R7RS comparison, or a recorded oracle limitation.
+
+A program merely not crashing is not evidence of correctness. One basic example is not evidence that an API is complete.
+
+## Minimum benchmark evidence
+
+Benchmarks run only after correctness for the corresponding family is complete. Use a small representative set:
+
+- numeric: fixnum, bignum, rational, complex, parse/print;
+- data: list, vector, bytevector, string;
+- control: closure, tail loop, exception, continuation, promise;
+- I/O: read/write, text/binary port, file, load;
+- interaction: REPL startup and repeated-input steady-state latency.
+
+Separate compilation, startup, and steady-state time. Fix inputs and environment, use fixed repetitions, and retain raw samples, median, p95, RSS, and the Guile comparison. Do not merge incomparable execution modes into one result.
+
+## Prohibited scope
+
+- Do not expand the current increment.
+- Do not add an unlisted primitive merely to pass a test.
+- Do not retain exploratory bridges or debug interfaces without final-path necessity evidence.
+- Do not create a second standard-semantics implementation.
+- Do not modify the permanent bootstrap.
+- Do not introduce a control IR, JIT, package manager, dynamic loader, or unrelated refactor.
+- Do not describe finite test coverage as full R7RS conformance.
+- Do not change the design when blocked; stop and request review.
+- Do not run unrelated benchmarks or full validation merely to create activity.
+
+## Next handoff action
+
+Wait for explicit user approval of:
+
+```text
+docs/plan-r7rs-conformance-guile.md
+```
+
+After approval, start with A0: baseline audit, dependency confirmation, and Guile environment recording. Do not implement a new standard-library feature before A0–A2 are complete.

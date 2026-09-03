@@ -71,14 +71,99 @@
 6. 在持久 REPL 中运行同一 fixture 的等价 transcript；
 7. 在 Guile R7RS 环境中运行同一语义 fixture；
 8. 做三方差异归类；
-9. 运行 benchmark；
-10. 运行项目 gate；
-11. 审查完整 diff、永久 bootstrap 状态、inventory、worklog 和 workstate；
-12. 只有全部通过才提交该增量。
+9. 只运行当前增量直接相关的最小 focused correctness checks；
+10. 只有当当前增量改变了性能相关的表示、算法、runtime 路径，或完成一个语义族时，才运行对应 benchmark；
+11. 只有 compiler/runtime 改动或一个语义族完成时，才运行相应的完整 repository gate；
+12. 审查完整 diff、永久 bootstrap 状态、inventory、worklog 和 workstate；
+13. 只有全部适用检查通过才提交该增量。
 
 任何一步失败，都只能修复当前增量；不得顺手进入下一个库或重构相邻模块。
 
-## 3. 阶段 A：基线冻结、审计与 harness
+## 3. 依赖关系与严格执行顺序
+
+上一版计划将完整 `(scheme base)` 放在 number tower 之前，这个顺序不成立，因为 `(scheme base)` 自身导出数值、端口、字符、字符串、bytevector、控制和转换功能。下面的依赖图是唯一执行顺序；第 5 节的 C 编号用于标识工作范围，不表示可以按编号跳过依赖。
+
+### 3.1 语义依赖图
+
+```text
+A0 基线/文档审计/Guile 环境
+  |
+  v
+A1 binding inventory + A2 shared fixture runner
+  |
+  +--> B1 值表示、类型、错误、可变性、对象身份
+  |      |
+  |      +--> B2 控制、异常、动态状态、multiple values
+  |      |
+  |      +--> B3 textual/binary ports、EOF、close/flush、资源状态
+  |      |      |
+  |      |      +--> B4 reader/writer datum 语义
+  |      |
+  |      +--> B5 Unicode char/string/UTF-8 语义
+  |
+  +--> C4 number tower、complex、inexact、数值 parse/print
+  |      |
+  |      +----------------------------------+
+  |                                         |
+  |                    +--> C1 (scheme base) 完整导出闭包
+  |                                   |
+  |                                   +--> C2a (scheme cxr)
+  |                                   +--> C2b (scheme case-lambda)
+  |                                   +--> C3 (scheme char)
+  |                                   +--> C5 (scheme read)
+  |                                   +--> C5 (scheme write)
+  |                                   +--> C6 (scheme file)
+  |                                   +--> C7 (scheme process-context)
+  |                                   +--> C8 (scheme time)
+  |                                   +--> C9 (scheme lazy)
+  |                                   |
+  |                                   +--> C10 (scheme eval)
+  |                                                  |
+  |                                                  +--> C10 (scheme repl)
+  |                                                  |       |
+  |                                                  +-------+--> C10 (scheme load)
+  |                                                                  |
+  |                                                                  v
+  |                                                             C11 (scheme r5rs)
+```
+
+### 3.2 每个节点的前置条件
+
+| 节点 | 前置条件 | 直接产出 |
+|---|---|---|
+| A0 | 无 | 基线、R7RS章节索引、Guile版本和机器记录 |
+| A1 | A0 | 逐导出 binding inventory |
+| A2 | A0 | 共用 fixture metadata、三方 runner、差异分类器 |
+| B1 | A1 | 统一值、类型、错误、mutation 和 identity 契约 |
+| B2 | B1 | 控制、异常、动态状态和 multiple-values 契约 |
+| B3 | B1 | text/binary port 和资源生命周期契约 |
+| B5 | B1 | Unicode char/string/UTF-8 契约 |
+| C4 | B1 | 整数、bignum、rational、real、complex、inexact 和数值 I/O |
+| B4 | B3、B5、C4 | 完整 datum read/write 的输入输出语义 |
+| C1 | B1、B2、B3、B4、B5、C4 | `(scheme base)` 全部导出 |
+| C2a | C1 | `(scheme cxr)` |
+| C2b | C1 | `(scheme case-lambda)` |
+| C3 | C1、B5 | `(scheme char)` 全部导出 |
+| C5 | C1、B3、B4 | `(scheme read)` 与 `(scheme write)` |
+| C6 | C1、B3、文件系统机制 | `(scheme file)` |
+| C7 | C1、进程环境机制 | `(scheme process-context)` |
+| C8 | C1、时钟机制 | `(scheme time)` |
+| C9 | C1、B2 | `(scheme lazy)` |
+| C10-eval | C1、B2、库解析/宏/reader 契约 | `(scheme eval)` |
+| C10-repl | C10-eval、C5、C7 | `(scheme repl)` |
+| C10-load | C10-eval、C5、C6、C10-repl 的 interaction-environment 契约 | `(scheme load)` |
+| C11 | C1、C2、C3、C4、C5、C6、C7、C8、C9、C10 | `(scheme r5rs)` 兼容导出层 |
+
+### 3.3 依赖规则
+
+- 这是**语义依赖**，不是要求标准库源码互相 import；为避免公共库循环，库实现可以使用已经存在的私有实现边界，但最终导出行为必须遵循此图。
+- `C4` 必须在 `C1` 完成前关闭；否则 base 的数值导出会被错误地标记为完成。
+- `B4` 必须在 `C4` 后关闭；reader/writer 必须能处理最终数值表示，而不是只处理 fixnum。
+- `C10-load` 必须在 `C10-eval` 和 interaction-environment 契约稳定后关闭；不能先用临时 environment identity 协议补齐。
+- `C11` 永远最后执行；不能用尚未完成的底层语义生成看似完整的 R5RS export。
+- 任何节点发现需要新的前置节点时，当前节点停止，计划回到审核状态；不得现场扩展依赖图。
+
+### 3.4 阶段 A：基线冻结、审计与 harness
 
 ### A1. 审计当前工作区
 
@@ -288,7 +373,7 @@ Guile 只能作为 R7RS 对照。Guile 扩展行为不能反过来改变 NPL 的
 
 该增量只有在 base 的 inventory 全部关闭后才算完成；不能以当前已覆盖的子集为完成。
 
-### C2. `(scheme cxr)` 和 `(scheme case-lambda)`
+### C2a/C2b. `(scheme cxr)` 和 `(scheme case-lambda)`
 
 - 完成全部 24 个三层/四层 `car`/`cdr` 组合；
 - 验证 improper list、非 pair、错误位置；
@@ -555,17 +640,28 @@ benchmark 不用于把“更快”当作“更正确”。每个 benchmark 只�
 
 ## 8. 每个增量的固定验收 Gate
 
-### 8.1 focused gate
+### 8.1 每个增量的最小 focused gate
 
-- 目标库全部 positive fixtures；
-- arity/type/range/error fixtures；
-- native executable；
-- persistent REPL transcript；
-- Guile R7RS comparison；
-- differential report；
-- benchmark raw data and summary。
+- 当前增量涉及的 positive fixtures；
+- 当前增量涉及的 arity/type/range/error fixtures；
+- 至少一个 native executable 运行；
+- 同一行为的 persistent REPL transcript；
+- 同一行为的 Guile R7RS comparison；
+- 当前差异已分类。
 
-### 8.2 repository gate
+不相关的库、benchmark 和全量套件不在 focused gate 中重复运行。
+
+### 8.2 语义族完成时的 gate
+
+当一个语义族（例如 number tower、Unicode、ports 或 eval/load/repl）全部完成时，额外运行：
+
+- 该语义族的完整 native suite；
+- 该语义族的完整 persistent REPL suite；
+- 该语义族的完整 Guile differential suite；
+- 该语义族规定的 benchmark；
+- 本节 8.3 的 repository gate。
+
+### 8.3 repository gate
 
 对于 library/evaluator-only 改动：
 
@@ -592,7 +688,7 @@ git diff -- bootstrap/compiler bootstrap/bootstrap.ssa
 
 为空；current SSA 的 gen1/gen2/gen3 byte-identical；记录行数和 SHA-256。
 
-### 8.3 提交 gate
+### 8.4 提交 gate
 
 提交前必须：
 
