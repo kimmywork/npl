@@ -1,0 +1,6 @@
+values:(first second)
+memory-closed:#f
+escape-open:#t
+output-closed:#f
+read:#\Q
+input-closed:#f

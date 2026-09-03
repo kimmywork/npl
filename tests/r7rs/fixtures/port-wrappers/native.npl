@@ -1,0 +1,46 @@
+(import (scheme base) (scheme file) (scheme write)
+        (scheme process-context))
+
+(define (show label value)
+  (display label)
+  (display ":")
+  (write value)
+  (newline))
+
+(define (main)
+  (let ((memory-port (open-output-string)))
+    (call-with-values
+      (lambda ()
+        (call-with-port
+          memory-port
+          (lambda (port)
+            (write-char #\X port)
+            (values 'first 'second))))
+      (lambda (first second)
+        (show "values" (list first second))))
+    (show "memory-closed" (output-port-open? memory-port)))
+  (let ((escaped-port (open-output-string)))
+    (call/cc
+      (lambda (escape)
+        (call-with-port escaped-port
+          (lambda (port) (escape 'escaped)))))
+    (show "escape-open" (output-port-open? escaped-port))
+    (close-port escaped-port))
+  (let ((path "/tmp/npl-r7rs-port-wrappers.data")
+        (saved-output #f)
+        (saved-input #f))
+    (call-with-output-file
+      path
+      (lambda (port)
+        (set! saved-output port)
+        (write-char #\Q port)))
+    (show "output-closed" (output-port-open? saved-output))
+    (show "read" 
+          (call-with-input-file
+            path
+            (lambda (port)
+              (set! saved-input port)
+              (read-char port))))
+    (show "input-closed" (input-port-open? saved-input))
+    (delete-file path)
+    0))

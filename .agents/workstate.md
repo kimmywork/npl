@@ -2,7 +2,7 @@
 
 ## Current
 
-The public `(scheme eval)` core and a usable `(scheme load)` subset are implemented over the existing engine for native programs and the persistent REPL. A detailed full R7RS-small implementation, Guile differential-validation, and benchmark plan is written. The baseline implementation audit, binding surface snapshot, and minimal shared native/REPL/Guile smoke runner are complete. No new standard-library semantic increment is active: the attempted B3 port-wrapper increment is stopped at a concrete prerequisite gap.
+The public `(scheme eval)` core and a usable `(scheme load)` subset are implemented over the existing engine for native programs and the persistent REPL. A detailed full R7RS-small implementation, Guile differential-validation, and benchmark plan is written. The baseline implementation audit, binding surface snapshot, and shared native/REPL/Guile fixture runner are complete. B3 port-wrapper semantics are now implemented for `call-with-port`, `call-with-input-file`, and `call-with-output-file`, including normal-return multiple-value forwarding and continuation escape behavior.
 
 The permanent bootstrap language and compiler remain frozen. The evolving full compiler has completed Dynamic Core, Reader/Datum, hygienic macros and derived forms, explicit-control execution, multiple values, multi-shot continuations, `dynamic-wind`, exceptions, parameters, promises, and the minimal R7RS library loader.
 
@@ -27,13 +27,13 @@ Known `(scheme eval)` gaps remain explicit: the native wrapper cannot yet pass n
 - `src/compiler/tests/eval.npl` reports `PASS eval 14` through native compilation.
 - The native load fixture runs two source files sequentially and reports `42` from the second file.
 - `./tools/check_repl.sh` reports `persistent NPL REPL: PASS`, including the public eval and load transcripts and the existing 42 focused evaluator checks.
+- `tools/run_r7rs_fixture.sh tests/r7rs/fixtures/port-wrappers` reports native, persistent REPL, and Guile `--r7rs` PASS with identical stdout, stderr, and status; the fixture covers zero/one/multiple-value forwarding, automatic close, file wrappers, and continuation escape.
 - `git diff --check` passes; `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` are unchanged.
 
 ## Next
 
-1. Resolve the stopped B3 decision: `call-with-port` needs an existing multiple-values-preserving dynamic-apply boundary; do not approximate it with `dynamic-wind` or add an unapproved runtime/control redesign.
-2. After that decision, select one approved semantic increment from the audited dependency graph; do not redo the completed B2 control/exception/multiple-values baseline.
-3. Use `tools/run_r7rs_fixture.sh` for the minimum native/REPL/Guile comparison required by that increment.
-4. Add benchmarks only when the relevant semantic family is complete or its performance-relevant implementation changes; run no unrelated validation.
+1. Select and execute the next single approved semantic increment from the audited dependency graph; do not redo the completed B2 control/exception/multiple-values baseline.
+2. Use `tools/run_r7rs_fixture.sh` for the minimum native/REPL/Guile comparison required by that increment.
+3. Add benchmarks only when the relevant semantic family is complete or its performance-relevant implementation changes; run no unrelated validation.
 
 Use one fixed-point relay per exact compiler/runtime source tree, then run the remaining gate with `--skip-current-fixed-point`.

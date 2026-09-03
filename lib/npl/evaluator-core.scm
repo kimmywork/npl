@@ -55,6 +55,14 @@
 (define (eval-error-message value) (vector-ref value 1))
 (define (eval-unspecified? value) (eq? value EVAL-UNSPECIFIED))
 (define (eval-values values) (vector EVAL-VALUES-TAG values))
+(define (eval-list-to-values values)
+  (if (not (eval-proper-list? values))
+      (eval-error "npl_list_to_values: expected a proper list")
+      (if (null? values)
+          (eval-values values)
+          (if (null? (cdr values))
+              (car values)
+              (eval-values values)))))
 (define (eval-values? value) (eval-tagged? value EVAL-VALUES-TAG))
 (define (eval-values-list value) (vector-ref value 1))
 (define (eval-continuation continuation)
@@ -773,6 +781,10 @@
                (continuation
                  (eval-error "vector-set!: invalid vector index"))))))
     ((string=? name "values") (continuation (eval-values arguments)))
+    ((string=? name "npl_list_to_values")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (eval-list-to-values (car arguments))))))
     ((string=? name "apply")
      (let ((error (eval-arity arguments 2 name)))
        (if error (continuation error)
@@ -902,6 +914,41 @@
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
            (continuation (open-input-file (car arguments))))))
+    ((string=? name "open-output-file")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (open-output-file (car arguments))))))
+    ((string=? name "open-output-string")
+     (if (null? arguments)
+         (continuation (open-output-string))
+         (continuation (eval-error "open-output-string: wrong number of arguments"))))
+    ((string=? name "close-port")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (begin (close-port (car arguments))
+                  (continuation EVAL-UNSPECIFIED)))))
+    ((string=? name "output-port-open?")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (output-port-open? (car arguments))))))
+    ((string=? name "delete-file")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (begin (delete-file (car arguments))
+                  (continuation EVAL-UNSPECIFIED)))))
+    ((string=? name "input-port-open?")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (input-port-open? (car arguments))))))
+    ((string=? name "read-char")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (read-char (car arguments))))))
+    ((string=? name "write-char")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (begin (write-char (car arguments) (car (cdr arguments)))
+                  (continuation EVAL-UNSPECIFIED)))))
     ((string=? name "close-input-port")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
@@ -1209,14 +1256,16 @@
         "eq?" "eqv?" "not" "number?" "symbol?" "symbol->string"
         "string-length" "string-append" "string-ref" "substring" "int->string"
         "npl_lex_class_w" "npl_lex_scan_sym_end" "npl_lex_number"
-        "string=?" "apply" "values" "call-with-values"
+        "string=?" "npl_list_to_values" "apply" "values" "call-with-values"
         "call/cc" "call-with-current-continuation"
         "with-exception-handler" "raise" "raise-continuable"
         "dynamic-wind" "npl_make_parameter" "npl_parameter_converter"
         "npl_parameters_enter" "npl_parameters_leave" "npl_promise_op"
         "%eval-make-environment" "%eval-evaluate" "%eval-load-file"
         "display" "write" "newline" "read" "eof-object?"
-        "open-input-file" "close-input-port"))
+        "open-input-file" "open-output-file" "open-output-string"
+        "close-port" "close-input-port" "output-port-open?"
+        "delete-file" "input-port-open?" "read-char" "write-char"))
 
 (define (eval-install-primitives environment names)
   (if (null? names)

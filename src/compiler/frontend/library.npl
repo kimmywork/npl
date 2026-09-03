@@ -463,7 +463,7 @@ input-port-open? input-port? int->string integer->char list->vector
 make-temporary-directory
 newline not null?
 number->string number? npl_lex_class_w npl_lex_number npl_lex_scan_sym_end
-npl_make_parameter npl_parameter_converter
+npl_make_parameter npl_parameter_converter npl_list_to_values
 npl_parameters_enter npl_parameters_leave npl_promise_op program-arguments
 run-process
 open-binary-input-file open-binary-output-file

@@ -5,6 +5,7 @@
     bytevector-u8-set! bytevector? binary-port?
     car cdr char->integer char?
     close-input-port close-output-port close-port cons
+    call-with-port
     current-error-port current-input-port current-output-port
     dynamic-wind eof-object eof-object? eq? eqv?
     flush-output-port get-output-bytevector get-output-string
@@ -25,6 +26,12 @@
     delay-force)
   (import (npl primitive))
   (begin
+    (define (call-with-port port proc)
+      (call-with-values
+        (lambda () (proc port))
+        (lambda values
+          (close-port port)
+          (npl_list_to_values values))))
     (define (list . values) values)
     (define (length-loop values count)
       (if (null? values)
