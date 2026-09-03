@@ -2,7 +2,7 @@
 
 ## Current
 
-Active implementation handoff: `docs/HANDOFF.md`. The public `(scheme eval)` core and a usable `(scheme load)` subset are implemented over the shared frontend/evaluator engine for native programs and the persistent REPL. The next product increment is a separately scoped number-tower plan and implementation.
+Active implementation handoff: `docs/HANDOFF.md`. The public `(scheme eval)` core and a usable `(scheme load)` subset are implemented over the existing engine for native programs and the persistent REPL. A detailed full R7RS-small implementation, Guile differential-validation, and benchmark plan is written and awaiting user approval; no increment from that plan is active.
 
 The permanent bootstrap language and compiler remain frozen. The evolving full compiler has completed Dynamic Core, Reader/Datum, hygienic macros and derived forms, explicit-control execution, multiple values, multi-shot continuations, `dynamic-wind`, exceptions, parameters, promises, and the minimal R7RS library loader.
 
@@ -31,9 +31,8 @@ Known `(scheme eval)` gaps remain explicit: the native wrapper cannot yet pass n
 
 ## Next
 
-1. Establish and execute the number-tower increment explicitly rather than extending evaluator internals.
-2. Resolve or explicitly schedule the remaining eval crossing gaps: native procedure arguments, multiple values, and exact syntax-binding visibility.
-3. Establish and execute a focused number-tower plan covering representation, promotion, exactness, parsing/printing, compiler lowering, runtime operations, and native/evaluator differential tests.
-4. Continue `(scheme time)`, Unicode completion, and `(scheme r5rs)` only for implemented semantics.
+1. Await user review and approval of `docs/plan-r7rs-conformance-guile.md`.
+2. Do not modify implementation files or begin a new standard-library increment before approval.
+3. After approval, execute only the approved numbered increments, with native, persistent REPL, Guile differential, and benchmark evidence required at each gate.
 
 Use one fixed-point relay per exact compiler/runtime source tree, then run the remaining gate with `--skip-current-fixed-point`.

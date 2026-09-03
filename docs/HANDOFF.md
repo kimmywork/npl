@@ -1,15 +1,12 @@
 # NPL Implementation Handoff
 
-Status: active handoff as of 2026-09-03 10:40 CST.
+Status: active handoff as of 2026-09-03 14:18 CST.
 
 ## Immediate Directive
 
-Continue R7RS-small product delivery from the public `(scheme eval)` increment. The evaluator was not made self-hosting; instead, a private `(npl eval-runtime)` bridge connects the public library to the existing engine in both native programs and the persistent REPL. Keep the extraction limited to the session/API boundary already required by public environments.
+The current full R7RS-small implementation and Guile validation plan is approval-gated in [`docs/plan-r7rs-conformance-guile.md`](plan-r7rs-conformance-guile.md). Until the user approves that plan, do not modify implementation files or begin a new standard-library increment.
 
-The immediate order is:
-
-1. establish and execute the number-tower increment explicitly rather than extending evaluator internals;
-2. proceed through time, Unicode, and compatibility work without adding unrelated facilities.
+After approval, execute only the approved numbered increments. Every increment must validate the same observable behavior through NPL native execution, the persistent NPL REPL, and Guile's R7RS environment, and must include the specified benchmark and repository gates.
 
 Follow root `AGENTS.md`: reuse before reinvention, NPL-first implementation, differential evidence for compiler/evaluator behavior, frozen permanent bootstrap, and proportional verification.
 

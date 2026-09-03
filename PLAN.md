@@ -88,7 +88,9 @@ Persistent top-level `syntax-rules`, hygiene, derived syntax, shared `only`/`ren
 
 Public `(scheme eval)` now reuses this engine through isolated frontend/evaluator sessions and a private runtime-library bridge, with native and REPL coverage for imports, macros, closures, immutability, hidden internals, and failure recovery. A usable `(scheme load)` subset reads source files sequentially in persistent evaluator environments and is covered through native and REPL workflows. Native procedure-argument and multiple-value crossings, exact syntax visibility, the optional load environment specifier, numeric, Unicode, and other R7RS completion work remain explicit gaps.
 
-Detailed increments, rewrite policy, and acceptance evidence: [`docs/plan-stdlib-driver-repl.md`](docs/plan-stdlib-driver-repl.md).
+Detailed historical increments, rewrite policy, and acceptance evidence: [`docs/plan-stdlib-driver-repl.md`](docs/plan-stdlib-driver-repl.md).
+
+The proposed full R7RS-small completion and Guile native/REPL differential and benchmark plan is approval-gated at [`docs/plan-r7rs-conformance-guile.md`](docs/plan-r7rs-conformance-guile.md). No implementation increment from that plan is authorized until user approval.
 
 ## Gate
 
