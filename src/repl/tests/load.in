@@ -1,0 +1,4 @@
+(import (scheme load))
+(load "load-source.scm")
+loaded-value
+(+ loaded-value 2)

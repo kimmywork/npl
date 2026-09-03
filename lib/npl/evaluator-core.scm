@@ -22,6 +22,7 @@
 (define EVAL-CURRENT-WIND '())
 (define EVAL-CURRENT-HANDLER '())
 (define EVAL-CURRENT-PARAMETERS '())
+(define EVAL-CURRENT-EVALUATION-ENVIRONMENT '())
 
 (define (eval-session)
   (vector EVAL-SESSION-TAG '() '() '()))
@@ -638,6 +639,18 @@
      (eval-primitive-binary name arguments continuation))
     ((string=? name "cons")
      (eval-primitive-binary name arguments continuation))
+    ((string=? name "set-car!")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (begin
+             (set-car! (car arguments) (car (cdr arguments)))
+             (continuation EVAL-UNSPECIFIED)))))
+    ((string=? name "set-cdr!")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (begin
+             (set-cdr! (car arguments) (car (cdr arguments)))
+             (continuation EVAL-UNSPECIFIED)))))
     ((string=? name "eq?")
      (eval-primitive-binary name arguments continuation))
     ((string=? name "eqv?")
@@ -679,6 +692,48 @@
                (continuation (symbol->string (car arguments)))
                (continuation
                  (eval-error "symbol->string: expected a symbol"))))))
+    ((string=? name "string-length")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (string-length (car arguments))))))
+    ((string=? name "string-append")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (continuation
+             (string-append (car arguments) (car (cdr arguments)))))))
+    ((string=? name "substring")
+     (let ((error (eval-arity arguments 3 name)))
+       (if error (continuation error)
+           (continuation
+             (substring (car arguments) (car (cdr arguments))
+                        (car (cdr (cdr arguments))))))))
+    ((string=? name "int->string")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (int->string (car arguments))))))
+    ((string=? name "string-ref")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (continuation
+             (string-ref (car arguments) (car (cdr arguments)))))))
+    ((string=? name "npl_lex_class_w")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (continuation
+             (npl_lex_class_w (car arguments) (car (cdr arguments)))))))
+    ((string=? name "npl_lex_scan_sym_end")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (continuation
+             (npl_lex_scan_sym_end
+               (car arguments) (car (cdr arguments)))))))
+    ((string=? name "npl_lex_number")
+     (let ((error (eval-arity arguments 3 name)))
+       (if error (continuation error)
+           (continuation
+             (npl_lex_number
+               (car arguments) (car (cdr arguments))
+               (car (cdr (cdr arguments))))))))
     ((string=? name "not")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
@@ -795,6 +850,12 @@
                    (car arguments) (car (cdr arguments))))
                (continuation
                  (eval-error "eval: expected an environment"))))))
+    ((string=? name "%eval-load-file")
+     (let ((error (eval-arity arguments 1 "load")))
+       (if error (continuation error)
+           (continuation
+             (eval-load-file
+               (car arguments) EVAL-CURRENT-EVALUATION-ENVIRONMENT)))))
     ((string=? name "with-exception-handler")
      (if (= (length arguments) 2)
          (if (if (eval-callable? (car arguments))
@@ -829,6 +890,23 @@
      (let ((error (eval-arity arguments 0 name)))
        (if error (continuation error)
            (begin (newline) (continuation EVAL-UNSPECIFIED)))))
+    ((string=? name "read")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (read (car arguments))))))
+    ((string=? name "eof-object?")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (eof-object? (car arguments))))))
+    ((string=? name "open-input-file")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (open-input-file (car arguments))))))
+    ((string=? name "close-input-port")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (begin (close-input-port (car arguments))
+                  (continuation EVAL-UNSPECIFIED)))))
     (else
      (continuation (eval-error (string-append "unknown primitive: " name))))))
 
@@ -1125,17 +1203,20 @@
 
 (define EVAL-PRIMITIVE-NAMES
   (list "+" "-" "*" "=" "<" "<=" ">" ">="
-        "cons" "car" "cdr" "list" "vector" "list->vector"
+        "cons" "car" "cdr" "set-car!" "set-cdr!" "list" "vector" "list->vector"
         "vector-length" "vector-ref" "vector-set!" "vector?"
         "null?" "pair?"
         "eq?" "eqv?" "not" "number?" "symbol?" "symbol->string"
+        "string-length" "string-append" "string-ref" "substring" "int->string"
+        "npl_lex_class_w" "npl_lex_scan_sym_end" "npl_lex_number"
         "string=?" "apply" "values" "call-with-values"
         "call/cc" "call-with-current-continuation"
         "with-exception-handler" "raise" "raise-continuable"
         "dynamic-wind" "npl_make_parameter" "npl_parameter_converter"
         "npl_parameters_enter" "npl_parameters_leave" "npl_promise_op"
-        "%eval-make-environment" "%eval-evaluate"
-        "display" "write" "newline"))
+        "%eval-make-environment" "%eval-evaluate" "%eval-load-file"
+        "display" "write" "newline" "read" "eof-object?"
+        "open-input-file" "close-input-port"))
 
 (define (eval-install-primitives environment names)
   (if (null? names)
@@ -1150,7 +1231,8 @@
 (define EVAL-RUNTIME-LIBRARY-EXPORTS
   (list
     (cons "make-environment" "%eval-make-environment")
-    (cons "evaluate" "%eval-evaluate")))
+    (cons "evaluate" "%eval-evaluate")
+    (cons "load-file" "%eval-load-file")))
 
 (define (make-eval-environment)
   (let ((frontend-session (make-frontend-session)))
@@ -1162,6 +1244,22 @@
                               frontend-session (eval-session))))
       (eval-install-primitives environment EVAL-PRIMITIVE-NAMES)
       environment)))
+
+(define (eval-load-file-forms port environment)
+  (let ((form (read port)))
+    (if (eof-object? form)
+        (begin
+          (close-input-port port)
+          EVAL-UNSPECIFIED)
+        (let ((result (eval-in-environment form environment)))
+          (if (eval-error? result)
+              (begin
+                (close-input-port port)
+                result)
+              (eval-load-file-forms port environment))))))
+
+(define (eval-load-file filename environment)
+  (eval-load-file-forms (open-input-file filename) environment))
 
 (define (eval-definition? expression)
   (if (pair? expression)
@@ -1183,6 +1281,7 @@
                 (eval-error "eval: invalid environment")
                 (let ((previous (eval-current-session)))
                   (eval-activate-session! session)
+                  (set! EVAL-CURRENT-EVALUATION-ENVIRONMENT environment)
                   (let ((frontend-session
                           (eval-environment-frontend-session environment)))
                     (let ((core

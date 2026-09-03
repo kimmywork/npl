@@ -5,6 +5,7 @@
 (scheme eval)
 (scheme file)
 (scheme lazy)
+(scheme load)
 (scheme process-context)
 (scheme read)
 (scheme repl)

@@ -58,6 +58,14 @@ cmp "$ROOT/src/repl/tests/primitive-errors.err" "$WORK/primitive-errors.err"
 cmp "$ROOT/src/repl/tests/eval.out" "$WORK/eval.out"
 cmp "$ROOT/src/repl/tests/eval.err" "$WORK/eval.err"
 
+(
+    cd "$ROOT/src/repl/tests"
+    "$ROOT/build/bin/npl-repl" --no-prompt
+) < "$ROOT/src/repl/tests/load.in" \
+    > "$WORK/load.out" 2> "$WORK/load.err"
+cmp "$ROOT/src/repl/tests/load.out" "$WORK/load.out"
+cmp "$ROOT/src/repl/tests/load.err" "$WORK/load.err"
+
 printf '(+ 40 2)\n' | "$ROOT/build/bin/npl-repl" \
     > "$WORK/prompt.out" 2> "$WORK/prompt.err"
 printf '> 42\n> ' > "$WORK/prompt.expected"

@@ -1,0 +1,8 @@
+(import (scheme base)
+        (scheme load)
+        (scheme process-context))
+
+(define (main)
+  (load "src/compiler/tests/load-source.scm")
+  (load "src/compiler/tests/load-inspect.scm")
+  0)

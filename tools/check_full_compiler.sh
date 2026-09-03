@@ -98,6 +98,15 @@ run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
 run_suite libraries "PASS libraries 14"
 run_suite eval "PASS eval 14"
+run_load() {
+    emit "$WORK/compiler" "$TESTS/load.npl" "$WORK/load.ssa"
+    build_ssa "$WORK/load.ssa" "$WORK/load"
+    "$WORK/load" > "$WORK/load.out"
+    printf '42\n' > "$WORK/load.expected"
+    cmp "$WORK/load.expected" "$WORK/load.out"
+}
+
+run_load
 run_suite ports "PASS ports 7"
 run_suite standard-io "PASS standard-io 6"
 run_suite binary-io "PASS binary-io 15"

@@ -1,6 +1,6 @@
 # NPL Implementation Handoff
 
-Status: active handoff as of 2026-09-03 02:14 CST.
+Status: active handoff as of 2026-09-03 10:40 CST.
 
 ## Immediate Directive
 
@@ -8,9 +8,8 @@ Continue R7RS-small product delivery from the public `(scheme eval)` increment. 
 
 The immediate order is:
 
-1. implement `(scheme load)` using ports and shared source/frontend loading;
-2. establish and execute the number-tower increment explicitly rather than extending evaluator internals;
-3. proceed through time, Unicode, and compatibility work without adding unrelated facilities.
+1. establish and execute the number-tower increment explicitly rather than extending evaluator internals;
+2. proceed through time, Unicode, and compatibility work without adding unrelated facilities.
 
 Follow root `AGENTS.md`: reuse before reinvention, NPL-first implementation, differential evidence for compiler/evaluator behavior, frozen permanent bootstrap, and proportional verification.
 
@@ -19,7 +18,7 @@ Follow root `AGENTS.md`: reuse before reinvention, NPL-first implementation, dif
 - Branch: `master`.
 - Canonical full compiler: `bootstrap/current.ssa`, 348,879 lines, SHA-256 `ed6f3a59116ac86cff1dc24bbc07562470ab140b2dc5cb058e054cf66f93509e`.
 - `bootstrap/compiler/` and `bootstrap/bootstrap.ssa` are unchanged and must remain frozen.
-- Dynamic control, promises, and practical REPL recovery coverage are committed; the public `(scheme eval)` increment is the current logical change.
+- Dynamic control, promises, practical REPL recovery, public `(scheme eval)`, and the usable `(scheme load)` subset are implemented; the number tower is the next logical increment.
 
 Latest verified commands:
 
@@ -90,7 +89,7 @@ The evaluator still contains the previously accepted parallel control-state mach
 
 `6e50632 feat(repl): cover interactive library recovery` expanded focused evaluator coverage to 42 checks and added real persistent REPL transcripts for `except`, `prefix`, combined modifiers, library includes, exported macros, cache reuse, malformed `define-syntax`, unknown import names, library cycles, and session survival after each failure. It also converts common arithmetic, pair, symbol, and vector-index primitive misuse into `eval-error` values, so normal REPL use no longer exits through those underlying operations.
 
-The public `(scheme eval)` increment adds source libraries `(npl eval-runtime)` and `(scheme eval)`. Native code reuses `(npl evaluator)` through a thin NPL wrapper; the REPL registers the same private library name as a host bridge, so it does not recursively interpret the evaluator implementation. Public environments are immutable after import, have isolated frontend/library/macro and dynamic evaluator sessions, honor import modifiers, hide evaluator internals, and continue working after evaluation or import errors. `src/compiler/tests/eval.npl` and `src/repl/tests/eval.*` cover both paths.
+The public `(scheme eval)` increment adds source libraries `(npl eval-runtime)` and `(scheme eval)`. The `(scheme load)` increment adds a source library that reads one datum at a time, evaluates forms sequentially in the persistent evaluator load environment, closes its input port at EOF or evaluation failure, and returns an unspecified value. The REPL transcript covers definition persistence across multiple loads; the native fixture covers sequential cross-file visibility. Native code reuses `(npl evaluator)` through a thin NPL wrapper; the REPL registers the same private library name as a host bridge, so it does not recursively interpret the evaluator implementation. Public environments are immutable after import, have isolated frontend/library/macro and dynamic evaluator sessions, honor import modifiers, hide evaluator internals, and continue working after evaluation or import errors. `src/compiler/tests/eval.npl` and `src/repl/tests/eval.*` cover both paths.
 
 Known limitations that must remain visible:
 
@@ -119,13 +118,13 @@ The evaluator implementation follows `runtime/control.c` and `src/compiler/tests
 
 The practical REPL is ready for the implemented language subset. `build/bin/npl-repl` persists definitions and macros, uses the shared compiler frontend for all reader, expansion, import, library, and lowering behavior, and survives reader, frontend, and covered evaluator errors. `./tools/check_repl.sh` verifies the standard library from an external CWD through the injected absolute root, native/evaluator differential behavior, interactive library modifiers/includes/exported macros/cache behavior, frontend failure recovery, and common recoverable primitive failures.
 
-This is not full R7RS-small availability. Public `(scheme eval)` now supports environment construction, imported expression/macro evaluation, ordinary closure results, isolated sessions, immutable bindings, and native/REPL error recovery. The crossing and syntax-visibility limitations above remain, while `(scheme load)`, the full numeric tower, Unicode completion, time/process completion, and broader primitive-error normalization are separate increments.
+This is not full R7RS-small availability. Public `(scheme eval)` now supports environment construction, imported expression/macro evaluation, ordinary closure results, isolated sessions, immutable bindings, and native/REPL error recovery. The crossing and syntax-visibility limitations above remain, while the optional `(scheme load)` environment-specifier form, the full numeric tower, Unicode completion, time/process completion, and broader primitive-error normalization are separate increments.
 
 ## Remaining R7RS-Small Flow
 
 After practical REPL readiness, advance the existing plan in dependency order. Keep each increment limited to required R7RS behavior and exercise it through both native driver and REPL paths.
 
-1. Implement `(scheme load)` using ports and shared source/frontend loading.
+1. Complete the optional `(scheme load)` environment-specifier form over the public environment bridge.
 2. Resolve the remaining public eval crossing gaps without self-interpreting `(npl evaluator)`: native procedure arguments, native multiple-value conversion, and exact syntax-binding visibility.
 3. Complete the numeric tower in an explicit representation/runtime/compiler increment: bignum promotion, exact rationals, complex and inexact behavior as required by the accepted R7RS scope.
 4. Complete `(scheme time)` and remaining process-context behavior.
