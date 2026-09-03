@@ -2,7 +2,7 @@
 
 ## Current
 
-The public `(scheme eval)` core and a usable `(scheme load)` subset are implemented over the existing engine for native programs and the persistent REPL. A detailed full R7RS-small implementation, Guile differential-validation, and benchmark plan is written. The baseline implementation audit, binding surface snapshot, and shared native/REPL/Guile fixture runner are complete. B3 port-wrapper semantics are now implemented for `call-with-port`, `call-with-input-file`, and `call-with-output-file`, including normal-return multiple-value forwarding and continuation escape behavior.
+The public `(scheme eval)` core and a usable `(scheme load)` subset are implemented over the existing engine for native programs and the persistent REPL. The baseline implementation review and shared native/REPL/Guile fixture runner are complete; obsolete planning, audit, and historical `docs/` status artifacts have been removed. B3 port-wrapper semantics are implemented for `call-with-port`, `call-with-input-file`, and `call-with-output-file`, including normal-return multiple-value forwarding and continuation escape behavior.
 
 The permanent bootstrap language and compiler remain frozen. The evolving full compiler has completed Dynamic Core, Reader/Datum, hygienic macros and derived forms, explicit-control execution, multiple values, multi-shot continuations, `dynamic-wind`, exceptions, parameters, promises, and the minimal R7RS library loader.
 
@@ -32,7 +32,7 @@ Known `(scheme eval)` gaps remain explicit: the native wrapper cannot yet pass n
 
 ## Next
 
-1. Select and execute the next single approved semantic increment from the audited dependency graph; do not redo the completed B2 control/exception/multiple-values baseline.
+1. Select and execute the next single approved semantic increment from the existing implementation gaps; do not redo the completed B2 control/exception/multiple-values baseline.
 2. Use `tools/run_r7rs_fixture.sh` for the minimum native/REPL/Guile comparison required by that increment.
 3. Add benchmarks only when the relevant semantic family is complete or its performance-relevant implementation changes; run no unrelated validation.
 
