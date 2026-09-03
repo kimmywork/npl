@@ -18,6 +18,13 @@ The complete approved-for-review plan is:
 docs/plan-r7rs-conformance-guile.md
 ```
 
+The completed baseline audit is:
+
+```text
+docs/r7rs-implementation-audit.md
+docs/r7rs-binding-inventory.md
+```
+
 Until the user explicitly approves that plan:
 
 - do not modify implementation files;
@@ -182,4 +189,4 @@ Wait for explicit user approval of:
 docs/plan-r7rs-conformance-guile.md
 ```
 
-After approval, start with A0: baseline audit, dependency confirmation, and Guile environment recording. Do not implement a new standard-library feature before A0–A2 are complete. Do not schedule a new B2 implementation or repeat the completed control/exception/multiple-values work.
+The baseline audit A1/A2 and Guile version check are complete. The next action is A3: build the minimal shared native/REPL/Guile fixture runner. Do not implement a new standard-library feature before A3 is complete and the audit result is accepted. Do not schedule a new B2 implementation or repeat the completed control/exception/multiple-values work.

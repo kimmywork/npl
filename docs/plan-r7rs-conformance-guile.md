@@ -1,6 +1,6 @@
 # R7RS-small 标准库完整实现与 Guile 验证计划
 
-状态：**待用户审核；未获批准前不得执行实现增量**
+状态：**基线审计已完成；待用户审核；未获批准前不得执行实现增量**
 
 ## 0. 目标与完成定义
 
@@ -167,7 +167,9 @@ A1 binding inventory + A2 shared fixture runner
 
 ### A1. 审计当前工作区
 
-**结果：** 得到与实际代码一致的基线报告。
+状态：**完成（静态实现审计）**。
+
+**结果：** 得到与实际代码一致的基线报告，见 [`docs/r7rs-implementation-audit.md`](r7rs-implementation-audit.md)。
 
 检查：
 
@@ -191,7 +193,9 @@ A1 binding inventory + A2 shared fixture runner
 
 ### A2. 建立完整 R7RS binding inventory
 
-**结果：** `docs/r7rs-binding-inventory.md`，一项一行。
+状态：**完成（当前 surface snapshot；逐项行为仍未关闭）**。
+
+**结果：** `docs/r7rs-binding-inventory.md`，一项一行。该文件区分 current export presence 与 semantic conformance，不把导出存在当作完成。
 
 来源：
 
@@ -264,6 +268,10 @@ tests/r7rs/
 **完成条件：** 同一 fixture 的三方 runner 已能独立运行；差异报告能指出 fixture、输入、三方结果和分类。
 
 ### A4. Guile 基准环境确认
+
+状态：**完成基础版本确认；完整 runner 尚未建立**。
+
+已确认：Guile 3.0.11 可用。完整差异 runner 和 benchmark harness 留在 A3/对应语义族增量，不在本次基线审计中提前实现。
 
 记录：
 
