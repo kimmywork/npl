@@ -59,7 +59,7 @@ A0 baseline audit, R7RS index, Guile environment
   -> A1 complete binding inventory
   -> A2 shared native/REPL/Guile fixture runner
   -> B1 values, types, errors, mutability, identity
-       |----> B2 control, exceptions, dynamic state, multiple values
+       |----> B2 existing control/exceptions/dynamic-state/multiple-values baseline (implemented; no redo)
        |----> B3 textual/binary ports, EOF, closure, flushing, resources
        |----> B5 Unicode characters, strings, and UTF-8
        |----> C4 number tower, complex, inexact, numeric parse/print
@@ -91,7 +91,7 @@ A0 baseline audit, R7RS index, Guile environment
 The dependency details are:
 
 - B1 is the prerequisite for every semantic feature.
-- B2 depends on B1 and supplies the dynamic/control contract used by base, lazy, and eval.
+- B2 is an existing implemented baseline. It supplies the dynamic/control contract used by base, lazy, and eval; it is not a new implementation increment and must not be redone.
 - B3 depends on B1 and supplies port/resource behavior used by datum I/O, file, and load.
 - B5 depends on B1 and supplies Unicode behavior used by strings, char, and datum I/O.
 - C4 depends on B1, not on Unicode or ports. It must close before base is marked complete because base exports numeric operations and conversions.
@@ -103,7 +103,7 @@ The dependency details are:
 - C10 load depends on eval, read, file, and the stable interaction-environment contract. It must not be completed with an unapproved temporary environment protocol.
 - C11 is always last and may export only semantics already completed underneath it.
 
-B2, B3, B5, and C4 are independent after B1. They may be executed in the order approved for the current work session, but B4 and C1 may not start until all of their listed prerequisites are complete. This avoids inventing a false dependency while preserving a strict stop point for every increment.
+B3, B5, and C4 are the remaining active branches after the existing B1/B2 baseline. B2 is not an execution step. B4 and C1 may not start until all of their listed prerequisites are complete. This avoids redoing completed control semantics while preserving a strict stop point for every new increment.
 
 If an implementation step discovers a new prerequisite, stop that increment and request plan review. Do not extend the dependency graph during execution.
 
@@ -182,4 +182,4 @@ Wait for explicit user approval of:
 docs/plan-r7rs-conformance-guile.md
 ```
 
-After approval, start with A0: baseline audit, dependency confirmation, and Guile environment recording. Do not implement a new standard-library feature before A0–A2 are complete.
+After approval, start with A0: baseline audit, dependency confirmation, and Guile environment recording. Do not implement a new standard-library feature before A0–A2 are complete. Do not schedule a new B2 implementation or repeat the completed control/exception/multiple-values work.

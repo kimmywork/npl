@@ -93,7 +93,7 @@ A1 binding inventory + A2 shared fixture runner
   |
   +--> B1 值表示、类型、错误、可变性、对象身份
   |      |
-  |      +--> B2 控制、异常、动态状态、multiple values
+  |      +--> B2 已有控制/异常/动态状态/multiple-values 基线（已实现，不重做）
   |      |
   |      +--> B3 textual/binary ports、EOF、close/flush、资源状态
   |      |      |
@@ -135,7 +135,7 @@ A1 binding inventory + A2 shared fixture runner
 | A1 | A0 | 逐导出 binding inventory |
 | A2 | A0 | 共用 fixture metadata、三方 runner、差异分类器 |
 | B1 | A1 | 统一值、类型、错误、mutation 和 identity 契约 |
-| B2 | B1 | 控制、异常、动态状态和 multiple-values 契约 |
+| B2 | B1 | 已有控制、异常、动态状态和 multiple-values 契约（基线，不新增实现） |
 | B3 | B1 | text/binary port 和资源生命周期契约 |
 | B5 | B1 | Unicode char/string/UTF-8 契约 |
 | C4 | B1 | 整数、bignum、rational、real、complex、inexact 和数值 I/O |
@@ -277,11 +277,13 @@ tests/r7rs/
 
 Guile 只能作为 R7RS 对照。Guile 扩展行为不能反过来改变 NPL 的标准契约。若 Guile 不支持某个标准边界，必须记录为 Guile oracle limitation，并使用 R7RS 文档和独立关系断言补足。
 
-## 4. 阶段 B：修复并锁定共同语义基础
+## 4. 阶段 B：确认已有共同语义基础，不重复实现
 
-这一阶段只处理 inventory 审计发现的、被多个标准库共同依赖的基础语义。不得在此阶段顺便完成完整标准库。
+B 阶段不是重新实现所有基础语义。现有 compiler/native 和 evaluator/REPL 已经实现了其中的大部分能力；本阶段只建立依赖事实和最小缺口记录。只有某个后续标准库 fixture 暴露出具体 R7RS 差异，才在该标准库增量内修复该差异，不单独启动一轮重复实现。
 
 ### B1. 值表示、类型谓词和可变性
+
+状态：现有能力作为基线复用；只做 inventory 对照。
 
 覆盖：
 
@@ -294,9 +296,11 @@ Guile 只能作为 R7RS 对照。Guile 扩展行为不能反过来改变 NPL 的
 
 验证重点：对象身份、共享结构、循环结构、越界、错误类型、GC 后存活、native/REPL 一致性。
 
-### B2. 控制、异常、动态状态和 multiple values
+### B2. 已有控制、异常、动态状态和 multiple-values 基线
 
-覆盖：
+状态：**已实现，不得重做**。
+
+现有实现已覆盖并有既有测试证据：
 
 - `call/cc` / `call-with-current-continuation`；
 - `call-with-values`、`values`、`define-values`、`let-values`、`let*-values`；
@@ -305,9 +309,19 @@ Guile 只能作为 R7RS 对照。Guile 扩展行为不能反过来改变 NPL 的
 - `make-parameter`、`parameterize`；
 - promise 相关动态上下文。
 
-必须建立关系型 fixture：返回值序列、异常恢复、continuation 重入、wind 顺序、handler/parameter 恢复。不能只检查最终整数。
+执行规则：
+
+- 不新增 B2 实现阶段；
+- 不为标准库计划重复建立一套控制/异常语义；
+- 后续库只在实际使用这些能力时运行最小相关回归；
+- 若 fixture 发现具体差异，只修复该差异所属的标准库增量；
+- evaluator multiple-values 跨 public eval 边界等已知缺口，留在 C10 的对应 crossing work 中，不在 B2 提前扩张。
+
+B2 的直接产出只是“已有基线可作为依赖”，不是新的代码产出。
 
 ### B3. 端口和资源基础
+
+状态：现有能力作为基线复用；只补后续标准库实际证明缺失的语义。
 
 覆盖：
 
@@ -322,6 +336,8 @@ Guile 只能作为 R7RS 对照。Guile 扩展行为不能反过来改变 NPL 的
 
 ### B4. reader/writer datum 语义
 
+状态：现有 reader/writer 能力作为基线复用；只补最终 number/Unicode/port 语义所证明的具体缺口。
+
 覆盖：
 
 - 数字、字符、字符串、符号、列表、点对、向量、bytevector；
@@ -334,6 +350,8 @@ Guile 只能作为 R7RS 对照。Guile 扩展行为不能反过来改变 NPL 的
 
 ### B5. Unicode 基础
 
+状态：当前仅有既定 ASCII 基线；Unicode 扩展是实际的新实现增量。
+
 覆盖：
 
 - 字符和字符串的 Unicode scalar value 表示；
@@ -343,7 +361,7 @@ Guile 只能作为 R7RS 对照。Guile 扩展行为不能反过来改变 NPL 的
 - UTF-8 编码/解码、非法序列和 replacement/error 行为；
 - locale 不应改变 R7RS 定义的 Unicode case-fold 结果。
 
-**阶段完成条件：** B1–B5 的共同 fixture 在 native、REPL、Guile（支持项）上通过，且不再需要未审计的内部 primitive 扩展。
+**阶段完成条件：** B1、B2、B3、B4 的现有基线已在 inventory 中标明并被后续增量复用；B5 的 Unicode 新增行为有明确范围。不得因为 B 阶段存在就重复执行已完成的控制、异常或 multiple-values 实现。
 
 ## 5. 阶段 C：标准库按依赖顺序完成
 
