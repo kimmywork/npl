@@ -159,6 +159,15 @@ static void output_integer(NplPort *port, long long value)
     output_bytes(port, buffer, (size_t)length);
 }
 
+static void output_integer_value(NplPort *port, NplVal value)
+{
+    NplVal text = npl_number_to_string(value);
+    npl_gc_root(&text);
+    NplString *string = (NplString *)npl_header(text);
+    output_bytes(port, string->data, string->length);
+    npl_gc_unroot(&text);
+}
+
 static void output_float(NplPort *port, double value)
 {
     char buffer[64];
@@ -207,6 +216,9 @@ static void display_to(NplPort *port, NplVal value)
         }
         case BOX_FLOAT:
             output_float(port, ((NplFloat *)header)->value);
+            break;
+        case BOX_BIGNUM:
+            output_integer_value(port, value);
             break;
         case BOX_VECTOR: {
             NplVector *vector = (NplVector *)header;
@@ -311,7 +323,9 @@ static void write_to(NplPort *port, NplVal value)
 NplVal npl_display(NplVal value)
 {
     npl_runtime_init();
+    npl_gc_root(&value);
     display_to((NplPort *)npl_header(g_current_output_port), value);
+    npl_gc_unroot(&value);
     return npl_nil();
 }
 
@@ -363,7 +377,11 @@ NplVal npl_display_port(NplVal value, NplVal port_value_arg)
 {
     NplPort *port = require_port_mode(port_value_arg, NPL_PORT_OUTPUT,
                                      NPL_PORT_TEXTUAL, "display");
+    npl_gc_root(&value);
+    npl_gc_root(&port_value_arg);
     display_to(port, value);
+    npl_gc_unroot(&port_value_arg);
+    npl_gc_unroot(&value);
     return npl_nil();
 }
 
@@ -371,7 +389,11 @@ NplVal npl_write_port(NplVal value, NplVal port_value_arg)
 {
     NplPort *port = require_port_mode(port_value_arg, NPL_PORT_OUTPUT,
                                      NPL_PORT_TEXTUAL, "write");
+    npl_gc_root(&value);
+    npl_gc_root(&port_value_arg);
     write_to(port, value);
+    npl_gc_unroot(&port_value_arg);
+    npl_gc_unroot(&value);
     return npl_nil();
 }
 
@@ -941,13 +963,10 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
         buffer_push(&buffer, &length, &capacity, reader_get(reader));
     buffer_push(&buffer, &length, &capacity, 0);
 
-    char *end = NULL;
-    long long number = strtoll(buffer, &end, 10);
-    NplVal value;
-    if (end && *end == '\0' && !(length == 2 && buffer[0] == '-'))
-        value = npl_fixnum((int64_t)number);
-    else
-        value = npl_symbol(buffer, (uint32_t)(length - 1));
+    NplVal token = npl_string(buffer, (uint32_t)(length - 1));
+    NplVal value = npl_integer_string_p(token) == npl_true()
+        ? npl_integer_from_string(token)
+        : npl_symbol(buffer, (uint32_t)(length - 1));
     free(buffer);
     return value;
 }

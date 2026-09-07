@@ -309,6 +309,8 @@ void npl_gc_drain_internal(void)
             npl_gc_mark_candidate_internal(pair->cdr);
             break;
         }
+        case BOX_BIGNUM:
+            break;
         case BOX_VECTOR: {
             NplVector *vector = (NplVector *)header;
             for (uint32_t i = 0; i < vector->length; i++)

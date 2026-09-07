@@ -513,16 +513,6 @@ int npl_string_equal(NplVal a, NplVal b) {
     return memcmp(sa->data, sb->data, sa->length) == 0;
 }
 
-NplVal npl_number_to_string(NplVal v) {
-    if (!npl_is_fixnum(v)) {
-        fprintf(stderr, "number->string: not a fixnum (v=%lu)\n", (unsigned long)v);
-        exit(1);
-    }
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%lld", (long long)npl_fixnum_value(v));
-    return npl_string(buf, (uint32_t)strlen(buf));
-}
-
 /* Copy bytes into a box with a different header tag (symbol<->string). */
 static NplVal retag_box(NplVal v, uint32_t new_tag) {
     const NplString *src = (const NplString *)npl_header(v);

@@ -5,6 +5,8 @@
 # gen1 == gen2 == gen3 byte-for-byte. Use --work-dir to retain the artifacts.
 
 set -eu
+# Each stage owns a process group so cancellation also stops cc's children.
+set -m
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BUILD="$ROOT/build"
@@ -40,29 +42,60 @@ else
     CLEANUP=0
     mkdir -p "$WORK"
 fi
-trap '[ "$CLEANUP" -eq 1 ] && [ "$KEEP" -eq 0 ] && rm -rf "$WORK"' EXIT
+ACTIVE_PID=""
+cleanup() {
+    status=$?
+    trap - EXIT INT TERM HUP
+    if [ -n "$ACTIVE_PID" ]; then
+        kill -TERM -- "-$ACTIVE_PID" 2>/dev/null || true
+        wait "$ACTIVE_PID" 2>/dev/null || true
+    fi
+    if [ "$status" -ne 0 ] || [ "$CLEANUP" -eq 0 ] || [ "$KEEP" -eq 1 ]; then
+        printf 'relay artifacts: %s\n' "$WORK" >&2
+    else
+        rm -rf "$WORK"
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
-cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime >/dev/null
+run_stage() {
+    label=$1
+    expected=$2
+    shift 2
+    started=$SECONDS
+    printf 'relay: %s started\n' "$label" >&2
+    "$@" &
+    ACTIVE_PID=$!
+    status=0
+    wait "$ACTIVE_PID" || status=$?
+    ACTIVE_PID=""
+    printf 'relay: %s exit=%s elapsed=%ss\n' \
+        "$label" "$status" "$((SECONDS - started))" >&2
+    if [ "$status" -ne "$expected" ]; then
+        printf 'relay: %s expected exit %s\n' "$label" "$expected" >&2
+        return 1
+    fi
+}
+
+run_stage configure 0 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
+run_stage runtime-build 0 ninja -C "$BUILD" qbe_build npl_runtime >/dev/null
 
 build_compiler() {
     input=$1
     output=$2
-    "$QBE" -o "$output.s" "$input"
-    cc -o "$output" "$output.s" "$RUNTIME"
+    run_stage "$(basename "$output")/qbe" 0 "$QBE" -o "$output.s" "$input"
+    run_stage "$(basename "$output")/link" 0 cc -o "$output" "$output.s" "$RUNTIME"
 }
 
 emit_compiler() {
     compiler=$1
     output=$2
-    set +e
-    "$compiler" --emit-qbe "$SOURCE" > "$output"
-    rc=$?
-    set -e
-    [ "$rc" -eq 44 ] || {
-        echo "compiler relay failed with exit $rc" >&2
-        exit 1
-    }
+    run_stage "$(basename "$output")/emit" 44 \
+        "$compiler" --emit-qbe "$SOURCE" > "$output"
     [ -s "$output" ]
 }
 

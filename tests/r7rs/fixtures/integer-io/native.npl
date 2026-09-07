@@ -1,0 +1,5 @@
+(import (scheme base) (scheme file) (scheme read) (scheme write))
+(include "behavior.scm")
+(define (main)
+  (exercise-integer-io)
+  0)

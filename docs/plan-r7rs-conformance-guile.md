@@ -1,6 +1,36 @@
 # R7RS-small 标准库完整实现与 Guile 验证计划
 
-状态：**基线审计已完成；待用户审核；未获批准前不得执行实现增量**
+状态：**整数 runtime 基础层检查点已通过 focused 验证及三代固定点；下一步优先修复 evaluator/compiler 一致性。C4.1 和完整数值塔尚未完成。**
+
+当前顺序（2026-09-07 用户确认）：保留现有数值实现，先完成当前增量的修正与验收；随后优先修复 evaluator 与 compiler 的语义差异，再推进其他标准库增量。已发现 compiler 支持 `let*` 的核心节点 220，而 evaluator 缺少对应执行分支，因此之前的有限回归通过不能作为两条路径完整一致的证据。后续一致性工作必须覆盖核心 AST、绑定、控制与错误行为，使用共同 fixtures 和差分测试；优先复用共享前端和已有语义，不默认重写 evaluator。当前进度与证据见 `.agents/workstate.md`。
+
+## 当前发现与跟踪
+
+以下问题不因已有 fixture 或固定点通过而视为关闭。先收尾整数 runtime 基础层，再进入 evaluator/compiler 一致性修复；较大的表示或性能重构单独审核。
+
+| ID | 状态 | 证据与影响 | 下一步与验收 |
+|---|---|---|---|
+| CONS-01 | 已复现，待修复 | frontend 输出 `let*` 节点 220、`letrec*` 节点 222；native backend 支持，evaluator 缺分支。两种顺序绑定的 REPL probe 都报 `unsupported core expression`，Guile 返回 2。 | 审查全部 core AST 分支及绑定语义，复用已有环境机制，添加共同正反例，不仅补两个 dispatch。 |
+| NUM-01 | 已复现，待修复 | `emit-compare` 解码 fixnum 后使用 word 比较；`(= 4294967296 0)`、`(< 2147483648 0)` 在 native/REPL 都返回 `#t`，Guile 均为 `#f`。 | 与整数算术接入一起修复比较宽度，覆盖 32-bit 和 62-bit 边界、正负号及三方差分。 |
+| NUM-02 | 已确认未接入 | runtime 能构造 bignum，但 compiler `number?` 仍仅识别 fixnum，source lexer 和静态数字 emitter 也仍是 fixnum；不能将 decimal IO fixture 通过解释为语言层 bignum 支持。 | 在 C4.1 集成阶段统一 literal、read、predicate、equality、算术和公共错误策略；避免新增平行的数值语义。 |
+| REP-01 | 已复现本机 native 链接失败，待修复 | `pair-question` 用 tagged pointer 减 4 而非减 1。静态 `(pair? '(1))` probe 生成 `_q_13@page+-3` / `@pageoff+-3`，本机 linker 报 unsupported relocation；REPL 返回 `#t`。动态对象的判定还可能依赖 header 前的字节。 | 修正 header 解码并覆盖不同 boxed tag、静态/动态对象和 GC 场景；与新增 boxed number 的接入共同检查。 |
+| TOOL-01 | 已修复，focused 测试通过 | relay 原先没有阶段进度，失败产物会被外层 update 删除，超时还会遗留编译进程。 | 现有脚本增加阶段时间、失败保留、信号传播和 stage process-group 清理；`bash tools/check_relay_scripts.sh` 覆盖成功、编译失败、空产物、各代内容漂移、取消和 seed 不被失败覆盖。 |
+| PERF-01 | 已采样，待进一步评估 | 默认 runtime 未配置 C 优化；自编译一次 2 秒采样中 185 个样本有 97 个落在一次 GC sweep 路径，其调用者是 `lookup_value_binding`，进程 footprint 约 2.8 GiB。这是局部样本，不是完整 profile。 | 优先评估绑定查找、CPS closure/environment 分配压力与 runtime 构建配置；不直接据此改 GC 或控制表示。 |
+
+REP-01 的本机 native 复现输入：
+
+```scheme
+(import (scheme base) (scheme write))
+(define (main)
+  (display "abcdef")
+  (write (pair? '(1)))
+  (newline)
+  0)
+```
+
+使用 `build/bin/nplc probe.npl -o probe`；检查 SSA 时使用 `--emit-qbe`（成功状态为 44）。后续修复的预期输出为 `abcdef#t` 加换行。
+
+固定点的用途、局限与保留建议统一记录在 `docs/toolchain.md`。以上 probe 是已知缺口的证据，不是当前通过的 acceptance fixtures。
 
 ## 0. 目标与完成定义
 

@@ -51,6 +51,7 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_PROMISE_CONTEXT 16
 #define BOX_PORT 17
 #define BOX_EOF 18
+#define BOX_BIGNUM 19
 
 #define NPL_FLAG_LITERAL 1
 #define IMM_CHAR_TAG 14
@@ -204,6 +205,14 @@ typedef struct {
     NplHeader header;
     double value;
 } NplFloat;
+
+typedef struct {
+    NplHeader header;
+    int32_t sign;
+    uint32_t count;
+    uint32_t capacity;
+    uint32_t limbs[];
+} NplBigint;
 
 /* ---- Constructor/destructor macros ---- */
 
@@ -420,12 +429,22 @@ NplVal npl_display(NplVal v);
 /* Print a single newline and return the unspecified value. */
 NplVal npl_newline(void);
 
+/* ---- Exact integer substrate (decimal conversion; no public tower policy) ---- */
+NplVal npl_integer_from_string(NplVal v);
+NplVal npl_integer_string_p(NplVal v);
+NplVal npl_number_to_string(NplVal v);
+NplVal npl_number_add(NplVal left, NplVal right);
+NplVal npl_number_sub(NplVal left, NplVal right);
+NplVal npl_number_mul(NplVal left, NplVal right);
+int32_t npl_number_compare(NplVal left, NplVal right);
+NplVal npl_number_p(NplVal v);
+
 /* ---- String & symbol builtins ---- */
 NplVal npl_string_append(NplVal a, NplVal b);
 int64_t npl_string_length(NplVal s);
 NplVal npl_string_ref(NplVal s, NplVal i);   /* returns fixnum byte value */
 int npl_string_equal(NplVal a, NplVal b);    /* raw 0/1 */
-NplVal npl_number_to_string(NplVal v);
+
 NplVal npl_symbol_to_string(NplVal s);
 NplVal npl_symbol_predicate(NplVal s);
 /* NOTE: no string->symbol in stage0 — v1 does not maintain a global
