@@ -12,7 +12,7 @@
 |---|---|---|---|
 | CONS-01 | bounded core repair validated | Shared frontend/evaluator now agree for `let*`, `letrec*`, internal definitions, continuation value forwarding, comparison width, and boxed header decoding. Native/REPL/Guile `core-bindings` fixture and seven malformed-form recovery cases pass. Primitive parity and remaining evaluator contracts remain open. | Continue primitive registry and arity/type/error audit; do not claim full evaluator/compiler conformance. |
 | NUM-01 | bounded repair validated | Fixnum comparison lowering now uses 64-bit operations; variadic `=`, `<`, `<=`, `>`, `>=` compare adjacent operands in native and evaluator paths. Core fixture passes 32/62-bit and three-operand cases against Guile. Full number tower remains open. | Continue C4.1 numeric literal, bignum arithmetic, predicate, and error-policy integration. |
-| NUM-02 | 已确认未接入 | runtime 能构造 bignum，但 compiler `number?` 仍仅识别 fixnum，source lexer 和静态数字 emitter 也仍是 fixnum；不能将 decimal IO fixture 通过解释为语言层 bignum 支持。 | 在 C4.1 集成阶段统一 literal、read、predicate、equality、算术和公共错误策略；避免新增平行的数值语义。 |
+| NUM-02 | exact-integer language integration validated | Compiler reader/literals, static datum/global literals, `number?`, `number->string`, `eqv?`, exact `+ - *` and numeric comparisons now use the shared integer substrate. Native/REPL/Guile integer-arithmetic fixture passes, including large literals, quote/vector/read, promotion/demotion, arithmetic, errors, and generated identities. Inexact/rational/complex tower remains open. | Continue only with the next approved numeric subtype; do not claim complete number tower. |
 | REP-01 | 已修复，focused 三方测试通过 | `pair-question` 已按 runtime 表示将 tagged pointer 减 1；core-bindings 覆盖静态/动态 pair 与非 pair 对象。 | 新 boxed number 集成时继续复用这项回归；不等同于完整对象/GC 语义验收。 |
 | TOOL-01 | 已修复，focused 测试通过 | relay 原先没有阶段进度，失败产物会被外层 update 删除，超时还会遗留编译进程。 | 现有脚本增加阶段时间、失败保留、信号传播和 stage process-group 清理；`bash tools/check_relay_scripts.sh` 覆盖成功、编译失败、空产物、各代内容漂移、取消和 seed 不被失败覆盖。 |
 | PERF-01 | 首轮优化通过，对照已记录 | 默认采用 RelWithDebInfo runtime；绑定查找的 name/mark 提取移出线性扫描。同一输入的 lookup-only 对照 user CPU 下降约 37%，输出 SSA 字节相同。 | 详见 `docs/toolchain.md`；剩余 GC/capture 工作不阻塞 C4.1，不据局部样本重构表示。 |
@@ -52,7 +52,7 @@ REP-01 的本机 native 复现输入：
 
 未注册的 native primitive 名称（本轮没有伪称补齐）：`append`、bytevector 组、字符转换/判别、`close-output-port`、current-port 组、process/environment 组、memory/binary input 组、port 判别、peek/read/write binary 组、`number->string`、`write-shared` / `write-simple` 等。后续以 `PRIMITIVE-VALUE-SOURCE` 和 `EVAL-PRIMITIVE-NAMES` 的结构化差集为输入，优先共享公共 NPL 检查与库包装，避免维护第二套语言政策。
 
-The bounded consistency fixture now also covers three-operand numeric comparisons. Native, persistent REPL, and Guile agree on adjacent comparison results, including 32-bit/62-bit boundaries. This closes only the tested comparison contract; primitive registry parity, complete arity/type/error behavior, and C4.1 number integration remain open.
+C4.1 exact-integer integration now has a shared fixture at `tests/r7rs/fixtures/integer-arithmetic/`. It covers source and datum-read large literals, quoted/vector literals, promotion/demotion, exact add/subtract/multiply, adjacent comparisons, `number?`, `number->string`, numeric `eqv?`, generated arithmetic identities, and common numeric errors. Native, persistent REPL, and Guile match stdout/stderr/status. The numeric substrate reports 8,374 checks in ordinary and sanitizer-focused builds. This closes exact-integer integration only; inexact, rational, and complex numbers remain unimplemented.
 
 
 

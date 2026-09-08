@@ -59,8 +59,23 @@ static void boundaries(void)
     check(npl_integer_string_p(npl_true()) == npl_false(), "non-string");
     check(npl_number_p(npl_string("42", 2)) == npl_false(), "non-number");
 
+    const char *decimal = "x+10000000000000000000000000000000000000000y";
+    NplVal source = npl_string(decimal, (uint32_t)strlen(decimal));
+    npl_gc_root(&source);
+    NplVal scanned = npl_lex_number(source, npl_fixnum(1),
+                                    npl_fixnum((int64_t)strlen(decimal) - 1));
+    npl_gc_root(&scanned);
+    expect_value(scanned, "10000000000000000000000000000000000000000");
+    check(npl_eqv(scanned, parse("10000000000000000000000000000000000000000")) == npl_true(), "numeric eqv across allocations");
+    check(npl_eqv(scanned, npl_fixnum(42)) == npl_false(), "numeric eqv unequal");
+    npl_gc_unroot(&scanned);
+    npl_gc_unroot(&source);
+
     NplVal max = npl_fixnum(INT64_C(2305843009213693951));
     NplVal min = npl_fixnum(-INT64_C(2305843009213693952));
+    expect_value(npl_number_mul(min, npl_fixnum(1)), "-2305843009213693952");
+    expect_value(npl_number_mul(min, npl_fixnum(-1)), "2305843009213693952");
+    check(npl_number_mul(min, npl_fixnum(0)) == npl_fixnum(0), "multiply min by zero");
     NplVal promoted = npl_number_add(max, npl_fixnum(1));
     npl_gc_root(&promoted);
     expect_value(promoted, "2305843009213693952");

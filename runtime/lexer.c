@@ -69,19 +69,14 @@ NplVal npl_lex_scan_sym_end(NplVal sT, NplVal jT) {
 }
 
 NplVal npl_lex_number(NplVal sT, NplVal iT, NplVal jT) {
-    /* [i,j) may start with '-'; everything raw inside C */
-    const NplString *s = lex_str(sT);
-    uint32_t i = (uint32_t)(iT >> 2);
-    uint32_t j = (uint32_t)(jT >> 2);
-    long acc = 0;
-    int neg = 0;
-    if (i < j && s->data[i] == '-') { neg = 1; i++; }
-    while (i < j) {
-        if (s->data[i] >= '0' && s->data[i] <= '9')
-            acc = acc * 10 + (s->data[i] - '0');
-        i++;
-    }
-    return npl_fixnum(neg ? -acc : acc);
+    /* Reuse numeric decimal conversion; never accumulate in a host integer. */
+    npl_gc_root(&sT);
+    NplVal text = npl_substring(sT, iT, jT);
+    npl_gc_root(&text);
+    NplVal result = npl_integer_from_string(text);
+    npl_gc_unroot(&text);
+    npl_gc_unroot(&sT);
+    return result;
 }
 
 static int lex_symbol_char(unsigned char c)

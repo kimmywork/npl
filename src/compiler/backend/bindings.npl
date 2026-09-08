@@ -105,9 +105,7 @@
         (emit-body body recursive-env)))))
 
 (define (internal-def? form)
-  (if (pair-shape? form)
-      (if (= (car form) 200) #t (= (car form) 211))
-      #f))
+  (core-internal-definition? form))
 
 (define (internal-name form)
   (if (= (car form) 200)

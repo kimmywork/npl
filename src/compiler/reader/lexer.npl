@@ -44,7 +44,11 @@
 (define (push-symbol s i acc)
   (let ((j (sym-run-end s i)))
     (let ((nm (substring s i j)))
-      (lex-loop s j (cons (cons 4 nm) acc)))))
+      (if (if (if (= (string-ref s i) 43) #t (= (string-ref s i) 45))
+              (if (< (+ i 1) j) (= (num-run-end s (+ i 1)) j) #f)
+              #f)
+          (lex-loop s j (cons (cons 5 (npl_lex_number s i j)) acc))
+          (lex-loop s j (cons (cons 4 nm) acc))))))
 
 (define (step-token s i acc)
   (cond

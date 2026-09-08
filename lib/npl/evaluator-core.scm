@@ -723,6 +723,16 @@
                (continuation (symbol->string (car arguments)))
                (continuation
                  (eval-error "symbol->string: expected a symbol"))))))
+    ((string=? name "number->string")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (if (number? (car arguments))
+               (continuation (number->string (car arguments)))
+               (continuation (eval-error "number->string: expected a number"))))))
+    ((string=? name "open-input-string")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (open-input-string (car arguments))))))
     ((string=? name "string-length")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
@@ -1283,7 +1293,8 @@
         "cons" "car" "cdr" "set-car!" "set-cdr!" "list" "vector" "list->vector"
         "vector-length" "vector-ref" "vector-set!" "vector?"
         "null?" "pair?"
-        "eq?" "eqv?" "not" "number?" "symbol?" "symbol->string"
+        "eq?" "eqv?" "not" "number?" "number->string" "symbol?" "symbol->string"
+        "open-input-string"
         "string-length" "string-append" "string-ref" "substring" "int->string"
         "npl_lex_class_w" "npl_lex_scan_sym_end" "npl_lex_number"
         "string=?" "npl_list_to_values" "apply" "values" "call-with-values"

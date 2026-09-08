@@ -144,27 +144,6 @@
                                 (car ops) ", l " (car (cdr ops)) ")"))
       (bool-from-raw raw))))
 
-(define (mul-builtin args env)
-  (check-arity args 2 2)
-  (let ((ops (eval-args-fixed args env 2 ())))
-    (let ((ua (new-tmp)))
-      (func-line (string-append ua " =l sar " (car ops) ", 2"))
-      (let ((ub (new-tmp)))
-        (func-line (string-append ub " =l sar " (car (cdr ops)) ", 2"))
-        (let ((m (new-tmp)))
-          (func-line (string-append m " =l mul " ua ", " ub))
-          (let ((r (new-tmp)))
-            (func-line (string-append r " =l shl " m ", 2"))
-            r))))))
-
-(define (binary-tagged qop args env)
-  (check-arity args 2 2)
-  (let ((ops (eval-args-fixed args env 2 ())))
-    (let ((r (new-tmp)))
-      (func-line (string-append r " =l " qop " " (car ops)
-                               ", " (car (cdr ops))))
-      r)))
-
 (define (unknown-call nm)
   (begin (display "nplc1: unknown builtin or unbound: ")
          (display nm) (newline) (exit 31)))
@@ -281,7 +260,7 @@
   (if (number? e)
       (let ((r (new-tmp)))
         (func-line (string-append r " =l copy "
-                            (npl_tagged_num_to_string e)))
+                            (integer-literal-op e #f)))
         r)
       (if (null? e)
           "2"
@@ -338,20 +317,19 @@
               (bool-from-raw raw)))))))
 
 (define (emit-compare-pair opn va vb)
-  (let ((ua (new-tmp)))
-      (func-line (string-append ua " =l sar " va ", 2"))
-      (let ((ub (new-tmp)))
-        (func-line (string-append ub " =l sar " vb ", 2"))
-        (let ((raw (new-tmp)))
-          (func-line
-            (string-append raw " =w "
-              (cond ((string=? opn "<") "csltl")
-                    ((string=? opn ">") "csgtl")
-                    ((string=? opn "=") "ceql")
-                    ((string=? opn "<=") "cslel")
-                    (else "csgel"))
-              " " ua ", " ub))
-          (bool-from-raw raw)))))
+  (let ((order (new-tmp)))
+    (func-line (string-append order " =w call $npl_number_compare(l "
+                             va ", l " vb ")"))
+    (let ((raw (new-tmp)))
+      (func-line
+        (string-append raw " =w "
+          (cond ((string=? opn "<") "csltw")
+                ((string=? opn ">") "csgtw")
+                ((string=? opn "=") "ceqw")
+                ((string=? opn "<=") "cslew")
+                (else "csgew"))
+          " " order ", 0"))
+      (bool-from-raw raw))))
 
 (define (is-cmp? nm)
   (cond ((string=? nm "<") #t)
@@ -363,20 +341,14 @@
 
 (define (cmp-or-arith nm args env)
   (cond ((is-cmp? nm) (emit-compare nm args env))
-        ((string=? nm "+") (binary-tagged "add" args env))
-        ((string=? nm "-") (binary-tagged "sub" args env))
-        ((string=? nm "*") (mul-builtin args env))
+        ((string=? nm "+") (emit-integer-arithmetic nm args env))
+        ((string=? nm "-") (emit-integer-arithmetic nm args env))
+        ((string=? nm "*") (emit-integer-arithmetic nm args env))
         ((> (string-length (lookup-func nm)) 0) (user-call nm args env))
         (else (unknown-call nm))))
 
 (define (number-question args env)
-  (check-arity args 1 1)
-  (let ((v (emit-expr (car args) env)))
-    (let ((low (new-tmp)))
-      (func-line (string-append low " =w and " v ", 3"))
-      (let ((raw (new-tmp)))
-        (func-line (string-append raw " =w ceqw " low ", 0"))
-        (bool-from-raw raw)))))
+  (checked-call "npl_number_p" 1 args env))
 
 ; some C predicates return a raw int in a word register; those MUST be
 ; converted to proper booleans (#f=10/#t=6) before any `if` sees them.
@@ -499,7 +471,7 @@
     ((string=? nm "pair?") (pair-question args env))
     ((string=? nm "not") (not-builtin args env))
     ((string=? nm "eq?") (eq-builtin args env))
-    ((string=? nm "eqv?") (eq-builtin args env))
+    ((string=? nm "eqv?") (checked-call "npl_eqv" 2 args env))
     ((string=? nm "exit") (progn-exit args env))
     ((string=? nm "program-arguments")
      (zero-named "npl_program_arguments" args))

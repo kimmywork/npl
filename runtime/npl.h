@@ -438,6 +438,7 @@ NplVal npl_number_sub(NplVal left, NplVal right);
 NplVal npl_number_mul(NplVal left, NplVal right);
 int32_t npl_number_compare(NplVal left, NplVal right);
 NplVal npl_number_p(NplVal v);
+NplVal npl_eqv(NplVal left, NplVal right);
 
 /* ---- String & symbol builtins ---- */
 NplVal npl_string_append(NplVal a, NplVal b);

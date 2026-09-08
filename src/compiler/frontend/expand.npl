@@ -442,7 +442,7 @@
                         (cdr body) value-env macro-env))
                 (let ((expanded
                         (expand-expression form value-env macro-env)))
-                  (if (raw-form? expanded "begin")
+                  (if (definition-begin? expanded)
                       (let ((spliced
                               (append-forms (cdr expanded) (cdr body))))
                         (let ((spliced-macros

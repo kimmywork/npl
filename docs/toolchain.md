@@ -16,7 +16,7 @@ The command builds a compiler from `bootstrap/current.ssa`, emits `gen1.ssa`, re
 ./tools/check_current_fixed_point.sh --keep --work-dir /tmp/npl-fixed-point
 ```
 
-The tracked artifact has 346,404 lines (12,099,521 bytes), SHA-256 `10f81d0f47f3627506bb8ccb6fdae7f257264e803b21e1ff6413bc503a44926b` as inspected on 2026-09-08. Regeneration reports the authoritative hash for its source tree.
+The tracked artifact has 349,088 lines (12,222,322 bytes), SHA-256 `c24ab41a491ce103bdc88e9f39a18ca6ce8219ccb2d5e584fd3769370f175224` as inspected on 2026-09-08. Regeneration reports the authoritative hash for its source tree.
 
 The verifier reports elapsed time and exit status for each configure, build, QBE, link, and emission stage. Failed or interrupted runs retain their work directory for inspection. TERM/INT/HUP is forwarded through the update wrapper to the active stage's process group. The focused orchestration test is `bash tools/check_relay_scripts.sh`; it uses tiny tool substitutes and does not establish real compiler correctness.
 

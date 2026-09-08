@@ -183,6 +183,11 @@ NplVal npl_number_p(NplVal value)
 
 NplVal npl_number_add(NplVal left, NplVal right)
 {
+    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
+        int64_t sum = npl_fixnum_value(left) + npl_fixnum_value(right);
+        if (sum >= -(INT64_C(1) << 61) && sum < (INT64_C(1) << 61))
+            return npl_fixnum(sum);
+    }
     NplIntegerView a;
     NplIntegerView b;
     integer_view(&a, left, "+");
@@ -198,6 +203,11 @@ NplVal npl_number_add(NplVal left, NplVal right)
 
 NplVal npl_number_sub(NplVal left, NplVal right)
 {
+    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
+        int64_t difference = npl_fixnum_value(left) - npl_fixnum_value(right);
+        if (difference >= -(INT64_C(1) << 61) && difference < (INT64_C(1) << 61))
+            return npl_fixnum(difference);
+    }
     NplIntegerView a;
     NplIntegerView b;
     integer_view(&a, left, "-");
@@ -222,6 +232,14 @@ NplVal npl_number_sub(NplVal left, NplVal right)
 
 NplVal npl_number_mul(NplVal left, NplVal right)
 {
+    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
+        int64_t x = npl_fixnum_value(left), y = npl_fixnum_value(right);
+        uint64_t ax = (uint64_t)(x < 0 ? -x : x);
+        uint64_t ay = (uint64_t)(y < 0 ? -y : y);
+        uint64_t limit = (x < 0) != (y < 0)
+            ? NPL_FIXNUM_MAGNITUDE : NPL_FIXNUM_MAGNITUDE - 1;
+        if (ay == 0 || ax <= limit / ay) return npl_fixnum(x * y);
+    }
     NplIntegerView a;
     NplIntegerView b;
     integer_view(&a, left, "*");
@@ -256,6 +274,10 @@ NplVal npl_number_mul(NplVal left, NplVal right)
 
 int32_t npl_number_compare(NplVal left, NplVal right)
 {
+    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
+        int64_t x = npl_fixnum_value(left), y = npl_fixnum_value(right);
+        return x < y ? -1 : (x > y ? 1 : 0);
+    }
     NplIntegerView a;
     NplIntegerView b;
     integer_view(&a, left, "number comparison");
@@ -264,6 +286,13 @@ int32_t npl_number_compare(NplVal left, NplVal right)
     if (a.sign == 0) return 0;
     int order = integer_magnitude_compare(&a, &b);
     return a.sign < 0 ? -order : order;
+}
+
+NplVal npl_eqv(NplVal left, NplVal right)
+{
+    if (npl_number_p(left) == npl_true() && npl_number_p(right) == npl_true())
+        return npl_number_compare(left, right) == 0 ? npl_true() : npl_false();
+    return left == right ? npl_true() : npl_false();
 }
 
 NplVal npl_number_to_string(NplVal value)

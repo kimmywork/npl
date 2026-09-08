@@ -1,6 +1,9 @@
 (define-library (scheme base)
   (export
-    + - * < <= = > >=
+    (rename integer-add +) (rename integer-subtract -)
+    (rename integer-multiply *) (rename integer-less <)
+    (rename integer-less-equal <=) (rename integer-equal =)
+    (rename integer-greater >) (rename integer-greater-equal >=)
     append bytevector bytevector-length bytevector-u8-ref
     bytevector-u8-set! bytevector? binary-port?
     car cdr char->integer char?
@@ -24,7 +27,12 @@
     and or when unless cond case do let*-values guard
     make-parameter parameterize make-promise promise? force delay
     delay-force)
-  (import (npl primitive))
+  (import (rename (npl primitive)
+            (+ raw-add) (- raw-subtract) (* raw-multiply)
+            (= raw-equal) (< raw-less) (<= raw-less-equal)
+            (> raw-greater) (>= raw-greater-equal)
+            (number->string raw-number->string)))
+  (include "integer.scm")
   (begin
     (define (call-with-port port proc)
       (call-with-values
@@ -36,7 +44,7 @@
     (define (length-loop values count)
       (if (null? values)
           count
-          (length-loop (cdr values) (+ count 1))))
+          (length-loop (cdr values) (raw-add count 1))))
     (define (length values) (length-loop values 0))
     (define (reverse-loop values output)
       (if (null? values)

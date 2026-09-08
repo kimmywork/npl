@@ -11,6 +11,7 @@
   "frontend/control.npl"
   "backend/state.npl"
   "backend/data.npl"
+  "backend/numeric.npl"
   "backend/environment.npl"
   "backend/expression.npl"
   "backend/tail.npl"

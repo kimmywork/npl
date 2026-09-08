@@ -5,7 +5,7 @@
           eval-error? eval-error-message
           eval-unspecified? eval-values? eval-values-list
           eval-callable? eval-apply-in-environment)
-  (import (scheme base)
+  (import (except (scheme base) + - * = < <= > >= number->string)
           (scheme read)
           (scheme file)
           (scheme write)

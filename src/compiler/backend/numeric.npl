@@ -1,0 +1,59 @@
+; Exact-integer literals and arithmetic. Value semantics live in runtime/numeric.c.
+
+(define (integer-immediate? value)
+  (if (>= value (- (- 0 2305843009213693951) 1))
+      (<= value 2305843009213693951)
+      #f))
+
+; Static BOX_BIGNUM layout follows NplBigint in runtime/npl.h:
+; header, sign, count, capacity, little-endian base-10^9 limbs.
+; Slice canonical decimal output into limbs; do not reimplement arithmetic.
+(define (integer-literal-limbs text start end)
+  (if (= start end)
+      ()
+      (let ((begin (if (> (- end start) 9) (- end 9) start)))
+        (cons (npl_lex_number text begin end)
+              (integer-literal-limbs text start begin)))))
+
+(define (integer-limb-data limbs)
+  (if (null? limbs)
+      ""
+      (string-append ", w " (number->string (car limbs))
+                     (integer-limb-data (cdr limbs)))))
+
+(define (integer-literal-label value)
+  (let ((text (number->string value)))
+    (let ((negative (= (string-ref text 0) 45)))
+      (let ((limbs (integer-literal-limbs
+                     text (if negative 1 0) (string-length text))))
+        (let ((count (number->string (count-up limbs 0))))
+          (cell-set! DATAN (+ 1 (cell-get DATAN)))
+          (let ((label (string-append "$integer_" (number->string (cell-get DATAN)))))
+            (data-line
+              (string-append label " = { w 19, w 1, w "
+                (if negative "-1" "1") ", w " count ", w " count
+                (integer-limb-data limbs) " }"))
+            label))))))
+
+(define (integer-literal-op value static)
+  (if (integer-immediate? value)
+      (npl_tagged_num_to_string value)
+      (let ((label (integer-literal-label value)))
+        (if static (label-constant label) (label-ref-op label)))))
+
+(define (emit-integer-fold fn operands result)
+  (if (null? operands)
+      result
+      (emit-integer-fold fn (cdr operands)
+        (call-with-ops fn (cons result (cons (car operands) ()))))))
+
+(define (emit-integer-arithmetic name args env)
+  (let ((count (count-up args 0)))
+    (if (string=? name "-") (check-arity args 1 count))
+    (let ((ops (eval-args-fixed args env count ())))
+      (cond
+        ((string=? name "+") (emit-integer-fold "npl_number_add" ops "0"))
+        ((string=? name "*") (emit-integer-fold "npl_number_mul" ops "4"))
+        ((null? (cdr ops))
+         (call-with-ops "npl_number_sub" (cons "0" ops)))
+        (else (emit-integer-fold "npl_number_sub" (cdr ops) (car ops)))))))

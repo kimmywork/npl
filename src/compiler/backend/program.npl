@@ -34,7 +34,7 @@
   (let ((slot (string-append "$gv_" (sanitize nm 0 ""))))
     (if (number? init)
         (data-line (string-append slot " = { l "
-                                  (npl_tagged_num_to_string init) " }"))
+                                  (integer-literal-op init #t) " }"))
         (if (null? init)
             (data-line (string-append slot " = { l 2 }"))
             (if (str-atom? init)

@@ -63,7 +63,7 @@
 (define (walk-datum d)
   (cond
     ((null? d) "2")
-    ((number? d) (npl_tagged_num_to_string d))
+    ((number? d) (integer-literal-op d #f))
     ((datum-symbol? d) (label-ref-op (intern-sym (datum-symbol-name d))))
     ((datum-string? d) (fresh-string-op (datum-string-text d)))
     ((datum-char? d)
@@ -99,7 +99,7 @@
 (define (walk-static-datum datum)
   (cond
     ((null? datum) "2")
-    ((number? datum) (npl_tagged_num_to_string datum))
+    ((number? datum) (integer-literal-op datum #t))
     ((datum-symbol? datum)
      (label-constant (intern-sym (datum-symbol-name datum))))
     ((datum-string? datum)
