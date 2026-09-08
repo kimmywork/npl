@@ -570,7 +570,7 @@
 ; kind: 1 let, 2 let*, 3 letrec, 4 letrec*
 (define (expand-binding-form form kind value-env macro-env)
   (if (null? (cdr form)) (fatal "binding form needs bindings"))
-  (let ((bindings (car (cdr form))))
+  (let ((bindings (checked-raw-bindings (car (cdr form)))))
     (let ((body (cdr (cdr form))))
       (if (= kind 2)
           (let ((expanded

@@ -349,10 +349,10 @@
       (let ((target-name (control-fresh-name "_npl_target_wind_")))
         (let ((handler-name
                 (control-fresh-name "_npl_target_handler_")))
-          (control-single-let
+          (core-single-let
             (cons (control-symbol target-name)
                   (cons (control-symbol "npl_current_wind") ()))
-            (control-single-let
+            (core-single-let
               (cons (control-symbol handler-name)
                     (cons (control-symbol "npl_current_handler") ()))
               (cons (car procedures)
@@ -404,7 +404,7 @@
                         (let ((before-continuation
                                 (control-raw-continuation
                                   before-name
-                                  (control-single-let
+                                  (core-single-let
                                     (cons (control-symbol frame-name)
                                       (cons (control-symbol "npl_wind_push")
                                         (cons before (cons after ()))))
@@ -439,7 +439,7 @@
                               (control-send
                                 continuation (control-symbol body-name))
                               ()))))))
-                (control-single-let
+                (core-single-let
                   (cons (control-symbol frame-name)
                     (cons (control-symbol "npl_handler_push")
                       (cons handler ())))
@@ -592,20 +592,6 @@
         (cons lambda-expression (control-binding-values bindings))
         continuation))))
 
-(define (control-single-let binding body)
-  (cons 214
-    (cons (cons binding ())
-          (cons (cons body ()) ()))))
-
-(define (control-expand-letstar bindings body)
-  (if (null? bindings)
-      (if (null? (cdr body))
-          (car body)
-          (cons 216 body))
-      (control-single-let
-        (car bindings)
-        (control-expand-letstar (cdr bindings) body))))
-
 (define (control-placeholder-bindings bindings)
   (if (null? bindings)
       ()
@@ -633,13 +619,13 @@
                 (cons 216
                   (control-assignments
                     names values
-                    (cons (control-cps-sequence body continuation) ())))))
+                    (cons (control-cps-body body continuation) ())))))
             ())
           ())))))
 
 (define (control-cps-letrec-sequential bindings body continuation)
   (if (null? bindings)
-      (control-cps-sequence body continuation)
+      (control-cps-body body continuation)
       (let ((value-name (control-fresh-name "_npl_init_")))
         (control-cps-expression
           (cdr (car bindings))
@@ -669,46 +655,8 @@
           (control-cps-letrec-parallel
             bindings body continuation)))))
 
-(define (control-internal-definition? expression)
-  (if (pair-shape? expression)
-      (if (number? (car expression))
-          (if (= (car expression) 200) #t (= (car expression) 211))
-          #f)
-      #f))
-
-(define (control-internal-binding expression)
-  (if (= (car expression) 200)
-      (cons (car (cdr expression))
-            (car (cdr (cdr expression))))
-      (cons (car (car (cdr expression)))
-            (cons 212
-              (cons (cdr (car (cdr expression)))
-                    (cons (car (cdr (cdr expression))) ()))))))
-
-(define (control-leading-bindings body)
-  (if (if (null? body)
-          #f
-          (control-internal-definition? (car body)))
-      (cons (control-internal-binding (car body))
-            (control-leading-bindings (cdr body)))
-      ()))
-
-(define (control-after-definitions body)
-  (if (if (null? body)
-          #f
-          (control-internal-definition? (car body)))
-      (control-after-definitions (cdr body))
-      body))
-
 (define (control-cps-body body continuation)
-  (let ((bindings (control-leading-bindings body)))
-    (if (null? bindings)
-        (control-cps-sequence body continuation)
-        (control-cps-letrec
-          (cons 222
-            (cons bindings
-                  (cons (control-after-definitions body) ())))
-          continuation #t))))
+  (control-cps-expression (core-body-expression body) continuation))
 
 (define (control-transform-lambda expression)
   (let ((continuation-name (control-fresh-name "_npl_return_")))
@@ -744,7 +692,7 @@
      (control-cps-set expression continuation))
     ((= (car expression) 220)
      (control-cps-expression
-       (control-expand-letstar
+       (core-expand-letstar
          (car (cdr expression))
          (car (cdr (cdr expression))))
        continuation))

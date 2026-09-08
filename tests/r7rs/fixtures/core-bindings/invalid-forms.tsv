@@ -1,0 +1,7 @@
+malformed binding	(let* ((x 1 2)) x)
+malformed binding	(letrec* ((x 1 2)) x)
+malformed binding	(let ((x)) x)
+bindings must be a proper list	(let* ((x 1) . 2) x)
+binding name must be an identifier	(let ((1 2)) 3)
+malformed procedure formals	(lambda (x . 1) x)
+set! needs an identifier	(set! 1 2)

@@ -1,0 +1,3 @@
+(import (rename (scheme base) (raise fixture-raise)) (scheme write))
+(include "behavior.scm")
+(define (main) 0)

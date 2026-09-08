@@ -5,6 +5,11 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Keep explicit Debug/custom configurations; default builds run the compiler too.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+endif()
+
 # Default generator and compiler (Apple clang on this host)
 if(NOT CMAKE_C_COMPILER)
   set(CMAKE_C_COMPILER /usr/bin/clang)

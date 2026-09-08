@@ -104,7 +104,7 @@
                 (func-line (string-append "jnz " isp ", " lt ", " lf))
                 (func-line lt)
                 (let ((addr (new-tmp)))
-                  (func-line (string-append addr " =l add " v ", -4"))
+                  (func-line (string-append addr " =l add " v ", -1"))
                   (let ((hdr (new-tmp)))
                     (func-line (string-append hdr " =l loadsw " addr))
                     (func-line (string-append raw " =w ceqw " hdr ", 0"))
@@ -320,23 +320,38 @@
           rr)))))
 
 (define (emit-compare opn args env)
-  (check-arity args 2 2)
-  (let ((va (emit-expr (car args) env)))
-    (let ((vb (emit-expr (car (cdr args)) env)))
-    (let ((ua (new-tmp)))
+  (let ((count (count-up args 0)))
+    (check-arity args 2 count)
+    ; Evaluate every operand once before testing any adjacent pair.
+    (emit-compare-chain opn (eval-args-fixed args env count ()))))
+
+(define (emit-compare-chain opn ops)
+  (let ((first (emit-compare-pair opn (car ops) (car (cdr ops)))))
+    (if (null? (cdr (cdr ops)))
+        first
+        (let ((rest (emit-compare-chain opn (cdr ops))))
+          ; Tagged booleans are 6 and 10: OR is false if either is false.
+          (let ((combined (new-tmp)))
+            (func-line (string-append combined " =l or " first ", " rest))
+            (let ((raw (new-tmp)))
+              (func-line (string-append raw " =w ceql " combined ", 6"))
+              (bool-from-raw raw)))))))
+
+(define (emit-compare-pair opn va vb)
+  (let ((ua (new-tmp)))
       (func-line (string-append ua " =l sar " va ", 2"))
       (let ((ub (new-tmp)))
         (func-line (string-append ub " =l sar " vb ", 2"))
         (let ((raw (new-tmp)))
           (func-line
             (string-append raw " =w "
-              (cond ((string=? opn "<") "csltw")
-                    ((string=? opn ">") "csgtw")
-                    ((string=? opn "=") "ceqw")
-                    ((string=? opn "<=") "cslew")
-                    (else "csgew"))
+              (cond ((string=? opn "<") "csltl")
+                    ((string=? opn ">") "csgtl")
+                    ((string=? opn "=") "ceql")
+                    ((string=? opn "<=") "cslel")
+                    (else "csgel"))
               " " ua ", " ub))
-          (bool-from-raw raw)))))))
+          (bool-from-raw raw)))))
 
 (define (is-cmp? nm)
   (cond ((string=? nm "<") #t)

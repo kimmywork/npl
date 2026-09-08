@@ -225,6 +225,58 @@
       (cons (core-symbol name)
             (cons (lower-expr (car (cdr (cdr form)))) ())))))
 
+(define (core-single-let binding body)
+  (cons 214
+    (cons (cons binding ())
+          (cons (cons body ()) ()))))
+
+(define (core-expand-letstar bindings body)
+  (if (null? bindings)
+      (cons 214 (cons () (cons body ())))
+      (core-single-let
+        (car bindings)
+        (core-expand-letstar (cdr bindings) body))))
+
+(define (core-internal-definition? expression)
+  (if (pair-shape? expression)
+      (if (number? (car expression))
+          (if (= (car expression) 200) #t (= (car expression) 211))
+          #f)
+      #f))
+
+(define (core-internal-binding expression)
+  (if (= (car expression) 200)
+      (cons (car (cdr expression))
+            (car (cdr (cdr expression))))
+      (cons (car (car (cdr expression)))
+            (cons 212
+              (cons (cdr (car (cdr expression)))
+                    (cons (car (cdr (cdr expression))) ()))))))
+
+(define (core-leading-bindings body)
+  (if (if (null? body)
+          #f
+          (core-internal-definition? (car body)))
+      (cons (core-internal-binding (car body))
+            (core-leading-bindings (cdr body)))
+      ()))
+
+(define (core-after-definitions body)
+  (if (if (null? body)
+          #f
+          (core-internal-definition? (car body)))
+      (core-after-definitions (cdr body))
+      body))
+
+; Both execution paths use the same internal-definition scope and ordering.
+(define (core-body-expression body)
+  (let ((bindings (core-leading-bindings body)))
+    (if (null? bindings)
+        (cons 216 body)
+        (cons 222
+          (cons bindings
+                (cons (core-after-definitions body) ()))))))
+
 (define (lower-binding-form form tag)
   (if (null? (cdr form)) (fatal "binding form needs bindings"))
   (let ((bindings (car (cdr form))))
@@ -234,20 +286,29 @@
         (cons (lower-bindings bindings)
               (cons (lower-expressions body) ()))))))
 
+(define (checked-raw-binding binding)
+  (if (not (pair-shape? binding)) (fatal "malformed binding"))
+  (if (not (= (raw-list-count binding 0) 2)) (fatal "malformed binding"))
+  (if (not (datum-symbol? (car binding)))
+      (fatal "binding name must be an identifier"))
+  binding)
+
+(define (checked-raw-bindings bindings)
+  (if (not (null? bindings))
+      (begin
+        (if (not (pair-shape? bindings))
+            (fatal "bindings must be a proper list"))
+        (checked-raw-binding (car bindings))
+        (checked-raw-bindings (cdr bindings))))
+  bindings)
+
 (define (lower-bindings bindings)
   (if (null? bindings)
       ()
       (if (not (pair-shape? bindings))
           (fatal "bindings must be a proper list")
-          (let ((binding (car bindings)))
-            (if (not (pair-shape? binding))
-                (fatal "malformed binding"))
-            (if (not (= (raw-list-count binding 0) 2))
-                (fatal "malformed binding"))
-            (let ((name (car binding)))
-              (if (not (datum-symbol? name))
-                  (fatal "binding name must be an identifier"))
-              (cons
-                (cons (core-symbol name)
-                      (lower-expr (car (cdr binding))))
-                (lower-bindings (cdr bindings))))))))
+          (let ((binding (checked-raw-binding (car bindings))))
+            (cons
+              (cons (core-symbol (car binding))
+                    (lower-expr (car (cdr binding))))
+              (lower-bindings (cdr bindings)))))))

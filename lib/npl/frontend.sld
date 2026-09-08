@@ -8,6 +8,8 @@
           frontend-error-message
           frontend-set-standard-root!
           frontend-datum->runtime
+          (rename core-expand-letstar frontend-expand-core-letstar)
+          (rename core-body-expression frontend-core-body-expression)
           frontend-bytevector-items->runtime)
   (import (npl primitive))
   (include "../../src/compiler/common/base.npl")

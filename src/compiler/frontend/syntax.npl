@@ -42,14 +42,19 @@
   (cell-get SYNTAX-NEXT-MARK))
 
 (define (lookup-value-binding identifier environment)
+  (lookup-value-binding-key
+    (datum-symbol-name identifier) (identifier-mark identifier) environment))
+
+; Compute the lookup key once, not once per environment entry.
+(define (lookup-value-binding-key name mark environment)
   (if (null? environment)
       ""
       (let ((entry (car environment)))
-        (if (if (string=? (datum-symbol-name identifier) (car entry))
-                (= (identifier-mark identifier) (car (cdr entry)))
+        (if (if (string=? name (car entry))
+                (= mark (car (cdr entry)))
                 #f)
             (car (cdr (cdr entry)))
-            (lookup-value-binding identifier (cdr environment))))))
+            (lookup-value-binding-key name mark (cdr environment))))))
 
 (define (add-value-binding identifier emitted environment)
   (cons (cons (datum-symbol-name identifier)

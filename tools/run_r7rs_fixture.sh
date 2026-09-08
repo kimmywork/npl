@@ -33,6 +33,15 @@ for path in "$native_source" "$repl_input" "$guile_source" \
     [ -f "$path" ]
 done
 
+# Optional common body keeps native, evaluator, and Guile inputs identical.
+repl_body=$(get_meta repl-body || true)
+if [ -n "$repl_body" ]; then
+    [ -f "$FIXTURE/$repl_body" ]
+    cat "$repl_input" "$FIXTURE/$repl_body" > "$WORK/repl.in"
+    printf '\n(exit)\n' >> "$WORK/repl.in"
+    repl_input="$WORK/repl.in"
+fi
+
 NPLC=${NPLC:-"$ROOT/build/bin/nplc"}
 REPL=${NPL_REPL:-"$ROOT/build/bin/npl-repl"}
 

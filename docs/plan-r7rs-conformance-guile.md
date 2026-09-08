@@ -1,6 +1,6 @@
 # R7RS-small 标准库完整实现与 Guile 验证计划
 
-状态：**整数 runtime 基础层检查点已通过 focused 验证及三代固定点；下一步优先修复 evaluator/compiler 一致性。C4.1 和完整数值塔尚未完成。**
+状态：**整数 runtime 基础层已提交为 `8d91a2d`。首轮 evaluator/compiler 核心一致性修复与构建优化已通过 focused 验证，下一步是 C4.1 整数语言层集成；完整 number tower 和全面一致性尚未完成。**
 
 当前顺序（2026-09-07 用户确认）：保留现有数值实现，先完成当前增量的修正与验收；随后优先修复 evaluator 与 compiler 的语义差异，再推进其他标准库增量。已发现 compiler 支持 `let*` 的核心节点 220，而 evaluator 缺少对应执行分支，因此之前的有限回归通过不能作为两条路径完整一致的证据。后续一致性工作必须覆盖核心 AST、绑定、控制与错误行为，使用共同 fixtures 和差分测试；优先复用共享前端和已有语义，不默认重写 evaluator。当前进度与证据见 `.agents/workstate.md`。
 
@@ -10,12 +10,12 @@
 
 | ID | 状态 | 证据与影响 | 下一步与验收 |
 |---|---|---|---|
-| CONS-01 | 已复现，待修复 | frontend 输出 `let*` 节点 220、`letrec*` 节点 222；native backend 支持，evaluator 缺分支。两种顺序绑定的 REPL probe 都报 `unsupported core expression`，Guile 返回 2。 | 审查全部 core AST 分支及绑定语义，复用已有环境机制，添加共同正反例，不仅补两个 dispatch。 |
-| NUM-01 | 已复现，待修复 | `emit-compare` 解码 fixnum 后使用 word 比较；`(= 4294967296 0)`、`(< 2147483648 0)` 在 native/REPL 都返回 `#t`，Guile 均为 `#f`。 | 与整数算术接入一起修复比较宽度，覆盖 32-bit 和 62-bit 边界、正负号及三方差分。 |
+| CONS-01 | bounded core repair validated | Shared frontend/evaluator now agree for `let*`, `letrec*`, internal definitions, continuation value forwarding, comparison width, and boxed header decoding. Native/REPL/Guile `core-bindings` fixture and seven malformed-form recovery cases pass. Primitive parity and remaining evaluator contracts remain open. | Continue primitive registry and arity/type/error audit; do not claim full evaluator/compiler conformance. |
+| NUM-01 | bounded repair validated | Fixnum comparison lowering now uses 64-bit operations; variadic `=`, `<`, `<=`, `>`, `>=` compare adjacent operands in native and evaluator paths. Core fixture passes 32/62-bit and three-operand cases against Guile. Full number tower remains open. | Continue C4.1 numeric literal, bignum arithmetic, predicate, and error-policy integration. |
 | NUM-02 | 已确认未接入 | runtime 能构造 bignum，但 compiler `number?` 仍仅识别 fixnum，source lexer 和静态数字 emitter 也仍是 fixnum；不能将 decimal IO fixture 通过解释为语言层 bignum 支持。 | 在 C4.1 集成阶段统一 literal、read、predicate、equality、算术和公共错误策略；避免新增平行的数值语义。 |
-| REP-01 | 已复现本机 native 链接失败，待修复 | `pair-question` 用 tagged pointer 减 4 而非减 1。静态 `(pair? '(1))` probe 生成 `_q_13@page+-3` / `@pageoff+-3`，本机 linker 报 unsupported relocation；REPL 返回 `#t`。动态对象的判定还可能依赖 header 前的字节。 | 修正 header 解码并覆盖不同 boxed tag、静态/动态对象和 GC 场景；与新增 boxed number 的接入共同检查。 |
+| REP-01 | 已修复，focused 三方测试通过 | `pair-question` 已按 runtime 表示将 tagged pointer 减 1；core-bindings 覆盖静态/动态 pair 与非 pair 对象。 | 新 boxed number 集成时继续复用这项回归；不等同于完整对象/GC 语义验收。 |
 | TOOL-01 | 已修复，focused 测试通过 | relay 原先没有阶段进度，失败产物会被外层 update 删除，超时还会遗留编译进程。 | 现有脚本增加阶段时间、失败保留、信号传播和 stage process-group 清理；`bash tools/check_relay_scripts.sh` 覆盖成功、编译失败、空产物、各代内容漂移、取消和 seed 不被失败覆盖。 |
-| PERF-01 | 已采样，待进一步评估 | 默认 runtime 未配置 C 优化；自编译一次 2 秒采样中 185 个样本有 97 个落在一次 GC sweep 路径，其调用者是 `lookup_value_binding`，进程 footprint 约 2.8 GiB。这是局部样本，不是完整 profile。 | 优先评估绑定查找、CPS closure/environment 分配压力与 runtime 构建配置；不直接据此改 GC 或控制表示。 |
+| PERF-01 | 首轮优化通过，对照已记录 | 默认采用 RelWithDebInfo runtime；绑定查找的 name/mark 提取移出线性扫描。同一输入的 lookup-only 对照 user CPU 下降约 37%，输出 SSA 字节相同。 | 详见 `docs/toolchain.md`；剩余 GC/capture 工作不阻塞 C4.1，不据局部样本重构表示。 |
 
 REP-01 的本机 native 复现输入：
 
@@ -31,6 +31,30 @@ REP-01 的本机 native 复现输入：
 使用 `build/bin/nplc probe.npl -o probe`；检查 SSA 时使用 `--emit-qbe`（成功状态为 44）。后续修复的预期输出为 `abcdef#t` 加换行。
 
 固定点的用途、局限与保留建议统一记录在 `docs/toolchain.md`。以上 probe 是已知缺口的证据，不是当前通过的 acceptance fixtures。
+
+## 一致性首轮审查
+
+2026-09-07 用户授权提交后进入一致性修复，并将构建性能作为严重问题优先调查。本轮依据 R7RS 4.2.2、5.3.2、6.10 审查 shared frontend 输出，而不是根据既有测试数目推断完成。
+
+| 边界 | 审查结果与当前处理 |
+|---|---|
+| 原子、符号、字面量 | 数字/空表/100，101-104、108/109、204 均有两条执行路径；完整数值塔、reader 路径和 literal 可变性仍需继续差分。 |
+| 定义、lambda、应用 | 200/211/212、应用列表均有 dispatch；内部定义的 prebinding/order 提取为共享 `core-body-expression`。native 的 recursive-binding body 原先没有归一化内部定义，本轮修复。 |
+| 条件、绑定、顺序、赋值 | 213/214/216/217/221 已有路径；220/222 补齐，`let*` 展开移至 shared frontend。空 `let*` 保留局部 body scope。 |
+| 宏与 derived forms | 继续共用 expander、hygiene、library resolver；不另写语法。105 是 quasiquote 中间节点，230 是 CPS formals，不是 evaluator 应直接执行的表达式。 |
+| 绑定错误 | 原展开丢弃额外 initializer，导致两条路径都接受 malformed bindings；复用检查函数并在展开前检查。重复名字、未初始化引用、宏引入内部定义的完整错误契约仍待审查。 |
+| Continuation / multiple values | evaluator 原先硬限制 continuation 为一参；改用已有 `eval-list-to-values` 转发零/单/多值，保留既有 wind/handler/parameter transfer。 |
+| evaluator 对象身份 | 普通整数 tag 会与用户 vector 冲突，旧 REPL `(vector? (vector 903 42))` 报 `error: 42`。改为私有 identity tag；无需 C primitive。 |
+| primitive / 公共库 | native registry 112 名，evaluator registry 70 名，前者有 47 名不在后者中。注册缺失不等于所有高层行为缺失，但证明全面一致性尚未建立。 |
+| arity、类型与异常 | evaluator 部分检查产生 `eval-error`，部分直接进入终止进程的 C runtime；native 原语策略也不统一。`apply`、variadic comparison/string operations、literal mutation 和恢复行为需分族继续对齐。 |
+
+当前共同测试在 `tests/r7rs/fixtures/core-bindings/`，`tools/check_core_consistency.sh` 运行 positive 三方 stdout/stderr/status 比较，以及同一 TSV 中 malformed syntax 的 native 拒绝、Guile 拒绝和 REPL 恢复。REPL wrapper 通过 runner 的 `repl-body` 直接消费同一 `behavior.scm`，不再手工复制行为。当前 fixture 还覆盖三参数相邻数值比较及 32/62 位边界。
+
+未注册的 native primitive 名称（本轮没有伪称补齐）：`append`、bytevector 组、字符转换/判别、`close-output-port`、current-port 组、process/environment 组、memory/binary input 组、port 判别、peek/read/write binary 组、`number->string`、`write-shared` / `write-simple` 等。后续以 `PRIMITIVE-VALUE-SOURCE` 和 `EVAL-PRIMITIVE-NAMES` 的结构化差集为输入，优先共享公共 NPL 检查与库包装，避免维护第二套语言政策。
+
+The bounded consistency fixture now also covers three-operand numeric comparisons. Native, persistent REPL, and Guile agree on adjacent comparison results, including 32-bit/62-bit boundaries. This closes only the tested comparison contract; primitive registry parity, complete arity/type/error behavior, and C4.1 number integration remain open.
+
+
 
 ## 0. 目标与完成定义
 

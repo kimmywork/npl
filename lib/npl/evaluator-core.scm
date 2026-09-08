@@ -1,17 +1,19 @@
-; Shared persistent evaluator used by the REPL and the future (scheme eval).
+; Shared persistent evaluator used by the REPL and (scheme eval).
 
-(define EVAL-PRIMITIVE-TAG 901)
-(define EVAL-CLOSURE-TAG 902)
-(define EVAL-ERROR-TAG 903)
-(define EVAL-VALUES-TAG 904)
-(define EVAL-CONTINUATION-TAG 905)
-(define EVAL-PARAMETER-TAG 907)
-(define EVAL-WIND-TAG 908)
-(define EVAL-HANDLER-TAG 909)
-(define EVAL-PARAMETER-BINDING-TAG 910)
-(define EVAL-PROMISE-TAG 912)
-(define EVAL-ENVIRONMENT-TAG 913)
-(define EVAL-SESSION-TAG 914)
+; Identity-tagged objects cannot collide with ordinary user vectors.
+(define EVAL-TAG-OWNER (cons #f #f))
+(define EVAL-PRIMITIVE-TAG (cons EVAL-TAG-OWNER 901))
+(define EVAL-CLOSURE-TAG (cons EVAL-TAG-OWNER 902))
+(define EVAL-ERROR-TAG (cons EVAL-TAG-OWNER 903))
+(define EVAL-VALUES-TAG (cons EVAL-TAG-OWNER 904))
+(define EVAL-CONTINUATION-TAG (cons EVAL-TAG-OWNER 905))
+(define EVAL-PARAMETER-TAG (cons EVAL-TAG-OWNER 907))
+(define EVAL-WIND-TAG (cons EVAL-TAG-OWNER 908))
+(define EVAL-HANDLER-TAG (cons EVAL-TAG-OWNER 909))
+(define EVAL-PARAMETER-BINDING-TAG (cons EVAL-TAG-OWNER 910))
+(define EVAL-PROMISE-TAG (cons EVAL-TAG-OWNER 912))
+(define EVAL-ENVIRONMENT-TAG (cons EVAL-TAG-OWNER 913))
+(define EVAL-SESSION-TAG (cons EVAL-TAG-OWNER 914))
 (define EVAL-UNSPECIFIED (vector 906))
 
 (define EVAL-PROMISE-DONE 0)
@@ -46,7 +48,7 @@
 (define (eval-tagged? value tag)
   (if (vector? value)
       (if (> (vector-length value) 0)
-          (= (vector-ref value 0) tag)
+          (eq? (vector-ref value 0) tag)
           #f)
       #f))
 
@@ -512,6 +514,10 @@
                         (eval-bind-formals
                           (cdr formals) (cdr arguments) frame))))))))
 
+(define (eval-body expressions environment continuation)
+  (eval-expression (frontend-core-body-expression expressions)
+                   environment continuation))
+
 (define (eval-sequence expressions environment continuation)
   (if (null? expressions)
       (continuation EVAL-UNSPECIFIED)
@@ -574,17 +580,34 @@
       (eval-number-binary-result name left right)
       (eval-error (string-append name ": expected numbers"))))
 
+(define (eval-number-comparison name arguments continuation)
+  (if (< (length arguments) 2)
+      (continuation
+        (eval-error (string-append name ": needs at least two arguments")))
+      (if (eval-number-list? arguments)
+          (continuation (eval-compare-adjacent name arguments))
+          (continuation
+            (eval-error (string-append name ": expected numbers"))))))
+
+(define (eval-compare-adjacent name arguments)
+  (if (null? (cdr arguments))
+      #t
+      (if (eval-number-binary-result
+            name (car arguments) (car (cdr arguments)))
+          (eval-compare-adjacent name (cdr arguments))
+          #f)))
+
 (define (eval-user-vector? value)
   (if (not (vector? value))
       #f
-      (if (= (vector-length value) 0)
-          #t
-          (let ((tag (vector-ref value 0)))
-            (if (number? tag)
-                (if (>= tag EVAL-PRIMITIVE-TAG)
-                    (> tag EVAL-SESSION-TAG)
-                    #t)
-                #t)))))
+      (if (eval-unspecified? value)
+          #f
+          (if (= (vector-length value) 0)
+              #t
+              (let ((tag (vector-ref value 0)))
+                (if (pair? tag)
+                    (not (eq? (car tag) EVAL-TAG-OWNER))
+                    #t))))))
 
 (define (eval-vector-index? value index)
   (if (eval-user-vector? value)
@@ -636,15 +659,15 @@
                    (eval-fold-minus (cdr arguments) (car arguments)))))
          (continuation (eval-error "-: expected numbers"))))
     ((string=? name "=")
-     (eval-primitive-binary name arguments continuation))
+     (eval-number-comparison name arguments continuation))
     ((string=? name "<")
-     (eval-primitive-binary name arguments continuation))
+     (eval-number-comparison name arguments continuation))
     ((string=? name "<=")
-     (eval-primitive-binary name arguments continuation))
+     (eval-number-comparison name arguments continuation))
     ((string=? name ">")
-     (eval-primitive-binary name arguments continuation))
+     (eval-number-comparison name arguments continuation))
     ((string=? name ">=")
-     (eval-primitive-binary name arguments continuation))
+     (eval-number-comparison name arguments continuation))
     ((string=? name "cons")
      (eval-primitive-binary name arguments continuation))
     ((string=? name "set-car!")
@@ -970,15 +993,13 @@
                                   arguments frame)))
          (if error
              (continuation error)
-             (eval-sequence
+             (eval-body
                (vector-ref procedure 2)
                (eval-environment frame (vector-ref procedure 3)
                                  #t #f #f)
                continuation)))))
     ((eval-tagged? procedure EVAL-CONTINUATION-TAG)
-     (let ((error (eval-arity arguments 1 "continuation")))
-       (if error (continuation error)
-           (eval-restore-continuation procedure (car arguments)))))
+     (eval-restore-continuation procedure (eval-list-to-values arguments)))
     ((eval-parameter? procedure)
      (if (null? arguments)
          (continuation (eval-parameter-ref procedure))
@@ -1097,19 +1118,19 @@
                       (eval-disjunction (cdr expressions) environment continuation)
                       (continuation single)))))))))
 
-(define (eval-binding-arguments bindings environment continuation)
+(define (eval-binding-arguments bindings environment who continuation)
   (if (null? bindings)
       (continuation '())
       (eval-expression
         (cdr (car bindings)) environment
         (lambda (value)
           (eval-single
-            value "let"
+            value who
             (lambda (single)
               (if (eval-error? single)
                   (continuation single)
                   (eval-binding-arguments
-                    (cdr bindings) environment
+                    (cdr bindings) environment who
                     (lambda (rest)
                       (if (eval-error? rest)
                           (continuation rest)
@@ -1125,7 +1146,7 @@
   (let ((bindings (car (cdr form)))
         (body (car (cdr (cdr form)))))
     (eval-binding-arguments
-      bindings environment
+      bindings environment "let"
       (lambda (arguments)
         (if (eval-error? arguments)
             (continuation arguments)
@@ -1133,23 +1154,6 @@
               (eval-closure
                 (eval-binding-formals bindings) body environment)
               arguments environment continuation))))))
-
-(define (eval-letrec-initializers bindings environment continuation)
-  (if (null? bindings)
-      (continuation '())
-      (eval-expression
-        (cdr (car bindings)) environment
-        (lambda (value)
-          (eval-single value "letrec"
-            (lambda (single)
-              (if (eval-error? single)
-                  (continuation single)
-                  (eval-letrec-initializers
-                    (cdr bindings) environment
-                    (lambda (rest)
-                      (if (eval-error? rest)
-                          (continuation rest)
-                          (continuation (cons single rest))))))))))))
 
 (define (eval-letrec-assign! bindings values environment)
   (if (null? bindings)
@@ -1169,23 +1173,42 @@
                       EVAL-UNSPECIFIED)
         (eval-predeclare-bindings (cdr bindings) environment))))
 
-(define (eval-letrec form environment continuation)
+(define (eval-initialize-bindings bindings environment continuation)
+  (if (null? bindings)
+      (continuation EVAL-UNSPECIFIED)
+      (eval-expression (cdr (car bindings)) environment
+        (lambda (value)
+          (eval-single value "letrec*"
+            (lambda (single)
+              (if (eval-error? single)
+                  (continuation single)
+                  (let ((assigned
+                          (eval-set! environment (car (car bindings)) single)))
+                    (if (eval-error? assigned)
+                        (continuation assigned)
+                        (eval-initialize-bindings
+                          (cdr bindings) environment continuation))))))))))
+
+(define (eval-letrec form environment sequential continuation)
   (let ((bindings (car (cdr form)))
         (body (car (cdr (cdr form))))
         (recursive-environment
           (eval-environment (eval-frame) environment #t #f #f)))
     (eval-predeclare-bindings bindings recursive-environment)
-    (eval-letrec-initializers bindings recursive-environment
-      (lambda (values)
-        (if (eval-error? values)
-            (continuation values)
-            (let ((assigned
-                    (eval-letrec-assign!
-                      bindings values recursive-environment)))
+    (let ((finish
+            (lambda (assigned)
               (if (eval-error? assigned)
                   (continuation assigned)
-                  (eval-sequence
-                    body recursive-environment continuation))))))))
+                  (eval-body body recursive-environment continuation)))))
+      (if sequential
+          (eval-initialize-bindings bindings recursive-environment finish)
+          (eval-binding-arguments bindings recursive-environment "letrec"
+            (lambda (values)
+              (if (eval-error? values)
+                  (continuation values)
+                  (finish
+                    (eval-letrec-assign!
+                      bindings values recursive-environment)))))))))
 
 (define (eval-core-literal expression continuation)
   (let ((tag (car expression)))
@@ -1240,8 +1263,15 @@
      (eval-sequence (cdr expression) environment continuation))
     ((eval-core-tagged? expression 217)
      (eval-set-form expression environment continuation))
+    ((eval-core-tagged? expression 220)
+     (eval-expression
+       (frontend-expand-core-letstar
+         (car (cdr expression)) (car (cdr (cdr expression))))
+       environment continuation))
     ((eval-core-tagged? expression 221)
-     (eval-letrec expression environment continuation))
+     (eval-letrec expression environment #f continuation))
+    ((eval-core-tagged? expression 222)
+     (eval-letrec expression environment #t continuation))
     ((number? (car expression))
      (continuation (eval-error "unsupported core expression")))
     ((not (eval-proper-list? expression))
