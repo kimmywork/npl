@@ -49,8 +49,7 @@
       env
       (bind-values
         (cdr binds) (cdr values)
-        (env-extend env (cdr (car (car binds)))
-                    (make-cell-op (car values))))))
+        (env-bind env (cdr (car (car binds))) (car values)))))
 
 (define (emit-let e env)
   (let ((binds (car (cdr e))))
@@ -69,7 +68,7 @@
         (let ((value (emit-expr (cdr binding) env)))
           (emit-letstar-binds
             (cdr binds) body
-            (env-extend env (cdr (car binding)) (make-cell-op value)))))))
+            (env-bind env (cdr (car binding)) value))))))
 
 (define (allocate-bindings binds env)
   (if (null? binds)

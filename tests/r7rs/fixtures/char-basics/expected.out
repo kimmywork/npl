@@ -1,0 +1,5 @@
+(convert (97 #\B 126 #t #f))
+(case (#\A #\q #\z #\1))
+(classes (#t #f #t #t #f #t #f))
+(digits (7 #f))
+(compare (#t #t #f #t #t #t))

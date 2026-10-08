@@ -777,7 +777,8 @@ static const char *gen_expr(QbeCtx *ctx, AstNode *expr, int depth)
             emit(ctx, "jnz %s, %s, %s", isp, lptr, lnoptr);
             fprintf(ctx->out, "%s\n", lptr);
             const char *addr = qbe_gen_tmp(ctx);
-            emit(ctx, "%s =l add %s, -4", addr, val);  /* strip tag: ptr & ~3 */
+            /* strip TAG_PTR (1); the header starts at the untagged address */
+            emit(ctx, "%s =l sub %s, 1", addr, val);
             const char *hdr = qbe_gen_tmp(ctx);
             emit(ctx, "%s =l loadsw %s", hdr, addr);
             emit(ctx, "%s =w ceqw %s, %d", raw, hdr, NPL_BOX_PAIR);

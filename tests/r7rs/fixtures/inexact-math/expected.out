@@ -1,0 +1,8 @@
+(real (#t #t #t #t #t #t #t #t #t #t #t))
+(optional (#t #t #t #t #t #t))
+(complex (#t #t #t #t #t #t #t #t #t #t #t))
+(branches (#t #t #t #t #t #t))
+(cuts (#t #t #t #t #t #t #t #t #t #t))
+(classification (#t #t #t #t #t #t #t #t #t #t #t #t))
+(special (#t #t #t #t #t #t))
+(errors (caught caught caught caught caught caught caught))

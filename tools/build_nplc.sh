@@ -1,7 +1,11 @@
 #!/bin/bash
-# Restore the raw compiler, then compile the NPL three-stage driver.
-# Usage: ./tools/build_nplc.sh [driver-output-path]
+# Build the unified nplc from the canonical SSA seed.
+# Usage: ./tools/build_nplc.sh [output-path]
 # Default output: build/bin/nplc
+#
+# The seed is target-independent SSA; this script only assembles and links it
+# against the runtime. Prefer tools/build_toolchain.sh, which also creates the
+# build-tree install layout that nplc resolves its tools and libraries from.
 
 set -eu
 
@@ -10,7 +14,6 @@ BUILD="$ROOT/build"
 QBE="$BUILD/qbe/qbe"
 RUNTIME="$BUILD/runtime/libnpl_runtime.a"
 CURRENT="$ROOT/bootstrap/current.ssa"
-RAW="$BUILD/bin/nplc-raw"
 OUTPUT=${1:-"$BUILD/bin/nplc"}
 CC_BIN=${CC:-cc}
 CC_PATH=$(command -v "$CC_BIN")
@@ -24,45 +27,13 @@ esac
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
 ninja -C "$BUILD" qbe_build npl_runtime >/dev/null
-mkdir -p "$BUILD/bin" "$(dirname "$OUTPUT")"
+mkdir -p "$(dirname "$OUTPUT")"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-"$QBE" -o "$work/nplc-raw.s" "$CURRENT"
-"$CC_PATH" -o "$RAW" "$work/nplc-raw.s" "$RUNTIME"
+"$QBE" -o "$work/nplc.s" "$CURRENT"
+"$CC_PATH" -o "$OUTPUT" "$work/nplc.s" "$RUNTIME" -lm
+# The pre-unification helper binary is no longer produced or used.
+rm -f "$BUILD/bin/nplc-raw"
 
-npl_escape() {
-    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
-}
-
-{
-    printf '%s\n' \
-        '(import (scheme base)' \
-        '        (scheme file)' \
-        '        (scheme write)' \
-        '        (scheme process-context)' \
-        '        (npl process))'
-    printf '(define DRIVER-RAW-COMPILER "%s")\n' "$(npl_escape "$RAW")"
-    printf '(define DRIVER-QBE "%s")\n' "$(npl_escape "$QBE")"
-    printf '(define DRIVER-CC "%s")\n' "$(npl_escape "$CC_PATH")"
-    printf '(define DRIVER-RUNTIME "%s")\n' "$(npl_escape "$RUNTIME")"
-    printf '(define DRIVER-STDLIB "%s")\n' "$(npl_escape "$ROOT/lib")"
-    printf '(include "%s")\n' "$(npl_escape "$ROOT/src/driver/main.npl")"
-} > "$work/driver.npl"
-
-set +e
-"$RAW" --emit-qbe --stdlib-root "$ROOT/lib" "$work/driver.npl" \
-    > "$work/driver.ssa"
-compile_status=$?
-set -e
-if [ "$compile_status" -ne 44 ]; then
-    echo "failed to compile NPL driver" >&2
-    cat "$work/driver.ssa" >&2
-    exit 1
-fi
-
-"$QBE" -o "$work/driver.s" "$work/driver.ssa"
-"$CC_PATH" -o "$OUTPUT" "$work/driver.s" "$RUNTIME"
-
-printf 'built NPL driver: %s\n' "$OUTPUT"
-printf 'built raw compiler: %s\n' "$RAW"
+printf 'built nplc: %s\n' "$OUTPUT"

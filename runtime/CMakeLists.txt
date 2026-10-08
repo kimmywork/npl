@@ -4,8 +4,10 @@ set(RUNTIME_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(npl_runtime STATIC
   ${RUNTIME_SRC_DIR}/alloc.c
+  ${RUNTIME_SRC_DIR}/complex.c
   ${RUNTIME_SRC_DIR}/control.c
   ${RUNTIME_SRC_DIR}/gc.c
+  ${RUNTIME_SRC_DIR}/inexact.c
   ${RUNTIME_SRC_DIR}/io.c
   ${RUNTIME_SRC_DIR}/lexer.c
   ${RUNTIME_SRC_DIR}/numeric.c
@@ -13,6 +15,8 @@ add_library(npl_runtime STATIC
 )
 
 target_include_directories(npl_runtime PUBLIC ${RUNTIME_SRC_DIR})
+# libm (inexact math); a separate library on Linux, part of libSystem on macOS.
+target_link_libraries(npl_runtime PUBLIC m)
 target_compile_options(npl_runtime PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic
   -Wno-unused-parameter

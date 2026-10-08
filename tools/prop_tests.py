@@ -15,11 +15,12 @@ Properties:
   P4 IDEMPOTENT AST    — printing the AST of a valid program is stable and
                          re-reading it yields an identical AST.
 
-Usage: python3 tools/prop_tests.py [--seeds N]
+Usage: python3 tools/prop_tests.py [--seeds N] [--jobs N]
 Exit 0 if all properties hold.
 """
 
 import argparse
+import concurrent.futures
 import os
 import random
 import subprocess
@@ -130,35 +131,42 @@ class EvalModel:
         return ((value * 4) % 256 + 256) % 256    # low byte of v<<2
 
 
-def pbt_eval(seeds, work):
-    """Property 1: generated arithmetic == reference model."""
+def eval_case(model, seed, work):
+    """Compile and run one generated program; return a failure line or None."""
+    rng = random.Random(seed)
+    expr = model.gen_expr(rng, depth=4, env=[])
+    prog = f"(define (main) {model.render(expr)})\n"
+    src = os.path.join(work, f"p1_{seed}.npl")
+    binp = os.path.join(work, f"p1_{seed}")
+    with open(src, "w") as f:
+        f.write(prog)
+    c = subprocess.run([NPLC0, "-o", binp, src], capture_output=True)
+    if c.returncode != 0:
+        return f"  seed={seed}: compile failed: {c.stderr.decode()[:120]}"
+    r = subprocess.run([binp], capture_output=True)
+    want = model.expected_exit(model.eval(expr))
+    got = r.returncode % 256
+    if got != want:
+        return (f"  seed={seed}: eval mismatch src={prog.strip()!r} "
+                f"want={want} got={got}")
+    return None
+
+
+def pbt_eval(seeds, work, jobs):
+    """Property 1: generated arithmetic == reference model.
+
+    Cases are independent (per-seed RNG, per-seed files), so they run in a
+    bounded thread pool; results are reported in seed order."""
     model = EvalModel()
-    fails = 0
-    for seed in range(seeds):
-        rng = random.Random(seed)
-        expr = model.gen_expr(rng, depth=4, env=[])
-        prog = (f"(define (main) {model.render(expr)})\n")
-        src = os.path.join(work, f"p1_{seed}.npl")
-        binp = os.path.join(work, f"p1_{seed}")
-        with open(src, "w") as f:
-            f.write(prog)
-        c = subprocess.run([NPLC0, "-o", binp, src],
-                           capture_output=True)
-        if c.returncode != 0:
-            fails += 1
-            print(f"  seed={seed}: compile failed: {c.stderr.decode()[:120]}")
-            continue
-        r = subprocess.run([binp], capture_output=True)
-        want = model.expected_exit(model.eval(expr))
-        got = r.returncode % 256
-        if got != want:
-            fails += 1
-            print(f"  seed={seed}: eval mismatch src={prog.strip()!r} "
-                  f"want={want} got={got}")
-    if fails == 0:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+        failures = [line for line in pool.map(
+            lambda seed: eval_case(model, seed, work), range(seeds)) if line]
+    for line in failures:
+        print(line)
+    if not failures:
         record("pass", f"P1 eval-correctness ({seeds} random programs)")
     else:
-        record("fail", f"P1 eval-correctness", f"{fails} mismatches")
+        record("fail", f"P1 eval-correctness", f"{len(failures)} mismatches")
 
 
 # ---------------------------------------------------------------- P2 fuzz
@@ -261,6 +269,7 @@ def pbt_idempotent(work):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seeds", type=int, default=200)
+    ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     args = ap.parse_args()
 
     if not os.path.exists(NPLC0):
@@ -268,7 +277,7 @@ def main():
         sys.exit(2)
 
     with tempfile.TemporaryDirectory(prefix="npl_pbt_") as work:
-        pbt_eval(args.seeds, work)
+        pbt_eval(args.seeds, work, max(1, args.jobs))
         pbt_fuzz(min(args.seeds, 120), work)
         pbt_fail_fast(work)
         pbt_idempotent(work)

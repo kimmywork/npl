@@ -1,4 +1,17 @@
-; Persistent interaction loop over the shared NPL evaluator.
+; npli: persistent REPL and program runner over the shared NPL evaluator.
+;
+;   npli [--no-prompt]            interactive loop on standard input
+;   npli FILE [ARG ...]           run FILE, then exit
+;   npli -e EXPR ... [FILE ...]   evaluate expressions (then run FILE)
+;   npli -h | --help
+;
+; A program sees (command-line) as (FILE ARG ...), like other R7RS runners.
+
+(define NPLI-USAGE
+"usage: npli [--no-prompt]
+       npli [--stdlib-root DIR] FILE [ARG ...]
+       npli [--stdlib-root DIR] -e EXPR [-e EXPR ...] [FILE [ARG ...]]
+")
 
 (define (repl-exit-form? expression)
   (if (pair? expression)
@@ -51,18 +64,110 @@
                         (repl-print-value value))
                     (repl-loop environment prompt?))))))))
 
-(define (repl-prompt? arguments)
-  (if (null? arguments)
-      #t
-      (if (if (string=? (car arguments) "--no-prompt")
-              (null? (cdr arguments)) #f)
-          #f
+; ---------------- program runner ----------------
+
+(define (npli-usage-error message)
+  (display "npli: " (current-error-port))
+  (display message (current-error-port))
+  (newline (current-error-port))
+  (display NPLI-USAGE (current-error-port))
+  (exit 2))
+
+; Evaluation errors terminate a program with status 70 (EX_SOFTWARE); a
+; program's own (exit n) exits with n.
+(define (npli-fail error)
+  (repl-report-error error)
+  (exit 70))
+
+(define (npli-evaluate-source source environment)
+  (let ((port (open-input-string source)))
+    (let loop ()
+      (let ((form (read port)))
+        (if (eof-object? form)
+            0
+            (let ((value (eval-in-environment form environment)))
+              (if (eval-error? value) (npli-fail value))
+              (loop)))))))
+
+(define (npli-run-file path arguments environment)
+  (if (not (file-exists? path))
+      (begin
+        (display (string-append "npli: cannot open " path)
+                 (current-error-port))
+        (newline (current-error-port))
+        (exit 66)))
+  (set-command-line! (cons path arguments))
+  (let ((value (eval-load-file path environment)))
+    (if (eval-error? value) (npli-fail value))
+    0))
+
+; Options come first; the first non-option argument is the program and the
+; rest are its arguments, never interpreted by npli.
+(define (npli-main arguments expressions prompt?)
+  (cond
+    ((null? arguments)
+     (if (null? expressions)
+         (repl-loop (interaction-environment) prompt?)
+         (begin
+           (npli-run-expressions (reverse expressions))
+           0)))
+    ((if (string=? (car arguments) "-h") #t
+         (string=? (car arguments) "--help"))
+     (display NPLI-USAGE)
+     0)
+    ((string=? (car arguments) "--no-prompt")
+     (npli-main (cdr arguments) expressions #f))
+    ((string=? (car arguments) "--stdlib-root")
+     (if (null? (cdr arguments))
+         (npli-usage-error "--stdlib-root needs a directory"))
+     (set-eval-standard-root! (car (cdr arguments)))
+     (npli-main (cdr (cdr arguments)) expressions prompt?))
+    ((string=? (car arguments) "-e")
+     (if (null? (cdr arguments)) (npli-usage-error "-e needs an expression"))
+     (npli-main (cdr (cdr arguments))
+                (cons (car (cdr arguments)) expressions) prompt?))
+    ((string=? (car arguments) "--")
+     (if (null? (cdr arguments)) (npli-usage-error "-- needs a program"))
+     (npli-run (reverse expressions) (car (cdr arguments))
+               (cdr (cdr arguments))))
+    ((if (> (string-length (car arguments)) 1)
+         (= (string-ref (car arguments) 0) 45) #f)
+     (npli-usage-error (string-append "unknown option " (car arguments))))
+    (else
+     (npli-run (reverse expressions) (car arguments) (cdr arguments)))))
+
+(define (npli-run-expressions expressions)
+  (let ((environment (interaction-environment)))
+    (let loop ((rest expressions))
+      (if (pair? rest)
           (begin
-            (display "usage: npl-repl [--no-prompt]\n"
-                     (current-error-port))
-            (exit 2)))))
+            (npli-evaluate-source (car rest) environment)
+            (loop (cdr rest)))))))
+
+(define (npli-run expressions path arguments)
+  (npli-run-expressions expressions)
+  (npli-run-file path arguments (interaction-environment)))
+
+; Standard library root: NPL_STDLIB_ROOT, then the install layout next to
+; this executable, then the build-time default. --stdlib-root overrides all.
+(define (npli-default-stdlib)
+  (let ((environment (get-environment-variable "NPL_STDLIB_ROOT")))
+    (if (if environment (> (string-length environment) 0) #f)
+        environment
+        (let ((self (executable-path)))
+          (let ((layout (if self
+                            (string-append (npli-directory self)
+                                           "../share/npl/lib")
+                            #f)))
+            (if (if layout (file-exists? layout) #f) layout REPL-STDLIB))))))
+
+(define (npli-directory path)
+  (let loop ((index (- (string-length path) 1)))
+    (cond
+      ((< index 0) "")
+      ((= (string-ref path index) 47) (substring path 0 (+ index 1)))
+      (else (loop (- index 1))))))
 
 (define (main)
-  (set-eval-standard-root! REPL-STDLIB)
-  (exit (repl-loop (interaction-environment)
-                   (repl-prompt? (command-line)))))
+  (set-eval-standard-root! (npli-default-stdlib))
+  (exit (npli-main (cdr (command-line)) '() #t)))

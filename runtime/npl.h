@@ -52,6 +52,8 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_PORT 17
 #define BOX_EOF 18
 #define BOX_BIGNUM 19
+#define BOX_RATIONAL 20
+#define BOX_COMPLEX 21
 
 #define NPL_FLAG_LITERAL 1
 #define IMM_CHAR_TAG 14
@@ -208,11 +210,24 @@ typedef struct {
 
 typedef struct {
     NplHeader header;
+    NplVal real;
+    NplVal imag;
+} NplComplex;
+
+typedef struct {
+    NplHeader header;
     int32_t sign;
     uint32_t count;
     uint32_t capacity;
     uint32_t limbs[];
 } NplBigint;
+
+/* Reduced exact fraction; denominator > 1 and numerator is nonzero. */
+typedef struct {
+    NplHeader header;
+    NplVal numerator;
+    NplVal denominator;
+} NplRational;
 
 /* ---- Constructor/destructor macros ---- */
 
@@ -336,6 +351,24 @@ NplVal npl_symbol(const char *s, uint32_t len);
 
 /* Allocate a float. */
 NplVal npl_float(double v);
+NplVal npl_inexact_p(NplVal value);
+/* IEEE binary64 payload as an exact unsigned decimal integer for static data. */
+NplVal npl_inexact_bits(NplVal value);
+NplVal npl_inexact_parse(NplVal value);
+NplVal npl_inexact_string(NplVal value);
+NplVal npl_inexact_op(NplVal operation, NplVal value);
+NplVal npl_inexact_binary(NplVal operation, NplVal left, NplVal right);
+NplVal npl_finite_p(NplVal value);
+NplVal npl_nan_p(NplVal value);
+NplVal npl_infinite_p(NplVal value);
+NplVal npl_inexact_eqv(NplVal left, NplVal right);
+int npl_is_inexact(NplVal value);
+double npl_real_double(NplVal value);
+NplVal npl_real_exact(NplVal value);
+NplVal npl_inexact_arithmetic(NplVal left, NplVal right, char operation);
+int32_t npl_inexact_compare(NplVal left, NplVal right);
+int npl_is_complex(NplVal value);
+NplVal npl_complex_arithmetic(NplVal left, NplVal right, char operation);
 
 
 NplVal npl_make_vector(int64_t argc, NplVal *argv);
@@ -432,11 +465,32 @@ NplVal npl_newline(void);
 /* ---- Exact integer substrate (decimal conversion; no public tower policy) ---- */
 NplVal npl_integer_from_string(NplVal v);
 NplVal npl_integer_string_p(NplVal v);
+/* Exact integer/rational conversion; invalid syntax returns #f. */
+NplVal npl_number_from_string(NplVal v);
+NplVal npl_number_from_string_radix(NplVal v, NplVal radix);
+/* Canonical rectangular constructor: exact-zero imaginary parts demote. */
+NplVal npl_complex_make(NplVal real, NplVal imag);
+NplVal npl_complex_p(NplVal value);
+NplVal npl_complex_real(NplVal value);
+NplVal npl_complex_imag(NplVal value);
+NplVal npl_exact_to_inexact(NplVal v);
+NplVal npl_inexact_to_exact(NplVal v);
+NplVal npl_integer_p(NplVal v);
+NplVal npl_string_p(NplVal v);
 NplVal npl_number_to_string(NplVal v);
+NplVal npl_number_to_string_radix(NplVal v, NplVal radix);
 NplVal npl_number_add(NplVal left, NplVal right);
 NplVal npl_number_sub(NplVal left, NplVal right);
 NplVal npl_number_mul(NplVal left, NplVal right);
+NplVal npl_number_div(NplVal left, NplVal right);
+NplVal npl_rational_make(NplVal numerator, NplVal denominator);
+NplVal npl_rational_numerator(NplVal value);
+NplVal npl_rational_denominator(NplVal value);
+NplVal npl_number_quotient(NplVal left, NplVal right);
+NplVal npl_number_remainder(NplVal left, NplVal right);
+NplVal npl_number_gcd(NplVal left, NplVal right);
 int32_t npl_number_compare(NplVal left, NplVal right);
+NplVal npl_number_zero_p(NplVal value);
 NplVal npl_number_p(NplVal v);
 NplVal npl_eqv(NplVal left, NplVal right);
 
@@ -456,6 +510,8 @@ NplVal npl_int_to_string_char(NplVal code);         /* 1-byte string */
 /* ---- bootstrap I/O & control ---- */
 void npl_store_args(int argc, char **argv);   /* called from emitted $main */
 NplVal npl_program_arguments(void);           /* list of arg strings, argv[1..] */
+NplVal npl_command_line(void);                /* R7RS: command name + arguments */
+NplVal npl_set_command_line(NplVal arguments);
 NplVal npl_read_file(NplVal path);            /* whole file as string; aborts on error */
 NplVal npl_process_run(NplVal arguments, NplVal output_path);
 NplVal npl_get_environment_variable(NplVal name);
@@ -464,6 +520,7 @@ NplVal npl_file_exists(NplVal path);
 NplVal npl_delete_file(NplVal path);
 NplVal npl_make_temporary_directory(void);
 NplVal npl_delete_directory(NplVal path);
+NplVal npl_executable_path(void);            /* absolute path or #f */
 void npl_exit(NplVal code);                   /* untagged fixnum, low byte */
 
 /* bootstrap lexer hooks — all take TAGGED values */

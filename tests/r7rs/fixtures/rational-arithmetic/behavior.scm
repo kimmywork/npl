@@ -1,0 +1,48 @@
+(define (report name value) (write (list name value)) (newline))
+(define (caught thunk)
+  (guard (condition (else 'caught)) (thunk) 'not-caught))
+(define large 123456789012345678901234567891/100000000000000000000000000003)
+(define (read-number text)
+  (let ((port (open-input-string text)))
+    (let ((value (read port))) (close-input-port port) value)))
+(define (rational-results)
+  (report 'literals (list 1/2 -6/8 +9/12 0/15 14/7 large))
+  (report 'quoted (list '(1/2 . -2/3) '#(3/4 8/4)
+                        '#(123456789012345678901234567891/100000000000000000000000000003)))
+  (report 'arithmetic
+    (list (/ 3 4) (/ -3 -4) (/ 2) (/ 12 2 3) (/ 1/2 2/3)
+          (+ 1/2 2/3 4) (- 1/2) (- 3 1/2 2/3) (* 1/2 6 2/3)
+          (/ large large) (- large large)))
+  (report 'classification
+    (list (number? 1/2) (rational? 1/2) (real? 1/2) (complex? 1/2)
+          (integer? 1/2) (integer? 4/2) (exact-integer? 4/2)
+          (exact? 1/2) (inexact? 1/2) (rational? 'a) (integer? #f)))
+  (report 'components
+    (list (numerator -6/8) (denominator -6/8)
+          (numerator large) (denominator large) (numerator -7) (denominator -7)))
+  (report 'comparison
+    (list (= 1/2 3/6) (eqv? 1/2 (read-number "2/4"))
+          (eqv? 1/2 2/3) (< -2/3 0 1/2 large)
+          (<= 1/2 3/6 1) (> large 1 1/2) (>= 3/6 1/2)))
+  (report 'conversion
+    (list (number->string large) (read-number "-06/08")
+          (string->number "+6/8") (string->number "1/0")
+          (string->number "1/-2") (string->number "1//2")
+          (string->number "1/") (string->number "/2")
+          (= large (read-number (number->string large)))))
+  (report 'errors
+    (list (caught (lambda () (/))) (caught (lambda () (/ 0)))
+          (caught (lambda () (/ 1 0))) (caught (lambda () (/ 1/2 0)))
+          (caught (lambda () (/ #f))) (caught (lambda () (/ 1 'x)))
+          (caught (lambda () (numerator #f)))
+          (caught (lambda () (denominator 'x)))
+          (caught (lambda () (exact? 'x))) (caught (lambda () (inexact? #f)))
+          (caught (lambda () (string->number #f)))))
+  (report 'generated
+    (letrec ((loop (lambda (n value)
+                     (if (= n 0) #t
+                         (if (= (- (+ value 7/13) 7/13) value)
+                             (if (= (/ (* value -9/17) -9/17) value)
+                                 (loop (- n 1) (+ value 1/7)) #f) #f)))))
+      (loop 24 large))))
+(define fixture-result (begin (rational-results) 0))

@@ -1,0 +1,6 @@
+(signs (42 1/2 #t #f #t #t #t #t))
+(gcd-lcm (6 60 90 42))
+(division (-2 -3 2 -2 3 -2))
+(powers (1 1024 -243 144 343/27 1/2))
+(rounding (2 3 -2 4 2))
+(errors (caught caught #t))

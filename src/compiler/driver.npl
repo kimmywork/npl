@@ -1,0 +1,312 @@
+; Unified nplc command line: options, tool and library resolution, and the
+; ssa -> asm -> obj/exe stage pipeline. SSA emission itself is program.npl.
+;
+; SSA to standard output is emitted in-process (this is the relay path). Any
+; file-producing build re-runs this executable with --emit=ssa redirected into
+; a temporary file, so a failing compilation (which exits) cannot leave the
+; driver's temporary directory or a partial output behind.
+
+(define DRIVER-USAGE
+"usage: nplc [options] <source.npl>
+
+Output kinds (default exe):
+  --emit=ssa        QBE SSA (standard output unless -o is given)
+  --emit=asm, -S    assembly
+  --emit=obj, -c    object file
+  --emit=exe        executable
+  --emit-qbe        same as --emit=ssa
+  --emit=staticlib, --emit=dylib are reserved and not yet supported
+
+Options:
+  -o PATH           output path (default: derived from the source name)
+  --keep-temps      keep intermediate files and report their directory
+  --stdlib-root DIR standard library root   (env NPL_STDLIB_ROOT)
+  --qbe PATH        QBE executable          (env NPL_QBE)
+  --cc PATH         C compiler and linker   (env NPL_CC, then CC)
+  --runtime PATH    runtime archive         (env NPL_RUNTIME)
+  -h, --help        show this help
+")
+
+; Configuration slots.
+(define DRIVER-KIND 0)
+(define DRIVER-OUTPUT 1)
+(define DRIVER-SOURCE 2)
+(define DRIVER-STDLIB 3)
+(define DRIVER-QBE 4)
+(define DRIVER-CC 5)
+(define DRIVER-RUNTIME 6)
+(define DRIVER-KEEP 7)
+
+(define (driver-config) (vector "exe" #f #f #f #f #f #f #f))
+(define (driver-get config slot) (vector-ref config slot))
+(define (driver-set! config slot value) (vector-set! config slot value))
+
+(define (driver-message text)
+  (display "nplc: " (current-error-port))
+  (display text (current-error-port))
+  (newline (current-error-port)))
+
+(define (driver-error text)
+  (driver-message text)
+  (exit 2))
+
+(define (driver-prefix? prefix text)
+  (if (< (string-length text) (string-length prefix))
+      #f
+      (string=? prefix (substring text 0 (string-length prefix)))))
+
+(define (driver-set-kind! config kind)
+  (cond
+    ((if (string=? kind "exe") #t
+         (if (string=? kind "obj") #t
+             (if (string=? kind "asm") #t (string=? kind "ssa"))))
+     (driver-set! config DRIVER-KIND kind))
+    ((if (string=? kind "staticlib") #t (string=? kind "dylib"))
+     (driver-error
+       (string-append "--emit=" kind
+                      " is not yet supported (see docs/plan-toolchain.md D1)")))
+    (else (driver-error (string-append "unknown output kind: " kind)))))
+
+(define (driver-value option rest)
+  (if (null? rest)
+      (driver-error (string-append option " needs a value"))
+      (car rest)))
+
+(define (driver-parse! config arguments)
+  (if (null? arguments)
+      config
+      (let ((argument (car arguments))
+            (rest (cdr arguments)))
+        (cond
+          ((if (string=? argument "-h") #t (string=? argument "--help"))
+           (display DRIVER-USAGE)
+           (exit 0))
+          ((string=? argument "--emit-qbe")
+           (driver-set-kind! config "ssa")
+           (driver-parse! config rest))
+          ((string=? argument "-S")
+           (driver-set-kind! config "asm")
+           (driver-parse! config rest))
+          ((string=? argument "-c")
+           (driver-set-kind! config "obj")
+           (driver-parse! config rest))
+          ((driver-prefix? "--emit=" argument)
+           (driver-set-kind! config
+             (substring argument 7 (string-length argument)))
+           (driver-parse! config rest))
+          ((string=? argument "--keep-temps")
+           (driver-set! config DRIVER-KEEP #t)
+           (driver-parse! config rest))
+          ((string=? argument "-o")
+           (driver-set! config DRIVER-OUTPUT (driver-value argument rest))
+           (driver-parse! config (cdr rest)))
+          ((string=? argument "--stdlib-root")
+           (driver-set! config DRIVER-STDLIB (driver-value argument rest))
+           (driver-parse! config (cdr rest)))
+          ((string=? argument "--qbe")
+           (driver-set! config DRIVER-QBE (driver-value argument rest))
+           (driver-parse! config (cdr rest)))
+          ((string=? argument "--cc")
+           (driver-set! config DRIVER-CC (driver-value argument rest))
+           (driver-parse! config (cdr rest)))
+          ((string=? argument "--runtime")
+           (driver-set! config DRIVER-RUNTIME (driver-value argument rest))
+           (driver-parse! config (cdr rest)))
+          ((if (driver-prefix? "-" argument)
+               (> (string-length argument) 1) #f)
+           (driver-error (string-append "unknown option " argument)))
+          ((driver-get config DRIVER-SOURCE)
+           (driver-error "multiple source files are not supported"))
+          (else
+           (driver-set! config DRIVER-SOURCE argument)
+           (driver-parse! config rest))))))
+
+; ---------------- tool and library resolution ----------------
+
+(define (driver-environment name)
+  (let ((value (get-environment-variable name)))
+    (if (if value (> (string-length value) 0) #f) value #f)))
+
+; Installation layout relative to <prefix>/bin/nplc; #f when unknown.
+(define (driver-layout relative)
+  (let ((self (executable-path)))
+    (if self
+        (let ((candidate (string-append (path-dir self) "../" relative)))
+          (if (file-exists? candidate) candidate #f))
+        #f)))
+
+; Explicit option, then environment, then the installation layout.
+(define (driver-resolve config slot variable relative)
+  (let ((explicit (driver-get config slot)))
+    (if explicit
+        explicit
+        (let ((environment (driver-environment variable)))
+          (if environment
+              environment
+              (if relative (driver-layout relative) #f))))))
+
+(define (driver-stdlib config)
+  (let ((root (driver-resolve config DRIVER-STDLIB
+                              "NPL_STDLIB_ROOT" "share/npl/lib")))
+    (if root root "lib/")))
+
+(define (driver-qbe config)
+  (let ((qbe (driver-resolve config DRIVER-QBE "NPL_QBE" "libexec/npl/qbe")))
+    (if qbe qbe "qbe")))
+
+(define (driver-cc config)
+  (let ((cc (driver-resolve config DRIVER-CC "NPL_CC" #f)))
+    (if cc cc (let ((fallback (driver-environment "CC")))
+                (if fallback fallback "cc")))))
+
+(define (driver-runtime config)
+  (let ((runtime (driver-resolve config DRIVER-RUNTIME "NPL_RUNTIME"
+                                 "lib/npl/libnpl_runtime.a")))
+    (if runtime
+        runtime
+        (driver-error
+          "runtime archive not found; use --runtime or NPL_RUNTIME"))))
+
+; ---------------- output naming ----------------
+
+(define (driver-base-name path)
+  (let ((directory (path-dir path)))
+    (substring path (string-length directory) (string-length path))))
+
+(define (driver-stem path)
+  (let ((name (driver-base-name path)))
+    (let loop ((index (- (string-length name) 1)))
+      (cond
+        ((< index 1) name)
+        ((= (string-ref name index) 46) (substring name 0 index))
+        (else (loop (- index 1)))))))
+
+(define (driver-output config)
+  (let ((explicit (driver-get config DRIVER-OUTPUT))
+        (kind (driver-get config DRIVER-KIND))
+        (stem (driver-stem (driver-get config DRIVER-SOURCE))))
+    (cond
+      (explicit explicit)
+      ((string=? kind "asm") (string-append stem ".s"))
+      ((string=? kind "obj") (string-append stem ".o"))
+      (else stem))))
+
+; ---------------- stage pipeline ----------------
+
+(define (driver-delete-if-present path)
+  (if (file-exists? path) (delete-file path) #f))
+
+(define (driver-stage-failure stage status)
+  (driver-message
+    (string-append stage " failed (status " (number->string status) ")"))
+  status)
+
+(define (driver-self)
+  (let ((self (executable-path)))
+    (if self self (driver-error "cannot locate the nplc executable"))))
+
+; Compiler diagnostics share standard output with SSA; on failure the
+; partial output holds them, so relay it to standard error.
+(define (driver-relay-file path port)
+  (if (file-exists? path)
+      (let ((input (open-input-file path)))
+        (let loop ()
+          (let ((value (read-char input)))
+            (if (eof-object? value)
+                (close-port input)
+                (begin (write-char value port) (loop))))))
+      #f))
+
+(define (driver-emit-ssa config ssa)
+  (let ((status
+          (run-process
+            (cons (driver-self)
+              (cons "--emit=ssa"
+                (cons "--stdlib-root"
+                  (cons (driver-stdlib config)
+                    (cons (driver-get config DRIVER-SOURCE) ())))))
+            ssa)))
+    (if (= status 0)
+        0
+        (begin
+          (driver-relay-file ssa (current-error-port))
+          (driver-stage-failure "compile" status)))))
+
+(define (driver-assemble config ssa assembly)
+  (let ((status
+          (run-process
+            (cons (driver-qbe config)
+              (cons "-o" (cons assembly (cons ssa ()))))
+            #f)))
+    (if (= status 0) 0 (driver-stage-failure "qbe" status))))
+
+(define (driver-object config assembly object)
+  (let ((status
+          (run-process
+            (cons (driver-cc config)
+              (cons "-c" (cons "-o" (cons object (cons assembly ())))))
+            #f)))
+    (if (= status 0) 0 (driver-stage-failure "cc" status))))
+
+(define (driver-link config assembly executable)
+  (let ((runtime (driver-runtime config)))
+    (let ((status
+            (run-process
+              (cons (driver-cc config)
+                (cons "-o" (cons executable
+                  (cons assembly (cons runtime (cons "-lm" ()))))))
+              #f)))
+      (if (= status 0) 0 (driver-stage-failure "link" status)))))
+
+(define (driver-final-stage config kind assembly output)
+  (cond
+    ((string=? kind "obj") (driver-object config assembly output))
+    ((string=? kind "exe") (driver-link config assembly output))
+    (else 0)))
+
+(define (driver-pipeline config directory output)
+  (let ((kind (driver-get config DRIVER-KIND)))
+    (let ((ssa (if (string=? kind "ssa")
+                   output
+                   (string-append directory "/source.ssa")))
+          (assembly (if (string=? kind "asm")
+                        output
+                        (string-append directory "/source.s"))))
+      (let ((emitted (driver-emit-ssa config ssa)))
+        (if (if (= emitted 0) (string=? kind "ssa") #t)
+            emitted
+            (let ((assembled (driver-assemble config ssa assembly)))
+              (if (if (= assembled 0) (string=? kind "asm") #t)
+                  assembled
+                  (driver-final-stage config kind assembly output))))))))
+
+(define (driver-cleanup config directory)
+  (if (driver-get config DRIVER-KEEP)
+      (driver-message (string-append "kept temporaries in " directory))
+      (begin
+        (driver-delete-if-present (string-append directory "/source.ssa"))
+        (driver-delete-if-present (string-append directory "/source.s"))
+        (delete-directory directory))))
+
+(define (driver-build config)
+  (let ((output (driver-output config))
+        (directory (make-temporary-directory)))
+    (let ((status (driver-pipeline config directory output)))
+      (driver-cleanup config directory)
+      (if (not (= status 0)) (driver-delete-if-present output))
+      status)))
+
+(define (driver-run config)
+  (if (not (driver-get config DRIVER-SOURCE))
+      (begin (display DRIVER-USAGE (current-error-port)) (exit 2)))
+  (if (if (string=? (driver-get config DRIVER-KIND) "ssa")
+          (not (driver-get config DRIVER-OUTPUT))
+          #f)
+      (begin
+        (library-set-standard-root! (driver-stdlib config))
+        (emit-program (driver-get config DRIVER-SOURCE))
+        0)
+      (driver-build config)))
+
+(define (main)
+  (exit (driver-run (driver-parse! (driver-config) (program-arguments)))))

@@ -35,11 +35,43 @@
                 (integer-limb-data limbs) " }"))
             label))))))
 
+(define (float-literal-label bits)
+  (cell-set! DATAN (+ 1 (cell-get DATAN)))
+  (let ((label (string-append "$float_" (number->string (cell-get DATAN)))))
+    ; NplFloat is a two-word header followed by the IEEE binary64 payload.
+    ; QBE data has no floating scalar kind, so preserve the payload as a l word.
+    (data-line (string-append label " = { w 5, w 1, l "
+                             (number->string bits) " }"))
+    label))
+
+(define (complex-literal-label value)
+  (let ((real (integer-literal-op (npl_complex_real value) #t))
+        (imag (integer-literal-op (npl_complex_imag value) #t)))
+    (cell-set! DATAN (+ 1 (cell-get DATAN)))
+    (let ((label (string-append "$complex_" (number->string (cell-get DATAN)))))
+      (data-line (string-append label " = { w 21, w 1, l " real
+                               ", l " imag " }"))
+      label)))
+
 (define (integer-literal-op value static)
-  (if (integer-immediate? value)
-      (npl_tagged_num_to_string value)
-      (let ((label (integer-literal-label value)))
-        (if static (label-constant label) (label-ref-op label)))))
+  (if (npl_integer_p value)
+      (if (integer-immediate? value)
+          (npl_tagged_num_to_string value)
+          (let ((label (integer-literal-label value)))
+            (if static (label-constant label) (label-ref-op label))))
+      (if (npl_complex_p value)
+          (let ((label (complex-literal-label value)))
+            (if static (label-constant label) (label-ref-op label)))
+          (if (npl_inexact_p value)
+          (let ((label (float-literal-label (npl_inexact_bits value))))
+            (if static (label-constant label) (label-ref-op label)))
+          (let ((numerator (integer-literal-op (npl_rational_numerator value) #t))
+                (denominator (integer-literal-op (npl_rational_denominator value) #t)))
+            (cell-set! DATAN (+ 1 (cell-get DATAN)))
+            (let ((label (string-append "$rational_" (number->string (cell-get DATAN)))))
+              (data-line (string-append label " = { w 20, w 1, l " numerator
+                                       ", l " denominator " }"))
+              (if static (label-constant label) (label-ref-op label))))))))
 
 (define (emit-integer-fold fn operands result)
   (if (null? operands)

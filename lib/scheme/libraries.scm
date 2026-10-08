@@ -1,4 +1,5 @@
 (scheme base)
+(scheme inexact)
 (scheme case-lambda)
 (scheme char)
 (scheme cxr)

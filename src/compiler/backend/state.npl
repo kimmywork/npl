@@ -33,8 +33,10 @@
 (define LAMBDA-N (cell 0))
 (define CURBUF  (cell "F"))
 (define HAS-INIT (cell 0))
-(define CURRENT-FUNC (cell ""))
-(define CURRENT-PARAM-CELLS (cell ()))
+; set! targets of the top-level form being emitted; see collect-assigned.
+(define ASSIGNED-NAMES (cell ()))
+; data-segment global slots registered as GC roots at program start
+(define GLOBAL-ROOTS (cell ()))
 
 (define (func-line ln)
   (cond ((string=? (cell-get CURBUF) "I")

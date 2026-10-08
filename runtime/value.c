@@ -16,6 +16,12 @@ NplVal npl_cons(NplVal car, NplVal cdr) {
     return (NplVal)(uintptr_t)p | TAG_PTR;
 }
 
+NplVal npl_string_p(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_STRING
+        ? npl_true() : npl_false();
+}
+
 NplVal npl_string(const char *s, uint32_t len) {
     size_t size = sizeof(NplString) + len + 1;
     NplString *str = (NplString *)npl_alloc_object(size);

@@ -22,7 +22,7 @@ target_compile_definitions(nplc0 PRIVATE
   QBE_PATH="${QBE_BIN}"
   AS_BIN="${AS_BIN}"
   CC_BIN="${CMAKE_C_COMPILER}"
-  RUNTIME_LIB_PATH="${CMAKE_BINARY_DIR}/runtime/libnpl_runtime.a"
+  RUNTIME_LIB_PATH="${CMAKE_BINARY_DIR}/runtime/libnpl_runtime.a -lm"
 )
 
 # Link nplc0 with runtime (for testing)

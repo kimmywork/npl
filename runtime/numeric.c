@@ -1,4 +1,4 @@
-/* numeric.c — exact integer representation and arithmetic substrate. */
+/* numeric.c — exact integer/rational representation and numeric dispatch. */
 
 #include "npl.h"
 #include <stdint.h>
@@ -174,15 +174,280 @@ NplVal npl_integer_from_string(NplVal value)
     return result;
 }
 
-NplVal npl_number_p(NplVal value)
+NplVal npl_integer_p(NplVal value)
 {
     return (npl_is_fixnum(value) ||
             (npl_is_ptr(value) && npl_header(value)->tag == BOX_BIGNUM))
         ? npl_true() : npl_false();
 }
 
+NplVal npl_inexact_eqv(NplVal left, NplVal right)
+{
+    if (npl_is_complex(left) || npl_is_complex(right))
+        return (npl_is_complex(left) && npl_is_complex(right) &&
+                npl_eqv(npl_complex_real(left), npl_complex_real(right)) == npl_true() &&
+                npl_eqv(npl_complex_imag(left), npl_complex_imag(right)) == npl_true())
+            ? npl_true() : npl_false();
+    if (!npl_is_inexact(left) || !npl_is_inexact(right))
+        return npl_false();
+    double a = ((NplFloat *)npl_header(left))->value;
+    double b = ((NplFloat *)npl_header(right))->value;
+    uint64_t abits, bbits;
+    memcpy(&abits, &a, sizeof(abits));
+    memcpy(&bbits, &b, sizeof(bbits));
+    return abits == bbits ? npl_true() : npl_false();
+}
+
+NplVal npl_exact_to_inexact(NplVal value)
+{
+    if (!npl_number_p(value)) numeric_error("exact->inexact", "expected a number");
+    return npl_is_inexact(value) ? value : npl_float(npl_real_double(value));
+}
+
+NplVal npl_inexact_to_exact(NplVal value)
+{
+    if (!npl_number_p(value) || !npl_is_inexact(value))
+        numeric_error("inexact->exact", "expected an inexact number");
+    return npl_real_exact(value);
+}
+
+static int radix_digit(unsigned char character)
+{
+    if (character >= '0' && character <= '9') return character - '0';
+    if (character >= 'a' && character <= 'z') return character - 'a' + 10;
+    if (character >= 'A' && character <= 'Z') return character - 'A' + 10;
+    return -1;
+}
+
+static NplVal integer_from_radix_digits(NplVal value, uint32_t begin,
+                                        uint32_t end, int radix, int signed_value)
+{
+    const NplString *text = (const NplString *)npl_header(value);
+    int negative = 0;
+    if (signed_value && begin < end &&
+        (text->data[begin] == '+' || text->data[begin] == '-')) {
+        negative = text->data[begin] == '-';
+        begin++;
+    }
+    if (begin == end) return npl_false();
+    NplVal result = npl_fixnum(0);
+    npl_gc_root(&value);
+    npl_gc_root(&result);
+    for (uint32_t index = begin; index < end; index++) {
+        int digit = radix_digit((unsigned char)text->data[index]);
+        if (digit < 0 || digit >= radix) {
+            npl_gc_unroot(&result);
+            npl_gc_unroot(&value);
+            return npl_false();
+        }
+        result = npl_number_mul(result, npl_fixnum(radix));
+        result = npl_number_add(result, npl_fixnum(digit));
+    }
+    if (negative) result = npl_number_sub(npl_fixnum(0), result);
+    npl_gc_unroot(&result);
+    npl_gc_unroot(&value);
+    return result;
+}
+
+static NplVal exact_number_from_string(NplVal value, int radix, uint32_t begin)
+{
+    const NplString *text = (const NplString *)npl_header(value);
+    uint32_t slash = begin;
+    while (slash < text->length && text->data[slash] != '/') slash++;
+    if (slash == begin || (slash < text->length && slash + 1 == text->length))
+        return npl_false();
+    if (slash == text->length)
+        return integer_from_radix_digits(value, begin, slash, radix, 1);
+    if (memchr(text->data + slash + 1, '/', text->length - slash - 1))
+        return npl_false();
+    npl_gc_root(&value);
+    NplVal numerator = integer_from_radix_digits(value, begin, slash, radix, 1);
+    npl_gc_root(&numerator);
+    if (numerator == npl_false()) {
+        npl_gc_unroot(&numerator);
+        npl_gc_unroot(&value);
+        return npl_false();
+    }
+    text = (const NplString *)npl_header(value);
+    NplVal denominator = integer_from_radix_digits(value, slash + 1,
+                                                    text->length, radix, 0);
+    npl_gc_root(&denominator);
+    NplVal result = denominator == npl_false() || denominator == npl_fixnum(0)
+        ? npl_false() : npl_rational_make(numerator, denominator);
+    npl_gc_unroot(&denominator);
+    npl_gc_unroot(&numerator);
+    npl_gc_unroot(&value);
+    return result;
+}
+
+NplVal npl_number_from_string_radix(NplVal value, NplVal radix)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING ||
+        !npl_is_fixnum(radix)) return npl_false();
+    int64_t base = npl_fixnum_value(radix);
+    if (base < 2 || base > 36) return npl_false();
+    return exact_number_from_string(value, (int)base, 0);
+}
+
+static NplVal complex_from_string(NplVal value)
+{
+    const NplString *text = (const NplString *)npl_header(value);
+    if (text->length < 4 || text->data[text->length - 1] != 'i')
+        return npl_false();
+    uint32_t split = 1;
+    while (split + 1 < text->length && text->data[split] != '+' &&
+           text->data[split] != '-') split++;
+    if (split + 1 >= text->length) return npl_false();
+    npl_gc_root(&value);
+    NplVal real_text = npl_substring(value, npl_fixnum(0), npl_fixnum(split));
+    NplVal imag_text = npl_substring(value, npl_fixnum(split),
+                                      npl_fixnum(text->length - 1));
+    npl_gc_root(&real_text); npl_gc_root(&imag_text);
+    NplVal real = npl_number_from_string(real_text);
+    NplVal imag = npl_number_from_string(imag_text);
+    npl_gc_root(&real); npl_gc_root(&imag);
+    NplVal result = (real == npl_false() || imag == npl_false())
+        ? npl_false() : npl_complex_make(real, imag);
+    npl_gc_unroot(&imag); npl_gc_unroot(&real);
+    npl_gc_unroot(&imag_text); npl_gc_unroot(&real_text); npl_gc_unroot(&value);
+    return result;
+}
+
+NplVal npl_number_from_string(NplVal value)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING)
+        return npl_false();
+    const NplString *text = (const NplString *)npl_header(value);
+    NplVal complex = complex_from_string(value);
+    if (complex != npl_false()) return complex;
+    if (text->length >= 3 && text->data[0] == '#') {
+        unsigned char prefix = (unsigned char)text->data[1];
+        int radix = prefix == 'b' || prefix == 'B' ? 2
+                  : prefix == 'o' || prefix == 'O' ? 8
+                  : prefix == 'd' || prefix == 'D' ? 10
+                  : prefix == 'x' || prefix == 'X' ? 16 : 0;
+        if (radix) return exact_number_from_string(value, radix, 2);
+    }
+    NplVal exact = npl_number_from_string_radix(value, npl_fixnum(10));
+    return exact == npl_false() ? npl_inexact_parse(value) : exact;
+}
+
+static int is_rational_box(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_RATIONAL;
+}
+
+NplVal npl_rational_numerator(NplVal value)
+{
+    if (is_rational_box(value)) return ((NplRational *)npl_header(value))->numerator;
+    NplIntegerView view;
+    integer_view(&view, value, "numerator");
+    return value;
+}
+
+NplVal npl_rational_denominator(NplVal value)
+{
+    if (is_rational_box(value)) return ((NplRational *)npl_header(value))->denominator;
+    NplIntegerView view;
+    integer_view(&view, value, "denominator");
+    return npl_fixnum(1);
+}
+
+NplVal npl_rational_make(NplVal numerator, NplVal denominator)
+{
+    NplIntegerView n, d;
+    integer_view(&n, numerator, "rational");
+    integer_view(&d, denominator, "rational");
+    if (d.sign == 0) numeric_error("rational", "zero denominator");
+    if (n.sign == 0) return npl_fixnum(0);
+    npl_gc_root(&numerator);
+    npl_gc_root(&denominator);
+    NplVal common = npl_number_gcd(numerator, denominator);
+    npl_gc_root(&common);
+    numerator = npl_number_quotient(numerator, common);
+    denominator = npl_number_quotient(denominator, common);
+    if (d.sign < 0) {
+        numerator = npl_number_sub(npl_fixnum(0), numerator);
+        denominator = npl_number_sub(npl_fixnum(0), denominator);
+    }
+    NplVal result = numerator;
+    if (denominator != npl_fixnum(1)) {
+        NplRational *value = (NplRational *)npl_alloc_object(sizeof(NplRational));
+        value->header.tag = BOX_RATIONAL;
+        value->header.flags = 0;
+        value->numerator = numerator;
+        value->denominator = denominator;
+        result = (NplVal)(uintptr_t)value | TAG_PTR;
+    }
+    npl_gc_unroot(&common);
+    npl_gc_unroot(&denominator);
+    npl_gc_unroot(&numerator);
+    return result;
+}
+
+/* Components are integers, so recursive numeric operations stay on the
+ * integer path. Root every component and intermediate across allocations. */
+static NplVal rational_arithmetic(NplVal left, NplVal right, char operation)
+{
+    NplVal values[6] = {npl_rational_numerator(left),
+                       npl_rational_denominator(left),
+                       npl_rational_numerator(right),
+                       npl_rational_denominator(right), npl_nil(), npl_nil()};
+    for (unsigned i = 0; i < 6; i++) npl_gc_root(&values[i]);
+    if (operation == '+' || operation == '-') {
+        values[4] = npl_number_mul(values[0], values[3]);
+        values[5] = npl_number_mul(values[2], values[1]);
+        values[4] = operation == '+' ? npl_number_add(values[4], values[5])
+                                     : npl_number_sub(values[4], values[5]);
+        values[5] = npl_number_mul(values[1], values[3]);
+    } else if (operation == '*') {
+        values[4] = npl_number_mul(values[0], values[2]);
+        values[5] = npl_number_mul(values[1], values[3]);
+    } else {
+        if (values[2] == npl_fixnum(0)) numeric_error("/", "division by zero");
+        values[4] = npl_number_mul(values[0], values[3]);
+        values[5] = npl_number_mul(values[1], values[2]);
+    }
+    NplVal result = npl_rational_make(values[4], values[5]);
+    for (unsigned i = 6; i != 0; i--) npl_gc_unroot(&values[i - 1]);
+    return result;
+}
+
+NplVal npl_number_div(NplVal left, NplVal right)
+{
+    if (npl_is_complex(left) || npl_is_complex(right))
+        return npl_complex_arithmetic(left, right, '/');
+    if (npl_is_inexact(left) || npl_is_inexact(right))
+        return npl_inexact_arithmetic(left, right, '/');
+    return rational_arithmetic(left, right, '/');
+}
+
+NplVal npl_number_p(NplVal value)
+{
+    return (npl_is_fixnum(value) || is_rational_box(value) || npl_is_complex(value) ||
+            npl_is_inexact(value) ||
+            (npl_is_ptr(value) && npl_header(value)->tag == BOX_BIGNUM))
+        ? npl_true() : npl_false();
+}
+
+NplVal npl_number_zero_p(NplVal value)
+{
+    if (npl_is_complex(value))
+        return (npl_number_zero_p(npl_complex_real(value)) == npl_true() &&
+                npl_number_zero_p(npl_complex_imag(value)) == npl_true())
+            ? npl_true() : npl_false();
+    if (!npl_number_p(value)) return npl_false();
+    return npl_number_compare(value, npl_fixnum(0)) == 0 ? npl_true() : npl_false();
+}
+
 NplVal npl_number_add(NplVal left, NplVal right)
 {
+    if (npl_is_complex(left) || npl_is_complex(right))
+        return npl_complex_arithmetic(left, right, '+');
+    if (npl_is_inexact(left) || npl_is_inexact(right))
+        return npl_inexact_arithmetic(left, right, '+');
+    if (is_rational_box(left) || is_rational_box(right))
+        return rational_arithmetic(left, right, '+');
     if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
         int64_t sum = npl_fixnum_value(left) + npl_fixnum_value(right);
         if (sum >= -(INT64_C(1) << 61) && sum < (INT64_C(1) << 61))
@@ -203,6 +468,12 @@ NplVal npl_number_add(NplVal left, NplVal right)
 
 NplVal npl_number_sub(NplVal left, NplVal right)
 {
+    if (npl_is_complex(left) || npl_is_complex(right))
+        return npl_complex_arithmetic(left, right, '-');
+    if (npl_is_inexact(left) || npl_is_inexact(right))
+        return npl_inexact_arithmetic(left, right, '-');
+    if (is_rational_box(left) || is_rational_box(right))
+        return rational_arithmetic(left, right, '-');
     if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
         int64_t difference = npl_fixnum_value(left) - npl_fixnum_value(right);
         if (difference >= -(INT64_C(1) << 61) && difference < (INT64_C(1) << 61))
@@ -232,6 +503,12 @@ NplVal npl_number_sub(NplVal left, NplVal right)
 
 NplVal npl_number_mul(NplVal left, NplVal right)
 {
+    if (npl_is_complex(left) || npl_is_complex(right))
+        return npl_complex_arithmetic(left, right, '*');
+    if (npl_is_inexact(left) || npl_is_inexact(right))
+        return npl_inexact_arithmetic(left, right, '*');
+    if (is_rational_box(left) || is_rational_box(right))
+        return rational_arithmetic(left, right, '*');
     if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
         int64_t x = npl_fixnum_value(left), y = npl_fixnum_value(right);
         uint64_t ax = (uint64_t)(x < 0 ? -x : x);
@@ -274,6 +551,24 @@ NplVal npl_number_mul(NplVal left, NplVal right)
 
 int32_t npl_number_compare(NplVal left, NplVal right)
 {
+    if (npl_is_complex(left) || npl_is_complex(right))
+        numeric_error("number comparison", "complex number is unordered");
+    if (npl_is_inexact(left) || npl_is_inexact(right))
+        return npl_inexact_compare(left, right);
+    if (is_rational_box(left) || is_rational_box(right)) {
+        npl_gc_root(&left);
+        npl_gc_root(&right);
+        NplVal a = npl_number_mul(npl_rational_numerator(left),
+                                  npl_rational_denominator(right));
+        npl_gc_root(&a);
+        NplVal b = npl_number_mul(npl_rational_numerator(right),
+                                  npl_rational_denominator(left));
+        int32_t result = npl_number_compare(a, b);
+        npl_gc_unroot(&a);
+        npl_gc_unroot(&right);
+        npl_gc_unroot(&left);
+        return result;
+    }
     if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
         int64_t x = npl_fixnum_value(left), y = npl_fixnum_value(right);
         return x < y ? -1 : (x > y ? 1 : 0);
@@ -290,34 +585,215 @@ int32_t npl_number_compare(NplVal left, NplVal right)
 
 NplVal npl_eqv(NplVal left, NplVal right)
 {
+    if (npl_is_complex(left) || npl_is_complex(right))
+        return npl_inexact_eqv(left, right);
+    if (npl_is_inexact(left) || npl_is_inexact(right))
+        return npl_inexact_eqv(left, right);
     if (npl_number_p(left) == npl_true() && npl_number_p(right) == npl_true())
         return npl_number_compare(left, right) == 0 ? npl_true() : npl_false();
     return left == right ? npl_true() : npl_false();
 }
 
-NplVal npl_number_to_string(NplVal value)
+/* Search each base-10^9 quotient digit using unsigned limb magnitudes.
+ * Scratch storage is outside the GC; only the final result is boxed. */
+static NplVal integer_divide(NplVal left, NplVal right, int want_remainder)
 {
-    if (npl_is_fixnum(value)) {
-        char buffer[32];
-        int length = snprintf(buffer, sizeof(buffer), "%lld",
-                              (long long)npl_fixnum_value(value));
-        return npl_string(buffer, (uint32_t)length);
+    const char *who = want_remainder ? "remainder" : "quotient";
+    NplIntegerView a, b;
+    integer_view(&a, left, who);
+    integer_view(&b, right, who);
+    if (b.sign == 0) numeric_error(who, "division by zero");
+    if (a.sign == 0) return npl_fixnum(0);
+    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
+        int64_t x = npl_fixnum_value(left), y = npl_fixnum_value(right);
+        if (want_remainder) return npl_fixnum(x % y);
+        if (x != -(INT64_C(1) << 61) || y != -1)
+            return npl_fixnum(x / y);
     }
+    if (integer_magnitude_compare(&a, &b) < 0)
+        return want_remainder ? left : npl_fixnum(0);
+    uint64_t capacity = (uint64_t)b.count + 1;
+    uint64_t quotient_capacity = a.count;
+    if (capacity > UINT32_MAX || capacity > SIZE_MAX / sizeof(uint32_t) ||
+        quotient_capacity > SIZE_MAX / sizeof(uint32_t))
+        npl_runtime_oom_internal();
+    uint32_t *digits = calloc(a.count, sizeof(uint32_t));
+    uint32_t *rest = calloc((size_t)capacity, sizeof(uint32_t));
+    uint32_t *product = calloc((size_t)capacity, sizeof(uint32_t));
+    if (!digits || !rest || !product) npl_runtime_oom_internal();
+    NplIntegerView r = {0}, p = {0};
+    r.limbs = rest;
+    p.limbs = product;
+    for (uint32_t i = a.count; i != 0; i--) {
+        memmove(rest + 1, rest, (size_t)r.count * sizeof(uint32_t));
+        rest[0] = a.limbs[i - 1];
+        r.count++;
+        while (r.count && rest[r.count - 1] == 0) r.count--;
+        uint32_t low = 0, high = NPL_BIG_BASE - 1;
+        while (low < high) {
+            uint32_t middle = low + (high - low + 1) / 2;
+            uint64_t carry = 0;
+            for (uint32_t j = 0; j < b.count; j++) {
+                uint64_t limb = (uint64_t)b.limbs[j] * middle + carry;
+                product[j] = (uint32_t)(limb % NPL_BIG_BASE);
+                carry = limb / NPL_BIG_BASE;
+            }
+            product[b.count] = (uint32_t)carry;
+            p.count = b.count + (carry != 0);
+            if (integer_magnitude_compare(&p, &r) <= 0) low = middle;
+            else high = middle - 1;
+        }
+        digits[i - 1] = low;
+        uint64_t carry = 0;
+        int64_t borrow = 0;
+        for (uint32_t j = 0; j < r.count; j++) {
+            uint64_t limb = carry;
+            if (j < b.count) limb += (uint64_t)b.limbs[j] * low;
+            carry = limb / NPL_BIG_BASE;
+            int64_t difference = (int64_t)rest[j] -
+                                 (int64_t)(limb % NPL_BIG_BASE) - borrow;
+            borrow = difference < 0;
+            rest[j] = (uint32_t)(difference + (borrow ? NPL_BIG_BASE : 0));
+        }
+        while (r.count && rest[r.count - 1] == 0) r.count--;
+    }
+    NplVal result = want_remainder
+        ? box_integer_limbs(a.sign, rest, r.count)
+        : box_integer_limbs(a.sign == b.sign ? 1 : -1, digits, a.count);
+    free(product);
+    free(rest);
+    free(digits);
+    return result;
+}
+
+NplVal npl_number_quotient(NplVal left, NplVal right)
+{
+    return integer_divide(left, right, 0);
+}
+
+NplVal npl_number_remainder(NplVal left, NplVal right)
+{
+    return integer_divide(left, right, 1);
+}
+
+NplVal npl_number_gcd(NplVal left, NplVal right)
+{
+    NplIntegerView a, b;
+    integer_view(&a, left, "gcd");
+    integer_view(&b, right, "gcd");
+    npl_gc_root(&left);
+    npl_gc_root(&right);
+    if (a.sign < 0) left = npl_number_sub(npl_fixnum(0), left);
+    if (b.sign < 0) right = npl_number_sub(npl_fixnum(0), right);
+    while (right != npl_fixnum(0)) {
+        NplVal rest = npl_number_remainder(left, right);
+        left = right;
+        right = rest;
+    }
+    npl_gc_unroot(&right);
+    npl_gc_unroot(&left);
+    return left;
+}
+
+static NplVal integer_to_string_radix(NplVal value, int radix)
+{
     NplIntegerView view;
     integer_view(&view, value, "number->string");
-    if (view.count > (UINT32_MAX - 2) / 9)
-        npl_runtime_oom_internal();
-    size_t capacity = (size_t)view.count * 9 + 2;
-    char *buffer = (char *)malloc(capacity);
+    static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+    int negative = view.sign < 0;
+    NplVal current = value;
+    npl_gc_root(&current);
+    if (negative) current = npl_number_sub(npl_fixnum(0), current);
+    size_t capacity = 32, length = 0;
+    char *buffer = malloc(capacity);
     if (!buffer) npl_runtime_oom_internal();
-    char *cursor = buffer;
-    if (view.sign < 0) *cursor++ = '-';
-    cursor += snprintf(cursor, capacity - (size_t)(cursor - buffer),
-                       "%u", view.limbs[view.count - 1]);
-    for (uint32_t index = view.count - 1; index != 0; index--)
-        cursor += snprintf(cursor, capacity - (size_t)(cursor - buffer),
-                           "%09u", view.limbs[index - 1]);
-    NplVal result = npl_string(buffer, (uint32_t)(cursor - buffer));
+    do {
+        NplVal remainder = npl_number_remainder(current, npl_fixnum(radix));
+        current = npl_number_quotient(current, npl_fixnum(radix));
+        if (length == capacity) {
+            capacity *= 2;
+            char *grown = realloc(buffer, capacity);
+            if (!grown) npl_runtime_oom_internal();
+            buffer = grown;
+        }
+        buffer[length++] = digits[npl_fixnum_value(remainder)];
+    } while (current != npl_fixnum(0));
+    if (negative) {
+        if (length == capacity) {
+            capacity *= 2;
+            char *grown = realloc(buffer, capacity);
+            if (!grown) npl_runtime_oom_internal();
+            buffer = grown;
+        }
+        buffer[length++] = '-';
+    }
+    for (size_t index = 0; index < length / 2; index++) {
+        char swap = buffer[index];
+        buffer[index] = buffer[length - index - 1];
+        buffer[length - index - 1] = swap;
+    }
+    NplVal result = npl_string(buffer, (uint32_t)length);
     free(buffer);
+    npl_gc_unroot(&current);
     return result;
+}
+
+NplVal npl_number_to_string_radix(NplVal value, NplVal radix)
+{
+    if (!npl_is_fixnum(radix) || npl_fixnum_value(radix) < 2 ||
+        npl_fixnum_value(radix) > 36) return npl_false();
+    int base = (int)npl_fixnum_value(radix);
+    if (is_rational_box(value)) {
+        npl_gc_root(&value);
+        NplVal numerator = npl_number_to_string_radix(
+            npl_rational_numerator(value), radix);
+        npl_gc_root(&numerator);
+        NplVal denominator = npl_number_to_string_radix(
+            npl_rational_denominator(value), radix);
+        const NplString *n = (const NplString *)npl_header(numerator);
+        const NplString *d = (const NplString *)npl_header(denominator);
+        uint64_t length = (uint64_t)n->length + 1 + d->length;
+        if (length > UINT32_MAX || length > SIZE_MAX) npl_runtime_oom_internal();
+        char *buffer = malloc((size_t)length);
+        if (!buffer) npl_runtime_oom_internal();
+        memcpy(buffer, n->data, n->length);
+        buffer[n->length] = '/';
+        memcpy(buffer + n->length + 1, d->data, d->length);
+        NplVal result = npl_string(buffer, (uint32_t)length);
+        free(buffer);
+        npl_gc_unroot(&numerator);
+        npl_gc_unroot(&value);
+        return result;
+    }
+    return integer_to_string_radix(value, base);
+}
+
+NplVal npl_number_to_string(NplVal value)
+{
+    if (npl_is_complex(value)) {
+        npl_gc_root(&value);
+        NplVal real = npl_number_to_string(npl_complex_real(value));
+        NplVal imag = npl_number_to_string(npl_complex_imag(value));
+        npl_gc_root(&real); npl_gc_root(&imag);
+        const NplString *r = (const NplString *)npl_header(real);
+        const NplString *i = (const NplString *)npl_header(imag);
+        int negative = npl_number_compare(npl_complex_imag(value),
+                                          npl_fixnum(0)) < 0;
+        uint64_t length = (uint64_t)r->length + 1 + i->length + 1;
+        if (length > UINT32_MAX || length > SIZE_MAX) npl_runtime_oom_internal();
+        char *buffer = malloc((size_t)length);
+        if (!buffer) npl_runtime_oom_internal();
+        memcpy(buffer, r->data, r->length);
+        buffer[r->length] = negative ? '-' : '+';
+        memcpy(buffer + r->length + 1, i->data + (negative ? 1 : 0),
+               i->length - (negative ? 1 : 0));
+        size_t used = r->length + 1 + i->length - (negative ? 1 : 0);
+        buffer[used++] = 'i';
+        NplVal result = npl_string(buffer, (uint32_t)used);
+        free(buffer);
+        npl_gc_unroot(&imag); npl_gc_unroot(&real); npl_gc_unroot(&value);
+        return result;
+    }
+    if (npl_is_inexact(value)) return npl_inexact_string(value);
+    return npl_number_to_string_radix(value, npl_fixnum(10));
 }

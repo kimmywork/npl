@@ -1,5 +1,112 @@
 ; Shared persistent evaluator used by the REPL and (scheme eval).
 
+; Raw numeric mechanisms used by the evaluator. Public numeric policy remains
+; in the scheme libraries; keeping this bridge in the shared source preserves
+; visibility to the compiler's single-file library include path.
+(define (eval-exact-numeric-name? name)
+  (cond
+    ((string=? name "npl_number_div") #t)
+    ((string=? name "npl_inexact_p") #t)
+    ((string=? name "npl_inexact_op") #t)
+    ((string=? name "npl_inexact_binary") #t)
+    ((string=? name "npl_finite_p") #t)
+    ((string=? name "npl_nan_p") #t)
+    ((string=? name "npl_infinite_p") #t)
+    ((string=? name "npl_exact_to_inexact") #t)
+    ((string=? name "npl_inexact_to_exact") #t)
+    ((string=? name "npl_integer_p") #t)
+    ((string=? name "npl_rational_numerator") #t)
+    ((string=? name "npl_rational_denominator") #t)
+    ((string=? name "string?") #t)
+    ((string=? name "npl_number_from_string") #t)
+    ((string=? name "npl_number_from_string_radix") #t)
+    ((string=? name "npl_number_to_string_radix") #t)
+    ((string=? name "npl_complex_make") #t)
+    ((string=? name "npl_complex_p") #t)
+    ((string=? name "npl_complex_real") #t)
+    ((string=? name "npl_complex_imag") #t)
+    ((string=? name "npl_number_zero_p") #t)
+    ((string=? name "npl_number_gcd") #t)
+    ((string=? name "npl_number_quotient") #t)
+    (else (string=? name "npl_number_remainder"))))
+(define (eval-exact-numeric name arguments continuation)
+  (let ((error (eval-arity arguments
+                          (cond
+                            ((string=? name "npl_inexact_op") 2)
+                            ((string=? name "npl_inexact_binary") 3)
+                            ((string=? name "npl_number_div") 2)
+                            ((string=? name "npl_number_from_string_radix") 2)
+                            ((string=? name "npl_number_to_string_radix") 2)
+                            ((string=? name "npl_complex_make") 2)
+                            ((string=? name "npl_number_gcd") 2)
+                            ((string=? name "npl_number_quotient") 2)
+                            ((string=? name "npl_number_remainder") 2)
+                            (else 1))
+                          name)))
+    (if error (continuation error)
+        (let ((value (car arguments)))
+          (cond
+            ((string=? name "string?")
+             (continuation (string? value)))
+            ((string=? name "npl_inexact_p")
+             (continuation (npl_inexact_p value)))
+            ((string=? name "npl_inexact_op")
+             (continuation (npl_inexact_op (car arguments) (car (cdr arguments)))))
+            ((string=? name "npl_inexact_binary")
+             (continuation (npl_inexact_binary (car arguments)
+                                               (car (cdr arguments))
+                                               (car (cdr (cdr arguments))))))
+            ((string=? name "npl_finite_p")
+             (continuation (npl_finite_p value)))
+            ((string=? name "npl_nan_p")
+             (continuation (npl_nan_p value)))
+            ((string=? name "npl_infinite_p")
+             (continuation (npl_infinite_p value)))
+            ((string=? name "npl_exact_to_inexact")
+             (continuation (npl_exact_to_inexact value)))
+            ((string=? name "npl_inexact_to_exact")
+             (continuation (npl_inexact_to_exact value)))
+            ((string=? name "npl_integer_p")
+             (continuation (npl_integer_p value)))
+            ((string=? name "npl_number_from_string")
+             (continuation (npl_number_from_string value)))
+            ((string=? name "npl_number_from_string_radix")
+             (continuation (npl_number_from_string_radix
+                             value (car (cdr arguments)))))
+            ((string=? name "npl_number_to_string_radix")
+             (continuation (npl_number_to_string_radix
+                             value (car (cdr arguments)))))
+            ((string=? name "npl_complex_make")
+             (continuation (npl_complex_make value (car (cdr arguments)))))
+            ((string=? name "npl_complex_p")
+             (continuation (npl_complex_p value)))
+            ((string=? name "npl_complex_real")
+             (continuation (npl_complex_real value)))
+            ((string=? name "npl_complex_imag")
+             (continuation (npl_complex_imag value)))
+            ((string=? name "npl_number_zero_p")
+             (continuation (npl_number_zero_p value)))
+            ((string=? name "npl_number_gcd")
+             (continuation (npl_number_gcd value (car (cdr arguments)))))
+            ((string=? name "npl_number_quotient")
+             (continuation (npl_number_quotient value (car (cdr arguments)))))
+            ((string=? name "npl_number_remainder")
+             (continuation (npl_number_remainder value (car (cdr arguments)))))
+            ((not (number? value))
+             (continuation (eval-error "numeric primitive: expected a number")))
+            ((string=? name "npl_rational_numerator")
+             (continuation (npl_rational_numerator value)))
+            ((string=? name "npl_rational_denominator")
+             (continuation (npl_rational_denominator value)))
+            ((not (number? (car (cdr arguments))))
+             (continuation (eval-error "numeric primitive: expected a number")))
+            ; Only an exact zero divisor is an error; inexact zero follows IEEE.
+            ((if (npl_number_zero_p (car (cdr arguments)))
+                 (not (npl_inexact_p (npl_complex_real (car (cdr arguments)))))
+                 #f)
+             (continuation (eval-error "/: division by zero")))
+            (else (continuation (npl_number_div value (car (cdr arguments))))))))))
+
 ; Identity-tagged objects cannot collide with ordinary user vectors.
 (define EVAL-TAG-OWNER (cons #f #f))
 (define EVAL-PRIMITIVE-TAG (cons EVAL-TAG-OWNER 901))
@@ -706,6 +813,8 @@
     ((string=? name "pair?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error) (continuation (pair? (car arguments))))))
+    ((eval-exact-numeric-name? name)
+     (eval-exact-numeric name arguments continuation))
     ((string=? name "number?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error) (continuation (number? (car arguments))))))
@@ -987,6 +1096,56 @@
        (if error (continuation error)
            (begin (close-input-port (car arguments))
                   (continuation EVAL-UNSPECIFIED)))))
+    (else
+     (eval-apply-process-primitive name arguments continuation))))
+
+; (scheme process-context) mechanisms; the library supplies the public names.
+(define (eval-apply-process-primitive name arguments continuation)
+  (cond
+    ((string=? name "char?")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error) (continuation (char? (car arguments))))))
+    ((string=? name "char->integer")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (if (char? (car arguments))
+               (continuation (char->integer (car arguments)))
+               (continuation (eval-error "char->integer: expected a char"))))))
+    ((string=? name "integer->char")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (if (if (number? (car arguments))
+                   (if (npl_integer_p (car arguments))
+                       (if (>= (car arguments) 0)
+                           (<= (car arguments) 1114111) #f) #f) #f)
+               (continuation (integer->char (car arguments)))
+               (continuation
+                 (eval-error "integer->char: expected a scalar value"))))))
+    ((string=? name "command-line")
+     (let ((error (eval-arity arguments 0 name)))
+       (if error (continuation error) (continuation (command-line)))))
+    ((string=? name "exit")
+     (let ((count (if (eval-proper-list? arguments) (length arguments) -1)))
+       (cond
+         ((= count 0) (exit 0))
+         ((= count 1)
+          (let ((code (car arguments)))
+            (exit (cond ((eq? code #t) 0)
+                        ((eq? code #f) 1)
+                        ((number? code) code)
+                        (else 1)))))
+         (else (continuation (eval-error "exit: expected zero or one argument"))))))
+    ((string=? name "get-environment-variable")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (if (string? (car arguments))
+               (continuation (get-environment-variable (car arguments)))
+               (continuation
+                 (eval-error "get-environment-variable: expected a string"))))))
+    ((string=? name "get-environment-variables")
+     (let ((error (eval-arity arguments 0 name)))
+       (if error (continuation error)
+           (continuation (get-environment-variables)))))
     (else
      (continuation (eval-error (string-append "unknown primitive: " name))))))
 
@@ -1292,6 +1451,14 @@
   (list "+" "-" "*" "=" "<" "<=" ">" ">="
         "cons" "car" "cdr" "set-car!" "set-cdr!" "list" "vector" "list->vector"
         "vector-length" "vector-ref" "vector-set!" "vector?"
+        "npl_inexact_p" "npl_inexact_op" "npl_inexact_binary" "npl_finite_p" "npl_nan_p" "npl_infinite_p"
+        "npl_exact_to_inexact" "npl_inexact_to_exact"
+        "npl_number_div" "npl_integer_p" "npl_rational_numerator"
+        "npl_rational_denominator" "npl_number_from_string"
+        "npl_number_from_string_radix" "npl_number_to_string_radix"
+        "npl_complex_make" "npl_complex_p" "npl_complex_real" "npl_complex_imag"
+        "npl_number_zero_p" "npl_number_gcd" "npl_number_quotient"
+        "npl_number_remainder" "string?"
         "null?" "pair?"
         "eq?" "eqv?" "not" "number?" "number->string" "symbol?" "symbol->string"
         "open-input-string"
@@ -1306,7 +1473,10 @@
         "display" "write" "newline" "read" "eof-object?"
         "open-input-file" "open-output-file" "open-output-string"
         "close-port" "close-input-port" "output-port-open?"
-        "delete-file" "input-port-open?" "read-char" "write-char"))
+        "delete-file" "input-port-open?" "read-char" "write-char"
+        "char?" "char->integer" "integer->char"
+        "command-line" "exit" "get-environment-variable"
+        "get-environment-variables"))
 
 (define (eval-install-primitives environment names)
   (if (null? names)

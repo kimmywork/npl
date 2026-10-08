@@ -23,11 +23,12 @@
     (let ((init (car (cdr (cdr e)))))
       (if (not (sym-atom? nm-e))
           (fatal "bad define-variable name")
-          (begin
-            (cell-set! GLOBS
-              (cons (cons (cdr nm-e)
-                          (string-append "$gv_" (sanitize (cdr nm-e) 0 "")))
-                    (cell-get GLOBS)))
+          (let ((slot (string-append "$gv_" (sanitize (cdr nm-e) 0 ""))))
+            (cell-set! GLOBS (cons (cons (cdr nm-e) slot) (cell-get GLOBS)))
+            ; Global slots live in the data segment, which the collector does
+            ; not scan; register every slot so set! and runtime initializers
+            ; keep their values alive.
+            (cell-set! GLOBAL-ROOTS (cons slot (cell-get GLOBAL-ROOTS)))
             (emit-global-slot (cdr nm-e) init))))))
 
 (define (emit-global-slot nm init)
@@ -78,34 +79,8 @@
     (string-append "function l $" (sanitize nm 0 "")
                    "(l %npl_env, l %npl_argc, l %npl_argv) {"))
   (func-line "@start")
-  (let ((saved-func (cell-get CURRENT-FUNC)))
-    (let ((saved-cells (cell-get CURRENT-PARAM-CELLS)))
-      (cell-set! CURRENT-FUNC nm)
-      (let ((function-env (bind-generic-params params 0 ())))
-        (cell-set! CURRENT-PARAM-CELLS (parameter-cells params function-env))
-        (emit-tail-body body function-env))
-      (cell-set! CURRENT-PARAM-CELLS saved-cells)
-      (cell-set! CURRENT-FUNC saved-func)))
+  (emit-tail-body body (bind-generic-params params 0 ()))
   (func-line "}"))
-
-(define (parameter-cells-proper params env)
-  (if (null? params)
-      ()
-      (cons (env-lookup env (cdr (car params)))
-            (parameter-cells-proper (cdr params) env))))
-
-(define (parameter-cells params env)
-  (if (variadic-parameters? params)
-      (append-list
-        (parameter-cells-proper
-          (variadic-fixed-parameters params) env)
-        (cons
-          (env-lookup env (cdr (variadic-rest-parameter params)))
-          (cons
-            (env-lookup env
-              (cdr (variadic-continuation-parameter params)))
-            ())))
-      (parameter-cells-proper params env)))
 
 (define (emit-main params body)
   ; emitted programs follow the same runtime ABI as stage0 output:
@@ -119,27 +94,11 @@
     (func-line (string-append "ret " result)))
   (func-line "}"))
 
-(define (has-runtime-globals forms)
-  0)
-
-(define (bind-params params idx acc)
-  (if (null? params)
-      acc
-      (bind-params (cdr params) (+ idx 1)
-                   (env-extend acc (cdr (car params))
-                               (string-append "%p" (number->string idx))))))
-
-(define (render-params params idx)
-  (if (null? params)
-      ""
-      (string-append (if (= idx 0) "" ", ")
-                     "l %p" (number->string idx)
-                     (render-params (cdr params) (+ idx 1)))))
-
 (define (var-def? f)
   (if (pair-shape? f) (= (car f) 200) #f))
 
 (define (emit-top-level f)
+  (cell-set! ASSIGNED-NAMES (collect-assigned f ()))
   (if (fun-def? f)
       ; sig = ((100 . nm) . params); body-list = (car (cdr (cdr f)))
       (if (string=? (defined-name f) "main")
@@ -151,16 +110,6 @@
           (variable-def f)
           (fatal "top level must contain definitions"))))
 
-(define INIT-EMITTED (cell 0))
-
-(define (emit-empty-global-inits)
-  ; target programs have static-only globals; provide the no-op that the
-  ; $main prologue references so linking always succeeds
-  (func-line "function l $npl_global_inits() {")
-  (func-line "@start")
-  (func-line "ret 2")
-  (func-line "}"))
-
 (define (flush-code-buffers)
   (print-lines (rev (cell-get DATA-BUF)))
   (print-lines (rev (cell-get LAMBDA-BUF)))
@@ -169,63 +118,50 @@
   (cell-set! LAMBDA-BUF ())
   (cell-set! FUNC-BUF ()))
 
+(define (print-global-roots slots)
+  (if (null? slots)
+      0
+      (begin
+        (display "call $npl_gc_root(l ")
+        (display (car slots))
+        (display ")")
+        (newline)
+        (print-global-roots (cdr slots)))))
+
 (define (dump-and-print)
-  ; Top-level forms are flushed incrementally. Only runtime initializer code
-  ; remains until its enclosing function can be emitted.
+  ; Top-level forms are flushed incrementally. Only root registration and
+  ; runtime initializer code remain until their function can be emitted.
   (flush-code-buffers)
+  (display "function l $npl_global_inits() {")
+  (newline)
+  (display "@start")
+  (newline)
+  (print-global-roots (rev (cell-get GLOBAL-ROOTS)))
   (if (= (cell-get HAS-INIT) 7)
-      (begin
-        (display "function l $npl_global_inits() {")
-        (newline)
-        (display "@start")
-        (newline)
-        (print-lines (rev (cell-get INIT-BUF)))
-        (display "ret 2")
-        (newline)
-        (display "}")
-        (newline))
-      (begin
-        (display "function l $npl_global_inits() {")
-        (newline)
-        (display "@start")
-        (newline)
-        (display "ret 2")
-        (newline)
-        (display "}")
-        (newline))))
+      (print-lines (rev (cell-get INIT-BUF)))
+      0)
+  (display "ret 2")
+  (newline)
+  (display "}")
+  (newline))
 
 (define (print-lines xs)
   (if (null? xs)
       0
       (begin (display (car xs)) (newline) (print-lines (cdr xs)))))
 
-(define (compiler-input args)
-  (if (null? args)
-      (fatal "usage: nplc [--emit-qbe] [--stdlib-root DIR] <input.npl>")
-      (if (string=? (car args) "--emit-qbe")
-          (compiler-input (cdr args))
-          (if (string=? (car args) "--stdlib-root")
-              (if (null? (cdr args))
-                  (fatal "--stdlib-root needs a directory")
-                  (begin
-                    (library-set-standard-root! (car (cdr args)))
-                    (compiler-input (cdr (cdr args)))))
-              (car args)))))
-
-(define (run args)
-  (let ((path (compiler-input args)))
-    (let ((raw-forms
-            (expand-includes (parse-source-file path)
-                             (path-dir path)
-                             (cons path ()))))
-      (let ((forms
-              (control-program
-                (lower-program
-                  (expand-source-program raw-forms (path-dir path))))))
-        (begin
-          (pass-register-functions forms)
-          (emit-all-forms forms)
-          (dump-and-print))))))
+(define (emit-program path)
+  (let ((raw-forms
+          (expand-includes (parse-source-file path)
+                           (path-dir path)
+                           (cons path ()))))
+    (let ((forms
+            (control-program
+              (lower-program
+                (expand-source-program raw-forms (path-dir path))))))
+      (pass-register-functions forms)
+      (emit-all-forms forms)
+      (dump-and-print))))
 
 (define (emit-all-forms forms)
   (if (null? forms)
@@ -234,8 +170,3 @@
         (emit-top-level (car forms))
         (flush-code-buffers)
         (emit-all-forms (cdr forms)))))
-
-(define (main)
-  (begin
-    (run (program-arguments))
-    11))

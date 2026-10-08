@@ -1,13 +1,17 @@
 #!/bin/bash
-# Build the persistent REPL implemented in NPL.
-# Usage: ./tools/build_npl_repl.sh [output-path]
+# Build npli (REPL and program runner) with nplc.
+# Usage: ./tools/build_npli.sh [output-path]
 
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-OUTPUT=${1:-"$ROOT/build/bin/npl-repl"}
+OUTPUT=${1:-"$ROOT/build/bin/npli"}
 
-"$ROOT/tools/build_nplc.sh" >/dev/null
+# CMake builds nplc first and sets NPL_SKIP_NPLC_BUILD to avoid recursion.
+if [ -z "${NPL_SKIP_NPLC_BUILD:-}" ]; then
+    cmake -S "$ROOT" -B "$ROOT/build" -G Ninja >/dev/null
+    ninja -C "$ROOT/build" nplc >/dev/null
+fi
 mkdir -p "$(dirname "$OUTPUT")"
 
 work=$(mktemp -d)
@@ -23,6 +27,8 @@ npl_escape() {
         '        (scheme read)' \
         '        (scheme write)' \
         '        (scheme process-context)' \
+        '        (scheme file)' \
+        '        (npl process)' \
         '        (scheme repl)' \
         '        (npl evaluator)' \
         '        (npl repl-io))'
@@ -31,4 +37,6 @@ npl_escape() {
 } > "$work/repl.npl"
 
 "$ROOT/build/bin/nplc" "$work/repl.npl" -o "$OUTPUT"
-printf 'built NPL REPL: %s\n' "$OUTPUT"
+# The pre-rename binary is no longer produced or used.
+rm -f "$ROOT/build/bin/npl-repl"
+printf 'built npli: %s\n' "$OUTPUT"

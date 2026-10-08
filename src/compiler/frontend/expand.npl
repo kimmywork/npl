@@ -570,6 +570,40 @@
 ; kind: 1 let, 2 let*, 3 letrec, 4 letrec*
 (define (expand-binding-form form kind value-env macro-env)
   (if (null? (cdr form)) (fatal "binding form needs bindings"))
+  (if (if (= kind 1) (datum-symbol? (car (cdr form))) #f)
+      (expand-named-let form value-env macro-env)
+      (expand-ordinary-binding-form form kind value-env macro-env)))
+
+; R7RS 4.2.4: (let name ((var init) ...) body ...) is
+; ((letrec ((name (lambda (var ...) body ...))) name) init ...).
+; The result is already expanded; the inits see the outer environment only.
+(define (expand-named-let form value-env macro-env)
+  (let ((name (car (cdr form))))
+    (if (null? (cdr (cdr form))) (fatal "named let needs bindings"))
+    (let ((bindings (checked-raw-bindings (car (cdr (cdr form))))))
+      (let ((body (cdr (cdr (cdr form)))))
+        (if (null? body) (fatal "binding form needs a body"))
+        (let ((bound (bind-identifiers (cons name ()) value-env)))
+          (let ((emitted (car (car bound))))
+            (let ((procedure
+                    (expand-lambda
+                      (cons (datum-symbol "lambda")
+                            (cons (binding-identifiers bindings) body))
+                      (cdr bound) macro-env)))
+              (cons
+                (cons (datum-symbol "letrec")
+                  (cons (cons (cons emitted (cons procedure ())) ())
+                        (cons emitted ())))
+                (expand-expression-list
+                  (named-let-inits bindings) value-env macro-env)))))))))
+
+(define (named-let-inits bindings)
+  (if (null? bindings)
+      ()
+      (cons (car (cdr (car bindings)))
+            (named-let-inits (cdr bindings)))))
+
+(define (expand-ordinary-binding-form form kind value-env macro-env)
   (let ((bindings (checked-raw-bindings (car (cdr form)))))
     (let ((body (cdr (cdr form))))
       (if (= kind 2)

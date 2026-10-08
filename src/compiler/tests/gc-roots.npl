@@ -1,0 +1,37 @@
+; Global slots, closure environments, and unboxed immutable locals must stay
+; reachable across collections. Run with a small NPL_GC_THRESHOLD_BYTES.
+(include "framework.npl")
+
+(define RUNTIME-GLOBAL (cons 1 (cons 2 (cons 3 (quote ())))))
+(define ASSIGNED-GLOBAL '())
+(define COUNTER 0)
+
+(define (fill!) (set! ASSIGNED-GLOBAL (cons 4 (cons 5 (quote ())))) 0)
+
+(define (churn n)
+  (if (= n 0) 0 (begin (cons n (vector n n n n)) (churn (- n 1)))))
+
+(define (deep-string n)
+  (if (= n 0)
+      ""
+      (string-append "ab" (deep-string (- n 1)))))
+
+(define (make-adder base)
+  (let ((offset (cons base (quote ()))))
+    (lambda (value) (+ value (car offset)))))
+
+(define (bump!) (set! COUNTER (+ COUNTER 1)) COUNTER)
+
+(define (main)
+  (fill!)
+  (let ((adder (make-adder 40)))
+    (churn 200000)
+    (test-equal "runtime-initialized global"
+                (lambda () (car (cdr RUNTIME-GLOBAL))) 2)
+    (test-equal "assigned global" (lambda () (car (cdr ASSIGNED-GLOBAL))) 5)
+    (test-equal "captured immutable local" (lambda () (adder 2)) 42)
+    (test-equal "deep non-tail allocation"
+                (lambda () (string-length (deep-string 20000))) 40000)
+    (bump!) (churn 100000) (bump!)
+    (test-equal "assigned fixnum global" (lambda () COUNTER) 2))
+  (finish-tests "gc-roots"))

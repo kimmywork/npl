@@ -33,14 +33,14 @@ cat > "$WORK/compiler" <<'STUB'
 #!/bin/bash
 case "$RELAY_TEST_MODE" in
     fail) exit 7 ;;
-    empty) exit 44 ;;
-    drift) printf '%s\n' "$0"; exit 44 ;;
+    empty) exit 0 ;;
+    drift) printf '%s\n' "$0"; exit 0 ;;
     stall)
         sleep 300 &
         echo "$!" > "$RELAY_TEST_CHILD"
         wait
         ;;
-    *) printf 'canonical\n'; exit 44 ;;
+    *) printf 'canonical\n'; exit 0 ;;
 esac
 STUB
 chmod +x "$WORK/bin/"* "$WORK/build/qbe/qbe" "$WORK/compiler"

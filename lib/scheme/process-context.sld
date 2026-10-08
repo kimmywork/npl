@@ -2,10 +2,8 @@
   (export command-line exit emergency-exit
           get-environment-variable get-environment-variables)
   (import
-    (rename
-      (only (npl primitive)
-            program-arguments exit
-            get-environment-variable get-environment-variables)
-      (program-arguments command-line)))
+    (only (npl primitive)
+          command-line exit
+          get-environment-variable get-environment-variables))
   (begin
     (define (emergency-exit code) (exit code))))

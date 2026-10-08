@@ -17,12 +17,14 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
+#ifndef NPL_GC_MIN_THRESHOLD
 #define NPL_GC_MIN_THRESHOLD (1024u * 1024u * 1024u)
+#endif
 #define NPL_CHUNK_SIZE (1024u * 1024u)
 #define NPL_ALIGN      16u
 #define NPL_META_MAGIC_LIVE UINT64_C(0x4e504c4d45544131)
 #define NPL_META_MAGIC_FREE UINT64_C(0x4e504c4d45544130)
-#define MAX_ROOTS 1024
+#define NPL_ROOTS_INITIAL 256
 #define NPL_CHUNK_INDEX_SHIFT 20
 #define NPL_CHUNK_INDEX_BUCKETS 65536
 #define NPL_FREE_EXACT_BINS 128
@@ -67,10 +69,12 @@ static NplAllocMeta *g_free_bins[NPL_FREE_BIN_COUNT];
 static NplAllocMeta *g_mark_stack = NULL;
 static size_t g_allocated = 0;
 static size_t g_threshold = NPL_GC_MIN_THRESHOLD;
+static size_t g_min_threshold = NPL_GC_MIN_THRESHOLD;
 static size_t g_live_objects = 0;
 static size_t g_collections = 0;
-static NplVal *g_roots[MAX_ROOTS];
+static NplVal **g_roots = NULL;
 static int g_root_count = 0;
+static int g_root_capacity = 0;
 static uintptr_t g_stack_bottom = 0;
 static int g_runtime_initialized = 0;
 static int g_gc_running = 0;
@@ -239,13 +243,27 @@ void *npl_alloc_object(size_t size)
     return meta_object(meta);
 }
 
+/* NPL_GC_THRESHOLD_BYTES overrides the minimum collection threshold so tests
+ * can force frequent collections; malformed or zero values are ignored. */
+static size_t initial_threshold(void)
+{
+    const char *text = getenv("NPL_GC_THRESHOLD_BYTES");
+    if (!text || !*text) return NPL_GC_MIN_THRESHOLD;
+    char *end = NULL;
+    unsigned long long value = strtoull(text, &end, 10);
+    if (*end != '\0' || value == 0 || value > SIZE_MAX)
+        return NPL_GC_MIN_THRESHOLD;
+    return (size_t)value;
+}
+
 void npl_runtime_init(void)
 {
     uintptr_t marker = 0;
     if (g_runtime_initialized) return;
     g_runtime_initialized = 1;
     g_stack_bottom = (uintptr_t)(void *)&marker + sizeof(marker);
-    g_threshold = NPL_GC_MIN_THRESHOLD;
+    g_min_threshold = initial_threshold();
+    g_threshold = g_min_threshold;
     g_root_count = 0;
     npl_control_init();
     npl_io_init();
@@ -255,9 +273,15 @@ void npl_runtime_init(void)
 
 void npl_gc_root(NplVal *root)
 {
-    if (g_root_count >= MAX_ROOTS) {
-        fprintf(stderr, "npl_gc_root: root table overflow\n");
-        exit(1);
+    /* Compiled programs register one root per global slot, so grow. */
+    if (g_root_count == g_root_capacity) {
+        int capacity = g_root_capacity ? g_root_capacity * 2
+                                       : NPL_ROOTS_INITIAL;
+        NplVal **roots = (NplVal **)realloc(
+            g_roots, (size_t)capacity * sizeof(NplVal *));
+        if (!roots) npl_runtime_oom_internal();
+        g_roots = roots;
+        g_root_capacity = capacity;
     }
     g_roots[g_root_count++] = root;
 }
@@ -311,6 +335,18 @@ void npl_gc_drain_internal(void)
         }
         case BOX_BIGNUM:
             break;
+        case BOX_RATIONAL: {
+            NplRational *rational = (NplRational *)header;
+            npl_gc_mark_candidate_internal(rational->numerator);
+            npl_gc_mark_candidate_internal(rational->denominator);
+            break;
+        }
+        case BOX_COMPLEX: {
+            NplComplex *complex = (NplComplex *)header;
+            npl_gc_mark_candidate_internal(complex->real);
+            npl_gc_mark_candidate_internal(complex->imag);
+            break;
+        }
         case BOX_VECTOR: {
             NplVector *vector = (NplVector *)header;
             for (uint32_t i = 0; i < vector->length; i++)
@@ -428,8 +464,8 @@ void npl_gc_sweep_internal(void)
     }
 
     g_threshold = g_allocated * 2;
-    if (g_threshold < NPL_GC_MIN_THRESHOLD)
-        g_threshold = NPL_GC_MIN_THRESHOLD;
+    if (g_threshold < g_min_threshold)
+        g_threshold = g_min_threshold;
     g_collections++;
     g_gc_running = 0;
 }

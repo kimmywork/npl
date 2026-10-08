@@ -27,6 +27,9 @@ run() {
     fi
 }
 
+# Build nplc and npli once; the checks below reuse them (NPL_TOOLCHAIN_BUILT).
+run "toolchain build (nplc, npli)" "$ROOT/tools/build_toolchain.sh"
+export NPL_TOOLCHAIN_BUILT=1
 run "stage0 reader/executable" "$ROOT/tools/check_stage0.sh"
 run "stage0 QBE" "$ROOT/tools/check_stage0_qbe.sh"
 run "bootstrap SSA" "$ROOT/tools/check_bootstrap.sh"
@@ -35,11 +38,19 @@ if [ "$SKIP_CURRENT_FIXED_POINT" -eq 0 ]; then
         "$ROOT/tools/check_current_fixed_point.sh"
 fi
 run "full compiler language" "$ROOT/tools/check_full_compiler.sh"
-run "three-stage driver" "$ROOT/tools/check_driver.sh"
-run "persistent REPL core" "$ROOT/tools/check_repl.sh"
+run "unified nplc driver" "$ROOT/tools/check_driver.sh"
+run "install layout" "$ROOT/tools/check_install.sh"
+run "npli REPL and scripts" "$ROOT/tools/check_repl.sh"
 run "core semantic consistency" "$ROOT/tools/check_core_consistency.sh"
 run "relay orchestration" "$ROOT/tools/check_relay_scripts.sh"
 run "runtime GC" "$ROOT/tools/check_gc.sh"
+run "exact numeric substrate" bash "$ROOT/tools/check_numeric_reference.sh"
+for fixture in integer-arithmetic rational-arithmetic radix-exact \
+               complex-rectangular exact-numeric-utilities inexact-math \
+               mixed-numeric-utilities mutable-bindings named-let char-basics; do
+    run "R7RS $fixture" \
+        "$ROOT/tools/run_r7rs_fixture.sh" "$ROOT/tests/r7rs/fixtures/$fixture"
+done
 run "stage0 dynamic core" "$ROOT/tools/check_core.sh"
 run "R7RS baseline" "$ROOT/tools/check_r7rs.sh"
 run "properties" python3 "$ROOT/tools/prop_tests.py"

@@ -43,13 +43,10 @@ if [ -n "$repl_body" ]; then
 fi
 
 NPLC=${NPLC:-"$ROOT/build/bin/nplc"}
-REPL=${NPL_REPL:-"$ROOT/build/bin/npl-repl"}
+REPL=${NPLI:-"$ROOT/build/bin/npli"}
 
-if [ ! -x "$NPLC" ]; then
-    "$ROOT/tools/build_nplc.sh" "$NPLC" >/dev/null
-fi
-if [ ! -x "$REPL" ]; then
-    "$ROOT/tools/build_npl_repl.sh" "$REPL" >/dev/null
+if [ ! -x "$NPLC" ] || [ ! -x "$REPL" ]; then
+    "$ROOT/tools/build_toolchain.sh" >/dev/null
 fi
 
 run_capture() {

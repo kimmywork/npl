@@ -2,14 +2,96 @@
 
 ; ---------------- expression emission ----------------
 
-(define (env-extend env nm tmp) (cons (cons nm tmp) env))
+; A binding entry is (name cell? . op). Cell bindings hold a heap cell and are
+; used for assigned, letrec, and internal-definition variables; every other
+; lexical variable is immutable, so op is its SSA value and needs no cell.
+(define (env-extend env nm cell-op) (cons (cons nm (cons #t cell-op)) env))
+(define (env-extend-value env nm value)
+  (cons (cons nm (cons #f value)) env))
+(define (env-entry-cell? entry) (car (cdr entry)))
+(define (env-entry-op entry) (cdr (cdr entry)))
 
-(define (env-lookup env nm)
+(define (env-entry env nm)
   (if (null? env)
-      ""
+      #f
       (if (string=? (car (car env)) nm)
-          (cdr (car env))
-          (env-lookup (cdr env) nm))))
+          (car env)
+          (env-entry (cdr env) nm))))
+
+; Cell operand for writes; "" when the name is not lexically bound.
+(define (env-lookup env nm)
+  (let ((entry (env-entry env nm)))
+    (if entry
+        (if (env-entry-cell? entry)
+            (env-entry-op entry)
+            (fatal (string-append "internal: write to immutable " nm)))
+        "")))
+
+; Value operand for reads; "" when the name is not lexically bound.
+(define (env-read env nm)
+  (let ((entry (env-entry env nm)))
+    (if entry
+        (if (env-entry-cell? entry)
+            (read-cell-op (env-entry-op entry))
+            (env-entry-op entry))
+        "")))
+
+; Collect names from a core form. The walk follows core node shapes so bare
+; integer arguments are never mistaken for node tags, and it never enters
+; literal data, which may be circular (datum labels). Unknown nodes are walked
+; as expression lists. With refs #f it collects set! targets; with refs #t it
+; also collects every variable reference. Both results over-approximate (they
+; ignore shadowing), which is the safe direction for cell allocation and
+; closure capture: an assigned variable never loses its cell and a referenced
+; variable is never left uncaptured.
+(define (core-names-list es refs acc)
+  (if (pair-shape? es)
+      (core-names-list (cdr es) refs (core-names (car es) refs acc))
+      acc))
+
+(define (core-names-bindings bs refs acc)
+  (if (pair-shape? bs)
+      (core-names-bindings
+        (cdr bs) refs
+        (if (pair-shape? (car bs))
+            (core-names (cdr (car bs)) refs acc)
+            acc))
+      acc))
+
+(define (core-names e refs acc)
+  (if (not (pair-shape? e))
+      acc
+      (if (not (number? (car e)))
+          (core-names-list e refs acc)
+          (case (car e)
+            ((100) (if refs (cons (cdr e) acc) acc))
+            ((101 102 103 104 108 109 204) acc)
+            ((200) (core-names (car (cdr (cdr e))) refs acc))
+            ((211 212) (core-names-list (car (cdr (cdr e))) refs acc))
+            ((214 220 221 222)
+             (core-names-list
+               (car (cdr (cdr e))) refs
+               (core-names-bindings (car (cdr e)) refs acc)))
+            ((217)
+             (core-names
+               (car (cdr (cdr e))) refs
+               (if (sym-atom? (car (cdr e)))
+                   (cons (cdr (car (cdr e))) acc)
+                   acc)))
+            (else (core-names-list (cdr e) refs acc))))))
+
+(define (collect-assigned e acc) (core-names e #f acc))
+
+(define (assigned-name? nm names)
+  (if (null? names)
+      #f
+      (if (string=? nm (car names)) #t (assigned-name? nm (cdr names)))))
+
+; Bind an initialized variable, allocating a cell only when it is assigned.
+(define (env-bind env nm value)
+  (if (assigned-name? nm (cell-get ASSIGNED-NAMES))
+      (env-extend env nm (make-cell-op value))
+      (env-extend-value env nm value)))
 
 (define (env-name-seen? name seen)
   (if (null? seen)
@@ -18,14 +100,23 @@
           #t
           (env-name-seen? name (cdr seen)))))
 
-(define (visible-env env seen)
+; Innermost visible bindings whose names the lambda body may reference.
+(define (lambda-captures env body)
+  (let ((referenced (core-names-list body #t ())))
+    (captured-entries env referenced ())))
+
+(define (captured-entries env referenced seen)
   (if (null? env)
       ()
       (let ((entry (car env)))
         (if (env-name-seen? (car entry) seen)
-            (visible-env (cdr env) seen)
-            (cons entry
-                  (visible-env (cdr env) (cons (car entry) seen)))))))
+            (captured-entries (cdr env) referenced seen)
+            (if (env-name-seen? (car entry) referenced)
+                (cons entry
+                      (captured-entries (cdr env) referenced
+                                        (cons (car entry) seen)))
+                (captured-entries (cdr env) referenced
+                                  (cons (car entry) seen)))))))
 
 (define (variadic-parameters? params)
   (if (pair-shape? params)
@@ -75,13 +166,12 @@
           (string-append rest-value
             " =l call $npl_rest_arguments(l %npl_argc, l %npl_argv, l "
             (number->string (count-up fixed 0)) ", l 1)"))
-        (let ((rest-cell (make-cell-op rest-value)))
-          (let ((continuation-cell (make-cell-op (load-last-argv))))
-            (env-extend
-              (env-extend fixed-env
-                (cdr (variadic-rest-parameter params)) rest-cell)
-              (cdr (variadic-continuation-parameter params))
-              continuation-cell)))))))
+        (let ((continuation-value (load-last-argv)))
+          (env-bind
+            (env-bind fixed-env
+              (cdr (variadic-rest-parameter params)) rest-value)
+            (cdr (variadic-continuation-parameter params))
+            continuation-value))))))
 
 (define (bind-generic-params params index env)
   (if (variadic-parameters? params)
@@ -89,10 +179,9 @@
       (if (null? params)
           env
           (let ((value (load-argv index)))
-            (let ((binding (make-cell-op value)))
-              (bind-generic-params
-                (cdr params) (+ index 1)
-                (env-extend env (cdr (car params)) binding)))))))
+            (bind-generic-params
+              (cdr params) (+ index 1)
+              (env-bind env (cdr (car params)) value))))))
 
 (define (bind-captures captures index env)
   (if (null? captures)
@@ -102,14 +191,17 @@
           (string-append binding
                          " =l call $npl_environment_ref(l %npl_env, l "
                          (number->string index) ")"))
+        ; A captured cell stays shared; a captured value is copied.
         (bind-captures
           (cdr captures) (+ index 1)
-          (env-extend env (car (car captures)) binding)))))
+          (cons (cons (car (car captures))
+                      (cons (env-entry-cell? (car captures)) binding))
+                env)))))
 
 (define (capture-ops captures)
   (if (null? captures)
       ()
-      (cons (cdr (car captures)) (capture-ops (cdr captures)))))
+      (cons (env-entry-op (car captures)) (capture-ops (cdr captures)))))
 
 (define (emit-capture-environment captures)
   (let ((ops (capture-ops captures)))
@@ -123,7 +215,7 @@
 (define (emit-lambda e env)
   (let ((params (car (cdr e))))
     (let ((body (car (cdr (cdr e)))))
-      (let ((captures (visible-env env ())))
+      (let ((captures (lambda-captures env body)))
         (cell-set! LAMBDA-N (+ 1 (cell-get LAMBDA-N)))
         (let ((name
                 (string-append "_lambda_"
@@ -137,12 +229,8 @@
                                "(l %npl_env, l %npl_argc, l %npl_argv) {"))
               (func-line "@start")
               (let ((capture-env (bind-captures captures 0 ())))
-                (let ((lambda-env
-                        (bind-generic-params params 0 capture-env)))
-                  (let ((saved-func (cell-get CURRENT-FUNC)))
-                    (cell-set! CURRENT-FUNC "")
-                    (emit-tail-body body lambda-env)
-                    (cell-set! CURRENT-FUNC saved-func))))
+                (emit-tail-body body
+                  (bind-generic-params params 0 capture-env)))
               (func-line "}")
               (print-lines (rev (cell-get DATA-BUF)))
               (cell-set! DATA-BUF ())

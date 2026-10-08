@@ -5,6 +5,8 @@ build-*/
 *.s
 *.ssa
 !bootstrap/*.ssa
+# Hand-written QBE IL smoke input (not generated).
+!tools/hello.ssa
 build/qbe/qbe
 
 # Local agent/session state

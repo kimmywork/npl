@@ -4,8 +4,8 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 FIXTURE="$ROOT/tests/r7rs/fixtures/core-bindings"
 NPLC=${NPLC:-"$ROOT/build/bin/nplc"}
-NPL_REPL=${NPL_REPL:-"$ROOT/build/bin/npl-repl"}
-export NPLC NPL_REPL
+NPLI=${NPLI:-"$ROOT/build/bin/npli"}
+export NPLC NPLI
 "$ROOT/tools/run_r7rs_fixture.sh" "$FIXTURE"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -19,7 +19,7 @@ while IFS=$'\t' read -r diagnostic form; do
     [ ! -x "$WORK/invalid" ]
     grep -F "$diagnostic" "$WORK/native.out" "$WORK/native.err" >/dev/null
     printf '(import (scheme base) (scheme write))\n%s\n(write (quote recovered))\n(newline)\n(exit)\n' "$form" > "$WORK/repl.in"
-    "$NPL_REPL" --no-prompt < "$WORK/repl.in" > "$WORK/repl.out" 2> "$WORK/repl.err"
+    "$NPLI" --no-prompt < "$WORK/repl.in" > "$WORK/repl.out" 2> "$WORK/repl.err"
     cmp "$WORK/expected.out" "$WORK/repl.out"
     printf 'error: %s\n' "$diagnostic" > "$WORK/expected.err"
     cmp "$WORK/expected.err" "$WORK/repl.err"

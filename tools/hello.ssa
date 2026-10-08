@@ -1,0 +1,12 @@
+# NPL smoke test: hand-written QBE IL that prints "hello world".
+# Verifies: QBE → asm → assemble → link → run works end-to-end.
+# Mirrors the canonical example from external/qbe-1.3/doc/il.txt.
+
+# String constant (global data; $str is a pointer to it).
+data $str = { b "hello world", b 0 }
+
+export function w $main() {
+@start
+    %r =w call $puts(l $str)
+    ret 0
+}

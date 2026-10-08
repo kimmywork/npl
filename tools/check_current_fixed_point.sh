@@ -17,6 +17,12 @@ CURRENT="$ROOT/bootstrap/current.ssa"
 
 WORK=""
 KEEP=0
+# NPL_GC_THRESHOLD_BYTES, if set by the caller, is inherited by every
+# emission. It changes memory use and speed only, never the emitted SSA.
+# Success status of the seed's SSA emission. Generated compilers always exit 0;
+# a seed from before the unified nplc (2026-09-29) exits 44 and needs
+# --seed-status 44 for the single relay that replaces it.
+SEED_STATUS=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --work-dir)
@@ -28,8 +34,13 @@ while [ "$#" -gt 0 ]; do
             KEEP=1
             shift
             ;;
+        --seed-status)
+            [ "$#" -ge 2 ] || { echo "--seed-status needs a value" >&2; exit 2; }
+            SEED_STATUS=$2
+            shift 2
+            ;;
         *)
-            echo "usage: $0 [--work-dir DIR] [--keep]" >&2
+            echo "usage: $0 [--work-dir DIR] [--keep] [--seed-status N]" >&2
             exit 2
             ;;
     esac
@@ -62,6 +73,15 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
+# SHA-256 of a file: sha256sum (GNU/Linux) or shasum (macOS).
+sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
 run_stage() {
     label=$1
     expected=$2
@@ -88,27 +108,28 @@ build_compiler() {
     input=$1
     output=$2
     run_stage "$(basename "$output")/qbe" 0 "$QBE" -o "$output.s" "$input"
-    run_stage "$(basename "$output")/link" 0 cc -o "$output" "$output.s" "$RUNTIME"
+    run_stage "$(basename "$output")/link" 0 cc -o "$output" "$output.s" "$RUNTIME" -lm
 }
 
 emit_compiler() {
     compiler=$1
     output=$2
-    run_stage "$(basename "$output")/emit" 44 \
-        "$compiler" --emit-qbe "$SOURCE" > "$output"
+    expected=$3
+    run_stage "$(basename "$output")/emit" "$expected" \
+        "$compiler" --emit-qbe --stdlib-root "$ROOT/lib" "$SOURCE" > "$output"
     [ -s "$output" ]
 }
 
 build_compiler "$CURRENT" "$WORK/current-compiler"
-emit_compiler "$WORK/current-compiler" "$WORK/gen1.ssa"
+emit_compiler "$WORK/current-compiler" "$WORK/gen1.ssa" "$SEED_STATUS"
 build_compiler "$WORK/gen1.ssa" "$WORK/gen1-compiler"
-emit_compiler "$WORK/gen1-compiler" "$WORK/gen2.ssa"
+emit_compiler "$WORK/gen1-compiler" "$WORK/gen2.ssa" 0
 build_compiler "$WORK/gen2.ssa" "$WORK/gen2-compiler"
-emit_compiler "$WORK/gen2-compiler" "$WORK/gen3.ssa"
+emit_compiler "$WORK/gen2-compiler" "$WORK/gen3.ssa" 0
 
 cmp "$WORK/gen1.ssa" "$WORK/gen2.ssa"
 cmp "$WORK/gen2.ssa" "$WORK/gen3.ssa"
-sha256=$(shasum -a 256 "$WORK/gen1.ssa" | awk '{print $1}')
+sha256=$(sha256_file "$WORK/gen1.ssa")
 lines=$(wc -l < "$WORK/gen1.ssa" | tr -d ' ')
 echo "current compiler fixed point: PASS"
 echo "SSA lines: $lines"

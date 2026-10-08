@@ -9,8 +9,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 extern char **environ;
 
@@ -25,6 +29,7 @@ extern char **environ;
 static int g_argc_stored = 0;
 static char **g_argv_stored = NULL;
 static NplVal g_args_list = 2;
+static NplVal g_command_line = 2;
 static NplVal g_current_input_port = 2;
 static NplVal g_current_output_port = 2;
 static NplVal g_current_error_port = 2;
@@ -117,6 +122,7 @@ static NplVal make_eof_object(void)
 void npl_io_init(void)
 {
     g_args_list = npl_nil();
+    g_command_line = npl_nil();
     g_current_input_port = make_port(stdin,
         NPL_PORT_INPUT | NPL_PORT_TEXTUAL | NPL_PORT_BINARY);
     g_current_output_port = make_port(stdout,
@@ -125,6 +131,7 @@ void npl_io_init(void)
         NPL_PORT_OUTPUT | NPL_PORT_TEXTUAL | NPL_PORT_BINARY);
     g_eof_object = make_eof_object();
     npl_gc_root(&g_args_list);
+    npl_gc_root(&g_command_line);
     npl_gc_root(&g_current_input_port);
     npl_gc_root(&g_current_output_port);
     npl_gc_root(&g_current_error_port);
@@ -168,13 +175,6 @@ static void output_integer_value(NplPort *port, NplVal value)
     npl_gc_unroot(&text);
 }
 
-static void output_float(NplPort *port, double value)
-{
-    char buffer[64];
-    int length = snprintf(buffer, sizeof(buffer), "%g", value);
-    output_bytes(port, buffer, (size_t)length);
-}
-
 static void display_to(NplPort *port, NplVal value)
 {
     if (npl_is_fixnum(value)) {
@@ -215,9 +215,9 @@ static void display_to(NplPort *port, NplVal value)
             break;
         }
         case BOX_FLOAT:
-            output_float(port, ((NplFloat *)header)->value);
-            break;
         case BOX_BIGNUM:
+        case BOX_RATIONAL:
+        case BOX_COMPLEX:
             output_integer_value(port, value);
             break;
         case BOX_VECTOR: {
@@ -964,9 +964,14 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
     buffer_push(&buffer, &length, &capacity, 0);
 
     NplVal token = npl_string(buffer, (uint32_t)(length - 1));
-    NplVal value = npl_integer_string_p(token) == npl_true()
-        ? npl_integer_from_string(token)
-        : npl_symbol(buffer, (uint32_t)(length - 1));
+    NplVal value = npl_number_from_string(token);
+    if (value == npl_false()) {
+        int numeric_start = buffer[0] >= '0' && buffer[0] <= '9';
+        if ((buffer[0] == '+' || buffer[0] == '-') && length > 2)
+            numeric_start = buffer[1] >= '0' && buffer[1] <= '9';
+        if (numeric_start) read_buffer_error(buffer, "invalid exact number");
+        value = npl_symbol(buffer, (uint32_t)(length - 1));
+    }
     free(buffer);
     return value;
 }
@@ -1051,11 +1056,33 @@ static NplVal bytevector_from_list(NplVal list)
     return value;
 }
 
+static NplVal read_hash_radix_datum(NplDatumReader *reader, int prefix)
+{
+    char *buffer = NULL;
+    size_t length = 0;
+    size_t capacity = 0;
+    buffer_push(&buffer, &length, &capacity, '#');
+    buffer_push(&buffer, &length, &capacity, prefix);
+    while (!datum_delimiter(reader_peek(reader)))
+        buffer_push(&buffer, &length, &capacity, reader_get(reader));
+    NplVal text = npl_string(buffer, (uint32_t)length);
+    NplVal value = npl_number_from_string(text);
+    free(buffer);
+    if (value == npl_false()) read_error("invalid radix number");
+    return value;
+}
+
 static NplVal read_hash_datum(NplDatumReader *reader)
 {
     int code = reader_get(reader);
-    if (code == 't') return npl_true();
-    if (code == 'f') return npl_false();
+    if (code == 't' || code == 'f') {
+        if (!datum_delimiter(reader_peek(reader)))
+            read_error("invalid boolean literal");
+        return code == 't' ? npl_true() : npl_false();
+    }
+    if (code == 'b' || code == 'B' || code == 'o' || code == 'O' ||
+        code == 'd' || code == 'D' || code == 'x' || code == 'X')
+        return read_hash_radix_datum(reader, code);
     if (code == '\\') return read_character_datum(reader);
     if (code == '(') return npl_list_to_vector(read_list_datum(reader));
     if (code == 'u') {
@@ -1126,19 +1153,36 @@ void npl_store_args(int argc, char **argv) {
     g_argv_stored = argv;
 }
 
-/* Build (once) the list of argument strings; argv[0] (program path) omitted. */
-NplVal npl_program_arguments(void) {
-    if (!npl_is_nil(g_args_list)) {
-        return g_args_list;
-    }
-    NplVal acc = 2; /* nil */
-    for (int i = g_argc_stored - 1; i >= 1; i--) {
+static NplVal argument_list(int first)
+{
+    NplVal acc = npl_nil();
+    npl_gc_root(&acc);
+    for (int i = g_argc_stored - 1; i >= first; i--) {
         NplVal s = npl_string(g_argv_stored[i],
                               (uint32_t)strlen(g_argv_stored[i]));
         acc = npl_cons(s, acc);
     }
-    g_args_list = acc;
+    npl_gc_unroot(&acc);
     return acc;
+}
+
+/* Arguments after the program name (argv[1..]); compiler/driver use. */
+NplVal npl_program_arguments(void) {
+    if (!npl_is_nil(g_args_list)) return g_args_list;
+    g_args_list = argument_list(1);
+    return g_args_list;
+}
+
+/* R7RS command-line: the command name followed by its arguments. A runner
+ * such as npli replaces it with the script name and script arguments. */
+NplVal npl_command_line(void) {
+    if (npl_is_nil(g_command_line)) g_command_line = argument_list(0);
+    return g_command_line;
+}
+
+NplVal npl_set_command_line(NplVal arguments) {
+    g_command_line = arguments;
+    return npl_nil();
 }
 
 NplVal npl_read_file(NplVal path) {
@@ -1310,6 +1354,24 @@ NplVal npl_delete_directory(NplVal path_value)
         exit(1);
     }
     return npl_nil();
+}
+
+/* Absolute path of the running executable, or #f when the OS cannot say.
+ * Tool and library lookup policy built on it lives in NPL. */
+NplVal npl_executable_path(void)
+{
+    char raw[PATH_MAX];
+    char resolved[PATH_MAX];
+#ifdef __APPLE__
+    uint32_t size = (uint32_t)sizeof(raw);
+    if (_NSGetExecutablePath(raw, &size) != 0) return npl_false();
+#else
+    ssize_t length = readlink("/proc/self/exe", raw, sizeof(raw) - 1);
+    if (length < 0) return npl_false();
+    raw[length] = '\0';
+#endif
+    if (!realpath(raw, resolved)) return npl_false();
+    return npl_string(resolved, (uint32_t)strlen(resolved));
 }
 
 void npl_exit(NplVal code) {

@@ -21,12 +21,21 @@ cleanup() {
     fi
     exit "$status"
 }
+# SHA-256 of a file: sha256sum (GNU/Linux) or shasum (macOS).
+sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-"$ROOT/tools/check_current_fixed_point.sh" --work-dir "$WORK" &
+"$ROOT/tools/check_current_fixed_point.sh" --work-dir "$WORK" "$@" &
 ACTIVE_PID=$!
 status=0
 wait "$ACTIVE_PID" || status=$?
@@ -38,4 +47,4 @@ cp "$WORK/gen3.ssa" "$candidate"
 mv "$candidate" "$ROOT/bootstrap/current.ssa"
 
 echo "updated: bootstrap/current.ssa"
-shasum -a 256 "$ROOT/bootstrap/current.ssa"
+printf '%s  %s\n' "$(sha256_file "$ROOT/bootstrap/current.ssa")" "$ROOT/bootstrap/current.ssa"

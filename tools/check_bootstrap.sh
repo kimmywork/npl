@@ -14,7 +14,7 @@ ninja -C "$BUILD" nplc0 qbe_build npl_runtime >/dev/null
 
 build_ssa() {
     "$QBE" -o "$2.s" "$1"
-    cc -o "$2" "$2.s" "$RUNTIME"
+    cc -o "$2" "$2.s" "$RUNTIME" -lm
 }
 
 emit() {

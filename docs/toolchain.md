@@ -16,7 +16,11 @@ The command builds a compiler from `bootstrap/current.ssa`, emits `gen1.ssa`, re
 ./tools/check_current_fixed_point.sh --keep --work-dir /tmp/npl-fixed-point
 ```
 
-The tracked artifact has 349,088 lines (12,222,322 bytes), SHA-256 `c24ab41a491ce103bdc88e9f39a18ca6ce8219ccb2d5e584fd3769370f175224` as inspected on 2026-09-08. Regeneration reports the authoritative hash for its source tree.
+`bootstrap/current.ssa` is the unified `nplc` (compiler and driver in one program). The tracked artifact has 195,239 lines, SHA-256 `b9a93cea565569eae9589cbeec14b636ff4db2b58352de9bdacd98b7b71b40dc` as accepted on 2026-10-08; macOS arm64 and Linux aarch64 relays both regenerate this hash. Regeneration reports the authoritative hash for its source tree.
+
+On a memory-constrained or heavily loaded host, run the relay with `NPL_GC_THRESHOLD_BYTES=268435456`: on 2026-09-30, with system swap nearly full, a default-threshold (1 GiB) emission stalled for hours in paging, while the same compiler at 256 MiB emitted in 82 s with 0.99 GB RSS and byte-identical SSA.
+
+Every emission succeeds with status 0. Seeds from before the unified `nplc` exit 44 on success; relay from such a seed once with `--seed-status 44` (also accepted by `update_current_ssa.sh`).
 
 The verifier reports elapsed time and exit status for each configure, build, QBE, link, and emission stage. Failed or interrupted runs retain their work directory for inspection. TERM/INT/HUP is forwarded through the update wrapper to the active stage's process group. The focused orchestration test is `bash tools/check_relay_scripts.sh`; it uses tiny tool substitutes and does not establish real compiler correctness.
 
@@ -30,40 +34,76 @@ After changing `src/compiler/`, regenerate and install the canonical artifact wi
 
 This first runs the complete gen1/gen2/gen3 comparison. Only after it succeeds does it replace `bootstrap/current.ssa`; no assembly, object, or binary is stored in Git.
 
-## Build Nplc
-
-Build the raw compiler from canonical SSA and the native three-stage driver with:
+## Build And Install
 
 ```bash
-./tools/build_nplc.sh
+./tools/build_toolchain.sh               # build/bin/nplc and build/bin/npli (incremental)
+cmake --install build --prefix PREFIX    # install
 ```
 
-Builds without an explicit configuration default to `RelWithDebInfo` (`-O2 -g` with the current toolchain). Explicit `Debug` and custom configurations remain available, for example `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug`. This default applies to host C components; QBE still compiles NPL-generated assembly.
+CMake builds `nplc` from `bootstrap/current.ssa` and then `npli` with that `nplc`; Ninja rebuilds each only when the seed, runtime, or NPL sources change. `tools/build_nplc.sh` and `tools/build_npli.sh` remain for building to a custom output path. Builds without an explicit configuration default to `RelWithDebInfo`.
 
-The outputs are:
+Install layout, which the build tree mirrors with links so `build/bin/nplc` behaves exactly like an installed one:
 
 ```text
-build/bin/nplc-raw   raw NPL -> QBE SSA emitter
-build/bin/nplc       source -> SSA -> QBE assembly -> native driver
+PREFIX/bin/nplc, PREFIX/bin/npli
+PREFIX/libexec/npl/qbe
+PREFIX/lib/npl/libnpl_runtime.a
+PREFIX/share/npl/lib/            (scheme ...) and (npl ...) libraries
+PREFIX/share/npl/src/compiler/   frontend sources included by (npl frontend)
 ```
 
-Compile a native program in one command:
+`nplc` resolves each tool and library at run time: an explicit option first, then an environment variable, then this layout relative to its own executable. Nothing host-specific is compiled into the canonical SSA; emitting from a different working directory or from an installed `nplc` gives byte-identical output (`tools/check_install.sh`).
+
+| Setting | Option | Environment | Fallback |
+|---|---|---|---|
+| standard library | `--stdlib-root DIR` | `NPL_STDLIB_ROOT` | layout, then `lib/` |
+| QBE | `--qbe PATH` | `NPL_QBE` | layout, then `qbe` on `PATH` |
+| C compiler/linker | `--cc PATH` | `NPL_CC`, then `CC` | `cc` on `PATH` |
+| runtime archive | `--runtime PATH` | `NPL_RUNTIME` | layout, else error |
+
+Output kinds:
 
 ```bash
-build/bin/nplc program.npl -o program
+nplc program.npl                     # executable ./program (default --emit=exe)
+nplc program.npl -o out              # executable out
+nplc -c program.npl                  # object program.o   (--emit=obj)
+nplc -S program.npl                  # assembly program.s (--emit=asm)
+nplc --emit=ssa program.npl          # QBE SSA on standard output
+nplc --emit=ssa program.npl -o p.ssa # QBE SSA to a file
+nplc --keep-temps program.npl        # keep and report intermediate files
 ```
 
-Raw SSA inspection remains available and preserves the emitter's successful status `44`:
+`--emit-qbe` is an alias for `--emit=ssa`. `--emit=staticlib` and `--emit=dylib` are reserved and rejected until the deferred library work in [the toolchain plan](plan-toolchain.md) (D1). An object file contains `main` and links with the runtime archive: `cc -o program program.o libnpl_runtime.a`.
+
+SSA to standard output is emitted in-process; this is the relay path. File-producing builds re-run `nplc --emit=ssa` as a child into an isolated temporary directory, then run QBE and the C compiler with argv-based processes. On failure the compiler diagnostic is relayed to standard error, partial outputs are removed, and the temporary directory is deleted. Option errors exit 2; a failed stage reports its name and status.
+
+## npli
+
+`npli` is the REPL and program runner, built by `nplc` from `src/repl/main.npl` over the shared evaluator:
 
 ```bash
-build/bin/nplc --emit-qbe program.npl > program.ssa
+npli                                  # interactive REPL (--no-prompt for transcripts)
+npli program.scm arg ...              # run a program; (command-line) is (program.scm arg ...)
+npli -e '(import (scheme base))' -e EXPR [program.scm ...]
 ```
 
-The driver uses argv-based child processes, an isolated temporary directory, and explicit configured paths for the raw compiler, QBE, C compiler, runtime archive, and standard library. These may be overridden with `--raw-compiler`, `--qbe`, `--cc`, `--runtime`, and `--stdlib-root`. A custom driver output path is accepted by `tools/build_nplc.sh`; it continues to use the configured build-tree dependencies.
+A program's `(exit n)` sets the process status (`#t` is 0, `#f` is 1, as R7RS 6.14 and Guile). An evaluation error prints `error: ...` and exits 70; a missing program exits 66; a usage error exits 2. The standard library root is `--stdlib-root`, then `NPL_STDLIB_ROOT`, then the install layout, then the build-time checkout path. `npli` is not a bootstrap artifact.
+
+`(command-line)` follows R7RS: the first element is the command name. Compiled programs report the executable path; `npli` reports the program file.
+
+## Linux
+
+```bash
+tools/check_linux.sh                         # full gate in a Debian container
+tools/check_linux.sh --skip-current-fixed-point
+```
+
+The script copies tracked and non-ignored files into `build/linux/src` and runs `tools/run_tests.sh` in the local colima VM (`DOCKER_CONTEXT`, default `colima`) using `tools/linux/Dockerfile` (Debian bookworm, clang, Guile 3). It sets `NPL_GC_THRESHOLD_BYTES=134217728` because the default 2 GiB VM cannot hold self-compilation at the 1 GiB native default (the kernel kills it with status 137). Executables link `-lm` explicitly; on macOS it is part of libSystem.
 
 ## Standard Libraries
 
-R7RS library sources live under `lib/scheme/`; they are runtime compiler inputs, not embedded in `bootstrap/current.ssa`. The raw compiler accepts `--stdlib-root DIR`, and the native driver supplies its configured absolute source-tree root by default. User libraries remain relative to the source program.
+R7RS library sources live under `lib/scheme/`; they are runtime compiler inputs, not embedded in `bootstrap/current.ssa`. `nplc` locates them as described above. User libraries remain relative to the source program.
 
 Only `(npl primitive)` is compiler-defined. It maps the backend/runtime intrinsics and derived syntax needed by checked-in standard libraries. Changes to ordinary `(scheme ...)` implementation or exports do not require canonical compiler regeneration; changes to the primitive registry, loader, lowering, or runtime ABI do.
 
@@ -112,12 +152,28 @@ Reproducible inputs and raw measurements remain in ignored `build/compiler-perf/
 
 `seed-o2` is linked from `seed.s` and `build/perf-o2/runtime/libnpl_runtime.a`, configured with `cmake -S . -B build/perf-o2 -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo`. `lookup-compiler` is built from the SSA emitted by `seed-o2` for `lookup-input/src/compiler/main.npl`, using the same runtime. For new experiments, preserve the input snapshot and alternate run order; do not compare different source trees as though only execution speed changed.
 
-Remaining cost has concrete source-level causes:
+Closure-conversion repair (2026-09-29). Profiles of the evaluator core test (237 s, 3 GB RSS) and the relay attributed 70-80% of samples to GC sweep and allocation. The allocation came from code generation, not from the collector:
 
-- `lookup-value-binding` traverses a list; the accepted optimization removes repeated key extraction but not linear lookup complexity.
-- `emit-lambda` captures `visible-env` in full, rather than selecting free variables. CPS introduces many continuation lambdas, amplifying capture copying and object retention. Free-variable capture filtering needs separate closure/mutation/recursive-binding/continuation tests before adoption.
-- GC begins at a minimum 1 GiB of allocated payload. `NplAllocMeta` adds 64 bytes per object on this host, so small cons/environment/closure objects reach a multi-GiB footprint before collection. Mapped chunks remain for the process lifetime. Lowering the threshold may reduce memory but increase sweep frequency; it needs a measured experiment, not a guessed constant.
-- Driver and REPL build scripts restore the raw compiler and driver repeatedly. Dependency-aware reuse is a further opportunity, but no cache or reduced fixed-point criterion was introduced in this change.
+- Every parameter and `let` binding was boxed in a heap cell, although only `set!` targets need one. `env-bind` now allocates a cell only for names in the top-level form's `set!` target set (`collect-assigned`); `letrec` and internal definitions keep cells because they are initialized after allocation.
+- `emit-lambda` captured the whole visible environment. `lambda-captures` now captures only innermost bindings whose names the body may reference. Both analyses walk core node shapes, skip literal data (datum labels may be circular), and ignore shadowing, so they over-approximate in the safe direction.
+- The capture change exposed a latent GC defect: `$gv_` global slots live in the data segment, which the collector never scanned. Values stored by `set!` or runtime initializers were reachable only by accident through conservatively scanned captured environments. `$npl_global_inits` now registers every slot with `npl_gc_root`, and the root table grows instead of failing at 1,024 entries. `src/compiler/tests/gc-roots.npl` fails with the previous compiler and passes now.
+
+| Measurement (same host, single samples) | Before | After |
+|---|---:|---:|
+| Self-compilation instructions retired | 601 G | 338 G |
+| Self-compilation wall seconds | 110-202 | 66-75 |
+| Strict three-generation relay | 902 s (2026-09-07) | 224 s |
+| `current.ssa` lines | 352,393 | 184,776 |
+| `tools/run_tests.sh --skip-current-fixed-point` | 9 m 12 s | 8 m 0 s |
+| `tools/run_tests.sh` (includes relay; properties parallelized) | not measured | 12 m 6 s |
+
+`NPL_GC_THRESHOLD_BYTES` overrides the 1 GiB minimum collection threshold for tests. Lower thresholds were measured and rejected as a default: self-compilation took 100 s at 1 GiB, 113 s at 256 MiB, and 149 s at 64 MiB (RSS 3.0/0.97/0.46 GB), with byte-identical SSA. Sweep cost scales with the full object list, so a lower default needs a generational or mark-bit design, not a smaller constant.
+
+Remaining measured costs:
+
+- Evaluator execution allocates heavily per step (CPS continuations, `eval-frame-find` over a 196-binding global frame). The million-step `delay-force` test in `src/evaluator/core-tests.npl` still dominates `check_repl.sh` at roughly 70 s.
+- Mapped chunks remain for the process lifetime, and `NplAllocMeta` adds 64 bytes per object.
+- Driver and REPL build scripts rebuild the raw compiler and driver repeatedly. No cache or reduced fixed-point criterion has been introduced.
 
 The 2026-09-08 final consistency relay passed with emissions of 91/87/89 seconds and 314 seconds summed across reported stages. This is an end-to-end observation on a changed compiler, not the controlled optimization comparison above.
 

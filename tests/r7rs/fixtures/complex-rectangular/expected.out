@@ -1,0 +1,4 @@
+(construction (1.0+2.0i 0.5-0.6666666666666666i 1.0+2.0i))
+(arithmetic (4.0+6.0i -2.0-2.0i -5.0+10.0i 0.44+0.08i))
+(components (1.0 2.0 #t #f #f))
+(conversion (1.0+2.0i "1.0+2.0i" #t))

@@ -16,4 +16,5 @@
   "backend/expression.npl"
   "backend/tail.npl"
   "backend/bindings.npl"
-  "backend/program.npl")
+  "backend/program.npl"
+  "driver.npl")

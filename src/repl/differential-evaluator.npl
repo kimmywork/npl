@@ -21,7 +21,7 @@
               (load-forms port))))))
 
 (define (main)
-  (let ((arguments (command-line)))
+  (let ((arguments (cdr (command-line))))
     (if (not (= (length arguments) 1))
         (exit 2))
     (let ((port (open-input-file (car arguments))))

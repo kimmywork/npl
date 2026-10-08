@@ -110,7 +110,8 @@ expected='((define x 5) (if (> x 3) "yes" "no") (lambda (a b) (+ a b)) (let ((x 
 
 # Test 9: Phase 0 smoke test
 echo "Test 9: Phase 0 smoke test"
-output=$(./build/smoke/hello)
+ninja -C "$BUILD_DIR" smoke >/dev/null
+output=$("$BUILD_DIR/smoke/hello")
 [ "$output" = "hello world" ] && pass "Phase 0 smoke test" || fail "Phase 0 smoke test failed"
 
 # Cleanup

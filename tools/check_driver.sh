@@ -1,64 +1,97 @@
 #!/bin/bash
+# Unified nplc: output kinds, path handling, failure cleanup, and the
+# relationship between in-process and file-producing SSA emission.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-DRIVER="$ROOT/build/bin/nplc"
-RAW="$ROOT/build/bin/nplc-raw"
+NPLC="$ROOT/build/bin/nplc"
 SOURCE="$ROOT/src/compiler/tests/driver-hello.npl"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-"$ROOT/tools/build_nplc.sh" >/dev/null
+[ -n "${NPL_TOOLCHAIN_BUILT:-}" ] || "$ROOT/tools/build_toolchain.sh" >/dev/null
+# Resolution must come from the build-tree install layout alone.
+unset NPL_QBE NPL_RUNTIME NPL_STDLIB_ROOT NPL_CC
 mkdir -p "$WORK/tmp" "$WORK/path with spaces"
 cp "$SOURCE" "$WORK/path with spaces/source program.npl"
-
-OUTPUT="$WORK/path with spaces/native program"
-TMPDIR="$WORK/tmp" "$DRIVER" \
-    "$WORK/path with spaces/source program.npl" -o "$OUTPUT"
-"$OUTPUT" > "$WORK/native.out"
 printf 'hello from nplc\n' > "$WORK/native.expected"
+empty_tmp() { [ -z "$(find "$WORK/tmp" -mindepth 1 -maxdepth 1 -print -quit)" ]; }
+
+# Executable with spaces in both paths; default kind is exe.
+OUTPUT="$WORK/path with spaces/native program"
+TMPDIR="$WORK/tmp" "$NPLC" "$WORK/path with spaces/source program.npl" \
+    -o "$OUTPUT"
+"$OUTPUT" > "$WORK/native.out"
 cmp "$WORK/native.expected" "$WORK/native.out"
+empty_tmp
 
-set +e
-"$DRIVER" --emit-qbe "$SOURCE" > "$WORK/driver.ssa"
-driver_status=$?
-"$RAW" --emit-qbe --stdlib-root "$ROOT/lib" "$SOURCE" > "$WORK/raw.ssa"
-raw_status=$?
-set -e
-[ "$driver_status" -eq 44 ]
-[ "$raw_status" -eq 44 ]
-cmp "$WORK/raw.ssa" "$WORK/driver.ssa"
+# Default output name is the source stem in the current directory.
+(cd "$WORK/path with spaces" && TMPDIR="$WORK/tmp" "$NPLC" "source program.npl")
+"$WORK/path with spaces/source program" > "$WORK/stem.out"
+cmp "$WORK/native.expected" "$WORK/stem.out"
 
-set +e
-(
-    cd /tmp
-    TMPDIR="$WORK/tmp" "$DRIVER" "$SOURCE" -o "$WORK/outside"
-)
-outside_status=$?
-set -e
-[ "$outside_status" -eq 0 ]
+# In-process SSA to stdout equals the file-producing SSA path.
+"$NPLC" --emit=ssa "$SOURCE" > "$WORK/stdout.ssa"
+TMPDIR="$WORK/tmp" "$NPLC" --emit=ssa "$SOURCE" -o "$WORK/file.ssa"
+cmp "$WORK/stdout.ssa" "$WORK/file.ssa"
+"$NPLC" --emit-qbe "$SOURCE" > "$WORK/alias.ssa"
+cmp "$WORK/stdout.ssa" "$WORK/alias.ssa"
+
+# Assembly and object kinds; the object links into a working program.
+TMPDIR="$WORK/tmp" "$NPLC" -S "$SOURCE" -o "$WORK/hello.s"
+grep -F '_main' "$WORK/hello.s" >/dev/null
+TMPDIR="$WORK/tmp" "$NPLC" -c "$SOURCE" -o "$WORK/hello.o"
+file "$WORK/hello.o" | grep -Ei 'object|relocatable' >/dev/null
+cc -o "$WORK/linked" "$WORK/hello.o" "$ROOT/build/lib/npl/libnpl_runtime.a" -lm
+"$WORK/linked" > "$WORK/linked.out"
+cmp "$WORK/native.expected" "$WORK/linked.out"
+empty_tmp
+
+# Runs from outside the repository.
+(cd /tmp && TMPDIR="$WORK/tmp" "$NPLC" "$SOURCE" -o "$WORK/outside")
 "$WORK/outside" > "$WORK/outside.out"
 cmp "$WORK/native.expected" "$WORK/outside.out"
 
+# Compile errors: nonzero status, diagnostic on stderr, no output, no temps.
 set +e
-TMPDIR="$WORK/tmp" "$DRIVER" \
+TMPDIR="$WORK/tmp" "$NPLC" \
     "$ROOT/src/compiler/tests/contracts/library-unknown-import.npl" \
     -o "$WORK/rejected" > "$WORK/rejected.out" 2> "$WORK/rejected.err"
 compile_status=$?
 set -e
 [ "$compile_status" -ne 0 ]
 grep -F 'only import name not exported' "$WORK/rejected.err" >/dev/null
+[ ! -s "$WORK/rejected.out" ]
 [ ! -e "$WORK/rejected" ]
-[ -z "$(find "$WORK/tmp" -mindepth 1 -maxdepth 1 -print -quit)" ]
+empty_tmp
 
+# Missing tool: the stage and status are reported, nothing is left behind.
 set +e
-TMPDIR="$WORK/tmp" "$DRIVER" --qbe "$WORK/missing-qbe" \
+TMPDIR="$WORK/tmp" "$NPLC" --qbe "$WORK/missing-qbe" \
     "$SOURCE" -o "$WORK/qbe-failure" > /dev/null 2> "$WORK/qbe.err"
 qbe_status=$?
 set -e
 [ "$qbe_status" -eq 127 ]
 grep -F 'nplc: qbe failed' "$WORK/qbe.err" >/dev/null
 [ ! -e "$WORK/qbe-failure" ]
-[ -z "$(find "$WORK/tmp" -mindepth 1 -maxdepth 1 -print -quit)" ]
+empty_tmp
 
-echo "three-stage driver: PASS"
+# Reserved and unknown kinds/options are rejected with status 2.
+for arguments in "--emit=dylib" "--emit=staticlib" "--emit=bogus" "--bogus"; do
+    set +e
+    "$NPLC" $arguments "$SOURCE" > /dev/null 2> "$WORK/option.err"
+    option_status=$?
+    set -e
+    [ "$option_status" -eq 2 ]
+    [ -s "$WORK/option.err" ]
+done
+"$NPLC" --help | grep -F 'usage: nplc' >/dev/null
+
+# --keep-temps reports and keeps the intermediate directory.
+TMPDIR="$WORK/tmp" "$NPLC" --keep-temps "$SOURCE" -o "$WORK/kept" \
+    2> "$WORK/keep.err"
+kept=$(sed -n 's/^nplc: kept temporaries in //p' "$WORK/keep.err")
+[ -s "$kept/source.ssa" ] && [ -s "$kept/source.s" ]
+rm -rf "$kept"
+
+echo "unified nplc driver: PASS"

@@ -82,7 +82,8 @@ expected='(42 3.14 #t #f hello-world (quote (1 2 3)) (define (square x) (* x x))
 
 # Test 8: Phase 0 smoke test still works
 echo "Test 8: Phase 0 smoke test"
-output=$(./build/smoke/hello)
+ninja -C "$BUILD_DIR" smoke >/dev/null
+output=$("$BUILD_DIR/smoke/hello")
 [ "$output" = "hello world" ] && pass "Phase 0 smoke test" || fail "Phase 0 smoke test failed"
 
 # Test 9: include, cond, and closure compile to an executable

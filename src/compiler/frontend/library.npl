@@ -455,7 +455,7 @@
 bytevector-u8-ref bytevector-u8-set! bytevector? binary-port? car cdr
 char->integer char? close-input-port close-output-port close-port cons
 current-error-port current-input-port current-output-port delete-directory
-delete-file dynamic-wind exit
+delete-file dynamic-wind executable-path exit
 eof-object eof-object? eq? eqv? flush-output-port get-environment-variable
 get-environment-variables get-output-bytevector
 get-output-string
@@ -463,8 +463,16 @@ input-port-open? input-port? int->string integer->char list->vector
 make-temporary-directory
 newline not null?
 number->string number? npl_lex_class_w npl_lex_number npl_lex_scan_sym_end
+npl_number_div npl_integer_p npl_rational_numerator npl_rational_denominator
+npl_number_from_string npl_number_from_string_radix
+npl_number_to_string_radix npl_complex_make npl_complex_p
+npl_complex_real npl_complex_imag npl_number_zero_p
+npl_number_gcd npl_number_quotient npl_number_remainder string?
+npl_inexact_p npl_inexact_bits npl_inexact_op npl_inexact_binary npl_finite_p npl_nan_p npl_infinite_p
+npl_exact_to_inexact npl_inexact_to_exact
 npl_make_parameter npl_parameter_converter npl_list_to_values
 npl_parameters_enter npl_parameters_leave npl_promise_op program-arguments
+command-line set-command-line!
 run-process
 open-binary-input-file open-binary-output-file
 open-input-bytevector open-input-file open-input-string

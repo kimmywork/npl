@@ -15,15 +15,15 @@ ninja -C "$BUILD" qbe_build npl_runtime >/dev/null
 
 build_ssa() {
     "$QBE" -o "$2.s" "$1"
-    cc -o "$2" "$2.s" "$RUNTIME"
+    cc -o "$2" "$2.s" "$RUNTIME" -lm
 }
 
 emit() {
     set +e
-    "$1" --emit-qbe "$2" > "$3"
+    "$1" --emit-qbe --stdlib-root "$ROOT/lib" "$2" > "$3"
     rc=$?
     set -e
-    [ "$rc" -eq 44 ]
+    [ "$rc" -eq 0 ]
     [ -s "$3" ]
 }
 
@@ -35,7 +35,12 @@ run_suite() {
     emit "$WORK/compiler" "$TESTS/$name.npl" "$WORK/$name.ssa"
     build_ssa "$WORK/$name.ssa" "$WORK/$name"
     set +e
-    "$WORK/$name" > "$WORK/$name.out" 2>&1
+    # GC_THRESHOLD forces a per-suite threshold; otherwise inherit the caller's.
+    if [ -n "${GC_THRESHOLD:-}" ]; then
+        NPL_GC_THRESHOLD_BYTES=$GC_THRESHOLD "$WORK/$name" > "$WORK/$name.out" 2>&1
+    else
+        "$WORK/$name" > "$WORK/$name.out" 2>&1
+    fi
     rc=$?
     set -e
     [ "$rc" -eq 0 ]
@@ -48,11 +53,11 @@ reject_compile() {
     name=$2
     message=$3
     set +e
-    "$WORK/compiler" --emit-qbe "$TESTS/$source" \
+    "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" "$TESTS/$source" \
         > "$WORK/$name.out" 2>&1
     rc=$?
     set -e
-    [ "$rc" -ne 44 ]
+    [ "$rc" -ne 0 ]
     grep -F "$message" "$WORK/$name.out" >/dev/null
 }
 
@@ -113,6 +118,8 @@ run_suite binary-io "PASS binary-io 15"
 run_suite string-io "PASS string-io 12"
 run_suite first-wave-libraries "PASS first-wave-libraries 16"
 run_suite process "PASS process 9"
+# 1 MiB threshold forces many collections through globals and closures.
+GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2
     exit 1

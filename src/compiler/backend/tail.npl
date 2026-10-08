@@ -5,7 +5,7 @@
       #f
       (let ((head (car e)))
         (if (sym-atom? head)
-            (if (> (string-length (env-lookup env (cdr head))) 0)
+            (if (env-entry env (cdr head))
                 #t
                 (if (> (string-length (lookup-func (cdr head))) 0)
                     #t
@@ -19,9 +19,9 @@
         (let ((ops (eval-args-fixed args env count ())))
           (let ((argv (argv-op ops)))
             (if (sym-atom? head)
-                (let ((local (env-lookup env (cdr head))))
-                  (if (> (string-length local) 0)
-                      (let ((closure (read-cell-op local)))
+                (let ((closure (env-read env (cdr head))))
+                  (if (> (string-length closure) 0)
+                      (begin
                         (func-line
                           (string-append
                             "call $npl_tail_request_closure(l " closure
@@ -80,7 +80,7 @@
         (let ((value (emit-expr (cdr binding) env)))
           (emit-tail-letstar-binds
             (cdr binds) body
-            (env-extend env (cdr (car binding)) (make-cell-op value)))))))
+            (env-bind env (cdr (car binding)) value))))))
 
 (define (values-dispatch-application? expression)
   (if (not (pair-shape? expression))
