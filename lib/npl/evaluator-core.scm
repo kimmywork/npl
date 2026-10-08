@@ -764,6 +764,34 @@
         (continuation
           (eval-error (string-append name ": wrong number of arguments"))))))
 
+;; Bytevector argument checks; the native primitives enforce the same ranges.
+(define (eval-byte? value)
+  (if (number? value)
+      (if (npl_integer_p value) (if (>= value 0) (<= value 255) #f) #f)
+      #f))
+
+(define (eval-byte-list? values)
+  (if (null? values) #t
+      (if (pair? values)
+          (if (eval-byte? (car values)) (eval-byte-list? (cdr values)) #f)
+          #f)))
+
+(define (eval-list->bytevector values)
+  (let ((port (open-output-bytevector)))
+    (let loop ((rest values))
+      (if (pair? rest)
+          (begin (write-u8 (car rest) port) (loop (cdr rest)))))
+    (get-output-bytevector port)))
+
+(define (eval-bytevector-index? value index)
+  (if (bytevector? value)
+      (if (number? index)
+          (if (npl_integer_p index)
+              (if (>= index 0) (< index (bytevector-length value)) #f)
+              #f)
+          #f)
+      #f))
+
 ;; (apply f a ... list): leading arguments followed by the elements of list.
 (define (eval-apply-arguments arguments)
   (if (null? (cdr arguments))
@@ -859,6 +887,47 @@
     ((string=? name "symbol?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error) (continuation (symbol? (car arguments))))))
+    ((string=? name "bytevector?")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation (bytevector? (car arguments))))))
+    ((string=? name "bytevector")
+     (if (eval-byte-list? arguments)
+         (continuation (eval-list->bytevector arguments))
+         (continuation (eval-error "bytevector: expected bytes"))))
+    ((string=? name "bytevector-length")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (if (bytevector? (car arguments))
+               (continuation (bytevector-length (car arguments)))
+               (continuation
+                 (eval-error "bytevector-length: expected a bytevector"))))))
+    ((string=? name "bytevector-u8-ref")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (if (eval-bytevector-index? (car arguments) (car (cdr arguments)))
+               (continuation
+                 (bytevector-u8-ref (car arguments) (car (cdr arguments))))
+               (continuation
+                 (eval-error "bytevector-u8-ref: index out of range"))))))
+    ((string=? name "bytevector-u8-set!")
+     (let ((error (eval-arity arguments 3 name)))
+       (if error (continuation error)
+           (if (if (eval-bytevector-index? (car arguments)
+                                           (car (cdr arguments)))
+                   (eval-byte? (car (cdr (cdr arguments)))) #f)
+               (begin
+                 (bytevector-u8-set! (car arguments) (car (cdr arguments))
+                                     (car (cdr (cdr arguments))))
+                 (continuation EVAL-UNSPECIFIED))
+               (continuation
+                 (eval-error "bytevector-u8-set!: invalid index or byte"))))))
+    ((string=? name "procedure?")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (continuation
+             (if (eval-promise? (car arguments)) #f
+                 (eval-callable? (car arguments)))))))
     ((string=? name "string->symbol")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
@@ -1501,7 +1570,9 @@
         "npl_number_zero_p" "npl_number_gcd" "npl_number_quotient"
         "npl_number_remainder" "string?"
         "null?" "pair?"
-        "eq?" "eqv?" "not" "number?" "number->string" "symbol?" "symbol->string" "string->symbol"
+        "eq?" "eqv?" "not" "number?" "number->string" "symbol?" "symbol->string" "string->symbol" "procedure?"
+        "bytevector?" "bytevector" "bytevector-length" "bytevector-u8-ref"
+        "bytevector-u8-set!"
         "open-input-string"
         "string-length" "string-append" "string-ref" "substring" "int->string"
         "npl_lex_class_w" "npl_lex_scan_sym_end" "npl_lex_number"

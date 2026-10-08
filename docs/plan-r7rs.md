@@ -27,7 +27,7 @@ behavior is established only by fixtures.
 | records, errors | `define-record-type`, `error error-object? error-object-message error-object-irritants read-error? file-error?`, `features` |
 | I/O | `read-line read-string write-string char-ready? u8-ready?`; `(scheme file)` `with-input-from-file with-output-to-file` |
 | other libraries | `(scheme char)` string case and `string-ci` procedures; `(scheme complex)` absent; `(scheme time)` absent |
-| semantics | strings and chars are bytes/ASCII; runtime `read` lacks datum labels; native primitive type errors terminate instead of raising; evaluator lacks ~40 native primitives; `(sqrt -1.0-0.0i)` branch needs a user decision |
+| semantics | strings and chars are bytes/ASCII (`string-ref` returns a byte); runtime `read` lacks datum labels; native primitive type errors terminate instead of raising (see "Primitive Errors"); current ports are not parameter objects; evaluator lacks ~40 native primitives; `(sqrt -1.0-0.0i)` branch needs a user decision |
 
 ## Rules
 
@@ -54,37 +54,88 @@ behavior is established only by fixtures.
 
 ## Increments
 
-Order follows dependencies; each is one commit.
+Order follows dependencies; each is one commit. Runtime or compiler
+prerequisites are delivered inside the increment that needs them (one relay
+each). The three representation changes in L3-L5 were approved 2026-10-08.
 
-0. **L0 values prerequisites** (done 2026-10-08).
-   L0a symbol interning and `string->symbol`; L0b registered primitives usable
-   as first-class values in native code, via wrappers generated from
-   `src/compiler/backend/primitives.npl`; L0c native `apply` as a tail-call
-   primitive. Each with a test that fails on the previous seed.
-1. **L1 lists and equivalence.** Pure NPL in `(scheme base)`: `map`,
-   `for-each` (multi-list), `apply`, `member`/`assoc` families (with optional
-   predicate), `list-tail`, `list-ref`, `list-copy`, `list-set!`, `make-list`,
-   `equal?` (pairs, vectors, strings, bytevectors), `caar`...`cddr`,
-   `boolean?`, `boolean=?`, `procedure?`, `symbol=?`.
+0. **L0 values prerequisites** (done 2026-10-08): symbol interning and
+   `string->symbol`; registered primitives as first-class values; native
+   `apply`.
+1. **L1 lists and equivalence** (done 2026-10-08). Pure NPL in `(scheme base)`: `map`,
+   `for-each` (multi-list), `member`/`assoc` families (optional predicate),
+   `list-tail`, `list-ref`, `list-copy`, `list-set!`, `make-list`, `equal?`
+   (pairs, vectors, strings, bytevectors), `caar`...`cddr`, `boolean?`,
+   `boolean=?`, `symbol=?`. Prerequisite: `procedure?` primitive.
 2. **L2 vectors and bytevectors.** Constructors, copies with optional ranges,
-   fill, append, `vector-map`/`vector-for-each`, list/vector conversion.
-3. **L3 strings and chars (ASCII).** Constructors, mutation, copies, ranges,
-   comparisons, `string-map`/`string-for-each`, conversions, `string->symbol`,
-   `(scheme char)` string case and `string-ci` procedures. Unicode stays out of
-   scope until L6.
-4. **L4 errors and records.** `error` and error-object accessors, `read-error?`,
-   `file-error?`, catchable errors from library procedures, then
-   `define-record-type`.
-5. **L5 I/O and remaining libraries.** `read-line`, `read-string`,
-   `write-string`, `char-ready?`, `u8-ready?`, `with-input-from-file`,
-   `with-output-to-file`, `features`, `(scheme time)`, `(scheme complex)`.
+   fill, append, `vector-map`/`vector-for-each`, list/vector conversion. Library
+   only (constructors via `list->vector` and `apply bytevector`); allocation
+   primitives only if measured necessary.
+3. **L3 strings and chars (ASCII).** Prerequisites: `string-ref` returns a
+   char (the compiler's own byte uses move to a private byte primitive; seed
+   transition), `make-string`/`string-set!`/`string-fill!` primitives with the
+   literal-immutability check. Then constructors, copies, ranges, comparisons,
+   `string-map`/`string-for-each`, conversions, `(scheme char)` string case and
+   `string-ci` procedures. Unicode stays out of scope until L6.
+4. **L4 records, errors, and primitive errors.** Prerequisite: a record box
+   type disjoint from vectors (R7RS 3.2). Then `define-record-type`, `error`
+   and error-object accessors built on it, `file-error?`/`read-error?` with
+   runtime open/read failures reported to the library, and catchable primitive
+   errors (section "Primitive Errors").
+5. **L5 I/O and remaining libraries.** Prerequisites: current ports as
+   parameter objects (R7RS 6.13.1; needed by `with-output-to-file` and
+   `parameterize`), a monotonic/wall clock primitive, and a readiness poll for
+   `char-ready?`/`u8-ready?`. Then `read-line`, `read-string`, `write-string`,
+   `with-input-from-file`, `with-output-to-file`, `features`, `(scheme time)`,
+   `(scheme complex)`.
 6. **L6 representation work** (each needs its own design review before code):
    Unicode strings and chars, datum labels in runtime `read` and
-   `write-shared`, catchable native primitive errors.
-7. **L7 `(scheme r5rs)`**, built from the completed libraries.
+   `write-shared`.
+7. **L7 `(scheme r5rs)`**, re-exported from the completed libraries plus
+   `null-environment` and `scheme-report-environment`.
 8. **P1 Guile performance baseline.** Fixed environment, warm-up, at least 10
    runs, median and spread, native and `npli` reported separately, compile time
    separated from run time; only workloads whose fixtures pass three ways.
+
+## Primitive Errors
+
+Decision (2026-10-08). Model: Racket, Guile, and Chez all raise a catchable
+condition when a safe primitive receives a bad argument (Racket
+`exn:fail:contract`, Guile a compound exception that is an R7RS error object
+with message and irritants, Chez an `&assertion` condition with `&who`,
+`&message`, `&irritants`). Uncaught, the condition reaches the default handler,
+which prints and exits. Only explicitly unsafe code (Chez optimize-level 3,
+Racket `unsafe-` operations) skips the check.
+
+NPL target:
+
+- A safe primitive's type or range error raises an R7RS error object (L4
+  record type) with `who`, a message, and irritants; `guard` and
+  `with-exception-handler` catch it on native and npli alike, and the message
+  and irritants agree between the two.
+- The C primitive keeps its own check. On failure it calls one runtime entry,
+  `npl_raise_primitive_error(who, message, irritants)`, which builds the error
+  object and raises it non-continuably through the current handler chain. The
+  primitive's continuation is not needed: after a non-continuable raise,
+  control never returns to the primitive's caller.
+- Mechanism: the runtime unwinds the C stack to the innermost trampoline with
+  a `longjmp` (the existing escape continuation and reader recovery use the
+  same technique) and the trampoline then tail-calls the handler. The
+  trampoline records the GC root count on entry and the unwind restores it,
+  because primitives that rooted stack slots never reach their unroot. With no
+  handler installed, the error is printed as today and the process exits.
+- Inline-emitted checks (`car`/`cdr` on non-pairs, numeric fast paths) route
+  their failure through the same entry.
+- Diagnostics use one wording for native and npli: `who: message` plus
+  irritants, e.g. `car: expected a pair: 1`.
+- No unsafe mode is introduced now.
+
+Verification: a shared fixture that catches each primitive family's errors
+with `guard`, checks `error-object?`, `error-object-message`, and
+`error-object-irritants`, and checks that an uncaught error still exits nonzero
+with the diagnostic on stderr. Message text is compared only between native
+and npli; Guile's wording differs (`implementation-allowed`).
+
+Scope: delivered with L4, because it depends on the error-object type.
 
 A stop is required, with evidence and a request for review, when an increment
 needs a representation change, a new compiler primitive outside its scope, an

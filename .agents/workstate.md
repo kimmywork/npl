@@ -2,15 +2,14 @@
 
 ## Current
 
-Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0 (symbol
-interning, primitives as values, native `apply`) is done; next is L1 (lists
-and equivalence). The toolchain stage is complete and committed
+Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0 and L1 (lists
+and equivalence) are done; next is L2 (vectors and bytevectors). The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 197,687 lines; SHA-256
-  `bcc2bb59629c73f2c94c15c316322cc5fc60c7002d365126a4ca554a764e9b66`
+- `bootstrap/current.ssa`: 197,695 lines; SHA-256
+  `f0df562dc5e1ff06c24bebce31e185ef1f5cc45241b41841699622e0a7a31f34`
   (macOS strict relay).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. On a swap-bound host set

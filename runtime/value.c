@@ -545,6 +545,16 @@ NplVal npl_symbol_to_string(NplVal s) {
     return retag_box(s, BOX_STRING);
 }
 
+/* Closures (including continuations) and parameter objects are procedures;
+ * promises are callable internally by force but are not procedures. */
+NplVal npl_procedure_p(NplVal value)
+{
+    if (!npl_is_ptr(value)) return npl_false();
+    uint32_t tag = npl_header(value)->tag;
+    return tag == BOX_CLOSURE || tag == BOX_PARAMETER
+        ? npl_true() : npl_false();
+}
+
 NplVal npl_symbol_predicate(NplVal value)
 {
     return npl_is_ptr(value) && npl_header(value)->tag == BOX_SYMBOL

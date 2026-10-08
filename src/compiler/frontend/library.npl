@@ -482,7 +482,7 @@ raise-continuable read read-file read-result read-bytevector read-bytevector!
 read-char
 read-u8
 set-car! set-cdr! string-append string-length string-ref string=? symbol?
-substring
+substring procedure?
 symbol->string string->symbol textual-port? values vector vector-length vector-ref vector-set!
 vector? call-with-current-continuation call/cc call-with-values apply
 display with-exception-handler write write-bytevector write-char write-shared

@@ -36,7 +36,10 @@
     with-exception-handler write-bytevector write-char write-u8
     and or when unless cond case do let*-values guard
     make-parameter parameterize make-promise promise? force delay
-    delay-force)
+    delay-force
+    caar cadr cdar cddr boolean? boolean=? symbol=? procedure?
+    map for-each make-list list-tail list-ref list-set! list-copy
+    memq memv member assq assv assoc equal?)
   (import (rename (npl primitive)
             (+ raw-add) (- raw-subtract) (* raw-multiply)
             (= raw-equal) (< raw-less) (<= raw-less-equal)
@@ -44,7 +47,7 @@
             (npl_number_gcd raw-gcd) (npl_number_quotient raw-quotient)
             (npl_number_remainder raw-remainder)
             (number->string raw-number->string)))
-  (include "integer.scm" "rational.scm" "complex.scm" "real.scm")
+  (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm")
   (begin
     (define (call-with-port port proc)
       (call-with-values

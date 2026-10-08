@@ -505,6 +505,7 @@ int npl_string_equal(NplVal a, NplVal b);    /* raw 0/1 */
 
 NplVal npl_symbol_to_string(NplVal s);
 NplVal npl_symbol_predicate(NplVal s);
+NplVal npl_procedure_p(NplVal value);
 /* Symbols are interned (runtime/symbol.c): equal names are eq?. */
 NplVal npl_string_to_symbol(NplVal string);
 NplVal npl_intern_static_symbol(NplVal symbol);
