@@ -14,10 +14,11 @@ Use this skill when project knowledge changes require documentation updates, or 
 3. Determine the authoritative basis by fact type: implementation for actual behavior, approved requirements or decisions for intended behavior, and traceable sources for research claims. Do not infer authority from recency alone.
 4. Keep one current reference for each decision or factual claim. Update it and link to it rather than copying the same content into several reports.
 5. Update affected documents with concrete evidence. Distinguish implemented, partial, planned, research-only, historical, and unknown; do not mark a broad capability complete because a finite subset exists.
-6. Archive duplicate, obsolete, or superseded material only when its replacement is clear. Preserve provenance, context, status, and a link to the replacement.
-7. When sources conflict without sufficient evidence to reconcile them, preserve and label the conflict; do not silently choose a result or turn an unresolved conflict into an archival decision.
-8. After a move or rename, remap inbound and outbound references to the new source, or leave each historical reference explicitly marked.
-9. Check that the resulting documents, references, status claims, and cited evidence agree. Limit this check to alignment; use a dedicated review when a formal verdict is needed.
+6. Archive duplicate, obsolete, or superseded material only when its replacement is clear. Preserve provenance, context, status, and a link to the replacement. When version control already preserves the history, removing the file and keeping a link to the replacement is sufficient; do not keep a separate archive copy.
+7. Fold a completed plan's still-true facts (usage, constraints, deferred decisions) into the current reference before removing it, and fold a handoff or status snapshot into the workstate. Remove references from code and tool messages too, not only from documents.
+8. When sources conflict without sufficient evidence to reconcile them, preserve and label the conflict; do not silently choose a result or turn an unresolved conflict into an archival decision.
+9. After a move or rename, remap inbound and outbound references to the new source, or leave each historical reference explicitly marked. Dated logs are historical records and keep their original references.
+10. Check that the resulting documents, references, status claims, and cited evidence agree. Limit this check to alignment; use a dedicated review when a formal verdict is needed.
 
 ## Output
 

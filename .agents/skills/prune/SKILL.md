@@ -19,7 +19,7 @@ A candidate is removed only if it is not required and not protected. Keeping bea
 
 1. Read the active agent-facing instructions and, where the project maintains one, its current workstate or change-log convention.
 2. Before removing context, record the latest completed work, decisions, unresolved risks, and intended next step in that current-state location; if no such convention exists, confirm them in the session record instead.
-3. Inspect `git status`, recent commits, tracked files, ignored files, and references to every cleanup candidate.
+3. Inspect `git status`, recent commits, tracked files, ignored files, and references to every cleanup candidate. Check ignore rules both ways: a broad pattern (for example `*.ssa`) can hide a required hand-written input from clean checkouts, and un-ignoring a pattern can expose unrelated vendored files; verify from a clean copy of tracked plus non-ignored files.
 4. For generated file content, identify its source and exact regeneration command. Run the smallest relevant reproducibility check before deletion.
 
 ## File and workspace pruning
