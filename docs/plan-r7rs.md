@@ -66,15 +66,17 @@ each). The three representation changes in L3-L5 were approved 2026-10-08.
    `list-tail`, `list-ref`, `list-copy`, `list-set!`, `make-list`, `equal?`
    (pairs, vectors, strings, bytevectors), `caar`...`cddr`, `boolean?`,
    `boolean=?`, `symbol=?`. Prerequisite: `procedure?` primitive.
-2. **L2 vectors and bytevectors.** Constructors, copies with optional ranges,
-   fill, append, `vector-map`/`vector-for-each`, list/vector conversion. Library
+2. **L2 vectors and bytevectors** (done 2026-10-08). Constructors, copies with optional ranges,
+   fill, append, `vector-map`/`vector-for-each`, list/vector conversion
+   (`vector->string`/`string->vector`/`utf8` conversions move to L3). Library
    only (constructors via `list->vector` and `apply bytevector`); allocation
    primitives only if measured necessary.
 3. **L3 strings and chars (ASCII).** Prerequisites: `string-ref` returns a
    char (the compiler's own byte uses move to a private byte primitive; seed
    transition), `make-string`/`string-set!`/`string-fill!` primitives with the
    literal-immutability check. Then constructors, copies, ranges, comparisons,
-   `string-map`/`string-for-each`, conversions, `(scheme char)` string case and
+   `string-map`/`string-for-each`, conversions (including `vector->string`,
+   `string->vector`, `utf8->string`, `string->utf8`), `(scheme char)` string case and
    `string-ci` procedures. Unicode stays out of scope until L6.
 4. **L4 records, errors, and primitive errors.** Prerequisite: a record box
    type disjoint from vectors (R7RS 3.2). Then `define-record-type`, `error`

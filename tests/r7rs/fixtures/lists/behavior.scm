@@ -22,6 +22,8 @@
   (report 'access (list (list-tail '(1 2 3) 1) (list-tail '(1 2) 2)
                         (list-ref '(a b c) 2)
                         (let ((l (list 1 2 3))) (list-set! l 1 'x) l)))
+  (report 'append (list (append) (append '(1)) (append '(1) '(2) '(3 4) '())
+                        (append '(1) 2) (append '() '() 'x)))
   (report 'member (list (memq 'c '(a b c d)) (memq 'z '(a b)) (memv 2 '(1 2 3))
                         (member '(1) '((0) (1) (2))) (member 2.0 '(1 2 3) =)
                         (member "b" '("a" "b"))))

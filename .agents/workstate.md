@@ -2,8 +2,9 @@
 
 ## Current
 
-Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0 and L1 (lists
-and equivalence) are done; next is L2 (vectors and bytevectors). The toolchain stage is complete and committed
+Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0-L2 are done;
+next is L3 (strings and chars: `string-ref` returns a char, string
+mutation primitives, then the string library). The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed

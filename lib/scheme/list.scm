@@ -106,6 +106,15 @@
 (define (list-copy items)
   (if (pair? items) (cons (car items) (list-copy (cdr items))) items))
 
+; R7RS 6.4: any number of lists; the last argument is shared, not copied,
+; and may be any object.
+(define (append . lists)
+  (if (null? lists)
+      '()
+      (if (null? (cdr lists))
+          (car lists)
+          (raw-append (car lists) (apply append (cdr lists))))))
+
 ; ---------------- membership ----------------
 
 (define (member-loop value items same?)

@@ -887,6 +887,12 @@
     ((string=? name "symbol?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error) (continuation (symbol? (car arguments))))))
+    ((string=? name "append")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (if (eval-proper-list? (car arguments))
+               (continuation (append (car arguments) (car (cdr arguments))))
+               (continuation (eval-error "append: expected a list"))))))
     ((string=? name "bytevector?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
@@ -1571,7 +1577,7 @@
         "npl_number_remainder" "string?"
         "null?" "pair?"
         "eq?" "eqv?" "not" "number?" "number->string" "symbol?" "symbol->string" "string->symbol" "procedure?"
-        "bytevector?" "bytevector" "bytevector-length" "bytevector-u8-ref"
+        "append" "bytevector?" "bytevector" "bytevector-length" "bytevector-u8-ref"
         "bytevector-u8-set!"
         "open-input-string"
         "string-length" "string-append" "string-ref" "substring" "int->string"

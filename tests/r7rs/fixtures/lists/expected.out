@@ -4,6 +4,7 @@
 (for-each "1231122")
 (construct ((x x x) 2 (1 2 3) (1 2 . 3) 5))
 (access ((2 3) () c (1 x 3)))
+(append (() (1) (1 2 3 4) (1 . 2) x))
 (member ((c d) #f (2 3) ((1) (2)) (2 3) ("b")))
 (assoc ((b 2) (2 two) ((k) . v) (2 b) #f))
 (equal (#t #t #f #t #f #t #t #f))

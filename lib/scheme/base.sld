@@ -7,7 +7,7 @@
     (rename integer-gcd gcd) (rename integer-lcm lcm)
     (rename integer-quotient quotient) (rename integer-remainder remainder)
     (rename integer-modulo modulo)
-    append bytevector bytevector-length bytevector-u8-ref
+    bytevector bytevector-length bytevector-u8-ref
     bytevector-u8-set! bytevector? binary-port?
     car cdr char->integer char?
     close-input-port close-output-port close-port cons
@@ -39,15 +39,19 @@
     delay-force
     caar cadr cdar cddr boolean? boolean=? symbol=? procedure?
     map for-each make-list list-tail list-ref list-set! list-copy
-    memq memv member assq assv assoc equal?)
+    memq memv member assq assv assoc equal? append
+    make-vector vector->list vector-copy vector-copy! vector-fill!
+    vector-append vector-map vector-for-each
+    make-bytevector bytevector-copy bytevector-copy! bytevector-append)
   (import (rename (npl primitive)
             (+ raw-add) (- raw-subtract) (* raw-multiply)
             (= raw-equal) (< raw-less) (<= raw-less-equal)
             (> raw-greater) (>= raw-greater-equal)
             (npl_number_gcd raw-gcd) (npl_number_quotient raw-quotient)
             (npl_number_remainder raw-remainder)
-            (number->string raw-number->string)))
-  (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm")
+            (number->string raw-number->string) (append raw-append)))
+  (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
+           "vector.scm")
   (begin
     (define (call-with-port port proc)
       (call-with-values
