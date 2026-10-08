@@ -434,6 +434,7 @@ NplVal npl_box_float(double value);
 NplVal npl_box_identity(NplVal value);
 NplVal npl_apply(NplVal closure, int64_t argc, NplVal *argv);
 void npl_wrong_argument_count(int64_t argc);
+void npl_apply_tail(int64_t argc, NplVal *argv);
 void npl_tail_request_closure(NplVal closure, int64_t argc, NplVal *argv);
 NplVal npl_call_cc(NplVal procedure);
 NplVal npl_trampoline(NplGenericFunction function, NplVal environment,

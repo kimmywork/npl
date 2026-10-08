@@ -764,6 +764,12 @@
         (continuation
           (eval-error (string-append name ": wrong number of arguments"))))))
 
+;; (apply f a ... list): leading arguments followed by the elements of list.
+(define (eval-apply-arguments arguments)
+  (if (null? (cdr arguments))
+      (car arguments)
+      (cons (car arguments) (eval-apply-arguments (cdr arguments)))))
+
 (define (eval-string-list? values)
   (if (null? values) #t
       (if (pair? values)
@@ -961,12 +967,12 @@
        (if error (continuation error)
            (continuation (eval-list-to-values (car arguments))))))
     ((string=? name "apply")
-     (let ((error (eval-arity arguments 2 name)))
-       (if error (continuation error)
-           (if (eval-proper-list? (car (cdr arguments)))
-               (eval-apply (car arguments) (car (cdr arguments))
-                           environment continuation)
-               (continuation (eval-error "apply: expected a proper list"))))))
+     (if (if (pair? arguments) (pair? (cdr arguments)) #f)
+         (let ((spread (eval-apply-arguments (cdr arguments))))
+           (if (eval-proper-list? spread)
+               (eval-apply (car arguments) spread environment continuation)
+               (continuation (eval-error "apply: expected a proper list"))))
+         (continuation (eval-error "apply: needs a procedure and a list"))))
     ((string=? name "call/cc")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)

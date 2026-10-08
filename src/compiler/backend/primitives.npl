@@ -162,7 +162,10 @@
     ("npl_parameter_converter" fixed "npl_parameter_converter" 1 0)
     ("npl_parameters_enter" fixed "npl_parameters_enter" 3 0)
     ("npl_parameters_leave" fixed "npl_parameters_leave" 1 0)
-    ("npl_promise_op" count "npl_promise_op" 0 -1)))
+    ("npl_promise_op" count "npl_promise_op" 0 -1)
+    ; apply is a tail-call form in head position (control conversion); this
+    ; row gives it a value form (primitive-values.npl)
+    ("apply" special "npl_apply_tail" 2 -1)))
 
 (define (primitive-row-name row) (car row))
 (define (primitive-row-kind row) (symbol->string (car (cdr row))))

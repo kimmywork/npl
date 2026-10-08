@@ -56,7 +56,7 @@ behavior is established only by fixtures.
 
 Order follows dependencies; each is one commit.
 
-0. **L0 values prerequisites** (compiler/runtime; awaiting confirmation).
+0. **L0 values prerequisites** (done 2026-10-08).
    L0a symbol interning and `string->symbol`; L0b registered primitives usable
    as first-class values in native code, via wrappers generated from
    `src/compiler/backend/primitives.npl`; L0c native `apply` as a tail-call

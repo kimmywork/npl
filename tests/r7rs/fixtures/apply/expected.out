@@ -1,0 +1,5 @@
+(primitives (6 10 (1 . 2) #(1 2 3) "ab" 9))
+(procedures (0 6 (1 2 (3 4)) ()))
+(nested 6)
+(as-value (11 (1 2 3)))
+(tail done)

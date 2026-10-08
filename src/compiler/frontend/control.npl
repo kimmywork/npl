@@ -21,9 +21,9 @@
       #f))
 
 ;; Registered intrinsics (backend/primitives.npl) evaluate synchronously and
-;; stay outside CPS.
+;; stay outside CPS, except apply, which transfers control (tail call).
 (define (control-primitive-name? name)
-  (if (primitive-row name) #t #f))
+  (if (string=? name "apply") #f (if (primitive-row name) #t #f)))
 
 (define (control-primitive-head? head)
   (if (sym-atom? head)
@@ -193,6 +193,17 @@
           (cons continuation
             (cons (control-symbol packed-name) ())))))))
 
+;; (apply f a ... list): evaluate every operand, then let the runtime spread
+;; the final list into a tail call of f with the continuation appended.
+(define (control-cps-apply application continuation)
+  (if (< (count-up (cdr application) 0) 2)
+      (fatal "apply needs a procedure and a list"))
+  (control-evaluate-list
+    (cdr application) ()
+    (lambda (values)
+      (cons (control-symbol "_npl_apply")
+        (cons continuation values)))))
+
 (define (control-cps-call-with-values application continuation)
   (if (not (= (count-up (cdr application) 0) 2))
       (fatal "call-with-values needs producer and consumer"))
@@ -360,6 +371,8 @@
   (let ((head (car application)))
     (if (if (sym-atom? head) (string=? (cdr head) "values") #f)
         (control-cps-values application continuation)
+        (if (if (sym-atom? head) (string=? (cdr head) "apply") #f)
+            (control-cps-apply application continuation)
         (if (control-with-handler-name? head)
             (control-cps-with-exception-handler application continuation)
             (if (control-raise-name? head "raise")
@@ -396,7 +409,7 @@
                                                     (control-symbol
                                                       callee-name)
                                                     (cdr application)
-                                                    continuation))))))))))))))))
+                                                    continuation)))))))))))))))))
 
 (define (control-cps-if-branches test expression continuation)
   (cons 213

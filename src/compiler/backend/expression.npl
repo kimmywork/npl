@@ -413,6 +413,8 @@
     ((string=? nm "set-cdr!") (two-to-nil (primitive-row-symbol row) args env))
     ((string=? nm "string-length") (len-as-fixnum args env))
     ((string=? nm "string=?") (streq-builtin args env))
+    ((string=? nm "apply")
+     (fatal "apply outside tail position after control conversion"))
     ((string=? nm "read-bytevector") (read-bytevector-call args env))
     ((string=? nm "read-bytevector!")
      (bytevector-range-call (primitive-row-symbol row)

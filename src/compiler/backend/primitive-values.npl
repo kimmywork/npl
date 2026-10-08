@@ -105,6 +105,10 @@
          (primitive-wrapper-dispatch name required (+ required optional)))
         ((string=? (primitive-row-kind row) "count")
          (emit-primitive-count-wrapper row))
+        ((string=? name "apply")
+         ; argv is already procedure, arguments..., list, continuation
+         (func-line "call $npl_apply_tail(l %npl_argc, l %npl_argv)")
+         (func-line "ret 2"))
         (else (fatal (string-append
                        "primitive has no value form: " name)))))
     (func-line "}")))

@@ -31,7 +31,7 @@
     read-bytevector read-bytevector! read-char read-u8
     set-car! set-cdr! string? string-append string-length string-ref string=?
     substring symbol? symbol->string string->symbol textual-port?
-    values vector vector-length vector-ref vector-set! vector?
+    values vector vector-length vector-ref vector-set! vector? apply
     call-with-current-continuation call/cc call-with-values
     with-exception-handler write-bytevector write-char write-u8
     and or when unless cond case do let*-values guard

@@ -763,6 +763,39 @@ void npl_tail_request(NplGenericFunction function, NplVal environment,
     g_tail_context->pending = 1;
 }
 
+/* apply in CPS: argv = procedure, fixed arguments..., list, continuation.
+ * Spread the list and tail-call the procedure with the continuation last. */
+void npl_apply_tail(int64_t argc, NplVal *argv)
+{
+    if (argc < 3) {
+        fprintf(stderr, "apply: needs a procedure and a list\n");
+        exit(1);
+    }
+    NplVal procedure = argv[0];
+    NplVal list = argv[argc - 2];
+    NplVal continuation = argv[argc - 1];
+    int64_t fixed = argc - 3;
+    int64_t spread = 0;
+    for (NplVal rest = list; !npl_is_nil(rest); rest = npl_cdr(rest)) {
+        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR) {
+            fprintf(stderr, "apply: last argument is not a proper list\n");
+            exit(1);
+        }
+        spread++;
+    }
+    int64_t count = fixed + spread + 1;
+    NplVal *arguments = (NplVal *)malloc((size_t)count * sizeof(NplVal));
+    if (!arguments) npl_runtime_oom_internal();
+    for (int64_t i = 0; i < fixed; i++) arguments[i] = argv[i + 1];
+    int64_t index = fixed;
+    for (NplVal rest = list; !npl_is_nil(rest); rest = npl_cdr(rest))
+        arguments[index++] = npl_car(rest);
+    arguments[count - 1] = continuation;
+    /* npl_tail_request copies the arguments, so they may be freed here. */
+    npl_tail_request_closure(procedure, count, arguments);
+    free(arguments);
+}
+
 /* argc counts the trailing continuation of the CPS closure convention. */
 void npl_wrong_argument_count(int64_t argc)
 {

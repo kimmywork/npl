@@ -100,6 +100,25 @@
           ", l " (car (cdr (cdr ops))) ")"))
       (func-line "ret 2"))))
 
+(define (apply-application? expression)
+  (if (not (pair-shape? expression))
+      #f
+      (let ((head (car expression)))
+        (if (sym-atom? head)
+            (string=? (cdr head) "_npl_apply")
+            #f))))
+
+; (_npl_apply k f a ... list): argv = f a ... list k for npl_apply_tail.
+(define (emit-apply expression env)
+  (let ((args (cdr expression)))
+    (let ((count (count-up args 0)))
+      (let ((ops (eval-args-fixed args env count ())))
+        (let ((argv (argv-op (append-list (cdr ops) (cons (car ops) ())))))
+          (func-line
+            (string-append "call $npl_apply_tail(l "
+                           (number->string count) ", l " argv ")"))
+          (func-line "ret 2"))))))
+
 (define (wind-transfer-application? expression)
   (if (not (pair-shape? expression))
       #f
@@ -144,6 +163,8 @@
 (define (emit-tail-expr expression env)
   (if (values-dispatch-application? expression)
       (emit-values-dispatch expression env)
+      (if (apply-application? expression)
+          (emit-apply expression env)
       (if (wind-transfer-application? expression)
           (emit-wind-transfer expression env)
           (let ((raise-mode (raise-application-mode expression)))
@@ -166,7 +187,7 @@
               #f)
           (emit-tail-request expression env)
           (let ((result (emit-expr expression env)))
-            (func-line (string-append "ret " result))))))))))
+            (func-line (string-append "ret " result)))))))))))
 
 (define (emit-tail-sequence body env)
   (if (null? body)
