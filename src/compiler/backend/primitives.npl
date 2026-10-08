@@ -67,6 +67,7 @@
     ("int->string" fixed "npl_int_to_string_char" 1 0)
     ("symbol?" fixed "npl_symbol_predicate" 1 0)
     ("symbol->string" fixed "npl_symbol_to_string" 1 0)
+    ("string->symbol" fixed "npl_string_to_symbol" 1 0)
     ("char?" fixed "npl_char_p" 1 0)
     ("char->integer" fixed "npl_char_to_integer" 1 0)
     ("integer->char" fixed "npl_integer_to_char" 1 0)

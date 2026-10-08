@@ -11,6 +11,7 @@ add_library(npl_runtime STATIC
   ${RUNTIME_SRC_DIR}/io.c
   ${RUNTIME_SRC_DIR}/lexer.c
   ${RUNTIME_SRC_DIR}/numeric.c
+  ${RUNTIME_SRC_DIR}/symbol.c
   ${RUNTIME_SRC_DIR}/value.c
 )
 

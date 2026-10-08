@@ -1,0 +1,7 @@
+(quote (#t #f))
+(read (#t #t))
+(string->symbol (#t #t "beta" #t))
+(eqv (#t #f))
+(case (first second other))
+(nested #t)
+(unusual ("with space" #t))

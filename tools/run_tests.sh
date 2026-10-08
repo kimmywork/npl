@@ -47,7 +47,8 @@ run "runtime GC" "$ROOT/tools/check_gc.sh"
 run "exact numeric substrate" bash "$ROOT/tools/check_numeric_reference.sh"
 for fixture in integer-arithmetic rational-arithmetic radix-exact \
                complex-rectangular exact-numeric-utilities inexact-math \
-               mixed-numeric-utilities mutable-bindings named-let char-basics; do
+               mixed-numeric-utilities mutable-bindings named-let char-basics \
+               symbols; do
     run "R7RS $fixture" \
         "$ROOT/tools/run_r7rs_fixture.sh" "$ROOT/tests/r7rs/fixtures/$fixture"
 done

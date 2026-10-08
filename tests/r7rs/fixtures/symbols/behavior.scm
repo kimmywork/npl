@@ -1,0 +1,23 @@
+; Symbol identity (R7RS 6.5): symbols with the same name are eq?, whether they
+; come from quote, read, or string->symbol.
+(define (report name value) (write (list name value)) (newline))
+(define (classify value)
+  (case value ((alpha) 'first) ((beta) 'second) (else 'other)))
+(define (symbol-results)
+  (let ((read-alpha (read (open-input-string "alpha")))
+        (made-beta (string->symbol "beta")))
+    (report 'quote (list (eq? 'alpha 'alpha) (eq? 'alpha 'beta)))
+    (report 'read (list (eq? read-alpha 'alpha)
+                        (eq? read-alpha (read (open-input-string "alpha")))))
+    (report 'string->symbol
+            (list (eq? made-beta 'beta) (symbol? made-beta)
+                  (symbol->string made-beta)
+                  (eq? (string->symbol (symbol->string 'alpha)) 'alpha)))
+    (report 'eqv (list (eqv? read-alpha 'alpha) (eqv? made-beta 'alpha)))
+    (report 'case (list (classify read-alpha) (classify made-beta)
+                        (classify 'gamma)))
+    (report 'nested (eq? (car (read (open-input-string "(alpha beta)")))
+                         'alpha))
+    (report 'unusual (list (symbol->string (string->symbol "with space"))
+                           (eq? (string->symbol "") (string->symbol ""))))))
+(define fixture-result (begin (symbol-results) 0))

@@ -318,6 +318,7 @@ void npl_gc_mark_roots_internal(void)
         if (g_roots[i]) npl_gc_mark_candidate_internal(*g_roots[i]);
     }
     npl_control_mark_roots();
+    npl_symbol_mark_roots();
 }
 
 void npl_gc_drain_internal(void)

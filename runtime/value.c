@@ -36,11 +36,6 @@ NplVal npl_string(const char *s, uint32_t len) {
     return (NplVal)(uintptr_t)str | TAG_PTR;
 }
 
-NplVal npl_symbol(const char *s, uint32_t len)
-{
-    return npl_box_bytes_internal(s, len, BOX_SYMBOL);
-}
-
 NplVal npl_float(double v) {
     NplFloat *f = (NplFloat *)npl_alloc_object(sizeof(NplFloat));
     f->header.tag = BOX_FLOAT;

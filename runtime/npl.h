@@ -502,8 +502,9 @@ int npl_string_equal(NplVal a, NplVal b);    /* raw 0/1 */
 
 NplVal npl_symbol_to_string(NplVal s);
 NplVal npl_symbol_predicate(NplVal s);
-/* NOTE: no string->symbol in stage0 — v1 does not maintain a global
- * symbol intern table spanning static quotes and runtime boxes. */
+/* Symbols are interned (runtime/symbol.c): equal names are eq?. */
+NplVal npl_string_to_symbol(NplVal string);
+NplVal npl_intern_static_symbol(NplVal symbol);
 NplVal npl_substring(NplVal s, NplVal i, NplVal j); /* bytes [i,j) as new box */
 NplVal npl_int_to_string_char(NplVal code);         /* 1-byte string */
 
@@ -543,6 +544,7 @@ NplVal npl_box_bytes_internal(const char *bytes, uint32_t len,
 const NplString *npl_require_bytes_internal(NplVal value, const char *who);
 void npl_control_init(void);
 void npl_control_mark_roots(void);
+void npl_symbol_mark_roots(void);
 void npl_io_init(void);
 
 #endif /* NPL_RUNTIME_H */

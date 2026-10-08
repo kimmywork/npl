@@ -483,7 +483,7 @@ read-char
 read-u8
 set-car! set-cdr! string-append string-length string-ref string=? symbol?
 substring
-symbol->string textual-port? values vector vector-length vector-ref vector-set!
+symbol->string string->symbol textual-port? values vector vector-length vector-ref vector-set!
 vector? call-with-current-continuation call/cc call-with-values
 display with-exception-handler write write-bytevector write-char write-shared
 write-simple write-u8)" )

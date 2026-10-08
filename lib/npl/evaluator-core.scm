@@ -825,6 +825,12 @@
     ((string=? name "symbol?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error) (continuation (symbol? (car arguments))))))
+    ((string=? name "string->symbol")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (if (string? (car arguments))
+               (continuation (string->symbol (car arguments)))
+               (continuation (eval-error "string->symbol: expected a string"))))))
     ((string=? name "symbol->string")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
@@ -1460,7 +1466,7 @@
         "npl_number_zero_p" "npl_number_gcd" "npl_number_quotient"
         "npl_number_remainder" "string?"
         "null?" "pair?"
-        "eq?" "eqv?" "not" "number?" "number->string" "symbol?" "symbol->string"
+        "eq?" "eqv?" "not" "number?" "number->string" "symbol?" "symbol->string" "string->symbol"
         "open-input-string"
         "string-length" "string-append" "string-ref" "substring" "int->string"
         "npl_lex_class_w" "npl_lex_scan_sym_end" "npl_lex_number"

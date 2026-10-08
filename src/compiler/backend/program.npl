@@ -128,14 +128,31 @@
         (newline)
         (print-global-roots (cdr slots)))))
 
+; Static symbol boxes join the runtime intern table before any code runs, so
+; quoted symbols are eq? to symbols made by read and string->symbol.
+(define (print-static-symbols entries)
+  (if (null? entries)
+      0
+      (begin
+        ; QBE call operands cannot carry an offset; tag the address first.
+        (display "%static_symbol =l add ")
+        (display (cdr (car entries)))
+        (display ", 1")
+        (newline)
+        (display "call $npl_intern_static_symbol(l %static_symbol)")
+        (newline)
+        (print-static-symbols (cdr entries)))))
+
 (define (dump-and-print)
-  ; Top-level forms are flushed incrementally. Only root registration and
-  ; runtime initializer code remain until their function can be emitted.
+  ; Top-level forms are flushed incrementally. Only symbol and root
+  ; registration and runtime initializer code remain until their function
+  ; can be emitted.
   (flush-code-buffers)
   (display "function l $npl_global_inits() {")
   (newline)
   (display "@start")
   (newline)
+  (print-static-symbols (rev (cell-get SYMS)))
   (print-global-roots (rev (cell-get GLOBAL-ROOTS)))
   (if (= (cell-get HAS-INIT) 7)
       (print-lines (rev (cell-get INIT-BUF)))
