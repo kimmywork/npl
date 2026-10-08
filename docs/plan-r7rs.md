@@ -56,6 +56,11 @@ behavior is established only by fixtures.
 
 Order follows dependencies; each is one commit.
 
+0. **L0 values prerequisites** (compiler/runtime; awaiting confirmation).
+   L0a symbol interning and `string->symbol`; L0b registered primitives usable
+   as first-class values in native code, via wrappers generated from
+   `src/compiler/backend/primitives.npl`; L0c native `apply` as a tail-call
+   primitive. Each with a test that fails on the previous seed.
 1. **L1 lists and equivalence.** Pure NPL in `(scheme base)`: `map`,
    `for-each` (multi-list), `apply`, `member`/`assoc` families (with optional
    predicate), `list-tail`, `list-ref`, `list-copy`, `list-set!`, `make-list`,

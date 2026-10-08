@@ -8,6 +8,7 @@
   "frontend/forms.npl"
   "frontend/source.npl"
   "frontend/library.npl"
+  "backend/primitives.npl"
   "frontend/control.npl"
   "backend/state.npl"
   "backend/data.npl"
