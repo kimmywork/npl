@@ -37,6 +37,8 @@
 (define ASSIGNED-NAMES (cell ()))
 ; data-segment global slots registered as GC roots at program start
 (define GLOBAL-ROOTS (cell ()))
+; primitives referenced as values; their closure wrappers are emitted once
+(define PRIMITIVE-VALUES (cell ()))
 
 (define (func-line ln)
   (cond ((string=? (cell-get CURBUF) "I")

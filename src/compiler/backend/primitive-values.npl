@@ -1,0 +1,117 @@
+; Registered primitives as first-class values.
+;
+; A registered primitive used as a value (for example (map car xs)) becomes a
+; closure over a wrapper function generated once per program. The wrapper
+; follows the CPS closure ABI: argv holds the arguments followed by the
+; continuation; it applies the primitive through the ordinary emission path
+; and sends the result to the continuation. Control-transfer names (values,
+; call/cc, dynamic-wind, raise, ...) are not table rows; (scheme base)
+; defines those as ordinary procedures.
+
+(define (primitive-index-in name rows index)
+  (if (null? rows)
+      -1
+      (if (string=? name (primitive-row-name (car rows)))
+          index
+          (primitive-index-in name (cdr rows) (+ index 1)))))
+
+; Wrapper symbols use the table index; sanitized names would collide (+ -).
+(define (primitive-wrapper-symbol name)
+  (string-append "_npl_prim_"
+    (number->string (primitive-index-in name PRIMITIVE-TABLE 0))))
+
+; Closure arity in the runtime convention, counting the continuation:
+; n >= 0 exact, -(m + 1) for at least m.
+(define (primitive-closure-arity row)
+  (let ((required (primitive-row-required row))
+        (optional (primitive-row-optional row)))
+    (if (= optional 0)
+        (+ required 1)
+        (- 0 (+ required 2)))))
+
+(define (primitive-closure name)
+  (if (not (assigned-name? name (cell-get PRIMITIVE-VALUES)))
+      (cell-set! PRIMITIVE-VALUES (cons name (cell-get PRIMITIVE-VALUES))))
+  (let ((result (new-tmp)))
+    (func-line
+      (string-append result " =l call $npl_make_closure(l $"
+                     (primitive-wrapper-symbol name) ", l 2, l "
+                     (number->string
+                       (primitive-closure-arity (primitive-row name)))
+                     ")"))
+    result))
+
+; Operand temporaries for argv[0..count-1] as core symbol references.
+(define (primitive-wrapper-operands index count env)
+  (if (= index count)
+      (cons () env)
+      (let ((name (string-append "_npl_prim_argument_"
+                                 (number->string index))))
+        (let ((rest (primitive-wrapper-operands
+                      (+ index 1) count
+                      (env-extend-value env name (load-argv index)))))
+          (cons (cons (control-symbol name) (car rest)) (cdr rest))))))
+
+(define (primitive-wrapper-call name count)
+  (let ((bound (primitive-wrapper-operands 0 count ())))
+    (let ((value (route-call name (car bound) (cdr bound))))
+      (let ((argv (argv-op (cons value ()))))
+        (func-line
+          (string-append "call $npl_tail_request_closure(l "
+                         (load-argv count) ", l 1, l " argv ")"))
+        (func-line "ret 2")))))
+
+; Fixed-arity wrappers know their operand count; optional and variadic ones
+; dispatch on argc for each count the primitive accepts.
+(define (primitive-wrapper-dispatch name count last)
+  (if (> count last)
+      (begin
+        (func-line "call $npl_wrong_argument_count(l %npl_argc)")
+        (func-line "ret 2"))
+      (let ((this-label (new-label)) (next-label (new-label))
+            (test (new-tmp)))
+        (func-line (string-append test " =w ceql %npl_argc, "
+                                  (number->string (+ count 1))))
+        (func-line (string-append "jnz " test ", " this-label ", " next-label))
+        (func-line this-label)
+        (primitive-wrapper-call name count)
+        (func-line next-label)
+        (primitive-wrapper-dispatch name (+ count 1) last))))
+
+; Variadic `count` primitives take (argc, argv) directly: pass the closure's
+; argv minus the trailing continuation, so any argument count works.
+(define (emit-primitive-count-wrapper row)
+  (let ((count (new-tmp)) (value (new-tmp)))
+    (func-line (string-append count " =l sub %npl_argc, 1"))
+    (func-line (string-append value " =l call $" (primitive-row-symbol row)
+                              "(l " count ", l %npl_argv)"))
+    (let ((argv (argv-op (cons value ()))))
+      (func-line
+        (string-append "call $npl_tail_request_closure(l "
+                       (load-last-argv) ", l 1, l " argv ")"))
+      (func-line "ret 2"))))
+
+(define (emit-primitive-wrapper name)
+  (let ((row (primitive-row name)))
+    (func-line
+      (string-append "function l $" (primitive-wrapper-symbol name)
+                     "(l %npl_env, l %npl_argc, l %npl_argv) {"))
+    (func-line "@start")
+    (let ((required (primitive-row-required row))
+          (optional (primitive-row-optional row)))
+      (cond
+        ((= optional 0) (primitive-wrapper-call name required))
+        ((> optional 0)
+         (primitive-wrapper-dispatch name required (+ required optional)))
+        ((string=? (primitive-row-kind row) "count")
+         (emit-primitive-count-wrapper row))
+        (else (fatal (string-append
+                       "primitive has no value form: " name)))))
+    (func-line "}")))
+
+(define (emit-primitive-wrappers names)
+  (if (null? names)
+      0
+      (begin
+        (emit-primitive-wrapper (car names))
+        (emit-primitive-wrappers (cdr names)))))

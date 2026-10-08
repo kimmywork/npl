@@ -62,7 +62,7 @@
     ("string-length" special "" 1 0)
     ("string-ref" fixed "npl_string_ref" 2 0)
     ("substring" fixed "npl_substring" 3 0)
-    ("string-append" special "" 1 -1)
+    ("string-append" count "npl_string_append_n" 0 -1)
     ("string=?" special "" 2 0)
     ("int->string" fixed "npl_int_to_string_char" 1 0)
     ("symbol?" fixed "npl_symbol_predicate" 1 0)

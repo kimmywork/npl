@@ -21,21 +21,6 @@
          (display " expected=") (display n)
          (newline) (exit 21)))
 
-; R7RS variadic string-append: fold left-to-right via npl_string_append
-(define (variadic-append args env)
-  (app-fold (eval-args-fixed args env (count-up args 0) ())))
-
-(define (app-fold ops)
-  (if (null? ops)
-      (fatal "append-empty")
-      (if (null? (cdr ops))
-          (car ops)
-          (let ((r (new-tmp)))
-            (func-line (string-append r " =l call $npl_string_append(l "
-                                      (car ops) ", l "
-                                      (car (cdr ops)) ")"))
-            (app-fold (cons r (cdr (cdr ops))))))))
-
 (define (checked-call fn n args env)
   (check-arity args n n)
   (let ((ops (eval-args-fixed args env n ())))
@@ -172,7 +157,9 @@
                 r)
               (if (> (string-length (lookup-func nm)) 0)
                   (function-closure nm)
-                  (fatal (string-append "unbound symbol " nm))))))))
+                  (if (primitive-row nm)
+                      (primitive-closure nm)
+                      (fatal (string-append "unbound symbol " nm)))))))))
 
 (define (tagged-form e env)
   ; an APPLICATION's head is itself a pair (the callee expression);
@@ -424,7 +411,6 @@
     ((string=? nm "exit") (progn-exit args env))
     ((string=? nm "set-car!") (two-to-nil (primitive-row-symbol row) args env))
     ((string=? nm "set-cdr!") (two-to-nil (primitive-row-symbol row) args env))
-    ((string=? nm "string-append") (variadic-append args env))
     ((string=? nm "string-length") (len-as-fixnum args env))
     ((string=? nm "string=?") (streq-builtin args env))
     ((string=? nm "read-bytevector") (read-bytevector-call args env))

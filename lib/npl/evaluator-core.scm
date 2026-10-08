@@ -746,6 +746,34 @@
                               (car arguments)
                               (car (cdr arguments)))))))
 
+;; Output procedures take an optional trailing port (R7RS 6.13.3).
+;; operation receives the datum (or #f when required is 0) and the port.
+(define (eval-output-call name arguments required continuation operation)
+  (let ((count (if (eval-proper-list? arguments) (length arguments) -1)))
+    (if (if (= count required) #t (= count (+ required 1)))
+        (let ((port (if (= count required)
+                        (current-output-port)
+                        (if (= required 0) (car arguments)
+                            (car (cdr arguments))))))
+          (if (output-port? port)
+              (begin
+                (operation (if (= required 0) #f (car arguments)) port)
+                (continuation EVAL-UNSPECIFIED))
+              (continuation
+                (eval-error (string-append name ": expected an output port")))))
+        (continuation
+          (eval-error (string-append name ": wrong number of arguments"))))))
+
+(define (eval-string-list? values)
+  (if (null? values) #t
+      (if (pair? values)
+          (if (string? (car values)) (eval-string-list? (cdr values)) #f)
+          #f)))
+
+(define (eval-string-append-all values result)
+  (if (null? values) result
+      (eval-string-append-all (cdr values) (string-append result (car values)))))
+
 (define (eval-apply-primitive name arguments environment continuation)
   (cond
     ((string=? name "+")
@@ -853,10 +881,9 @@
        (if error (continuation error)
            (continuation (string-length (car arguments))))))
     ((string=? name "string-append")
-     (let ((error (eval-arity arguments 2 name)))
-       (if error (continuation error)
-           (continuation
-             (string-append (car arguments) (car (cdr arguments)))))))
+     (if (eval-string-list? arguments)
+         (continuation (eval-string-append-all arguments ""))
+         (continuation (eval-error "string-append: expected strings"))))
     ((string=? name "substring")
      (let ((error (eval-arity arguments 3 name)))
        (if error (continuation error)
@@ -1037,19 +1064,14 @@
     ((string=? name "dynamic-wind")
      (eval-dynamic-wind arguments environment continuation))
     ((string=? name "display")
-     (let ((error (eval-arity arguments 1 name)))
-       (if error (continuation error)
-           (begin (display (car arguments))
-                  (continuation EVAL-UNSPECIFIED)))))
+     (eval-output-call name arguments 1 continuation
+       (lambda (value port) (display value port))))
     ((string=? name "write")
-     (let ((error (eval-arity arguments 1 name)))
-       (if error (continuation error)
-           (begin (write (car arguments))
-                  (continuation EVAL-UNSPECIFIED)))))
+     (eval-output-call name arguments 1 continuation
+       (lambda (value port) (write value port))))
     ((string=? name "newline")
-     (let ((error (eval-arity arguments 0 name)))
-       (if error (continuation error)
-           (begin (newline) (continuation EVAL-UNSPECIFIED)))))
+     (eval-output-call name arguments 0 continuation
+       (lambda (ignored port) (newline port))))
     ((string=? name "read")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
@@ -1066,6 +1088,13 @@
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
            (continuation (open-output-file (car arguments))))))
+    ((string=? name "get-output-string")
+     (let ((error (eval-arity arguments 1 name)))
+       (if error (continuation error)
+           (if (output-port? (car arguments))
+               (continuation (get-output-string (car arguments)))
+               (continuation
+                 (eval-error "get-output-string: expected a string port"))))))
     ((string=? name "open-output-string")
      (if (null? arguments)
          (continuation (open-output-string))
@@ -1478,6 +1507,7 @@
         "%eval-make-environment" "%eval-evaluate" "%eval-load-file"
         "display" "write" "newline" "read" "eof-object?"
         "open-input-file" "open-output-file" "open-output-string"
+        "get-output-string"
         "close-port" "close-input-port" "output-port-open?"
         "delete-file" "input-port-open?" "read-char" "write-char"
         "char?" "char->integer" "integer->char"

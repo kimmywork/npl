@@ -492,6 +492,26 @@ NplVal npl_string_append(NplVal a, NplVal b) {
     return out;
 }
 
+/* R7RS string-append over any number of strings, including none. */
+NplVal npl_string_append_n(int64_t argc, NplVal *argv)
+{
+    size_t total = 0;
+    for (int64_t i = 0; i < argc; i++)
+        total += npl_require_bytes_internal(argv[i], "string-append")->length;
+    if (total > UINT32_MAX) npl_runtime_oom_internal();
+    /* Allocate first; argv entries stay reachable through the caller. */
+    NplVal out = npl_box_bytes_internal(NULL, (uint32_t)total, BOX_STRING);
+    NplString *result = (NplString *)npl_header(out);
+    size_t offset = 0;
+    for (int64_t i = 0; i < argc; i++) {
+        const NplString *part = (const NplString *)npl_header(argv[i]);
+        memcpy(result->data + offset, part->data, part->length);
+        offset += part->length;
+    }
+    result->data[total] = '\0';
+    return out;
+}
+
 int64_t npl_string_length(NplVal s) {
     return (int64_t)npl_require_bytes_internal(s, "string-length")->length;
 }

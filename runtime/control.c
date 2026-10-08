@@ -763,6 +763,14 @@ void npl_tail_request(NplGenericFunction function, NplVal environment,
     g_tail_context->pending = 1;
 }
 
+/* argc counts the trailing continuation of the CPS closure convention. */
+void npl_wrong_argument_count(int64_t argc)
+{
+    fprintf(stderr, "procedure: wrong number of arguments (%lld)\n",
+            (long long)(argc - 1));
+    exit(1);
+}
+
 static int closure_accepts_arity(const NplClosure *closure, int64_t argc)
 {
     if (argc < 0) return 0;

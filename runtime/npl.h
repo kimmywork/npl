@@ -433,6 +433,7 @@ NplVal npl_box_bool(int32_t value);
 NplVal npl_box_float(double value);
 NplVal npl_box_identity(NplVal value);
 NplVal npl_apply(NplVal closure, int64_t argc, NplVal *argv);
+void npl_wrong_argument_count(int64_t argc);
 void npl_tail_request_closure(NplVal closure, int64_t argc, NplVal *argv);
 NplVal npl_call_cc(NplVal procedure);
 NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
@@ -496,6 +497,7 @@ NplVal npl_eqv(NplVal left, NplVal right);
 
 /* ---- String & symbol builtins ---- */
 NplVal npl_string_append(NplVal a, NplVal b);
+NplVal npl_string_append_n(int64_t argc, NplVal *argv);
 int64_t npl_string_length(NplVal s);
 NplVal npl_string_ref(NplVal s, NplVal i);   /* returns fixnum byte value */
 int npl_string_equal(NplVal a, NplVal b);    /* raw 0/1 */

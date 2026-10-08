@@ -147,6 +147,7 @@
   ; Top-level forms are flushed incrementally. Only symbol and root
   ; registration and runtime initializer code remain until their function
   ; can be emitted.
+  (emit-primitive-wrappers (rev (cell-get PRIMITIVE-VALUES)))
   (flush-code-buffers)
   (display "function l $npl_global_inits() {")
   (newline)
