@@ -8,7 +8,7 @@
   (if (= index (string-length text))
       ""
       (string-append ", b "
-        (string-append (number->string (string-ref text index))
+        (string-append (number->string (string-byte-ref text index))
                        (byte-data text (+ index 1))))))
 
 (define (intern-sym nm)
@@ -32,7 +32,8 @@
   (cell-set! DATAN (+ 1 (cell-get DATAN)))
   (let ((lab (string-append "$s_" (number->string (cell-get DATAN)))))
     (data-line
-      (string-append "data " lab " = { w 1, w 0, w "
+      ; flags 1 = NPL_FLAG_LITERAL: literal strings are immutable (R7RS 3.4)
+      (string-append "data " lab " = { w 1, w 1, w "
                      (number->string (string-length text))
                      ", w "
                      (number->string (+ 1 (string-length text)))

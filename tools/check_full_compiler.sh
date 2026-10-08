@@ -129,6 +129,8 @@ reject_literal_mutation literal-vector-mutation \
     "vector-set!: cannot mutate a literal"
 reject_literal_mutation literal-bytevector-mutation \
     "bytevector-u8-set!: cannot mutate a literal"
+reject_literal_mutation literal-string-mutation \
+    "string-set!: cannot mutate a literal"
 reject_runtime contracts/multiple-values-in-single-context.npl \
     multiple-values-in-single-context \
     "value context: expected 1 value, got 2"

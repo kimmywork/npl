@@ -71,7 +71,7 @@ each). The three representation changes in L3-L5 were approved 2026-10-08.
    (`vector->string`/`string->vector`/`utf8` conversions move to L3). Library
    only (constructors via `list->vector` and `apply bytevector`); allocation
    primitives only if measured necessary.
-3. **L3 strings and chars (ASCII).** Prerequisites: `string-ref` returns a
+3. **L3 strings and chars (ASCII)** (done 2026-10-08). Prerequisites: `string-ref` returns a
    char (the compiler's own byte uses move to a private byte primitive; seed
    transition), `make-string`/`string-set!`/`string-fill!` primitives with the
    literal-immutability check. Then constructors, copies, ranges, comparisons,

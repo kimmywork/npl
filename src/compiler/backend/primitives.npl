@@ -61,7 +61,12 @@
     ; strings, symbols, chars
     ("string?" fixed "npl_string_p" 1 0)
     ("string-length" special "" 1 0)
-    ("string-ref" fixed "npl_string_ref" 2 0)
+    ("string-ref" fixed "npl_string_char_ref" 2 0)
+    ; byte at an index as a fixnum: compiler/lexer internals, not R7RS
+    ("string-byte-ref" fixed "npl_string_ref" 2 0)
+    ("npl_make_string" fixed "npl_make_string" 2 0)
+    ("string-set!" fixed "npl_string_set" 3 0)
+    ("npl_string_fill" fixed "npl_string_fill_range" 4 0)
     ("substring" fixed "npl_substring" 3 0)
     ("string-append" count "npl_string_append_n" 0 -1)
     ("string=?" special "" 2 0)

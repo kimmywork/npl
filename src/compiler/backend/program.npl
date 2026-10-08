@@ -65,7 +65,7 @@
     (cell-set! DATAN (+ 1 (cell-get DATAN)))
     (let ((lab (string-append "$s_" (number->string (cell-get DATAN)))))
       (data-line
-        (string-append lab " = { w 1, w 0, w "
+        (string-append lab " = { w 1, w 1, w "
                        (number->string (string-length txt))
                        ", w "
                        (number->string (+ 1 (string-length txt)))

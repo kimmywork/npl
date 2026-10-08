@@ -23,7 +23,7 @@
 (define (path-dir-at path index)
   (if (< index 0)
       ""
-      (if (= (string-ref path index) 47)
+      (if (= (string-byte-ref path index) 47)
           (substring path 0 (+ index 1))
           (path-dir-at path (- index 1)))))
 
@@ -33,7 +33,7 @@
 (define (absolute-path? path)
   (if (= (string-length path) 0)
       #f
-      (= (string-ref path 0) 47)))
+      (= (string-byte-ref path 0) 47)))
 
 (define (resolve-include-path base path)
   (if (absolute-path? path) path (string-append base path)))

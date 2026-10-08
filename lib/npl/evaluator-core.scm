@@ -764,6 +764,18 @@
         (continuation
           (eval-error (string-append name ": wrong number of arguments"))))))
 
+(define (eval-ascii-char? value)
+  (if (char? value) (<= (char->integer value) 127) #f))
+
+(define (eval-string-index? value index)
+  (if (string? value)
+      (if (number? index)
+          (if (npl_integer_p index)
+              (if (>= index 0) (< index (string-length value)) #f)
+              #f)
+          #f)
+      #f))
+
 ;; Bytevector argument checks; the native primitives enforce the same ranges.
 (define (eval-byte? value)
   (if (number? value)
@@ -975,11 +987,55 @@
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
            (continuation (int->string (car arguments))))))
+    ((string=? name "string-byte-ref")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (if (eval-string-index? (car arguments) (car (cdr arguments)))
+               (continuation
+                 (string-byte-ref (car arguments) (car (cdr arguments))))
+               (continuation
+                 (eval-error "string-byte-ref: index out of range"))))))
+    ((string=? name "npl_make_string")
+     (let ((error (eval-arity arguments 2 name)))
+       (if error (continuation error)
+           (if (if (exact-integer? (car arguments)) (>= (car arguments) 0) #f)
+               (if (eval-ascii-char? (car (cdr arguments)))
+                   (continuation
+                     (npl_make_string (car arguments) (car (cdr arguments))))
+                   (continuation
+                     (eval-error "make-string: expected an ASCII character")))
+               (continuation
+                 (eval-error "make-string: expected a non-negative count"))))))
+    ((string=? name "string-set!")
+     (let ((error (eval-arity arguments 3 name)))
+       (if error (continuation error)
+           (if (eval-string-index? (car arguments) (car (cdr arguments)))
+               (if (eval-ascii-char? (car (cdr (cdr arguments))))
+                   (begin
+                     (string-set! (car arguments) (car (cdr arguments))
+                                  (car (cdr (cdr arguments))))
+                     (continuation EVAL-UNSPECIFIED))
+                   (continuation
+                     (eval-error "string-set!: expected an ASCII character")))
+               (continuation (eval-error "string-set!: index out of range"))))))
+    ((string=? name "npl_string_fill")
+     (let ((error (eval-arity arguments 4 name)))
+       (if error (continuation error)
+           (if (eval-ascii-char? (car (cdr arguments)))
+               (begin
+                 (npl_string_fill (car arguments) (car (cdr arguments))
+                                  (car (cdr (cdr arguments)))
+                                  (car (cdr (cdr (cdr arguments)))))
+                 (continuation EVAL-UNSPECIFIED))
+               (continuation
+                 (eval-error "string-fill!: expected an ASCII character"))))))
     ((string=? name "string-ref")
      (let ((error (eval-arity arguments 2 name)))
        (if error (continuation error)
-           (continuation
-             (string-ref (car arguments) (car (cdr arguments)))))))
+           (if (eval-string-index? (car arguments) (car (cdr arguments)))
+               (continuation
+                 (string-ref (car arguments) (car (cdr arguments))))
+               (continuation (eval-error "string-ref: index out of range"))))))
     ((string=? name "npl_lex_class_w")
      (let ((error (eval-arity arguments 2 name)))
        (if error (continuation error)
@@ -1577,6 +1633,7 @@
         "npl_number_remainder" "string?"
         "null?" "pair?"
         "eq?" "eqv?" "not" "number?" "number->string" "symbol?" "symbol->string" "string->symbol" "procedure?"
+        "string-byte-ref" "npl_make_string" "string-set!" "npl_string_fill"
         "append" "bytevector?" "bytevector" "bytevector-length" "bytevector-u8-ref"
         "bytevector-u8-set!"
         "open-input-string"

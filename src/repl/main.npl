@@ -131,7 +131,7 @@
      (npli-run (reverse expressions) (car (cdr arguments))
                (cdr (cdr arguments))))
     ((if (> (string-length (car arguments)) 1)
-         (= (string-ref (car arguments) 0) 45) #f)
+         (char=? (string-ref (car arguments) 0) #\-) #f)
      (npli-usage-error (string-append "unknown option " (car arguments))))
     (else
      (npli-run (reverse expressions) (car arguments) (cdr arguments)))))
@@ -165,7 +165,7 @@
   (let loop ((index (- (string-length path) 1)))
     (cond
       ((< index 0) "")
-      ((= (string-ref path index) 47) (substring path 0 (+ index 1)))
+      ((char=? (string-ref path index) #\/) (substring path 0 (+ index 1)))
       (else (loop (- index 1))))))
 
 (define (main)

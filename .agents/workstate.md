@@ -2,15 +2,15 @@
 
 ## Current
 
-Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0-L2 are done;
-next is L3 (strings and chars: `string-ref` returns a char, string
-mutation primitives, then the string library). The toolchain stage is complete and committed
+Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0-L3 are done;
+next is L4 (record box type, define-record-type, error objects, catchable
+primitive errors). The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 197,695 lines; SHA-256
-  `f0df562dc5e1ff06c24bebce31e185ef1f5cc45241b41841699622e0a7a31f34`
+- `bootstrap/current.ssa`: 198,010 lines; SHA-256
+  `acf91c177e52d171630d80a975f25f4fba04afc45c0a07494c9d0fef2f4c85fa`
   (macOS strict relay).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. On a swap-bound host set

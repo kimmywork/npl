@@ -29,7 +29,7 @@
     output-port-open? output-port? pair? peek-char peek-u8 port?
     raise raise-continuable reverse list?
     read-bytevector read-bytevector! read-char read-u8
-    set-car! set-cdr! string? string-append string-length string-ref string=?
+    set-car! set-cdr! string? string-append string-length string-ref
     substring symbol? symbol->string string->symbol textual-port?
     values vector vector-length vector-ref vector-set! vector? apply
     call-with-current-continuation call/cc call-with-values
@@ -42,16 +42,22 @@
     memq memv member assq assv assoc equal? append
     make-vector vector->list vector-copy vector-copy! vector-fill!
     vector-append vector-map vector-for-each
-    make-bytevector bytevector-copy bytevector-copy! bytevector-append)
+    make-bytevector bytevector-copy bytevector-copy! bytevector-append
+    char=? char<? char>? char<=? char>=?
+    make-string string list->string string->list string-copy string-copy!
+    string-fill! string-set! vector->string string->vector string->utf8
+    utf8->string string=? string<? string>? string<=? string>=?
+    string-map string-for-each)
   (import (rename (npl primitive)
             (+ raw-add) (- raw-subtract) (* raw-multiply)
             (= raw-equal) (< raw-less) (<= raw-less-equal)
             (> raw-greater) (>= raw-greater-equal)
             (npl_number_gcd raw-gcd) (npl_number_quotient raw-quotient)
             (npl_number_remainder raw-remainder)
-            (number->string raw-number->string) (append raw-append)))
+            (number->string raw-number->string) (append raw-append)
+            (string=? raw-string=?)))
   (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
-           "vector.scm")
+           "vector.scm" "string.scm")
   (begin
     (define (call-with-port port proc)
       (call-with-values

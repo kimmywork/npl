@@ -115,7 +115,7 @@
   (if (= (string-length root) 0)
       (fatal "standard library root must not be empty"))
   (cell-set! LIBRARY-STANDARD-ROOT
-    (if (= (string-ref root (- (string-length root) 1)) 47)
+    (if (= (string-byte-ref root (- (string-length root) 1)) 47)
         root
         (string-append root "/"))))
 
@@ -136,7 +136,7 @@
 (define (library-ascii-fold-name name index output)
   (if (= index (string-length name))
       output
-      (let ((code (string-ref name index)))
+      (let ((code (string-byte-ref name index)))
         (library-ascii-fold-name name (+ index 1)
           (string-append output
             (int->string
@@ -481,7 +481,8 @@ output-port-open? output-port? pair? peek-char peek-u8 port? raise
 raise-continuable read read-file read-result read-bytevector read-bytevector!
 read-char
 read-u8
-set-car! set-cdr! string-append string-length string-ref string=? symbol?
+set-car! set-cdr! string-append string-length string-ref string-byte-ref
+npl_make_string string-set! npl_string_fill string=? symbol?
 substring procedure?
 symbol->string string->symbol textual-port? values vector vector-length vector-ref vector-set!
 vector? call-with-current-continuation call/cc call-with-values apply

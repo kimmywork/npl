@@ -8,6 +8,10 @@
 ; call/cc, dynamic-wind, raise, ...) are not table rows; (scheme base)
 ; defines those as ordinary procedures.
 
+; Largest argument count beyond the minimum that an unbounded inline
+; primitive accepts when called through its value form.
+(define PRIMITIVE-VALUE-SPREAD 6)
+
 (define (primitive-index-in name rows index)
   (if (null? rows)
       -1
@@ -109,8 +113,12 @@
          ; argv is already procedure, arguments..., list, continuation
          (func-line "call $npl_apply_tail(l %npl_argc, l %npl_argv)")
          (func-line "ret 2"))
-        (else (fatal (string-append
-                       "primitive has no value form: " name)))))
+        ; Unbounded inline arithmetic and comparisons (+ < ...): dispatch on
+        ; argc up to a fixed bound; (scheme base) re-exports library
+        ; procedures for user code, so only internal fast paths reach here.
+        (else
+         (primitive-wrapper-dispatch name required
+                                     (+ required PRIMITIVE-VALUE-SPREAD)))))
     (func-line "}")))
 
 (define (emit-primitive-wrappers names)

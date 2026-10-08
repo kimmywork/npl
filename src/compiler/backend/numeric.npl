@@ -23,7 +23,7 @@
 
 (define (integer-literal-label value)
   (let ((text (number->string value)))
-    (let ((negative (= (string-ref text 0) 45)))
+    (let ((negative (= (string-byte-ref text 0) 45)))
       (let ((limbs (integer-literal-limbs
                      text (if negative 1 0) (string-length text))))
         (let ((count (number->string (count-up limbs 0))))

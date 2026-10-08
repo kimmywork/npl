@@ -77,16 +77,26 @@
 (define (ch-alpha-up-e c) (if (< 64 c) (< c 91) #f))
 (define (ch-alpha-low-e c) (if (< 96 c) (< c 123) #f))
 
+; QBE-safe and injective: letters and digits are kept, every other byte
+; (including _) becomes _XX in hex, so distinct names never share a symbol.
 (define (sanitize s i out)
   (if (< i (string-length s))
-      (let ((c (string-ref s i)))
+      (let ((c (string-byte-ref s i)))
         (if (if (ch-digit-q2 c)
                 #t
-                (if (ch-alpha-up-e c)
-                    #t
-                    (if (ch-alpha-low-e c)
-                        #t
-                        (= c 95))))
+                (if (ch-alpha-up-e c) #t (ch-alpha-low-e c)))
             (sanitize s (+ i 1) (string-append out (int->string c)))
-            (sanitize s (+ i 1) (string-append out "_"))))
+            (sanitize s (+ i 1) (string-append out (sanitize-escape c)))))
       out))
+
+(define (sanitize-hex-digit d)
+  (int->string (if (< d 10) (+ d 48) (+ d 87))))
+
+; The seed dialect has no quotient: split a byte into nibbles by counting.
+(define (sanitize-high-nibble c n)
+  (if (< c 16) n (sanitize-high-nibble (- c 16) (+ n 1))))
+
+(define (sanitize-escape c)
+  (let ((high (sanitize-high-nibble c 0)))
+    (string-append "_" (string-append (sanitize-hex-digit high)
+                         (sanitize-hex-digit (- c (* high 16)))))))

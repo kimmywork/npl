@@ -65,11 +65,11 @@
   (test-equal "escaped string length"
               (lambda () (string-length "\x41;\a\b\|")) 4)
   (test-equal "hex string escape"
-              (lambda () (string-ref "\x41;" 0)) 65)
+              (lambda () (char->integer (string-ref "\x41;" 0))) 65)
   (test-equal "NUL string length"
               (lambda () (string-length "\x00;")) 1)
   (test-equal "NUL string value"
-              (lambda () (string-ref "\x00;" 0)) 0)
+              (lambda () (char->integer (string-ref "\x00;" 0))) 0)
   (test-equal "continued string"
               (lambda () (string-length "ab\
                   cd")) 4)

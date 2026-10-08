@@ -527,6 +527,89 @@ NplVal npl_string_ref(NplVal s, NplVal i) {
     return npl_fixnum((unsigned char)st->data[idx]);
 }
 
+static NplString *mutable_string(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING) {
+        fprintf(stderr, "%s: expected a string\n", who);
+        exit(1);
+    }
+    NplString *string = (NplString *)npl_header(value);
+    if (string->header.flags & NPL_FLAG_LITERAL) {
+        fprintf(stderr, "%s: cannot mutate a literal\n", who);
+        exit(1);
+    }
+    return string;
+}
+
+static uint8_t string_byte_of(NplVal character, const char *who)
+{
+    if (!npl_is_char(character) || npl_char_value(character) > 127) {
+        fprintf(stderr, "%s: expected an ASCII character\n", who);
+        exit(1);
+    }
+    return (uint8_t)npl_char_value(character);
+}
+
+/* make-string k [char]: a fresh mutable string; the default fill is a space. */
+NplVal npl_make_string(NplVal count, NplVal fill)
+{
+    if (!npl_is_fixnum(count) || npl_fixnum_value(count) < 0 ||
+        npl_fixnum_value(count) > (int64_t)UINT32_MAX) {
+        fprintf(stderr, "make-string: expected a non-negative count\n");
+        exit(1);
+    }
+    uint8_t byte = string_byte_of(fill, "make-string");
+    uint32_t length = (uint32_t)npl_fixnum_value(count);
+    NplVal out = npl_box_bytes_internal(NULL, length, BOX_STRING);
+    NplString *string = (NplString *)npl_header(out);
+    memset(string->data, byte, length);
+    string->data[length] = '\0';
+    return out;
+}
+
+/* Fill [start, end) of a mutable string; string-set! is the one-index case. */
+NplVal npl_string_fill_range(NplVal value, NplVal character, NplVal start,
+                             NplVal end)
+{
+    NplString *string = mutable_string(value, "string-fill!");
+    uint8_t byte = string_byte_of(character, "string-fill!");
+    if (!npl_is_fixnum(start) || !npl_is_fixnum(end) ||
+        npl_fixnum_value(start) < 0 ||
+        npl_fixnum_value(start) > npl_fixnum_value(end) ||
+        npl_fixnum_value(end) > (int64_t)string->length) {
+        fprintf(stderr, "string-fill!: index out of range\n");
+        exit(1);
+    }
+    memset(string->data + npl_fixnum_value(start), byte,
+           (size_t)(npl_fixnum_value(end) - npl_fixnum_value(start)));
+    return npl_nil();
+}
+
+NplVal npl_string_set(NplVal value, NplVal index, NplVal character)
+{
+    NplString *string = mutable_string(value, "string-set!");
+    uint8_t byte = string_byte_of(character, "string-set!");
+    if (!npl_is_fixnum(index) || npl_fixnum_value(index) < 0 ||
+        npl_fixnum_value(index) >= (int64_t)string->length) {
+        fprintf(stderr, "string-set!: index out of range\n");
+        exit(1);
+    }
+    string->data[npl_fixnum_value(index)] = (char)byte;
+    return npl_nil();
+}
+
+/* R7RS string-ref: the character at index k (strings are ASCII bytes). */
+NplVal npl_string_char_ref(NplVal s, NplVal i)
+{
+    const NplString *st = npl_require_bytes_internal(s, "string-ref");
+    if (!npl_is_fixnum(i) || npl_fixnum_value(i) < 0 ||
+        npl_fixnum_value(i) >= (int64_t)st->length) {
+        fprintf(stderr, "string-ref: index out of range\n");
+        exit(1);
+    }
+    return npl_char((unsigned char)st->data[npl_fixnum_value(i)]);
+}
+
 int npl_string_equal(NplVal a, NplVal b) {
     const NplString *sa = npl_require_bytes_internal(a, "string=?");
     const NplString *sb = npl_require_bytes_internal(b, "string=?");

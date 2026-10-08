@@ -500,7 +500,12 @@ NplVal npl_eqv(NplVal left, NplVal right);
 NplVal npl_string_append(NplVal a, NplVal b);
 NplVal npl_string_append_n(int64_t argc, NplVal *argv);
 int64_t npl_string_length(NplVal s);
-NplVal npl_string_ref(NplVal s, NplVal i);   /* returns fixnum byte value */
+NplVal npl_string_ref(NplVal s, NplVal i);   /* fixnum byte (stage0, string-byte-ref) */
+NplVal npl_string_char_ref(NplVal s, NplVal i); /* R7RS string-ref: a char */
+NplVal npl_make_string(NplVal count, NplVal fill);
+NplVal npl_string_set(NplVal s, NplVal index, NplVal character);
+NplVal npl_string_fill_range(NplVal s, NplVal character, NplVal start,
+                             NplVal end);
 int npl_string_equal(NplVal a, NplVal b);    /* raw 0/1 */
 
 NplVal npl_symbol_to_string(NplVal s);

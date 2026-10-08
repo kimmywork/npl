@@ -178,7 +178,7 @@ Options:
     (let loop ((index (- (string-length name) 1)))
       (cond
         ((< index 1) name)
-        ((= (string-ref name index) 46) (substring name 0 index))
+        ((= (string-byte-ref name index) 46) (substring name 0 index))
         (else (loop (- index 1)))))))
 
 (define (driver-output config)
