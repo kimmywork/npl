@@ -21,7 +21,8 @@ primitive errors). The toolchain stage is complete and committed
 
 - `(sqrt -1.0-0.0i)` branch convention needs a user decision.
 - Files above the 800-line soft limit, to split when touched:
-  `lib/npl/evaluator-core.scm`, `src/compiler/frontend/control.npl`,
-  `expand.npl`, `library.npl`, `runtime/io.c`, `runtime/control.c`.
+  `src/compiler/frontend/expand.npl`, `library.npl`, `runtime/io.c`,
+  `runtime/control.c`.
 
-History: [worklog](worklog/).
+History: [worklog](worklog/). On a loaded host, run gates with
+`NPL_GC_THRESHOLD_BYTES=268435456` and expect ~10 min without the relay.

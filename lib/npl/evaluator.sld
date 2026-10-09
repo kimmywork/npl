@@ -12,4 +12,5 @@
           (scheme write)
           (npl primitive)
           (npl frontend))
-  (include "evaluator-core.scm"))
+  (include "evaluator-core.scm" "evaluator-control.scm"
+           "evaluator-primitives.scm" "evaluator-session.scm"))
