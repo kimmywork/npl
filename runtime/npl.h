@@ -559,6 +559,13 @@ NplVal npl_box_bytes_internal(const char *bytes, uint32_t len,
 const NplString *npl_require_bytes_internal(NplVal value, const char *who);
 void npl_control_init(void);
 void npl_control_mark_roots(void);
+int npl_gc_root_count_internal(void);
+void npl_gc_restore_root_count_internal(int count);
+/* Catchable primitive errors (error.c, control.c). */
+int npl_raise_from_primitive(NplVal object);
+void npl_primitive_error(const char *who, const char *message,
+                         NplVal irritant);
+void npl_report_error_object(NplVal object);
 void npl_symbol_mark_roots(void);
 void npl_io_init(void);
 

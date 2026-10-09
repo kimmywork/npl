@@ -488,7 +488,7 @@ static NplVal raise_handler_returned(NplVal environment, int64_t argc,
 void npl_raise(NplVal value, NplVal continuation, int64_t continuable)
 {
     if (npl_is_nil(g_current_handler)) {
-        fprintf(stderr, "uncaught exception\n");
+        npl_report_error_object(value);
         exit(1);
     }
     if (!npl_is_ptr(g_current_handler) ||
@@ -715,9 +715,31 @@ typedef struct NplTailContext {
     NplVal *arguments;
     size_t argument_capacity;
     int pending;
+    /* Primitive-error unwind target (error.c): state restored on longjmp. */
+    jmp_buf unwind;
+    int root_count;
+    uintptr_t stack_bottom;
+    int escape_depth;
 } NplTailContext;
 
 static NplTailContext *g_tail_context = NULL;
+static int g_escape_depth = 0;
+
+/* Raise a primitive's error object from inside a C primitive: discard the
+ * primitive's C frames up to the innermost trampoline, which then calls the
+ * current handler with a continuation that re-raises (the raise is
+ * non-continuable). Returns 0 when there is no handler or trampoline. */
+int npl_raise_from_primitive(NplVal object)
+{
+    NplTailContext *context = g_tail_context;
+    if (!context || npl_is_nil(npl_current_handler())) return 0;
+    npl_gc_restore_root_count_internal(context->root_count);
+    (void)npl_gc_swap_stack_bottom(context->stack_bottom);
+    g_escape_depth = context->escape_depth;
+    g_tail_context = context;
+    npl_raise(object, npl_nil(), 0);
+    longjmp(context->unwind, 1);
+}
 
 void npl_control_mark_roots(void)
 {
@@ -799,9 +821,8 @@ void npl_apply_tail(int64_t argc, NplVal *argv)
 /* argc counts the trailing continuation of the CPS closure convention. */
 void npl_wrong_argument_count(int64_t argc)
 {
-    fprintf(stderr, "procedure: wrong number of arguments (%lld)\n",
-            (long long)(argc - 1));
-    exit(1);
+    npl_primitive_error("procedure", "wrong number of arguments",
+                        npl_fixnum(argc - 1));
 }
 
 static int closure_accepts_arity(const NplClosure *closure, int64_t argc)
@@ -811,16 +832,15 @@ static int closure_accepts_arity(const NplClosure *closure, int64_t argc)
     return argc >= -closure->arity - 1;
 }
 
+/* argc counts the trailing continuation; the irritant is the user-visible
+ * argument count. */
 static void report_closure_arity(const char *who, const NplClosure *closure,
                                  int64_t argc)
 {
-    if (closure->arity >= 0)
-        fprintf(stderr, "%s: expected %lld arguments, got %lld\n", who,
-                (long long)closure->arity, (long long)argc);
-    else
-        fprintf(stderr, "%s: expected at least %lld arguments, got %lld\n",
-                who, (long long)(-closure->arity - 1), (long long)argc);
-    exit(1);
+    (void)who;
+    (void)closure;
+    npl_primitive_error("procedure", "wrong number of arguments",
+                        npl_fixnum(argc - 1));
 }
 
 void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
@@ -837,10 +857,8 @@ void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
         npl_parameter_dispatch(value, argc, argv);
         return;
     }
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE) {
-        fprintf(stderr, "npl_tail_request_closure: not a closure\n");
-        exit(1);
-    }
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE)
+        npl_primitive_error("application", "not a procedure", value);
     NplClosure *closure = (NplClosure *)npl_header(value);
     if (!closure_accepts_arity(closure, argc))
         report_closure_arity("npl_tail_request_closure", closure, argc);
@@ -871,9 +889,19 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
         for (int64_t i = 0; i < argc; i++) context.arguments[i] = argv[i];
     }
     g_tail_context = &context;
+    context.root_count = npl_gc_root_count_internal();
+    context.stack_bottom = (uintptr_t)(void *)&stack_boundary;
+    context.escape_depth = g_escape_depth;
 
     NplVal result = npl_nil();
     argv = context.arguments;
+    if (setjmp(context.unwind) != 0) {
+        /* A primitive error unwound to here: its handler call is pending. */
+        function = context.function;
+        environment = context.environment;
+        argc = context.argc;
+        argv = context.arguments;
+    }
     for (;;) {
         context.pending = 0;
         result = function(environment, argc, argv);
@@ -896,10 +924,8 @@ NplVal npl_apply(NplVal value, int64_t argc, NplVal *argv)
         npl_parameter_dispatch(value, argc, argv);
         return npl_nil();
     }
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE) {
-        fprintf(stderr, "npl_apply: not a closure\n");
-        exit(1);
-    }
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE)
+        npl_primitive_error("application", "not a procedure", value);
     NplClosure *closure = (NplClosure *)npl_header(value);
     if (!closure_accepts_arity(closure, argc))
         report_closure_arity("npl_apply", closure, argc);
@@ -918,7 +944,6 @@ typedef struct {
 } NplEscapeFrame;
 
 static NplEscapeFrame g_escape_frames[NPL_MAX_ESCAPE_DEPTH];
-static int g_escape_depth = 0;
 static uint64_t g_next_escape_id = 1;
 
 static NplVal escape_continuation(NplVal environment, int64_t argc,

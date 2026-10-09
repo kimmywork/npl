@@ -107,6 +107,17 @@ option_status=$?
 set -e
 [ "$bad_status" -eq 70 ]
 grep -F 'error: car: expected a pair' "$WORK/bad.err" >/dev/null
+
+# Primitive error objects agree with native (src/compiler/tests, same file).
+TESTS="$ROOT/src/compiler/tests"
+{
+    sed -n 3p "$TESTS/primitive-errors.npl"
+    cat "$TESTS/framework.npl"
+    sed '1,5d' "$TESTS/primitive-errors.npl"
+    printf '(main)\n'
+} > "$WORK/primitive-errors.scm"
+"$ROOT/build/bin/npli" "$WORK/primitive-errors.scm" > "$WORK/primitive-errors-suite.out"
+grep -Fx 'PASS primitive-errors 10' "$WORK/primitive-errors-suite.out" >/dev/null
 [ "$missing_status" -eq 66 ]
 [ "$option_status" -eq 2 ]
 "$ROOT/build/bin/npli" -e '(import (scheme base) (scheme write))' \

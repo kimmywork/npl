@@ -46,10 +46,8 @@ NplVal npl_float(double v) {
 
 static NplVector *require_vector(NplVal value, const char *who)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_VECTOR) {
-        fprintf(stderr, "%s: not a vector\n", who);
-        exit(1);
-    }
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_VECTOR)
+        npl_primitive_error(who, "expected a vector", value);
     return (NplVector *)npl_header(value);
 }
 
@@ -69,8 +67,7 @@ static NplVector *require_record(NplVal value, NplVal type, const char *who)
 {
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_RECORD ||
         ((NplVector *)npl_header(value))->data[0] != type) {
-        fprintf(stderr, "%s: wrong record type\n", who);
-        exit(1);
+        npl_primitive_error(who, "wrong record type", value);
     }
     return (NplVector *)npl_header(value);
 }
@@ -121,34 +118,26 @@ NplVal npl_vector_length(NplVal value)
 NplVal npl_vector_ref(NplVal value, NplVal index)
 {
     NplVector *vector = require_vector(value, "vector-ref");
-    if (!npl_is_fixnum(index)) {
-        fprintf(stderr, "vector-ref: index is not an integer\n");
-        exit(1);
-    }
+    if (!npl_is_fixnum(index))
+        npl_primitive_error("vector-ref", "expected an exact integer index",
+                            index);
     int64_t i = npl_fixnum_value(index);
-    if (i < 0 || (uint64_t)i >= vector->length) {
-        fprintf(stderr, "vector-ref: index out of range\n");
-        exit(1);
-    }
+    if (i < 0 || (uint64_t)i >= vector->length)
+        npl_primitive_error("vector-ref", "index out of range", index);
     return vector->data[i];
 }
 
 NplVal npl_vector_set(NplVal value, NplVal index, NplVal element)
 {
     NplVector *vector = require_vector(value, "vector-set!");
-    if (vector->header.flags & NPL_FLAG_LITERAL) {
-        fprintf(stderr, "vector-set!: cannot mutate a literal\n");
-        exit(1);
-    }
-    if (!npl_is_fixnum(index)) {
-        fprintf(stderr, "vector-set!: index is not an integer\n");
-        exit(1);
-    }
+    if (vector->header.flags & NPL_FLAG_LITERAL)
+        npl_primitive_error("vector-set!", "cannot mutate a literal", value);
+    if (!npl_is_fixnum(index))
+        npl_primitive_error("vector-set!", "expected an exact integer index",
+                            index);
     int64_t i = npl_fixnum_value(index);
-    if (i < 0 || (uint64_t)i >= vector->length) {
-        fprintf(stderr, "vector-set!: index out of range\n");
-        exit(1);
-    }
+    if (i < 0 || (uint64_t)i >= vector->length)
+        npl_primitive_error("vector-set!", "index out of range", index);
     vector->data[i] = element;
     return npl_nil();
 }
@@ -277,24 +266,20 @@ NplVal npl_char_p(NplVal value)
 
 NplVal npl_char_to_integer(NplVal value)
 {
-    if (!npl_is_char(value)) {
-        fprintf(stderr, "char->integer: not a character\n");
-        exit(1);
-    }
+    if (!npl_is_char(value))
+        npl_primitive_error("char->integer", "expected a character", value);
     return npl_fixnum(npl_char_value(value));
 }
 
 NplVal npl_integer_to_char(NplVal value)
 {
-    if (!npl_is_fixnum(value)) {
-        fprintf(stderr, "integer->char: not an integer\n");
-        exit(1);
-    }
+    if (!npl_is_fixnum(value))
+        npl_primitive_error("integer->char", "expected an exact integer",
+                            value);
     int64_t code = npl_fixnum_value(value);
-    if (code < 0 || code > 127) {
-        fprintf(stderr, "integer->char: outside supported ASCII repertoire\n");
-        exit(1);
-    }
+    if (code < 0 || code > 127)
+        npl_primitive_error("integer->char",
+                            "outside supported ASCII repertoire", value);
     return npl_char((uint32_t)code);
 }
 
@@ -447,39 +432,23 @@ NplVal npl_box_identity(NplVal value) { return value; }
 /* ---- Value accessors ---- */
 
 NplVal npl_car(NplVal v) {
-    if (!npl_is_ptr(v)) {
-        fprintf(stderr, "npl_car: not a pair (v=%lu)\n", (unsigned long)v);
-        exit(1);
-    }
-    NplPair *p = npl_pair_ptr(v);
-    if (p->header.tag != BOX_PAIR) {
-        fprintf(stderr, "npl_car: not a pair (v=%lu)\n", (unsigned long)v);
-        exit(1);
-    }
-    return p->car;
+    if (!npl_is_ptr(v) || npl_pair_ptr(v)->header.tag != BOX_PAIR)
+        npl_primitive_error("car", "expected a pair", v);
+    return npl_pair_ptr(v)->car;
 }
 
 NplVal npl_cdr(NplVal v) {
-    if (!npl_is_ptr(v)) {
-        fprintf(stderr, "npl_cdr: not a pair (v=%lu)\n", (unsigned long)v);
-        exit(1);
-    }
-    NplPair *p = npl_pair_ptr(v);
-    if (p->header.tag != BOX_PAIR) {
-        fprintf(stderr, "npl_cdr: not a pair (v=%lu)\n", (unsigned long)v);
-        exit(1);
-    }
-    return p->cdr;
+    if (!npl_is_ptr(v) || npl_pair_ptr(v)->header.tag != BOX_PAIR)
+        npl_primitive_error("cdr", "expected a pair", v);
+    return npl_pair_ptr(v)->cdr;
 }
 
 void npl_set_car(NplVal pair, NplVal val) {
     if (!npl_is_ptr(pair)) return;
     NplPair *p = npl_pair_ptr(pair);
     if (p->header.tag != BOX_PAIR) return;
-    if (p->header.flags & NPL_FLAG_LITERAL) {
-        fprintf(stderr, "set-car!: cannot mutate a literal\n");
-        exit(1);
-    }
+    if (p->header.flags & NPL_FLAG_LITERAL)
+        npl_primitive_error("set-car!", "cannot mutate a literal", pair);
     p->car = val;
 }
 
@@ -487,10 +456,8 @@ void npl_set_cdr(NplVal pair, NplVal val) {
     if (!npl_is_ptr(pair)) return;
     NplPair *p = npl_pair_ptr(pair);
     if (p->header.tag != BOX_PAIR) return;
-    if (p->header.flags & NPL_FLAG_LITERAL) {
-        fprintf(stderr, "set-cdr!: cannot mutate a literal\n");
-        exit(1);
-    }
+    if (p->header.flags & NPL_FLAG_LITERAL)
+        npl_primitive_error("set-cdr!", "cannot mutate a literal", pair);
     p->cdr = val;
 }
 
@@ -510,15 +477,9 @@ NplVal npl_box_bytes_internal(const char *bytes, uint32_t len,
 }
 
 const NplString *npl_require_bytes_internal(NplVal v, const char *who) {
-    if (!npl_is_ptr(v)) {
-        fprintf(stderr, "%s: not a string/symbol\n", who);
-        exit(1);
-    }
-    uint32_t tag = npl_header(v)->tag;
-    if (tag != BOX_STRING && tag != BOX_SYMBOL) {
-        fprintf(stderr, "%s: not a string/symbol\n", who);
-        exit(1);
-    }
+    if (!npl_is_ptr(v) || (npl_header(v)->tag != BOX_STRING &&
+                           npl_header(v)->tag != BOX_SYMBOL))
+        npl_primitive_error(who, "expected a string", v);
     return (const NplString *)npl_header(v);
 }
 
@@ -647,10 +608,8 @@ NplVal npl_string_char_ref(NplVal s, NplVal i)
 {
     const NplString *st = npl_require_bytes_internal(s, "string-ref");
     if (!npl_is_fixnum(i) || npl_fixnum_value(i) < 0 ||
-        npl_fixnum_value(i) >= (int64_t)st->length) {
-        fprintf(stderr, "string-ref: index out of range\n");
-        exit(1);
-    }
+        npl_fixnum_value(i) >= (int64_t)st->length)
+        npl_primitive_error("string-ref", "index out of range", i);
     return npl_char((unsigned char)st->data[npl_fixnum_value(i)]);
 }
 

@@ -286,11 +286,24 @@ void npl_gc_root(NplVal *root)
     g_roots[g_root_count++] = root;
 }
 
+/* Primitive-error unwinding (control.c) drops roots registered by the C
+ * frames it discards; roots are registered and released in LIFO order. */
+int npl_gc_root_count_internal(void) { return g_root_count; }
+
+void npl_gc_restore_root_count_internal(int count)
+{
+    if (count >= 0 && count <= g_root_count) g_root_count = count;
+}
+
+/* Search from the top (roots are normally released LIFO) and keep the
+ * order of the rest, so a saved root count still marks the same prefix. */
 void npl_gc_unroot(NplVal *root)
 {
-    for (int i = 0; i < g_root_count; i++) {
+    for (int i = g_root_count - 1; i >= 0; i--) {
         if (g_roots[i] == root) {
-            g_roots[i] = g_roots[--g_root_count];
+            memmove(&g_roots[i], &g_roots[i + 1],
+                    (size_t)(g_root_count - 1 - i) * sizeof(NplVal *));
+            g_root_count--;
             return;
         }
     }

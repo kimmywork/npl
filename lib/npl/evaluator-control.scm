@@ -243,9 +243,32 @@
     (set! EVAL-CURRENT-HANDLER frame)
     frame))
 
+; Primitive errors (docs/plan-r7rs.md "Primitive Errors"): the same error
+; object layout as native (runtime/error.c, lib/scheme/error.scm), raised
+; non-continuably; uncaught, it becomes an evaluator error with the text
+; "who: message: irritant". EVAL-PRIMITIVE-ENVIRONMENT is in core.
+
+(define (eval-primitive-error who message irritant continuation)
+  (eval-raise-value
+    (npl_make_record 'npl-error-object 'error
+                     (string-append who (string-append ": " message))
+                     (list irritant))
+    #f EVAL-PRIMITIVE-ENVIRONMENT continuation))
+
+(define (eval-error-object-text object)
+  (let ((port (open-output-string)))
+    (display (npl_record_ref object 'npl-error-object 2) port)
+    (for-each (lambda (irritant) (display ": " port) (write irritant port))
+              (npl_record_ref object 'npl-error-object 3))
+    (get-output-string port)))
+
 (define (eval-raise-value value continuable environment continuation)
   (if (null? EVAL-CURRENT-HANDLER)
-      (continuation (eval-error "uncaught exception"))
+      (continuation
+        (eval-error
+          (if (npl_record_p value 'npl-error-object)
+              (eval-error-object-text value)
+              "uncaught exception")))
       (let ((frame EVAL-CURRENT-HANDLER))
         (set! EVAL-CURRENT-HANDLER (eval-handler-parent frame))
         (eval-apply (vector-ref frame 1) (list value) environment

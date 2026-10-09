@@ -130,6 +130,9 @@
 
 (define EVAL-CURRENT-WIND '())
 (define EVAL-CURRENT-HANDLER '())
+; Environment of the primitive application in progress, for raising its
+; error through the handlers (eval-primitive-error).
+(define EVAL-PRIMITIVE-ENVIRONMENT '())
 (define EVAL-CURRENT-PARAMETERS '())
 (define EVAL-CURRENT-EVALUATION-ENVIRONMENT '())
 
@@ -301,6 +304,12 @@
           (eval-error (string-append who ": wrong number of arguments")))
       (eval-error (string-append who ": improper argument list"))))
 
+(define (eval-arity-error? error)
+  (let ((message (eval-error-message error)))
+    (if (string=? message "procedure: too many arguments")
+        #t
+        (string=? message "procedure: too few arguments"))))
+
 (define (eval-bind-formals formals arguments frame)
   (if (eval-core-symbol? formals)
       (begin
@@ -453,6 +462,7 @@
   (cond
     ((eval-error? procedure) (continuation procedure))
     ((eval-tagged? procedure EVAL-PRIMITIVE-TAG)
+     (set! EVAL-PRIMITIVE-ENVIRONMENT environment)
      (eval-apply-primitive (vector-ref procedure 1) arguments
                            environment continuation))
     ((eval-tagged? procedure EVAL-CLOSURE-TAG)
@@ -461,7 +471,13 @@
                (eval-bind-formals (vector-ref procedure 1)
                                   arguments frame)))
          (if error
-             (continuation error)
+             (if (eval-arity-error? error)
+                 (begin
+                   (set! EVAL-PRIMITIVE-ENVIRONMENT environment)
+                   (eval-primitive-error
+                     "procedure" "wrong number of arguments"
+                     (length arguments) continuation))
+                 (continuation error))
              (eval-body
                (vector-ref procedure 2)
                (eval-environment frame (vector-ref procedure 3)
@@ -480,7 +496,10 @@
      (if (null? arguments)
          (eval-force procedure environment continuation)
          (continuation (eval-error "force: expected zero arguments"))))
-    (else (continuation (eval-error "application: not a procedure")))))
+    (else
+     (set! EVAL-PRIMITIVE-ENVIRONMENT environment)
+     (eval-primitive-error "application" "not a procedure" procedure
+                           continuation))))
 
 (define (eval-if form environment continuation)
   (if (if (pair? (cdr form)) (pair? (cdr (cdr form))) #f)

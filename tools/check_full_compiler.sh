@@ -119,6 +119,7 @@ run_suite string-io "PASS string-io 12"
 run_suite first-wave-libraries "PASS first-wave-libraries 16"
 run_suite process "PASS process 9"
 run_suite error-objects "PASS error-objects 6"
+run_suite primitive-errors "PASS primitive-errors 10"
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
@@ -140,10 +141,10 @@ reject_runtime contracts/zero-values-in-single-context.npl \
     "value context: expected 1 value, got 0"
 reject_runtime contracts/value-consumer-arity.npl \
     value-consumer-arity \
-    "npl_tail_request_closure: expected 2 arguments, got 3"
+    "procedure: wrong number of arguments: 2"
 reject_runtime contracts/dotted-value-consumer-arity.npl \
     dotted-value-consumer-arity \
-    "npl_tail_request_closure: expected at least 2 arguments, got 1"
+    "procedure: wrong number of arguments: 0"
 reject_runtime contracts/continuation-zero-values.npl \
     continuation-zero-values \
     "value context: expected 1 value, got 0"
@@ -152,12 +153,14 @@ reject_runtime contracts/continuation-multiple-values.npl \
     "value context: expected 1 value, got 2"
 reject_runtime contracts/dynamic-wind-nonprocedure.npl \
     dynamic-wind-nonprocedure \
-    "npl_tail_request_closure: not a closure"
+    "application: not a procedure"
 reject_runtime contracts/handler-nonprocedure.npl \
     handler-nonprocedure \
     "with-exception-handler: handler is not a procedure"
 reject_runtime contracts/uncaught-exception.npl \
     uncaught-exception "uncaught exception"
+reject_runtime contracts/primitive-error-uncaught.npl \
+    primitive-error-uncaught "car: expected a pair: 42"
 reject_runtime contracts/handler-secondary-raise.npl \
     handler-secondary-raise "uncaught exception"
 reject_runtime contracts/parameter-arity.npl \

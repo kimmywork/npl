@@ -1,0 +1,3 @@
+; An uncaught primitive error reports "who: message: irritant" and exits 1.
+(import (scheme base))
+(define (main) (car 42))

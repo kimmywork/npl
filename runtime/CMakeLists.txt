@@ -6,6 +6,7 @@ add_library(npl_runtime STATIC
   ${RUNTIME_SRC_DIR}/alloc.c
   ${RUNTIME_SRC_DIR}/complex.c
   ${RUNTIME_SRC_DIR}/control.c
+  ${RUNTIME_SRC_DIR}/error.c
   ${RUNTIME_SRC_DIR}/gc.c
   ${RUNTIME_SRC_DIR}/inexact.c
   ${RUNTIME_SRC_DIR}/io.c

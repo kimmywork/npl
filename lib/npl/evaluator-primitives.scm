@@ -23,6 +23,18 @@
 (define (eval-ascii-char? value)
   (if (char? value) (<= (char->integer value) 127) #f))
 
+; Same who/message/irritant as runtime/value.c for vector-ref/vector-set!.
+(define (eval-vector-index-error who arguments continuation)
+  (let ((vector (car arguments)) (index (car (cdr arguments))))
+    (cond
+      ((not (eval-user-vector? vector))
+       (eval-primitive-error who "expected a vector" vector continuation))
+      ((not (if (number? index) (npl_integer_p index) #f))
+       (eval-primitive-error who "expected an exact integer index" index
+                             continuation))
+      (else
+       (eval-primitive-error who "index out of range" index continuation)))))
+
 (define (eval-string-index? value index)
   (if (string? value)
       (if (number? index)
@@ -130,13 +142,15 @@
        (if error (continuation error)
            (if (pair? (car arguments))
                (continuation (car (car arguments)))
-               (continuation (eval-error "car: expected a pair"))))))
+               (eval-primitive-error "car" "expected a pair" (car arguments)
+                                     continuation)))))
     ((string=? name "cdr")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
            (if (pair? (car arguments))
                (continuation (cdr (car arguments)))
-               (continuation (eval-error "cdr: expected a pair"))))))
+               (eval-primitive-error "cdr" "expected a pair" (car arguments)
+                                     continuation)))))
     ((string=? name "null?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error) (continuation (null? (car arguments))))))
@@ -291,7 +305,11 @@
            (if (eval-string-index? (car arguments) (car (cdr arguments)))
                (continuation
                  (string-ref (car arguments) (car (cdr arguments))))
-               (continuation (eval-error "string-ref: index out of range"))))))
+               (if (string? (car arguments))
+                   (eval-primitive-error "string-ref" "index out of range"
+                                         (car (cdr arguments)) continuation)
+                   (eval-primitive-error "string-ref" "expected a string"
+                                         (car arguments) continuation))))))
     ((string=? name "npl_lex_class_w")
      (let ((error (eval-arity arguments 2 name)))
        (if error (continuation error)
@@ -328,16 +346,16 @@
        (if error (continuation error)
            (if (eval-user-vector? (car arguments))
                (continuation (vector-length (car arguments)))
-               (continuation
-                 (eval-error "vector-length: expected a vector"))))))
+               (eval-primitive-error "vector-length" "expected a vector"
+                                     (car arguments) continuation)))))
     ((string=? name "vector-ref")
      (let ((error (eval-arity arguments 2 name)))
        (if error (continuation error)
            (if (eval-vector-index? (car arguments) (car (cdr arguments)))
                (continuation
                  (vector-ref (car arguments) (car (cdr arguments))))
-               (continuation
-                 (eval-error "vector-ref: invalid vector index"))))))
+               (eval-vector-index-error "vector-ref" arguments
+                                        continuation)))))
     ((string=? name "vector-set!")
      (let ((error (eval-arity arguments 3 name)))
        (if error (continuation error)
@@ -346,8 +364,8 @@
                  (vector-set! (car arguments) (car (cdr arguments))
                               (car (cdr (cdr arguments))))
                  (continuation EVAL-UNSPECIFIED))
-               (continuation
-                 (eval-error "vector-set!: invalid vector index"))))))
+               (eval-vector-index-error "vector-set!" arguments
+                                        continuation)))))
     ((string=? name "values") (continuation (eval-values arguments)))
     ((string=? name "npl_list_to_values")
      (let ((error (eval-arity arguments 1 name)))
@@ -538,17 +556,22 @@
        (if error (continuation error)
            (if (char? (car arguments))
                (continuation (char->integer (car arguments)))
-               (continuation (eval-error "char->integer: expected a char"))))))
+               (eval-primitive-error "char->integer" "expected a character"
+                                     (car arguments) continuation)))))
     ((string=? name "integer->char")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
-           (if (if (number? (car arguments))
-                   (if (npl_integer_p (car arguments))
-                       (if (>= (car arguments) 0)
-                           (<= (car arguments) 1114111) #f) #f) #f)
-               (continuation (integer->char (car arguments)))
-               (continuation
-                 (eval-error "integer->char: expected a scalar value"))))))
+           (let ((code (car arguments)))
+             (cond
+               ((not (if (number? code) (npl_integer_p code) #f))
+                (eval-primitive-error "integer->char" "expected an exact integer"
+                                      code continuation))
+               ((if (>= code 0) (<= code 127) #f)
+                (continuation (integer->char code)))
+               (else
+                (eval-primitive-error "integer->char"
+                                      "outside supported ASCII repertoire"
+                                      code continuation)))))))
     ((string=? name "command-line")
      (let ((error (eval-arity arguments 0 name)))
        (if error (continuation error) (continuation (command-line)))))

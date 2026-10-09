@@ -1,0 +1,36 @@
+; Primitive error objects: who, message, and irritants agree between native
+; and npli (tools/check_full_compiler.sh runs both); Guile's wording differs.
+(import (scheme base) (scheme write) (scheme process-context))
+
+(include "framework.npl")
+
+(define (caught thunk)
+  (guard (e ((error-object? e)
+             (list (error-object-message e) (error-object-irritants e))))
+    (thunk)))
+
+(define (apply-to f x) (f x))
+
+(define (check name thunk expected)
+  (test-identity name (lambda () (equal? (caught thunk) expected)) #t))
+
+(define (main)
+  (check "car" (lambda () (car 1)) '("car: expected a pair" (1)))
+  (check "cdr" (lambda () (cdr '())) '("cdr: expected a pair" (())))
+  (check "vector-ref range" (lambda () (vector-ref (vector 1 2) 5))
+         '("vector-ref: index out of range" (5)))
+  (check "vector-ref type" (lambda () (vector-ref 'v 0))
+         '("vector-ref: expected a vector" (v)))
+  (check "vector-set! range" (lambda () (vector-set! (make-vector 1 0) 1 2))
+         '("vector-set!: index out of range" (1)))
+  (check "char->integer" (lambda () (char->integer 1))
+         '("char->integer: expected a character" (1)))
+  (check "integer->char" (lambda () (integer->char 300))
+         '("integer->char: outside supported ASCII repertoire" (300)))
+  (check "string-ref" (lambda () (string-ref "ab" 9))
+         '("string-ref: index out of range" (9)))
+  (check "arity" (lambda () (apply-to (lambda (x y) x) 1))
+         '("procedure: wrong number of arguments" (1)))
+  (check "not a procedure" (lambda () (apply-to 1 2))
+         '("application: not a procedure" (1)))
+  (finish-tests "primitive-errors"))
