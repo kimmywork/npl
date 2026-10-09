@@ -2,6 +2,8 @@
 
 (define SYNTAX-MARKS (cell ()))
 (define SYNTAX-NEXT-MARK (cell 0))
+; Definition-site bindings for spliced macro output (transcription.npl).
+(define TRANSCRIPTION-ALIASES (cell ()))
 (define MATCH-FAIL '(_syntax_match_fail_))
 (define CURRENT-PATTERN-VARIABLES (cell ()))
 (define NO-REPEAT-COUNT 1000000000)
@@ -42,8 +44,13 @@
   (cell-get SYNTAX-NEXT-MARK))
 
 (define (lookup-value-binding identifier environment)
-  (lookup-value-binding-key
-    (datum-symbol-name identifier) (identifier-mark identifier) environment))
+  (let ((name (datum-symbol-name identifier))
+        (mark (identifier-mark identifier)))
+    (let ((binding (lookup-value-binding-key name mark environment)))
+      (if (> (string-length binding) 0)
+          binding
+          (lookup-value-binding-key
+            name mark (cell-get TRANSCRIPTION-ALIASES))))))
 
 ; Compute the lookup key once, not once per environment entry.
 (define (lookup-value-binding-key name mark environment)

@@ -48,7 +48,8 @@ run "exact numeric substrate" bash "$ROOT/tools/check_numeric_reference.sh"
 for fixture in integer-arithmetic rational-arithmetic radix-exact \
                complex-rectangular exact-numeric-utilities inexact-math \
                mixed-numeric-utilities mutable-bindings named-let char-basics \
-               symbols procedure-values apply lists vectors strings; do
+               symbols procedure-values apply lists vectors strings \
+               definition-macros; do
     run "R7RS $fixture" \
         "$ROOT/tools/run_r7rs_fixture.sh" "$ROOT/tests/r7rs/fixtures/$fixture"
 done

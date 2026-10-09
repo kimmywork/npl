@@ -5,6 +5,7 @@
   "frontend/derived.npl"
   "frontend/syntax.npl"
   "frontend/expand.npl"
+  "frontend/transcription.npl"
   "frontend/forms.npl"
   "frontend/source.npl"
   "frontend/library.npl"

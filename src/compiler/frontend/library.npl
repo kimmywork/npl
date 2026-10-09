@@ -771,6 +771,7 @@ parameterize make-promise promise? force delay delay-force)" )
           (library-source? (cdr forms)))))
 
 (define (expand-library-program forms root)
+  (cell-set! TRANSCRIPTION-ALIASES ())
   (cell-set! EXPAND-REQUIRE-BOUND 1)
   (cell-set! SYNTAX-MARKS ())
   (cell-set! SYNTAX-NEXT-MARK 0)

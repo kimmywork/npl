@@ -54,6 +54,7 @@
           (direct-defined-identifiers (car forms)) environment))))
 
 (define (expand-program forms)
+  (cell-set! TRANSCRIPTION-ALIASES ())
   (cell-set! EXPAND-REQUIRE-BOUND 0)
   (cell-set! SYNTAX-MARKS ())
   (cell-set! SYNTAX-NEXT-MARK 0)
@@ -95,11 +96,18 @@
                   (expand-top-sequence
                     (cons expanded (cdr forms)) value-env macro-env acc)
                   (if (raw-form? expanded "begin")
+                      ; Names a macro defines at top level become globals
+                      ; like directly written definitions.
                       (expand-top-sequence
                         (append-forms (cdr expanded) (cdr forms))
-                        value-env macro-env acc)
+                        (predeclare-global-identifiers
+                          (begin-defined-list (cdr expanded) ()) value-env)
+                        macro-env acc)
                       (expand-top-sequence
-                        (cdr forms) value-env macro-env
+                        (cdr forms)
+                        (predeclare-global-identifiers
+                          (direct-defined-identifiers expanded) value-env)
+                        macro-env
                         (cons expanded acc)))))))))
 
 (define (resolve-identifier identifier environment)
@@ -171,13 +179,20 @@
               #t
               (begin-contains-definition? (cdr forms))))))
 
+; Definition-producing output (define-syntax, or begin containing definitions)
+; is returned unexpanded so the enclosing body or top level can splice it.
+; Its template identifiers carry this transcription's mark; rewrite the free
+; ones (not defined by the output itself) to the binding they denote at the
+; macro definition site, so they resolve correctly wherever the forms land.
 (define (expand-transcription transformer transcription value-env macro-env)
   (let ((output (car transcription)))
     (let ((mark (cdr transcription)))
       (if (if (raw-form? output "define-syntax")
               #t
               (definition-begin? output))
-          output
+          (resolve-marked-free
+            output mark (transformer-definition-env transformer)
+            (begin-defined-identifiers output ()))
           (expand-expression
             output
             (alias-value-environment
@@ -443,13 +458,19 @@
                 (let ((expanded
                         (expand-expression form value-env macro-env)))
                   (if (definition-begin? expanded)
+                      ; Definitions produced by a macro join the body scope
+                      ; (R7RS 5.3.2): bind them before expanding the rest.
                       (let ((spliced
                               (append-forms (cdr expanded) (cdr body))))
                         (let ((spliced-macros
                                 (prebind-body-syntax
-                                  spliced macro-env ())))
+                                  spliced macro-env ()))
+                              (spliced-values
+                                (cdr (bind-identifiers
+                                       (begin-defined-list (cdr expanded) ())
+                                       value-env))))
                           (expand-body-sequence
-                            spliced value-env spliced-macros)))
+                            spliced spliced-values spliced-macros)))
                       (if (raw-form? expanded "define")
                           (cons expanded
                                 (expand-body-sequence

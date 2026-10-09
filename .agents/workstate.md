@@ -9,8 +9,8 @@ primitive errors). The toolchain stage is complete and committed
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 198,010 lines; SHA-256
-  `acf91c177e52d171630d80a975f25f4fba04afc45c0a07494c9d0fef2f4c85fa`
+- `bootstrap/current.ssa`: 200,188 lines; SHA-256
+  `9d11c91845fd4b8d89fd1c56dac4197816e348f48c1f3607ae27d375291a2b4f`
   (macOS strict relay).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. On a swap-bound host set

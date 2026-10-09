@@ -18,6 +18,7 @@
   (include "../../src/compiler/frontend/derived.npl")
   (include "../../src/compiler/frontend/syntax.npl")
   (include "../../src/compiler/frontend/expand.npl")
+  (include "../../src/compiler/frontend/transcription.npl")
   (include "../../src/compiler/frontend/forms.npl")
   (include "../../src/compiler/frontend/source.npl")
   (include "../../src/compiler/frontend/library.npl")
@@ -65,6 +66,7 @@
       (vector-set! session 15 (cell-get LIBRARY-OUTPUT))
       (vector-set! session 16 (cell-get LIBRARY-PRIMITIVE-MACROS))
       (vector-set! session 17 (cell-get LIBRARY-NEXT-ID))
+      (vector-set! session 18 (cell-get TRANSCRIPTION-ALIASES))
       session)
 
     (define (frontend-activate-state! session)
@@ -83,13 +85,14 @@
       (cell-set! LIBRARY-OUTPUT (vector-ref session 15))
       (cell-set! LIBRARY-PRIMITIVE-MACROS (vector-ref session 16))
       (cell-set! LIBRARY-NEXT-ID (vector-ref session 17))
+      (cell-set! TRANSCRIPTION-ALIASES (vector-ref session 18))
       session)
 
     (define (frontend-current-state)
       (frontend-capture-state!
         (vector FRONTEND-SESSION-TAG () ()
                 () () 0 () 0 () 1000000000 0 0
-                "" () () () () 0)))
+                "" () () () () 0 ())))
 
     (define (frontend-set-standard-root! root)
       (library-set-standard-root! root))
@@ -106,8 +109,9 @@
             (session
               (vector FRONTEND-SESSION-TAG () ()
                       () () 0 () 0 () 1000000000 0 0
-                      "" () () () () 0)))
+                      "" () () () () 0 ())))
         (cell-set! EXPAND-REQUIRE-BOUND 0)
+        (cell-set! TRANSCRIPTION-ALIASES ())
         (cell-set! SYNTAX-MARKS ())
         (cell-set! SYNTAX-NEXT-MARK 0)
         (cell-set! EXPAND-NEXT-VALUE 0)
