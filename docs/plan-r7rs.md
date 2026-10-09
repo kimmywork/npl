@@ -82,7 +82,8 @@ each). The three representation changes in L3-L5 were approved 2026-10-08.
    type disjoint from vectors (R7RS 3.2). Then `define-record-type`, `error`
    and error-object accessors built on it, `file-error?`/`read-error?` with
    runtime open/read failures reported to the library, and catchable primitive
-   errors (section "Primitive Errors").
+   errors (section "Primitive Errors"). L4a (records, error objects,
+   file/read errors) is done; L4b is catchable primitive errors.
 5. **L5 I/O and remaining libraries.** Prerequisites: current ports as
    parameter objects (R7RS 6.13.1; needed by `with-output-to-file` and
    `parameterize`), a monotonic/wall clock primitive, and a readiness poll for

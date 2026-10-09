@@ -47,7 +47,9 @@
     make-string string list->string string->list string-copy string-copy!
     string-fill! string-set! vector->string string->vector string->utf8
     utf8->string string=? string<? string>? string<=? string>=?
-    string-map string-for-each)
+    string-map string-for-each define-record-type
+    error error-object? error-object-message error-object-irritants
+    file-error? read-error?)
   (import (rename (npl primitive)
             (+ raw-add) (- raw-subtract) (* raw-multiply)
             (= raw-equal) (< raw-less) (<= raw-less-equal)
@@ -56,8 +58,7 @@
             (npl_number_remainder raw-remainder)
             (number->string raw-number->string) (append raw-append)
             (string=? raw-string=?)))
-  (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
-           "vector.scm" "string.scm")
+  ; Core list procedures first: record.scm and error.scm run code at load.
   (begin
     (define (call-with-port port proc)
       (call-with-values
@@ -79,4 +80,7 @@
     (define (list? value)
       (if (null? value)
           #t
-          (if (pair? value) (list? (cdr value)) #f)))))
+          (if (pair? value) (list? (cdr value)) #f))))
+  (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
+           "vector.scm" "string.scm" "record.scm"
+           "error.scm"))

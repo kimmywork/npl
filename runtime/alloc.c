@@ -348,6 +348,7 @@ void npl_gc_drain_internal(void)
             npl_gc_mark_candidate_internal(complex->imag);
             break;
         }
+        case BOX_RECORD:
         case BOX_VECTOR: {
             NplVector *vector = (NplVector *)header;
             for (uint32_t i = 0; i < vector->length; i++)

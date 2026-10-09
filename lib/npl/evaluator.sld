@@ -7,10 +7,9 @@
           eval-callable? eval-apply-in-environment)
   (import (except (scheme base) + - * = < <= > >= number->string append
                   string=?)
-          (scheme read)
-          (scheme file)
           (scheme write)
           (npl primitive)
           (npl frontend))
   (include "evaluator-core.scm" "evaluator-control.scm"
-           "evaluator-primitives.scm" "evaluator-session.scm"))
+           "evaluator-primitives.scm" "evaluator-records.scm"
+           "evaluator-session.scm"))

@@ -82,6 +82,11 @@
     ("npl_lex_number" fixed "npl_lex_number" 3 0)
     ; vectors, bytevectors
     ("vector" count "npl_make_vector" 0 -1)
+    ; records: (scheme base) define-record-type is built on these
+    ("npl_make_record" count "npl_make_record" 1 -1)
+    ("npl_record_p" fixed "npl_record_p" 2 0)
+    ("npl_record_ref" fixed "npl_record_ref" 3 0)
+    ("npl_record_set" fixed "npl_record_set" 4 0)
     ("list->vector" fixed "npl_list_to_vector" 1 0)
     ("vector?" fixed "npl_vector_p" 1 0)
     ("vector-length" fixed "npl_vector_length" 1 0)
@@ -117,6 +122,7 @@
     ("current-output-port" fixed "npl_current_output_port" 0 0)
     ("current-error-port" fixed "npl_current_error_port" 0 0)
     ("open-input-file" fixed "npl_open_input_file" 1 0)
+    ("npl_try_open_file" fixed "npl_try_open_file" 2 0)
     ("open-output-file" fixed "npl_open_output_file" 1 0)
     ("open-binary-input-file" fixed "npl_open_binary_input_file" 1 0)
     ("open-binary-output-file" fixed "npl_open_binary_output_file" 1 0)

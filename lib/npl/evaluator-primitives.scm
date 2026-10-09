@@ -574,5 +574,4 @@
      (let ((error (eval-arity arguments 0 name)))
        (if error (continuation error)
            (continuation (get-environment-variables)))))
-    (else
-     (continuation (eval-error (string-append "unknown primitive: " name))))))
+    (else (eval-apply-record-primitive name arguments continuation))))

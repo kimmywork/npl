@@ -9,107 +9,6 @@
     (string-append (number->string (cell-get EXPAND-NEXT-VALUE))
       (string-append "_" (sanitize (datum-symbol-name identifier) 0 "")))))
 
-(define (direct-defined-identifier form)
-  (if (raw-form? form "define")
-      (if (null? (cdr form))
-          ()
-          (let ((target (car (cdr form))))
-            (if (datum-symbol? target)
-                target
-                (if (pair? target)
-                    (if (datum-symbol? (car target)) (car target) ())
-                    ()))))
-      ()))
-
-(define (direct-defined-identifiers form)
-  (let ((single (direct-defined-identifier form)))
-    (if (null? single)
-        (if (raw-form? form "define-values")
-            (begin
-              (require-raw-arity form 2 "define-values")
-              (car (cdr form)))
-            ())
-        (cons single ()))))
-
-(define (predeclare-global-identifiers identifiers environment)
-  (if (null? identifiers)
-      environment
-      (if (not (pair? identifiers))
-          (fatal "definition names must be a proper list")
-          (let ((identifier (car identifiers)))
-            (if (not (datum-symbol? identifier))
-                (fatal "definition name must be an identifier"))
-            (predeclare-global-identifiers
-              (cdr identifiers)
-              (add-value-binding identifier
-                                 (datum-symbol-name identifier)
-                                 environment))))))
-
-(define (predeclare-globals forms environment)
-  (if (null? forms)
-      environment
-      (predeclare-globals
-        (cdr forms)
-        (predeclare-global-identifiers
-          (direct-defined-identifiers (car forms)) environment))))
-
-(define (expand-program forms)
-  (cell-set! TRANSCRIPTION-ALIASES ())
-  (cell-set! EXPAND-REQUIRE-BOUND 0)
-  (cell-set! SYNTAX-MARKS ())
-  (cell-set! SYNTAX-NEXT-MARK 0)
-  (cell-set! EXPAND-NEXT-VALUE 0)
-  (let ((environment (predeclare-globals forms ())))
-    (let ((core-result
-            (expand-top-sequence
-              (parse-source-text DERIVED-SYNTAX-SOURCE)
-              environment () ())))
-      (if (not (null? (car core-result)))
-          (fatal "derived syntax source emitted runtime forms"))
-      (car (expand-top-sequence
-             forms environment (cdr core-result) ())))))
-
-; result = (expanded-forms . final-macro-environment)
-(define (expand-top-sequence forms value-env macro-env acc)
-  (if (null? forms)
-      (cons (rev acc) macro-env)
-      (let ((form (car forms)))
-        (if (raw-form? form "define-syntax")
-            (begin
-              (require-raw-arity form 2 "define-syntax")
-              (let ((keyword (car (cdr form))))
-                (if (not (datum-symbol? keyword))
-                    (fatal "define-syntax needs an identifier"))
-                (let ((transformer-cell (cell UNINITIALIZED-SYNTAX)))
-                  (let ((definition-macros
-                          (add-macro-cell-binding
-                            keyword transformer-cell macro-env)))
-                    (cell-set! transformer-cell
-                      (parse-syntax-rules
-                        (car (cdr (cdr form)))
-                        value-env definition-macros))
-                    (expand-top-sequence
-                      (cdr forms) value-env definition-macros acc)))))
-            (let ((expanded
-                    (expand-expression form value-env macro-env)))
-              (if (raw-form? expanded "define-syntax")
-                  (expand-top-sequence
-                    (cons expanded (cdr forms)) value-env macro-env acc)
-                  (if (raw-form? expanded "begin")
-                      ; Names a macro defines at top level become globals
-                      ; like directly written definitions.
-                      (expand-top-sequence
-                        (append-forms (cdr expanded) (cdr forms))
-                        (predeclare-global-identifiers
-                          (begin-defined-list (cdr expanded) ()) value-env)
-                        macro-env acc)
-                      (expand-top-sequence
-                        (cdr forms)
-                        (predeclare-global-identifiers
-                          (direct-defined-identifiers expanded) value-env)
-                        macro-env
-                        (cons expanded acc)))))))))
-
 (define (resolve-identifier identifier environment)
   (let ((binding (lookup-value-binding identifier environment)))
     (if (= (string-length binding) 0)
@@ -139,26 +38,6 @@
     ((pair? expression)
      (expand-pair-expression expression value-env macro-env))
     (else expression)))
-
-(define (alias-value-environment definition-env mark use-env)
-  (if (null? definition-env)
-      use-env
-      (let ((entry (car definition-env)))
-        (alias-value-environment
-          (cdr definition-env) mark
-          (cons (cons (car entry)
-                      (cons mark (cons (car (cdr (cdr entry))) ())))
-                use-env)))))
-
-(define (alias-macro-environment definition-env mark use-env)
-  (if (null? definition-env)
-      use-env
-      (let ((entry (car definition-env)))
-        (alias-macro-environment
-          (cdr definition-env) mark
-          (cons (cons (car entry)
-                      (cons mark (cons (macro-entry-cell entry) ())))
-                use-env)))))
 
 (define (definition-form? form)
   (if (raw-form? form "define")
@@ -192,6 +71,7 @@
               (definition-begin? output))
           (resolve-marked-free
             output mark (transformer-definition-env transformer)
+            (transformer-definition-macro-env transformer)
             (begin-defined-identifiers output ()))
           (expand-expression
             output

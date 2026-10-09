@@ -220,6 +220,14 @@ static void display_to(NplPort *port, NplVal value)
         case BOX_COMPLEX:
             output_integer_value(port, value);
             break;
+        case BOX_RECORD: {
+            /* The type descriptor is the record type's name (a symbol). */
+            NplVal type = ((NplVector *)header)->data[0];
+            output_text(port, "#<");
+            display_to(port, type);
+            output_char(port, '>');
+            break;
+        }
         case BOX_VECTOR: {
             NplVector *vector = (NplVector *)header;
             output_text(port, "#(");
@@ -403,6 +411,40 @@ NplVal npl_newline_port(NplVal port_value_arg)
                                      NPL_PORT_TEXTUAL, "newline");
     output_char(port, '\n');
     return npl_nil();
+}
+
+/* Open a file port, or return #f when the OS refuses (missing file,
+ * permission). (scheme file) turns #f into a file-error object. */
+static NplVal try_open_file_port(NplVal path, const char *mode,
+                                 uint32_t port_mode, const char *who)
+{
+    const NplString *name = npl_require_bytes_internal(path, who);
+    char *buffer = (char *)malloc((size_t)name->length + 1);
+    if (!buffer) npl_runtime_oom_internal();
+    memcpy(buffer, name->data, name->length);
+    buffer[name->length] = '\0';
+    FILE *stream = fopen(buffer, mode);
+    free(buffer);
+    return stream ? make_port(stream, port_mode | NPL_PORT_OWNED)
+                  : npl_false();
+}
+
+/* kind: 0 text input, 1 text output, 2 binary input, 3 binary output. */
+NplVal npl_try_open_file(NplVal path, NplVal kind)
+{
+    switch (npl_is_fixnum(kind) ? npl_fixnum_value(kind) : -1) {
+    case 0: return try_open_file_port(path, "rb",
+                NPL_PORT_INPUT | NPL_PORT_TEXTUAL, "open-input-file");
+    case 1: return try_open_file_port(path, "wb",
+                NPL_PORT_OUTPUT | NPL_PORT_TEXTUAL, "open-output-file");
+    case 2: return try_open_file_port(path, "rb",
+                NPL_PORT_INPUT | NPL_PORT_BINARY, "open-binary-input-file");
+    case 3: return try_open_file_port(path, "wb",
+                NPL_PORT_OUTPUT | NPL_PORT_BINARY, "open-binary-output-file");
+    default:
+        fprintf(stderr, "open file: invalid port kind\n");
+        exit(1);
+    }
 }
 
 static NplVal open_file_port(NplVal path, const char *mode,

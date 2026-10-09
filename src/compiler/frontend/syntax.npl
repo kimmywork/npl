@@ -4,6 +4,10 @@
 (define SYNTAX-NEXT-MARK (cell 0))
 ; Definition-site bindings for spliced macro output (transcription.npl).
 (define TRANSCRIPTION-ALIASES (cell ()))
+(define TRANSCRIPTION-MACRO-ALIASES (cell ()))
+; Top-level definition naming and final environment (expand.npl).
+(define TOP-DEFINITION-PREFIX (cell ""))
+(define TOP-VALUE-ENVIRONMENT (cell ()))
 (define MATCH-FAIL '(_syntax_match_fail_))
 (define CURRENT-PATTERN-VARIABLES (cell ()))
 (define NO-REPEAT-COUNT 1000000000)
@@ -69,24 +73,26 @@
         environment))
 
 (define (lookup-macro-binding identifier environment)
-  (if (null? environment)
-      ()
-      (let ((entry (car environment)))
-        (if (if (string=? (datum-symbol-name identifier) (car entry))
-                (= (identifier-mark identifier) (car (cdr entry)))
-                #f)
-            (cell-get (car (cdr (cdr entry))))
-            (lookup-macro-binding identifier (cdr environment))))))
+  (let ((found (lookup-macro-cell identifier environment)))
+    (if (null? found) () (cell-get found))))
 
+; Cell for a keyword; spliced macro output falls back to its aliases.
 (define (lookup-macro-cell identifier environment)
+  (let ((name (datum-symbol-name identifier))
+        (mark (identifier-mark identifier)))
+    (let ((found (lookup-macro-cell-key name mark environment)))
+      (if (null? found)
+          (lookup-macro-cell-key
+            name mark (cell-get TRANSCRIPTION-MACRO-ALIASES))
+          found))))
+
+(define (lookup-macro-cell-key name mark environment)
   (if (null? environment)
       ()
       (let ((entry (car environment)))
-        (if (if (string=? (datum-symbol-name identifier) (car entry))
-                (= (identifier-mark identifier) (car (cdr entry)))
-                #f)
+        (if (if (string=? name (car entry)) (= mark (car (cdr entry))) #f)
             (macro-entry-cell entry)
-            (lookup-macro-cell identifier (cdr environment))))))
+            (lookup-macro-cell-key name mark (cdr environment))))))
 
 (define (add-macro-cell-binding identifier transformer-cell environment)
   (cons (cons (datum-symbol-name identifier)

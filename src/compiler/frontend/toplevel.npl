@@ -1,0 +1,162 @@
+; Top-level sequences: predeclaring program and library definitions,
+; splicing definition-producing macro output, and forward keyword cells.
+
+(define (direct-defined-identifier form)
+  (if (raw-form? form "define")
+      (if (null? (cdr form))
+          ()
+          (let ((target (car (cdr form))))
+            (if (datum-symbol? target)
+                target
+                (if (pair? target)
+                    (if (datum-symbol? (car target)) (car target) ())
+                    ()))))
+      ()))
+
+(define (direct-defined-identifiers form)
+  (let ((single (direct-defined-identifier form)))
+    (if (null? single)
+        (if (raw-form? form "define-values")
+            (begin
+              (require-raw-arity form 2 "define-values")
+              (car (cdr form)))
+            ())
+        (cons single ()))))
+
+(define (predeclare-global-identifiers identifiers environment)
+  (if (null? identifiers)
+      environment
+      (if (not (pair? identifiers))
+          (fatal "definition names must be a proper list")
+          (let ((identifier (car identifiers)))
+            (if (not (datum-symbol? identifier))
+                (fatal "definition name must be an identifier"))
+            (predeclare-global-identifiers
+              (cdr identifiers)
+              (add-value-binding identifier
+                                 (datum-symbol-name identifier)
+                                 environment))))))
+
+(define (predeclare-globals forms environment)
+  (if (null? forms)
+      environment
+      (predeclare-globals
+        (cdr forms)
+        (predeclare-global-identifiers
+          (direct-defined-identifiers (car forms)) environment))))
+
+(define (expand-program forms)
+  (cell-set! TRANSCRIPTION-ALIASES ())
+  (cell-set! TRANSCRIPTION-MACRO-ALIASES ())
+  (cell-set! EXPAND-REQUIRE-BOUND 0)
+  (cell-set! SYNTAX-MARKS ())
+  (cell-set! SYNTAX-NEXT-MARK 0)
+  (cell-set! EXPAND-NEXT-VALUE 0)
+  (let ((environment (predeclare-globals forms ())))
+    (let ((core-result
+            (expand-top-sequence
+              (parse-source-text DERIVED-SYNTAX-SOURCE)
+              environment () ())))
+      (if (not (null? (car core-result)))
+          (fatal "derived syntax source emitted runtime forms"))
+      (car (expand-top-sequence
+             forms environment
+             (top-syntax-cells forms (cdr core-result)) ())))))
+
+(define (top-syntax-prebound keyword macro-env)
+  (let ((found (lookup-macro-cell keyword macro-env)))
+    (if (null? found)
+        ()
+        (if (eq? (cell-get found) UNINITIALIZED-SYNTAX) found ()))))
+
+;; Keywords defined anywhere in a top-level sequence are visible to macros
+;; expanded earlier in it (R7RS 5.4), as in bodies (prebind-body-syntax).
+(define (top-syntax-cells forms macro-env)
+  (if (null? forms)
+      macro-env
+      (top-syntax-cells
+        (cdr forms)
+        (if (if (raw-form? (car forms) "define-syntax")
+                (datum-symbol? (car (cdr (car forms))))
+                #f)
+            (add-macro-binding (car (cdr (car forms)))
+                               UNINITIALIZED-SYNTAX macro-env)
+            macro-env))))
+
+; result = (expanded-forms . final-macro-environment)
+(define (expand-top-sequence forms value-env macro-env acc)
+  (if (null? forms)
+      (begin
+        (cell-set! TOP-VALUE-ENVIRONMENT value-env)
+        (cons (rev acc) macro-env))
+      (let ((form (car forms)))
+        (if (raw-form? form "define-syntax")
+            (begin
+              (require-raw-arity form 2 "define-syntax")
+              (let ((keyword (car (cdr form))))
+                (if (not (datum-symbol? keyword))
+                    (fatal "define-syntax needs an identifier"))
+                ; A keyword prebound by top-syntax-cells (so earlier macros
+                ; can refer to it) is filled in place; otherwise bind anew.
+                (let ((prebound (top-syntax-prebound keyword macro-env)))
+                  (let ((transformer-cell
+                          (if (null? prebound)
+                              (cell UNINITIALIZED-SYNTAX)
+                              prebound)))
+                    (let ((definition-macros
+                            (if (null? prebound)
+                                (add-macro-cell-binding
+                                  keyword transformer-cell macro-env)
+                                macro-env)))
+                      (cell-set! transformer-cell
+                        (parse-syntax-rules
+                          (car (cdr (cdr form)))
+                          value-env definition-macros))
+                      (expand-top-sequence
+                        (cdr forms) value-env definition-macros acc))))))
+            (let ((expanded
+                    (expand-expression form value-env macro-env)))
+              (if (raw-form? expanded "define-syntax")
+                  (expand-top-sequence
+                    (cons expanded (cdr forms)) value-env macro-env acc)
+                  (if (raw-form? expanded "begin")
+                      ; Names a macro defines at top level become globals
+                      ; like directly written definitions.
+                      (expand-top-sequence
+                        (append-forms (cdr expanded) (cdr forms))
+                        (predeclare-spliced-globals
+                          (begin-defined-list (cdr expanded) ()) value-env)
+                        macro-env acc)
+                      (expand-top-sequence
+                        (cdr forms)
+                        (predeclare-spliced-globals
+                          (direct-defined-identifiers expanded) value-env)
+                        macro-env
+                        (cons expanded acc)))))))))
+
+; Top-level names defined by spliced macro output: unbound ones become
+; globals named like direct definitions (with the library prefix inside a
+; library); names already predeclared keep their binding. The final value
+; environment is published in TOP-VALUE-ENVIRONMENT (syntax.npl) for export
+; resolution.
+
+(define (predeclare-spliced-globals identifiers environment)
+  (let ((result (predeclare-spliced-loop identifiers environment)))
+    (cell-set! TOP-VALUE-ENVIRONMENT result)
+    result))
+
+(define (predeclare-spliced-loop identifiers environment)
+  (if (null? identifiers)
+      environment
+      (let ((identifier (car identifiers)))
+        (predeclare-spliced-loop
+          (cdr identifiers)
+          (if (> (string-length (lookup-value-binding identifier environment))
+                 0)
+              environment
+              (add-value-binding identifier
+                (string-append (cell-get TOP-DEFINITION-PREFIX)
+                  (if (= (string-length (cell-get TOP-DEFINITION-PREFIX)) 0)
+                      (datum-symbol-name identifier)
+                      (sanitize (datum-symbol-name identifier) 0 "")))
+                environment))))))

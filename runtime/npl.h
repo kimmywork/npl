@@ -54,6 +54,7 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_BIGNUM 19
 #define BOX_RATIONAL 20
 #define BOX_COMPLEX 21
+#define BOX_RECORD 22   /* NplVector layout: data[0] = type, data[1..] = fields */
 
 #define NPL_FLAG_LITERAL 1
 #define IMM_CHAR_TAG 14
@@ -372,6 +373,10 @@ NplVal npl_complex_arithmetic(NplVal left, NplVal right, char operation);
 
 
 NplVal npl_make_vector(int64_t argc, NplVal *argv);
+NplVal npl_make_record(int64_t argc, NplVal *argv);
+NplVal npl_record_p(NplVal value, NplVal type);
+NplVal npl_record_ref(NplVal value, NplVal type, NplVal index);
+NplVal npl_record_set(NplVal value, NplVal type, NplVal index, NplVal field);
 NplVal npl_vector_length(NplVal vector);
 NplVal npl_vector_ref(NplVal vector, NplVal index);
 NplVal npl_vector_set(NplVal vector, NplVal index, NplVal value);
@@ -530,7 +535,8 @@ NplVal npl_file_exists(NplVal path);
 NplVal npl_delete_file(NplVal path);
 NplVal npl_make_temporary_directory(void);
 NplVal npl_delete_directory(NplVal path);
-NplVal npl_executable_path(void);            /* absolute path or #f */
+NplVal npl_executable_path(void);
+NplVal npl_try_open_file(NplVal path, NplVal kind); /* port or #f */            /* absolute path or #f */
 void npl_exit(NplVal code);                   /* untagged fixnum, low byte */
 
 /* bootstrap lexer hooks — all take TAGGED values */

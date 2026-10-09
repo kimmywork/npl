@@ -1,0 +1,34 @@
+; R7RS 6.11 behavior where Guile 3.0 (the shared-fixture oracle) deviates:
+; a failed open is a file error, and absent irritants are the empty list.
+(import (scheme base) (scheme file) (scheme write) (scheme process-context))
+
+(include "framework.npl")
+
+(define (caught thunk)
+  (guard (e (#t e)) (thunk)))
+
+(define (main)
+  (let ((open-error
+          (caught (lambda () (open-input-file "/nonexistent/npl-error-objects")))))
+    (test-identity "failed open is an error object"
+                   (lambda () (error-object? open-error)) #t)
+    (test-identity "failed open is a file error"
+                   (lambda () (file-error? open-error)) #t)
+    (test-identity "failed open is not a read error"
+                   (lambda () (read-error? open-error)) #f)
+    (test-identity "failed open irritants name the file"
+                   (lambda ()
+                     (equal? (error-object-irritants open-error)
+                             '("/nonexistent/npl-error-objects")))
+                   #t))
+  (test-identity "failed binary output open is a file error"
+                 (lambda ()
+                   (file-error?
+                     (caught (lambda ()
+                               (open-binary-output-file "/nonexistent/dir/x")))))
+                 #t)
+  (test-identity "absent irritants are the empty list"
+                 (lambda ()
+                   (null? (error-object-irritants (caught (lambda () (error "m"))))))
+                 #t)
+  (finish-tests "error-objects"))

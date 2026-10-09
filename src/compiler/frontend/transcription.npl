@@ -1,5 +1,6 @@
-; Hygiene for definition-producing macro output that is spliced unexpanded
-; into a body or top level (see expand-transcription in expand.npl).
+; Macro transcription hygiene (see expand-transcription in expand.npl):
+; definition-producing output spliced unexpanded into a body or top level,
+; and the alias environments used to expand expression output.
 
 (define (begin-defined-identifiers form acc)
   (cond
@@ -31,30 +32,62 @@
 ; TRANSCRIPTION-ALIASES (syntax.npl); value lookup consults it last.
 ; Quoted data stays unchanged.
 
-(define (resolve-marked-free form mark definition-env defined)
+; Keywords get the same treatment through TRANSCRIPTION-MACRO-ALIASES.
+(define (resolve-marked-free form mark definition-env definition-macros
+                             defined)
   (cond
     ((datum-symbol? form)
      (if (if (= (identifier-mark form) mark)
              (not (identifier-member? form defined))
              #f)
-         (let ((binding (lookup-value-binding-key
-                          (datum-symbol-name form) 0 definition-env)))
-           (if (> (string-length binding) 0)
-               (let ((alias (datum-symbol (datum-symbol-name form)))
-                     (alias-mark (fresh-syntax-mark)))
-                 (set-identifier-mark! alias alias-mark)
-                 (cell-set! TRANSCRIPTION-ALIASES
-                   (cons (cons (datum-symbol-name form)
-                               (cons alias-mark (cons binding ())))
-                         (cell-get TRANSCRIPTION-ALIASES)))
-                 alias)
-               form))
+         (let ((name (datum-symbol-name form)))
+           (let ((binding (lookup-value-binding-key name 0 definition-env))
+                 (keyword (lookup-macro-cell-key name 0 definition-macros)))
+             (cond
+               ((> (string-length binding) 0)
+                (transcription-alias form TRANSCRIPTION-ALIASES binding))
+               ((not (null? keyword))
+                (transcription-alias form TRANSCRIPTION-MACRO-ALIASES keyword))
+               (else form))))
          form))
     ((pair? form)
      (if (if (datum-symbol? (car form))
              (string=? (datum-symbol-name (car form)) "quote")
              #f)
          form
-         (cons (resolve-marked-free (car form) mark definition-env defined)
-               (resolve-marked-free (cdr form) mark definition-env defined))))
+         (cons (resolve-marked-free (car form) mark definition-env
+                                    definition-macros defined)
+               (resolve-marked-free (cdr form) mark definition-env
+                                    definition-macros defined))))
     (else form)))
+
+(define (transcription-alias form table meaning)
+  (let ((alias (datum-symbol (datum-symbol-name form)))
+        (alias-mark (fresh-syntax-mark)))
+    (set-identifier-mark! alias alias-mark)
+    (cell-set! table
+      (cons (cons (datum-symbol-name form) (cons alias-mark (cons meaning ())))
+            (cell-get table)))
+    alias))
+
+; Expression output: the definition environment is visible under the
+; transcription mark, layered over the use environment.
+(define (alias-value-environment definition-env mark use-env)
+  (if (null? definition-env)
+      use-env
+      (let ((entry (car definition-env)))
+        (alias-value-environment
+          (cdr definition-env) mark
+          (cons (cons (car entry)
+                      (cons mark (cons (car (cdr (cdr entry))) ())))
+                use-env)))))
+
+(define (alias-macro-environment definition-env mark use-env)
+  (if (null? definition-env)
+      use-env
+      (let ((entry (car definition-env)))
+        (alias-macro-environment
+          (cdr definition-env) mark
+          (cons (cons (car entry)
+                      (cons mark (cons (macro-entry-cell entry) ())))
+                use-env)))))

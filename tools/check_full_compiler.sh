@@ -101,7 +101,7 @@ run_suite exceptions "PASS exceptions 6"
 run_suite guard "PASS guard 5"
 run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
-run_suite libraries "PASS libraries 14"
+run_suite libraries "PASS libraries 16"
 run_suite eval "PASS eval 14"
 run_load() {
     emit "$WORK/compiler" "$TESTS/load.npl" "$WORK/load.ssa"
@@ -118,6 +118,7 @@ run_suite binary-io "PASS binary-io 15"
 run_suite string-io "PASS string-io 12"
 run_suite first-wave-libraries "PASS first-wave-libraries 16"
 run_suite process "PASS process 9"
+run_suite error-objects "PASS error-objects 6"
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then

@@ -35,7 +35,9 @@
         "delete-file" "input-port-open?" "read-char" "write-char"
         "char?" "char->integer" "integer->char"
         "command-line" "exit" "get-environment-variable"
-        "get-environment-variables"))
+        "get-environment-variables"
+        "npl_make_record" "npl_record_p" "npl_record_ref" "npl_record_set"
+        "npl_try_open_file" "read-result" "current-input-port" "file-exists?"))
 
 (define (eval-install-primitives environment names)
   (if (null? names)

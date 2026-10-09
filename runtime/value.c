@@ -53,6 +53,50 @@ static NplVector *require_vector(NplVal value, const char *who)
     return (NplVector *)npl_header(value);
 }
 
+/* (record type field ...): a record instance; data[0] holds the type. */
+NplVal npl_make_record(int64_t argc, NplVal *argv)
+{
+    if (argc < 1) {
+        fprintf(stderr, "record: needs a type\n");
+        exit(1);
+    }
+    NplVal record = npl_make_vector(argc, argv);
+    npl_header(record)->tag = BOX_RECORD;
+    return record;
+}
+
+static NplVector *require_record(NplVal value, NplVal type, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_RECORD ||
+        ((NplVector *)npl_header(value))->data[0] != type) {
+        fprintf(stderr, "%s: wrong record type\n", who);
+        exit(1);
+    }
+    return (NplVector *)npl_header(value);
+}
+
+NplVal npl_record_p(NplVal value, NplVal type)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_RECORD &&
+           ((NplVector *)npl_header(value))->data[0] == type
+        ? npl_true() : npl_false();
+}
+
+/* Field indexes are 1-based (slot 0 is the type) and validated by the
+ * define-record-type expansion, so only the type is checked here. */
+NplVal npl_record_ref(NplVal value, NplVal type, NplVal index)
+{
+    NplVector *record = require_record(value, type, "record accessor");
+    return record->data[npl_fixnum_value(index)];
+}
+
+NplVal npl_record_set(NplVal value, NplVal type, NplVal index, NplVal field)
+{
+    NplVector *record = require_record(value, type, "record modifier");
+    record->data[npl_fixnum_value(index)] = field;
+    return npl_nil();
+}
+
 NplVal npl_make_vector(int64_t argc, NplVal *argv)
 {
     if (argc < 0 || (uint64_t)argc > UINT32_MAX) {
