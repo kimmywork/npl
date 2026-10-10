@@ -4,6 +4,7 @@ set(RUNTIME_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(npl_runtime STATIC
   ${RUNTIME_SRC_DIR}/alloc.c
+  ${RUNTIME_SRC_DIR}/clock.c
   ${RUNTIME_SRC_DIR}/complex.c
   ${RUNTIME_SRC_DIR}/control.c
   ${RUNTIME_SRC_DIR}/error.c

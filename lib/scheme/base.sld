@@ -49,7 +49,8 @@
     utf8->string string=? string<? string>? string<=? string>=?
     string-map string-for-each define-record-type
     error error-object? error-object-message error-object-irritants
-    file-error? read-error?)
+    file-error? read-error?
+    read-line read-string write-string char-ready? u8-ready? features)
   (import (rename (except (npl primitive)
                     current-input-port current-output-port current-error-port)
             (+ raw-add) (- raw-subtract) (* raw-multiply)
@@ -89,4 +90,4 @@
           (if (pair? value) (list? (cdr value)) #f))))
   (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
            "vector.scm" "string.scm" "record.scm"
-           "error.scm"))
+           "error.scm" "text-io.scm"))

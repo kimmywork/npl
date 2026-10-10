@@ -537,7 +537,11 @@ NplVal npl_make_temporary_directory(void);
 NplVal npl_delete_directory(NplVal path);
 NplVal npl_executable_path(void);
 NplVal npl_try_open_file(NplVal path, NplVal kind); /* port or #f */
-NplVal npl_port_parameter(NplVal kind); /* current-*-port parameter */            /* absolute path or #f */
+NplVal npl_port_parameter(NplVal kind); /* current-*-port parameter */
+NplVal npl_port_ready_p(NplVal port);     /* char-ready? / u8-ready? */
+NplVal npl_jiffies_per_second(void);
+NplVal npl_current_jiffy(void);
+NplVal npl_current_second(void);            /* absolute path or #f */
 void npl_exit(NplVal code);                   /* untagged fixnum, low byte */
 
 /* bootstrap lexer hooks — all take TAGGED values */

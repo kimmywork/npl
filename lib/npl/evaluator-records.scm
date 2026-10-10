@@ -84,6 +84,10 @@
       ((string=? name "binary-port?") (host binary-port?))
       ((string=? name "port?") (host port?))
       ((string=? name "eof-object") (host eof-object))
+      ((string=? name "npl_port_ready_p") (host npl_port_ready_p))
+      ((string=? name "npl_jiffies_per_second") (host npl_jiffies_per_second))
+      ((string=? name "npl_current_jiffy") (host npl_current_jiffy))
+      ((string=? name "npl_current_second") (host npl_current_second))
       ((string=? name "close-output-port")
        (eval-host-primitive
          (lambda () (apply close-output-port arguments) EVAL-UNSPECIFIED)

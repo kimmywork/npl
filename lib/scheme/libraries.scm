@@ -11,3 +11,5 @@
 (scheme read)
 (scheme repl)
 (scheme write)
+(scheme complex)
+(scheme time)

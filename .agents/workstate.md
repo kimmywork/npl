@@ -6,15 +6,16 @@ Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0-L3 and L4a
 (records, error objects, file/read errors) are done. L4b (catchable
 primitive errors, plan section "Primitive Errors") is done: runtime value,
 port, and file errors and library argument checks raise error objects.
-L5a (current ports as parameter objects) is done; next: clock primitive,
-readiness poll, read-line/read-string/write-string, with-*-file, features,
-(scheme time), (scheme complex). The toolchain stage is complete and committed
+L5 is done (current ports as parameter objects, text I/O, with-*-file,
+features, (scheme time), (scheme complex)); all R7RS-small libraries but
+(scheme r5rs) export their full name lists. Next: L6 (Unicode, datum
+labels) needs a design review first; L7 (scheme r5rs) does not. The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 203,405 lines; SHA-256
-  `da018d1cf53087554bd593a5ece40b80fca3f08c51683bd6aab02d93f3d97eaf`
+- `bootstrap/current.ssa`: 203,437 lines; SHA-256
+  `daa4fe0012f3d74133e9cd4156163932920a6941d9a74f75e983325ab1e07093`
   (macOS strict relay).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. On a swap-bound host set

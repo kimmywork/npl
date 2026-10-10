@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <poll.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #ifdef __APPLE__
@@ -708,6 +709,19 @@ NplVal npl_peek_char(NplVal value)
                                      NPL_PORT_TEXTUAL, "peek-char");
     int byte = port_peek_byte_raw(port, "peek-char");
     return byte == EOF ? g_eof_object : npl_char((uint32_t)byte);
+}
+
+/* char-ready? / u8-ready?: memory ports always have data or EOF ready; a
+ * stream port is ready when buffered input exists or poll reports it. */
+NplVal npl_port_ready_p(NplVal value)
+{
+    NplPort *port = require_port(value, NPL_PORT_INPUT, "char-ready?");
+    if ((port->mode & NPL_PORT_MEMORY) != 0) return npl_true();
+    struct pollfd request;
+    request.fd = fileno(port->stream);
+    request.events = POLLIN;
+    request.revents = 0;
+    return poll(&request, 1, 0) > 0 ? npl_true() : npl_false();
 }
 
 NplVal npl_write_char(NplVal character, NplVal value)
