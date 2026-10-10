@@ -28,6 +28,8 @@ CORE_SYNTAX = {
              "letrec-syntax", "quasiquote", "quote", "set!", "syntax-error",
              "syntax-rules"},
 }
+# (scheme r5rs) names the same core syntax.
+CORE_SYNTAX["r5rs"] = CORE_SYNTAX["base"]
 
 
 def standard_exports():

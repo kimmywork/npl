@@ -137,9 +137,9 @@
 ; Evaluator parameter objects for the current ports (R7RS 6.13.1), shared
 ; by every environment of the process; initial values are the host ports.
 (define EVAL-PORT-PARAMETERS
-  (vector (vector EVAL-PARAMETER-TAG '() (current-input-port))
-          (vector EVAL-PARAMETER-TAG '() (current-output-port))
-          (vector EVAL-PARAMETER-TAG '() (current-error-port))))
+  (vector (vector EVAL-PARAMETER-TAG '() ((npl_port_parameter 0)))
+          (vector EVAL-PARAMETER-TAG '() ((npl_port_parameter 1)))
+          (vector EVAL-PARAMETER-TAG '() ((npl_port_parameter 2)))))
 (define (eval-current-port kind)
   (eval-parameter-ref (vector-ref EVAL-PORT-PARAMETERS kind)))
 (define EVAL-CURRENT-EVALUATION-ENVIRONMENT '())

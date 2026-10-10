@@ -7,9 +7,10 @@ Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0-L3 and L4a
 primitive errors, plan section "Primitive Errors") is done: runtime value,
 port, and file errors and library argument checks raise error objects.
 L5 is done (current ports as parameter objects, text I/O, with-*-file,
-features, (scheme time), (scheme complex)); all R7RS-small libraries but
-(scheme r5rs) export their full name lists. Next: L6 (Unicode, datum
-labels) needs a design review first; L7 (scheme r5rs) does not. The toolchain stage is complete and committed
+features, (scheme time), (scheme complex)). L7 (scheme r5rs) is done; all
+R7RS-small libraries export their full name lists (556/556). Remaining: L6
+(Unicode strings and chars, datum labels) needs a design review before code;
+then P1 (Guile performance baseline). The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed

@@ -16,18 +16,14 @@ Then measure performance against Guile.
 ## Current Gap
 
 `python3 tools/r7rs_inventory.py --missing` reports export presence
-(2026-10-08: 244/335 names excluding `r5rs`). Presence is not conformance;
-behavior is established only by fixtures.
+(2026-10-10: 556/556, every R7RS-small library including `(scheme r5rs)`).
+Presence is not conformance; behavior is established only by fixtures.
 
 | Area | Gap |
 |---|---|
-| `(scheme base)` lists | `map for-each apply member memq memv assoc assq assv list-ref list-tail list-copy list-set! make-list equal? caar cadr cdar cddr` |
-| `(scheme base)` strings, chars | `string make-string string-set! string-copy string-copy! string-fill! string->list list->string string->symbol string->vector vector->string string-map string-for-each string<? ...`, `char<? ...`, `symbol=? boolean? boolean=? procedure?` |
-| `(scheme base)` vectors, bytevectors | `make-vector vector->list vector-copy vector-copy! vector-fill! vector-append vector-map vector-for-each make-bytevector bytevector-copy bytevector-copy! bytevector-append utf8->string string->utf8` |
-| records, errors | `define-record-type`, `error error-object? error-object-message error-object-irritants read-error? file-error?`, `features` |
-| I/O | `read-line read-string write-string char-ready? u8-ready?`; `(scheme file)` `with-input-from-file with-output-to-file` |
-| other libraries | `(scheme char)` string case and `string-ci` procedures; `(scheme complex)` absent; `(scheme time)` absent |
-| semantics | strings and chars are bytes/ASCII (`string-ref` returns a byte); runtime `read` lacks datum labels; native primitive type errors terminate instead of raising (see "Primitive Errors"); current ports are not parameter objects; evaluator lacks ~40 native primitives; `(sqrt -1.0-0.0i)` branch needs a user decision |
+| representation | strings and chars are bytes/ASCII; runtime `read` lacks datum labels and `write-shared` does not label cycles (L6) |
+| semantics | `guard` clauses run before dynamic-wind after thunks unwind (R7RS 4.2.7); `(sqrt -1.0-0.0i)` branch needs a user decision |
+| evaluator | does not reject mutation of vector literals; built-in numeric primitives used without imports keep their own error text |
 
 ## Rules
 
@@ -82,19 +78,18 @@ each). The three representation changes in L3-L5 were approved 2026-10-08.
    type disjoint from vectors (R7RS 3.2). Then `define-record-type`, `error`
    and error-object accessors built on it, `file-error?`/`read-error?` with
    runtime open/read failures reported to the library, and catchable primitive
-   errors (section "Primitive Errors"). L4a (records, error objects,
-   file/read errors) is done; L4b is catchable primitive errors.
+   errors (section "Primitive Errors"). Done 2026-10-10.
 5. **L5 I/O and remaining libraries.** Prerequisites: current ports as
    parameter objects (R7RS 6.13.1; needed by `with-output-to-file` and
    `parameterize`), a monotonic/wall clock primitive, and a readiness poll for
    `char-ready?`/`u8-ready?`. Then `read-line`, `read-string`, `write-string`,
    `with-input-from-file`, `with-output-to-file`, `features`, `(scheme time)`,
-   `(scheme complex)`.
+   `(scheme complex)`. Done 2026-10-10.
 6. **L6 representation work** (each needs its own design review before code):
    Unicode strings and chars, datum labels in runtime `read` and
    `write-shared`.
 7. **L7 `(scheme r5rs)`**, re-exported from the completed libraries plus
-   `null-environment` and `scheme-report-environment`.
+   `null-environment` and `scheme-report-environment`. Done 2026-10-10.
 8. **P1 Guile performance baseline.** Fixed environment, warm-up, at least 10
    runs, median and spread, native and `npli` reported separately, compile time
    separated from run time; only workloads whose fixtures pass three ways.
