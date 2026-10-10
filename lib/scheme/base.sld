@@ -50,7 +50,8 @@
     string-map string-for-each define-record-type
     error error-object? error-object-message error-object-irritants
     file-error? read-error?)
-  (import (rename (npl primitive)
+  (import (rename (except (npl primitive)
+                    current-input-port current-output-port current-error-port)
             (+ raw-add) (- raw-subtract) (* raw-multiply)
             (= raw-equal) (< raw-less) (<= raw-less-equal)
             (> raw-greater) (>= raw-greater-equal)
@@ -67,6 +68,11 @@
           (close-port port)
           (npl_list_to_values values))))
     (define (list . values) values)
+    ; Current ports are parameter objects (R7RS 6.13.1), so parameterize
+    ; rebinds them; calling one returns the port.
+    (define current-input-port (npl_port_parameter 0))
+    (define current-output-port (npl_port_parameter 1))
+    (define current-error-port (npl_port_parameter 2))
     (define (length-loop values count)
       (if (null? values)
           count

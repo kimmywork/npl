@@ -121,6 +121,7 @@
     ("current-input-port" fixed "npl_current_input_port" 0 0)
     ("current-output-port" fixed "npl_current_output_port" 0 0)
     ("current-error-port" fixed "npl_current_error_port" 0 0)
+    ("npl_port_parameter" fixed "npl_port_parameter" 1 0)
     ("open-input-file" fixed "npl_open_input_file" 1 0)
     ("npl_try_open_file" fixed "npl_try_open_file" 2 0)
     ("open-output-file" fixed "npl_open_output_file" 1 0)

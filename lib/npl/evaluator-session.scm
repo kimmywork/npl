@@ -37,7 +37,14 @@
         "command-line" "exit" "get-environment-variable"
         "get-environment-variables"
         "npl_make_record" "npl_record_p" "npl_record_ref" "npl_record_set"
-        "npl_try_open_file" "read-result" "current-input-port" "file-exists?"))
+        "npl_try_open_file" "read-result" "current-input-port" "file-exists?"
+        "npl_port_parameter"
+        "input-port?" "output-port?" "textual-port?" "binary-port?" "port?"
+        "eof-object" "close-output-port" "open-input-bytevector"
+        "open-output-bytevector" "get-output-bytevector"
+        "open-binary-input-file" "open-binary-output-file" "read-bytevector"
+        "read-bytevector!" "write-bytevector" "peek-char" "read-u8" "peek-u8"
+        "write-u8" "flush-output-port" "write-shared" "write-simple"))
 
 (define (eval-install-primitives environment names)
   (if (null? names)

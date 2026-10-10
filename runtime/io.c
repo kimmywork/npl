@@ -119,18 +119,20 @@ void npl_io_init(void)
 {
     g_args_list = npl_nil();
     g_command_line = npl_nil();
-    g_current_input_port = make_port(stdin,
-        NPL_PORT_INPUT | NPL_PORT_TEXTUAL | NPL_PORT_BINARY);
-    g_current_output_port = make_port(stdout,
-        NPL_PORT_OUTPUT | NPL_PORT_TEXTUAL | NPL_PORT_BINARY);
-    g_current_error_port = make_port(stderr,
-        NPL_PORT_OUTPUT | NPL_PORT_TEXTUAL | NPL_PORT_BINARY);
-    g_eof_object = make_eof_object();
+    /* The current ports are parameter objects (R7RS 6.13.1); the globals
+     * hold the parameters, and parameterize rebinds their values. */
     npl_gc_root(&g_args_list);
     npl_gc_root(&g_command_line);
     npl_gc_root(&g_current_input_port);
     npl_gc_root(&g_current_output_port);
     npl_gc_root(&g_current_error_port);
+    g_current_input_port = npl_make_parameter(npl_nil(), make_port(stdin,
+        NPL_PORT_INPUT | NPL_PORT_TEXTUAL | NPL_PORT_BINARY));
+    g_current_output_port = npl_make_parameter(npl_nil(), make_port(stdout,
+        NPL_PORT_OUTPUT | NPL_PORT_TEXTUAL | NPL_PORT_BINARY));
+    g_current_error_port = npl_make_parameter(npl_nil(), make_port(stderr,
+        NPL_PORT_OUTPUT | NPL_PORT_TEXTUAL | NPL_PORT_BINARY));
+    g_eof_object = make_eof_object();
     npl_gc_root(&g_eof_object);
 }
 
@@ -138,6 +140,7 @@ void npl_io_init(void)
 
 static void port_write_bytes(NplPort *port, const uint8_t *bytes, size_t count,
                              const char *who);
+static NplPort *port_value(NplVal value, const char *who);
 
 static void output_bytes(NplPort *port, const char *bytes, size_t count)
 {
@@ -328,7 +331,7 @@ NplVal npl_display(NplVal value)
 {
     npl_runtime_init();
     npl_gc_root(&value);
-    display_to((NplPort *)npl_header(g_current_output_port), value);
+    display_to(port_value(npl_current_output_port(), "display"), value);
     npl_gc_unroot(&value);
     return npl_nil();
 }
@@ -336,7 +339,7 @@ NplVal npl_display(NplVal value)
 NplVal npl_newline(void)
 {
     npl_runtime_init();
-    output_char((NplPort *)npl_header(g_current_output_port), '\n');
+    output_char(port_value(npl_current_output_port(), "newline"), '\n');
     return npl_nil();
 }
 
@@ -444,9 +447,31 @@ static NplVal open_file_port(NplVal path, const char *mode,
     return port;
 }
 
-NplVal npl_current_input_port(void) { return g_current_input_port; }
-NplVal npl_current_output_port(void) { return g_current_output_port; }
-NplVal npl_current_error_port(void) { return g_current_error_port; }
+NplVal npl_current_input_port(void)
+{
+    return npl_parameter_ref(g_current_input_port);
+}
+NplVal npl_current_output_port(void)
+{
+    return npl_parameter_ref(g_current_output_port);
+}
+NplVal npl_current_error_port(void)
+{
+    return npl_parameter_ref(g_current_error_port);
+}
+
+/* kind: 0 input, 1 output, 2 error; the parameter object itself. */
+NplVal npl_port_parameter(NplVal kind)
+{
+    switch (npl_is_fixnum(kind) ? npl_fixnum_value(kind) : -1) {
+    case 0: return g_current_input_port;
+    case 1: return g_current_output_port;
+    case 2: return g_current_error_port;
+    default:
+        npl_primitive_error("port parameter", "invalid port kind", kind);
+        return npl_nil();
+    }
+}
 
 NplVal npl_open_input_file(NplVal path)
 {

@@ -6,7 +6,8 @@
           eval-unspecified? eval-values? eval-values-list
           eval-callable? eval-apply-in-environment)
   (import (except (scheme base) + - * = < <= > >= number->string append
-                  string=?)
+                  string=? current-input-port current-output-port
+                  current-error-port)
           (scheme write)
           (npl primitive)
           (npl frontend))

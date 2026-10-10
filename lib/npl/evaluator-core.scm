@@ -134,6 +134,14 @@
 ; error through the handlers (eval-primitive-error).
 (define EVAL-PRIMITIVE-ENVIRONMENT '())
 (define EVAL-CURRENT-PARAMETERS '())
+; Evaluator parameter objects for the current ports (R7RS 6.13.1), shared
+; by every environment of the process; initial values are the host ports.
+(define EVAL-PORT-PARAMETERS
+  (vector (vector EVAL-PARAMETER-TAG '() (current-input-port))
+          (vector EVAL-PARAMETER-TAG '() (current-output-port))
+          (vector EVAL-PARAMETER-TAG '() (current-error-port))))
+(define (eval-current-port kind)
+  (eval-parameter-ref (vector-ref EVAL-PORT-PARAMETERS kind)))
 (define EVAL-CURRENT-EVALUATION-ENVIRONMENT '())
 
 (define (eval-session)

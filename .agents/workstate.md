@@ -6,13 +6,15 @@ Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0-L3 and L4a
 (records, error objects, file/read errors) are done. L4b (catchable
 primitive errors, plan section "Primitive Errors") is done: runtime value,
 port, and file errors and library argument checks raise error objects.
-Next: L5. The toolchain stage is complete and committed
+L5a (current ports as parameter objects) is done; next: clock primitive,
+readiness poll, read-line/read-string/write-string, with-*-file, features,
+(scheme time), (scheme complex). The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 203,397 lines; SHA-256
-  `bb9769d40560dfb0fbfbe530f5de18482dbd5a5d513e8c039ce0eed942c420fd`
+- `bootstrap/current.ssa`: 203,405 lines; SHA-256
+  `da018d1cf53087554bd593a5ece40b80fca3f08c51683bd6aab02d93f3d97eaf`
   (macOS strict relay).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. On a swap-bound host set
@@ -26,8 +28,7 @@ Next: L5. The toolchain stage is complete and committed
   `runtime/io.c`, `runtime/control.c`.
 - `guard` clauses run before dynamic-wind after thunks are unwound (R7RS
   4.2.7 evaluates them in guard's dynamic environment).
-- npli does not reject mutation of vector literals and lacks binary port
-  primitives (`open-input-bytevector`, `write-u8`, ...).
+- npli does not reject mutation of vector literals.
 - Evaluator built-in numeric primitives used without imports still report
   plain evaluator errors (`+: expected numbers`).
 - Guile 3.0 oracle gaps (covered by native suite `error-objects` instead):
