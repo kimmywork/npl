@@ -2,14 +2,20 @@
   (export acos asin atan cos exp finite? infinite? log nan? sin sqrt tan)
   (import (scheme base)
           (only (npl primitive) npl_inexact_op npl_inexact_binary
-                npl_finite_p npl_nan_p npl_infinite_p))
+                npl_finite_p npl_nan_p npl_infinite_p npl_make_record))
   (begin
+    ; Same error shape as (scheme base) argument checks (lib/scheme/error.scm).
+    (define (inexact-argument-error who message irritant)
+      (raise (npl_make_record 'npl-error-object 'error
+                              (string-append who ": " message)
+                              (list irritant))))
+    (define (raw-length items) (length items))
     (define (real-number value who)
       (if (and (number? value) (real? value)) value
-          (raise (string-append who ": expected a real number"))))
+          (inexact-argument-error who "expected a real number" value)))
     (define (math code value who)
       (if (number? value) (npl_inexact_op code value)
-          (raise (string-append who ": expected a number"))))
+          (inexact-argument-error who "expected a number" value)))
     (define (sin value) (math 8 value "sin"))
     (define (cos value) (math 9 value "cos"))
     (define (tan value) (math 10 value "tan"))
@@ -24,20 +30,22 @@
               (npl_inexact_binary 0
                 (real-number y "atan")
                 (real-number (car rest) "atan"))
-              (raise "atan: expected one or two arguments"))))
+              (inexact-argument-error "atan" "wrong number of arguments"
+                                      (raw-length (cons y rest))))))
     (define (log value . rest)
       (if (null? rest)
           (math 14 value "log")
           (if (null? (cdr rest))
               (/ (math 14 value "log")
                  (math 14 (car rest) "log"))
-              (raise "log: expected one or two arguments"))))
+              (inexact-argument-error "log" "wrong number of arguments"
+                                      (raw-length (cons value rest))))))
     (define (finite? value)
       (if (number? value) (npl_finite_p value)
-          (raise "finite?: expected a number")))
+          (inexact-argument-error "finite?" "expected a number" value)))
     (define (nan? value)
       (if (number? value) (npl_nan_p value)
-          (raise "nan?: expected a number")))
+          (inexact-argument-error "nan?" "expected a number" value)))
     (define (infinite? value)
       (if (number? value) (npl_infinite_p value)
-          (raise "infinite?: expected a number")))))
+          (inexact-argument-error "infinite?" "expected a number" value)))))

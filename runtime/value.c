@@ -152,10 +152,9 @@ NplVal npl_list_to_vector(NplVal list)
 {
     int64_t length = 0;
     for (NplVal rest = list; !npl_is_nil(rest); rest = npl_cdr(rest)) {
-        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR) {
-            fprintf(stderr, "list->vector: not a proper list\n");
-            exit(1);
-        }
+        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR)
+            npl_primitive_error("list->vector", "expected a proper list",
+                                list);
         if ((uint64_t)length == UINT32_MAX) {
             fprintf(stderr, "list->vector: vector is too long\n");
             exit(1);
@@ -181,10 +180,8 @@ NplVal npl_list_to_vector(NplVal list)
 
 static NplBytevector *require_bytevector(NplVal value, const char *who)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_BYTEVECTOR) {
-        fprintf(stderr, "%s: not a bytevector\n", who);
-        exit(1);
-    }
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_BYTEVECTOR)
+        npl_primitive_error(who, "expected a bytevector", value);
     return (NplBytevector *)npl_header(value);
 }
 
@@ -200,12 +197,11 @@ NplVal npl_make_bytevector(int64_t argc, NplVal *argv)
     vector->header.flags = 0;
     vector->length = (uint32_t)argc;
     vector->capacity = (uint32_t)argc;
+    /* On a bad byte the partly filled bytevector is unreachable garbage. */
     for (int64_t i = 0; i < argc; i++) {
         int64_t byte = npl_fixnum_value(argv[i]);
-        if (!npl_is_fixnum(argv[i]) || byte < 0 || byte > 255) {
-            fprintf(stderr, "bytevector: byte out of range\n");
-            exit(1);
-        }
+        if (!npl_is_fixnum(argv[i]) || byte < 0 || byte > 255)
+            npl_primitive_error("bytevector", "expected a byte", argv[i]);
         vector->data[i] = (uint8_t)byte;
     }
     return (NplVal)(uintptr_t)vector | TAG_PTR;
@@ -219,36 +215,30 @@ NplVal npl_bytevector_length(NplVal value)
 NplVal npl_bytevector_ref(NplVal value, NplVal index)
 {
     NplBytevector *vector = require_bytevector(value, "bytevector-u8-ref");
-    if (!npl_is_fixnum(index)) {
-        fprintf(stderr, "bytevector-u8-ref: index is not an integer\n");
-        exit(1);
-    }
+    if (!npl_is_fixnum(index))
+        npl_primitive_error("bytevector-u8-ref",
+                            "expected an exact integer index", index);
     int64_t i = npl_fixnum_value(index);
-    if (i < 0 || (uint64_t)i >= vector->length) {
-        fprintf(stderr, "bytevector-u8-ref: index out of range\n");
-        exit(1);
-    }
+    if (i < 0 || (uint64_t)i >= vector->length)
+        npl_primitive_error("bytevector-u8-ref", "index out of range", index);
     return npl_fixnum(vector->data[i]);
 }
 
 NplVal npl_bytevector_set(NplVal value, NplVal index, NplVal element)
 {
     NplBytevector *vector = require_bytevector(value, "bytevector-u8-set!");
-    if (vector->header.flags & NPL_FLAG_LITERAL) {
-        fprintf(stderr, "bytevector-u8-set!: cannot mutate a literal\n");
-        exit(1);
-    }
-    if (!npl_is_fixnum(index) || !npl_is_fixnum(element)) {
-        fprintf(stderr, "bytevector-u8-set!: index and byte must be integers\n");
-        exit(1);
-    }
+    if (vector->header.flags & NPL_FLAG_LITERAL)
+        npl_primitive_error("bytevector-u8-set!", "cannot mutate a literal",
+                            value);
+    if (!npl_is_fixnum(index))
+        npl_primitive_error("bytevector-u8-set!",
+                            "expected an exact integer index", index);
     int64_t i = npl_fixnum_value(index);
+    if (i < 0 || (uint64_t)i >= vector->length)
+        npl_primitive_error("bytevector-u8-set!", "index out of range", index);
     int64_t byte = npl_fixnum_value(element);
-    if (i < 0 || (uint64_t)i >= vector->length ||
-        byte < 0 || byte > 255) {
-        fprintf(stderr, "bytevector-u8-set!: invalid index or byte\n");
-        exit(1);
-    }
+    if (!npl_is_fixnum(element) || byte < 0 || byte > 255)
+        npl_primitive_error("bytevector-u8-set!", "expected a byte", element);
     vector->data[i] = (uint8_t)byte;
     return npl_nil();
 }
@@ -286,10 +276,8 @@ NplVal npl_integer_to_char(NplVal value)
 NplVal npl_append(NplVal left, NplVal right)
 {
     if (npl_is_nil(left)) return right;
-    if (!npl_is_ptr(left) || npl_header(left)->tag != BOX_PAIR) {
-        fprintf(stderr, "append: left operand is not a list\n");
-        exit(1);
-    }
+    if (!npl_is_ptr(left) || npl_header(left)->tag != BOX_PAIR)
+        npl_primitive_error("append", "expected a list", left);
 
     NplVal head = npl_nil();
     NplVal tail = npl_nil();
@@ -299,10 +287,8 @@ NplVal npl_append(NplVal left, NplVal right)
     npl_gc_root(&rest);
     npl_gc_root(&right);
     while (!npl_is_nil(rest)) {
-        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR) {
-            fprintf(stderr, "append: left operand is not a proper list\n");
-            exit(1);
-        }
+        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR)
+            npl_primitive_error("append", "expected a proper list", left);
         NplVal item = npl_cons(npl_car(rest), npl_nil());
         if (npl_is_nil(head)) head = item;
         else npl_pair_ptr(tail)->cdr = item;
@@ -534,24 +520,18 @@ NplVal npl_string_ref(NplVal s, NplVal i) {
 
 static NplString *mutable_string(NplVal value, const char *who)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING) {
-        fprintf(stderr, "%s: expected a string\n", who);
-        exit(1);
-    }
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING)
+        npl_primitive_error(who, "expected a string", value);
     NplString *string = (NplString *)npl_header(value);
-    if (string->header.flags & NPL_FLAG_LITERAL) {
-        fprintf(stderr, "%s: cannot mutate a literal\n", who);
-        exit(1);
-    }
+    if (string->header.flags & NPL_FLAG_LITERAL)
+        npl_primitive_error(who, "cannot mutate a literal", value);
     return string;
 }
 
 static uint8_t string_byte_of(NplVal character, const char *who)
 {
-    if (!npl_is_char(character) || npl_char_value(character) > 127) {
-        fprintf(stderr, "%s: expected an ASCII character\n", who);
-        exit(1);
-    }
+    if (!npl_is_char(character) || npl_char_value(character) > 127)
+        npl_primitive_error(who, "expected an ASCII character", character);
     return (uint8_t)npl_char_value(character);
 }
 
@@ -559,10 +539,9 @@ static uint8_t string_byte_of(NplVal character, const char *who)
 NplVal npl_make_string(NplVal count, NplVal fill)
 {
     if (!npl_is_fixnum(count) || npl_fixnum_value(count) < 0 ||
-        npl_fixnum_value(count) > (int64_t)UINT32_MAX) {
-        fprintf(stderr, "make-string: expected a non-negative count\n");
-        exit(1);
-    }
+        npl_fixnum_value(count) > (int64_t)UINT32_MAX)
+        npl_primitive_error("make-string", "expected a non-negative count",
+                            count);
     uint8_t byte = string_byte_of(fill, "make-string");
     uint32_t length = (uint32_t)npl_fixnum_value(count);
     NplVal out = npl_box_bytes_internal(NULL, length, BOX_STRING);
@@ -581,10 +560,9 @@ NplVal npl_string_fill_range(NplVal value, NplVal character, NplVal start,
     if (!npl_is_fixnum(start) || !npl_is_fixnum(end) ||
         npl_fixnum_value(start) < 0 ||
         npl_fixnum_value(start) > npl_fixnum_value(end) ||
-        npl_fixnum_value(end) > (int64_t)string->length) {
-        fprintf(stderr, "string-fill!: index out of range\n");
-        exit(1);
-    }
+        npl_fixnum_value(end) > (int64_t)string->length)
+        npl_primitive_error("string-fill!", "index out of range",
+                            npl_cons(start, npl_cons(end, npl_nil())));
     memset(string->data + npl_fixnum_value(start), byte,
            (size_t)(npl_fixnum_value(end) - npl_fixnum_value(start)));
     return npl_nil();
@@ -595,10 +573,8 @@ NplVal npl_string_set(NplVal value, NplVal index, NplVal character)
     NplString *string = mutable_string(value, "string-set!");
     uint8_t byte = string_byte_of(character, "string-set!");
     if (!npl_is_fixnum(index) || npl_fixnum_value(index) < 0 ||
-        npl_fixnum_value(index) >= (int64_t)string->length) {
-        fprintf(stderr, "string-set!: index out of range\n");
-        exit(1);
-    }
+        npl_fixnum_value(index) >= (int64_t)string->length)
+        npl_primitive_error("string-set!", "index out of range", index);
     string->data[npl_fixnum_value(index)] = (char)byte;
     return npl_nil();
 }
@@ -651,10 +627,10 @@ NplVal npl_substring(NplVal s, NplVal i, NplVal j) {
     const NplString *st = npl_require_bytes_internal(s, "substring");
     int64_t a = (int64_t)(i >> 2);
     int64_t b = (int64_t)(j >> 2);
-    if (a < 0 || b < a || b > (int64_t)st->length) {
-        fprintf(stderr, "substring: bad range\n");
-        exit(1);
-    }
+    if (!npl_is_fixnum(i) || !npl_is_fixnum(j) ||
+        a < 0 || b < a || b > (int64_t)st->length)
+        npl_primitive_error("substring", "index out of range",
+                            npl_cons(i, npl_cons(j, npl_nil())));
     return npl_box_bytes_internal(st->data + a, (uint32_t)(b - a), st->header.tag);
 }
 

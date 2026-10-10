@@ -9,7 +9,8 @@
 ; named there start as #f.
 (define (record-field-index field fields index)
   (if (null? fields)
-      (raise "define-record-type: constructor names an unknown field")
+      (argument-error "define-record-type" "constructor names an unknown field"
+                      field)
       (if (eq? field (car fields))
           index
           (record-field-index field (cdr fields) (raw-add index 1)))))
@@ -20,7 +21,8 @@
         (count (length fields)))
     (lambda values
       (if (not (raw-equal (length values) (length indexes)))
-          (raise "record constructor: wrong number of arguments"))
+          (argument-error "record constructor" "wrong number of arguments"
+                          (length values)))
       (let ((slots (make-vector count #f)))
         (for-each (lambda (index value)
                     (vector-set! slots (raw-subtract index 1) value))

@@ -117,7 +117,7 @@ TESTS="$ROOT/src/compiler/tests"
     printf '(main)\n'
 } > "$WORK/primitive-errors.scm"
 "$ROOT/build/bin/npli" "$WORK/primitive-errors.scm" > "$WORK/primitive-errors-suite.out"
-grep -Fx 'PASS primitive-errors 10' "$WORK/primitive-errors-suite.out" >/dev/null
+grep -Fx 'PASS primitive-errors 30' "$WORK/primitive-errors-suite.out" >/dev/null
 [ "$missing_status" -eq 66 ]
 [ "$option_status" -eq 2 ]
 "$ROOT/build/bin/npli" -e '(import (scheme base) (scheme write))' \

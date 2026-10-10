@@ -2,7 +2,8 @@
 ; Built on the vector/bytevector primitives; optional start/end arguments
 ; follow R7RS ranges and are validated before any mutation.
 
-(define (range-error who) (raise (string-append who ": invalid range")))
+(define (range-error who start end)
+  (argument-error who "index out of range" (list start end)))
 
 (define (index-argument values default)
   (if (pair? values) (car values) default))
@@ -15,16 +16,18 @@
                  length)))
     (if (if (exact-integer? start) (exact-integer? end) #f)
         (if (if (raw-less-equal 0 start) (raw-less-equal start end) #f)
-            (if (raw-less-equal end length) (cons start end) (range-error who))
-            (range-error who))
-        (range-error who))))
+            (if (raw-less-equal end length) (cons start end)
+                (range-error who start end))
+            (range-error who start end))
+        (range-error who start end))))
 
 ; ---------------- vectors ----------------
 
 (define (make-vector count . fill)
   (if (if (exact-integer? count) (raw-less-equal 0 count) #f)
       (list->vector (make-list count (index-argument fill #f)))
-      (raise "make-vector: expected a non-negative exact count")))
+      (argument-error "make-vector" "expected a non-negative exact count"
+                      count)))
 
 (define (vector-slice->list source start end output)
   (if (raw-equal start end)
@@ -68,7 +71,7 @@
             #f)
         (vector-store! target at
           (vector-slice->list source (car bounds) (cdr bounds) '()))
-        (range-error "vector-copy!"))))
+        (argument-error "vector-copy!" "index out of range" at))))
 
 (define (vector-append . vectors)
   (list->vector (apply append (map vector->list vectors))))
@@ -85,7 +88,8 @@
 (define (make-bytevector count . fill)
   (if (if (exact-integer? count) (raw-less-equal 0 count) #f)
       (apply bytevector (make-list count (index-argument fill 0)))
-      (raise "make-bytevector: expected a non-negative exact count")))
+      (argument-error "make-bytevector"
+                      "expected a non-negative exact count" count)))
 
 (define (bytevector-slice->list source start end output)
   (if (raw-equal start end)
@@ -115,7 +119,7 @@
                 #f)
             #f)
         (bytevector-store! target at bytes)
-        (range-error "bytevector-copy!"))))
+        (argument-error "bytevector-copy!" "index out of range" at))))
 
 (define (bytevector-append . bytevectors)
   (apply bytevector

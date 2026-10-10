@@ -255,6 +255,18 @@
                      (list irritant))
     #f EVAL-PRIMITIVE-ENVIRONMENT continuation))
 
+;; Run a host primitive whose own checks define the error: a native primitive
+;; error object it raises is re-raised through the evaluator's handlers, so
+;; argument checks and wording live once, in the runtime.
+(define (eval-host-primitive thunk continuation)
+  (let ((outcome
+          (guard (e ((npl_record_p e 'npl-error-object) (cons 'raised e)))
+            (cons 'value (thunk)))))
+    (if (eq? (car outcome) 'value)
+        (continuation (cdr outcome))
+        (eval-raise-value (cdr outcome) #f EVAL-PRIMITIVE-ENVIRONMENT
+                          continuation))))
+
 (define (eval-error-object-text object)
   (let ((port (open-output-string)))
     (display (npl_record_ref object 'npl-error-object 2) port)

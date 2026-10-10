@@ -7,7 +7,7 @@
 (define (char-codes who characters)
   (map (lambda (c)
          (if (char? c) (char->integer c)
-             (raise (string-append who ": expected characters"))))
+             (argument-error who "expected a character" c)))
        characters))
 
 (define (codes-ordered? same-or-ordered? codes)
@@ -72,7 +72,7 @@
               (begin
                 (string-set! target index (car rest))
                 (loop (raw-add index 1) (cdr rest)))))
-        (range-error "string-copy!"))))
+        (argument-error "string-copy!" "index out of range" at))))
 
 (define (string-fill! target fill . range)
   (let ((bounds (checked-range "string-fill!" (string-length target) range)))
@@ -111,7 +111,7 @@
 (define (strings-ordered? who accept? strings)
   (for-each (lambda (s)
               (if (not (string? s))
-                  (raise (string-append who ": expected strings"))))
+                  (argument-error who "expected a string" s)))
             strings)
   (let loop ((rest strings))
     (if (null? (cdr rest))

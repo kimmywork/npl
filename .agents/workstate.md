@@ -4,11 +4,9 @@
 
 Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0-L3 and L4a
 (records, error objects, file/read errors) are done. L4b (catchable
-primitive errors, plan section "Primitive Errors") batch 1 is done: the
-mechanism plus pair, vector, char, string-ref, arity, and non-procedure
-errors. Next batches: remaining `runtime/value.c` checks (bytevectors,
-strings, append, list->vector), numeric errors (now raised by libraries as
-strings), then `runtime/io.c` port errors. The toolchain stage is complete and committed
+primitive errors, plan section "Primitive Errors") batches 1-2 are done:
+the mechanism, all `runtime/value.c` argument errors, and library argument
+checks. Next: `runtime/io.c` port errors (batch 3), then L5. The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed

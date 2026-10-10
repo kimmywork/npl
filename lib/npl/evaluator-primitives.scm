@@ -20,9 +20,6 @@
         (continuation
           (eval-error (string-append name ": wrong number of arguments"))))))
 
-(define (eval-ascii-char? value)
-  (if (char? value) (<= (char->integer value) 127) #f))
-
 ; Same who/message/irritant as runtime/value.c for vector-ref/vector-set!.
 (define (eval-vector-index-error who arguments continuation)
   (let ((vector (car arguments)) (index (car (cdr arguments))))
@@ -44,49 +41,11 @@
           #f)
       #f))
 
-;; Bytevector argument checks; the native primitives enforce the same ranges.
-(define (eval-byte? value)
-  (if (number? value)
-      (if (npl_integer_p value) (if (>= value 0) (<= value 255) #f) #f)
-      #f))
-
-(define (eval-byte-list? values)
-  (if (null? values) #t
-      (if (pair? values)
-          (if (eval-byte? (car values)) (eval-byte-list? (cdr values)) #f)
-          #f)))
-
-(define (eval-list->bytevector values)
-  (let ((port (open-output-bytevector)))
-    (let loop ((rest values))
-      (if (pair? rest)
-          (begin (write-u8 (car rest) port) (loop (cdr rest)))))
-    (get-output-bytevector port)))
-
-(define (eval-bytevector-index? value index)
-  (if (bytevector? value)
-      (if (number? index)
-          (if (npl_integer_p index)
-              (if (>= index 0) (< index (bytevector-length value)) #f)
-              #f)
-          #f)
-      #f))
-
 ;; (apply f a ... list): leading arguments followed by the elements of list.
 (define (eval-apply-arguments arguments)
   (if (null? (cdr arguments))
       (car arguments)
       (cons (car arguments) (eval-apply-arguments (cdr arguments)))))
-
-(define (eval-string-list? values)
-  (if (null? values) #t
-      (if (pair? values)
-          (if (string? (car values)) (eval-string-list? (cdr values)) #f)
-          #f)))
-
-(define (eval-string-append-all values result)
-  (if (null? values) result
-      (eval-string-append-all (cdr values) (string-append result (car values)))))
 
 (define (eval-apply-primitive name arguments environment continuation)
   (cond
@@ -172,44 +131,34 @@
     ((string=? name "append")
      (let ((error (eval-arity arguments 2 name)))
        (if error (continuation error)
-           (if (eval-proper-list? (car arguments))
-               (continuation (append (car arguments) (car (cdr arguments))))
-               (continuation (eval-error "append: expected a list"))))))
+           (eval-host-primitive
+             (lambda () (append (car arguments) (car (cdr arguments))))
+             continuation))))
     ((string=? name "bytevector?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
            (continuation (bytevector? (car arguments))))))
     ((string=? name "bytevector")
-     (if (eval-byte-list? arguments)
-         (continuation (eval-list->bytevector arguments))
-         (continuation (eval-error "bytevector: expected bytes"))))
+     (eval-host-primitive (lambda () (apply bytevector arguments))
+                          continuation))
     ((string=? name "bytevector-length")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
-           (if (bytevector? (car arguments))
-               (continuation (bytevector-length (car arguments)))
-               (continuation
-                 (eval-error "bytevector-length: expected a bytevector"))))))
+           (eval-host-primitive
+             (lambda () (bytevector-length (car arguments)))
+             continuation))))
     ((string=? name "bytevector-u8-ref")
      (let ((error (eval-arity arguments 2 name)))
        (if error (continuation error)
-           (if (eval-bytevector-index? (car arguments) (car (cdr arguments)))
-               (continuation
-                 (bytevector-u8-ref (car arguments) (car (cdr arguments))))
-               (continuation
-                 (eval-error "bytevector-u8-ref: index out of range"))))))
+           (eval-host-primitive
+             (lambda () (apply bytevector-u8-ref arguments))
+             continuation))))
     ((string=? name "bytevector-u8-set!")
      (let ((error (eval-arity arguments 3 name)))
        (if error (continuation error)
-           (if (if (eval-bytevector-index? (car arguments)
-                                           (car (cdr arguments)))
-                   (eval-byte? (car (cdr (cdr arguments)))) #f)
-               (begin
-                 (bytevector-u8-set! (car arguments) (car (cdr arguments))
-                                     (car (cdr (cdr arguments))))
-                 (continuation EVAL-UNSPECIFIED))
-               (continuation
-                 (eval-error "bytevector-u8-set!: invalid index or byte"))))))
+           (eval-host-primitive
+             (lambda () (apply bytevector-u8-set! arguments) EVAL-UNSPECIFIED)
+             continuation))))
     ((string=? name "procedure?")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
@@ -242,17 +191,16 @@
     ((string=? name "string-length")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
-           (continuation (string-length (car arguments))))))
+           (eval-host-primitive (lambda () (string-length (car arguments)))
+                                continuation))))
     ((string=? name "string-append")
-     (if (eval-string-list? arguments)
-         (continuation (eval-string-append-all arguments ""))
-         (continuation (eval-error "string-append: expected strings"))))
+     (eval-host-primitive (lambda () (apply string-append arguments))
+                          continuation))
     ((string=? name "substring")
      (let ((error (eval-arity arguments 3 name)))
        (if error (continuation error)
-           (continuation
-             (substring (car arguments) (car (cdr arguments))
-                        (car (cdr (cdr arguments))))))))
+           (eval-host-primitive (lambda () (apply substring arguments))
+                                continuation))))
     ((string=? name "int->string")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
@@ -268,37 +216,20 @@
     ((string=? name "npl_make_string")
      (let ((error (eval-arity arguments 2 name)))
        (if error (continuation error)
-           (if (if (exact-integer? (car arguments)) (>= (car arguments) 0) #f)
-               (if (eval-ascii-char? (car (cdr arguments)))
-                   (continuation
-                     (npl_make_string (car arguments) (car (cdr arguments))))
-                   (continuation
-                     (eval-error "make-string: expected an ASCII character")))
-               (continuation
-                 (eval-error "make-string: expected a non-negative count"))))))
+           (eval-host-primitive (lambda () (apply npl_make_string arguments))
+                                continuation))))
     ((string=? name "string-set!")
      (let ((error (eval-arity arguments 3 name)))
        (if error (continuation error)
-           (if (eval-string-index? (car arguments) (car (cdr arguments)))
-               (if (eval-ascii-char? (car (cdr (cdr arguments))))
-                   (begin
-                     (string-set! (car arguments) (car (cdr arguments))
-                                  (car (cdr (cdr arguments))))
-                     (continuation EVAL-UNSPECIFIED))
-                   (continuation
-                     (eval-error "string-set!: expected an ASCII character")))
-               (continuation (eval-error "string-set!: index out of range"))))))
+           (eval-host-primitive
+             (lambda () (apply string-set! arguments) EVAL-UNSPECIFIED)
+             continuation))))
     ((string=? name "npl_string_fill")
      (let ((error (eval-arity arguments 4 name)))
        (if error (continuation error)
-           (if (eval-ascii-char? (car (cdr arguments)))
-               (begin
-                 (npl_string_fill (car arguments) (car (cdr arguments))
-                                  (car (cdr (cdr arguments)))
-                                  (car (cdr (cdr (cdr arguments)))))
-                 (continuation EVAL-UNSPECIFIED))
-               (continuation
-                 (eval-error "string-fill!: expected an ASCII character"))))))
+           (eval-host-primitive
+             (lambda () (apply npl_string_fill arguments) EVAL-UNSPECIFIED)
+             continuation))))
     ((string=? name "string-ref")
      (let ((error (eval-arity arguments 2 name)))
        (if error (continuation error)
@@ -337,10 +268,8 @@
     ((string=? name "list->vector")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
-           (if (eval-proper-list? (car arguments))
-               (continuation (list->vector (car arguments)))
-               (continuation
-                 (eval-error "list->vector: expected a list"))))))
+           (eval-host-primitive (lambda () (list->vector (car arguments)))
+                                continuation))))
     ((string=? name "vector-length")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)

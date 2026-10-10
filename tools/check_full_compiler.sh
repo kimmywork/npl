@@ -119,7 +119,7 @@ run_suite string-io "PASS string-io 12"
 run_suite first-wave-libraries "PASS first-wave-libraries 16"
 run_suite process "PASS process 9"
 run_suite error-objects "PASS error-objects 6"
-run_suite primitive-errors "PASS primitive-errors 10"
+run_suite primitive-errors "PASS primitive-errors 30"
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then

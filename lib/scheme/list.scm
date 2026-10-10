@@ -19,7 +19,7 @@
   (if (pair? values)
       (begin
         (if (not (predicate (car values)))
-            (raise (string-append who ": wrong argument type")))
+            (argument-error who "wrong argument type" (car values)))
         (check-all who predicate (cdr values)))))
 
 (define (boolean=? first second . rest)
@@ -81,26 +81,31 @@
       (make-list-loop (raw-subtract count 1) fill (cons fill output))))
 
 (define (make-list count . fill)
-  (if (not (exact-integer? count)) (raise "make-list: expected an exact count"))
-  (if (raw-less count 0) (raise "make-list: count must not be negative"))
+  (if (not (if (exact-integer? count) (raw-less-equal 0 count) #f))
+      (argument-error "make-list" "expected a non-negative exact count" count))
   (make-list-loop count (if (pair? fill) (car fill) #f) '()))
 
-(define (list-tail items count)
-  (if (raw-equal count 0)
-      items
-      (if (pair? items)
-          (list-tail (cdr items) (raw-subtract count 1))
-          (raise "list-tail: index out of range"))))
+; The error names the caller and the index it was given.
+(define (checked-list-tail who items index)
+  (let loop ((rest items) (count index))
+    (if (raw-equal count 0)
+        rest
+        (if (pair? rest)
+            (loop (cdr rest) (raw-subtract count 1))
+            (argument-error who "index out of range" index)))))
+
+(define (list-tail items count) (checked-list-tail "list-tail" items count))
 
 (define (list-ref items index)
-  (let ((tail (list-tail items index)))
-    (if (pair? tail) (car tail) (raise "list-ref: index out of range"))))
+  (let ((tail (checked-list-tail "list-ref" items index)))
+    (if (pair? tail) (car tail)
+        (argument-error "list-ref" "index out of range" index))))
 
 (define (list-set! items index value)
-  (let ((tail (list-tail items index)))
+  (let ((tail (checked-list-tail "list-set!" items index)))
     (if (pair? tail)
         (set-car! tail value)
-        (raise "list-set!: index out of range"))))
+        (argument-error "list-set!" "index out of range" index))))
 
 ; Copies the spine, keeping an improper tail (R7RS 6.4).
 (define (list-copy items)

@@ -11,7 +11,7 @@
                 (else best))
           (if inexact #t (npl_inexact_p x))))))
 (define (extremum who maximum? xs)
-  (if (null? xs) (raise (string-append who ": needs at least one argument")))
+  (if (null? xs) (argument-error who "wrong number of arguments" 0))
   (check-real-arguments who xs)
   (extremum-loop maximum? (cdr xs) (car xs) (npl_inexact_p (car xs))))
 (define (max . xs) (extremum "max" #t xs))
@@ -29,7 +29,8 @@
   (if (if (npl_integer_p k) (not (raw-less k 0)) #f)
       (let ((s (integer-sqrt k)))
         (values s (raw-subtract k (raw-multiply s s))))
-      (raise "exact-integer-sqrt: expected an exact nonnegative integer")))
+      (argument-error "exact-integer-sqrt"
+                      "expected an exact nonnegative integer" k)))
 
 ; Simplest rational in a closed interval (Stern-Brocot descent), exact inputs.
 (define (simplest-positive low high)
@@ -60,4 +61,5 @@
                  (inexact-if inexact
                    (simplest-rational (raw-subtract center radius)
                                       (raw-add center radius)))))))
-      (raise "rationalize: expected real numbers")))
+      (argument-error "rationalize" "expected a real number"
+                      (if (real? x) y x))))
