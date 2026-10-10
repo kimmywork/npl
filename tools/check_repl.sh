@@ -110,14 +110,14 @@ grep -F 'error: car: expected a pair' "$WORK/bad.err" >/dev/null
 
 # Primitive error objects agree with native (src/compiler/tests, same file).
 TESTS="$ROOT/src/compiler/tests"
+# Inline framework.npl in place of its include line, then call main.
 {
-    sed -n 3p "$TESTS/primitive-errors.npl"
-    cat "$TESTS/framework.npl"
-    sed '1,5d' "$TESTS/primitive-errors.npl"
+    sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'
+/^(include "framework.npl")$/d' "$TESTS/primitive-errors.npl"
     printf '(main)\n'
 } > "$WORK/primitive-errors.scm"
 "$ROOT/build/bin/npli" "$WORK/primitive-errors.scm" > "$WORK/primitive-errors-suite.out"
-grep -Fx 'PASS primitive-errors 30' "$WORK/primitive-errors-suite.out" >/dev/null
+grep -Fx 'PASS primitive-errors 37' "$WORK/primitive-errors-suite.out" >/dev/null
 [ "$missing_status" -eq 66 ]
 [ "$option_status" -eq 2 ]
 "$ROOT/build/bin/npli" -e '(import (scheme base) (scheme write))' \

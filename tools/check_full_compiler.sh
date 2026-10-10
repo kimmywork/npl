@@ -119,7 +119,7 @@ run_suite string-io "PASS string-io 12"
 run_suite first-wave-libraries "PASS first-wave-libraries 16"
 run_suite process "PASS process 9"
 run_suite error-objects "PASS error-objects 6"
-run_suite primitive-errors "PASS primitive-errors 30"
+run_suite primitive-errors "PASS primitive-errors 37"
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
@@ -168,7 +168,7 @@ reject_runtime contracts/parameter-arity.npl \
 reject_runtime contracts/parameterize-nonparameter.npl \
     parameterize-nonparameter "parameterize: not a parameter"
 reject_runtime contracts/read-char-nonport.npl \
-    read-char-nonport "read-char: not a port"
+    read-char-nonport "read-char: expected a port"
 reject_runtime contracts/write-closed-port.npl \
     write-closed-port "write-u8: port is closed"
 reject_runtime contracts/write-u8-range.npl \
@@ -176,17 +176,17 @@ reject_runtime contracts/write-u8-range.npl \
 reject_runtime contracts/read-char-binary-port.npl \
     read-char-binary-port "read-char: wrong port type"
 reject_runtime contracts/write-bytevector-range.npl \
-    write-bytevector-range "write-bytevector: invalid bytevector range"
+    write-bytevector-range "write-bytevector: index out of range"
 reject_runtime contracts/write-bytevector-closed.npl \
     write-bytevector-closed "write-u8: port is closed"
 reject_runtime contracts/open-input-string-type.npl \
     open-input-string-type "open-input-string: expected a string"
 reject_runtime contracts/get-output-string-port.npl \
-    get-output-string-port "get-output-string: not a string port"
+    get-output-string-port "get-output-string: expected a string output port"
 reject_runtime contracts/process-improper-arguments.npl \
-    process-improper-arguments "run-process: arguments must be a proper list"
+    process-improper-arguments "run-process: expected a proper list"
 reject_runtime contracts/process-nonstring-argument.npl \
-    process-nonstring-argument "run-process: expected an argument string"
+    process-nonstring-argument "run-process: expected a string"
 reject_compile contracts/library-cycle.npl \
     library-cycle "library cycle"
 reject_compile contracts/library-unknown-import.npl \

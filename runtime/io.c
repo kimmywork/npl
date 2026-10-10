@@ -71,10 +71,8 @@ static NplVal make_byte_buffer(uint32_t capacity)
 
 static NplBytevector *require_bytevector(NplVal value, const char *who)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_BYTEVECTOR) {
-        fprintf(stderr, "%s: expected a bytevector\n", who);
-        exit(1);
-    }
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_BYTEVECTOR)
+        npl_primitive_error(who, "expected a bytevector", value);
     return (NplBytevector *)npl_header(value);
 }
 
@@ -100,10 +98,8 @@ static NplVal make_string_buffer(uint32_t capacity)
 
 static NplString *require_string(NplVal value, const char *who)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING) {
-        fprintf(stderr, "%s: expected a string\n", who);
-        exit(1);
-    }
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING)
+        npl_primitive_error(who, "expected a string", value);
     return (NplString *)npl_header(value);
 }
 
@@ -348,10 +344,8 @@ NplVal npl_newline(void)
 
 static NplPort *port_value(NplVal value, const char *who)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PORT) {
-        fprintf(stderr, "%s: not a port\n", who);
-        exit(1);
-    }
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PORT)
+        npl_primitive_error(who, "expected a port", value);
     return (NplPort *)npl_header(value);
 }
 
@@ -359,14 +353,10 @@ static NplPort *require_port(NplVal value, uint32_t access,
                              const char *who)
 {
     NplPort *port = port_value(value, who);
-    if ((port->mode & NPL_PORT_CLOSED) != 0) {
-        fprintf(stderr, "%s: port is closed\n", who);
-        exit(1);
-    }
-    if ((port->mode & access) == 0) {
-        fprintf(stderr, "%s: wrong port direction\n", who);
-        exit(1);
-    }
+    if ((port->mode & NPL_PORT_CLOSED) != 0)
+        npl_primitive_error(who, "port is closed", value);
+    if ((port->mode & access) == 0)
+        npl_primitive_error(who, "wrong port direction", value);
     return port;
 }
 
@@ -374,10 +364,8 @@ static NplPort *require_port_mode(NplVal value, uint32_t access,
                                   uint32_t kind, const char *who)
 {
     NplPort *port = require_port(value, access, who);
-    if ((port->mode & kind) == 0) {
-        fprintf(stderr, "%s: wrong port type\n", who);
-        exit(1);
-    }
+    if ((port->mode & kind) == 0)
+        npl_primitive_error(who, "wrong port type", value);
     return port;
 }
 
@@ -442,30 +430,18 @@ NplVal npl_try_open_file(NplVal path, NplVal kind)
     case 3: return try_open_file_port(path, "wb",
                 NPL_PORT_OUTPUT | NPL_PORT_BINARY, "open-binary-output-file");
     default:
-        fprintf(stderr, "open file: invalid port kind\n");
-        exit(1);
+        npl_primitive_error("open file", "invalid port kind", kind);
+        return npl_nil();
     }
 }
 
 static NplVal open_file_port(NplVal path, const char *mode,
                              uint32_t port_mode, const char *who)
 {
-    const NplString *name = npl_require_bytes_internal(path, who);
-    char *buffer = (char *)malloc((size_t)name->length + 1);
-    if (!buffer) {
-        fprintf(stderr, "%s: out of memory\n", who);
-        exit(1);
-    }
-    memcpy(buffer, name->data, name->length);
-    buffer[name->length] = '\0';
-    FILE *stream = fopen(buffer, mode);
-    if (!stream) {
-        fprintf(stderr, "%s: cannot open '%s'\n", who, buffer);
-        free(buffer);
-        exit(1);
-    }
-    free(buffer);
-    return make_port(stream, port_mode | NPL_PORT_OWNED);
+    NplVal port = try_open_file_port(path, mode, port_mode, who);
+    if (npl_is_false(port))
+        npl_primitive_file_error(who, "cannot open file", path);
+    return port;
 }
 
 NplVal npl_current_input_port(void) { return g_current_input_port; }
@@ -514,10 +490,9 @@ NplVal npl_get_output_bytevector(NplVal value)
     NplPort *port = require_port(value, NPL_PORT_OUTPUT,
                                  "get-output-bytevector");
     if ((port->mode & (NPL_PORT_MEMORY | NPL_PORT_BINARY)) !=
-        (NPL_PORT_MEMORY | NPL_PORT_BINARY)) {
-        fprintf(stderr, "get-output-bytevector: not a bytevector port\n");
-        exit(1);
-    }
+        (NPL_PORT_MEMORY | NPL_PORT_BINARY))
+        npl_primitive_error("get-output-bytevector",
+                            "expected a bytevector output port", value);
     NplBytevector *buffer = require_bytevector(
         port->buffer, "get-output-bytevector");
     return copy_bytevector_range(buffer->data, port->length);
@@ -541,10 +516,9 @@ NplVal npl_get_output_string(NplVal value)
     NplPort *port = require_port(value, NPL_PORT_OUTPUT,
                                  "get-output-string");
     if ((port->mode & (NPL_PORT_MEMORY | NPL_PORT_TEXTUAL)) !=
-        (NPL_PORT_MEMORY | NPL_PORT_TEXTUAL)) {
-        fprintf(stderr, "get-output-string: not a string port\n");
-        exit(1);
-    }
+        (NPL_PORT_MEMORY | NPL_PORT_TEXTUAL))
+        npl_primitive_error("get-output-string",
+                            "expected a string output port", value);
     NplString *buffer = require_string(port->buffer, "get-output-string");
     return copy_string_range(buffer->data, port->length);
 }
@@ -553,15 +527,14 @@ static NplVal close_port_direction(NplVal value, uint32_t access,
                                    const char *who)
 {
     NplPort *port = port_value(value, who);
-    if ((port->mode & access) == 0) {
-        fprintf(stderr, "%s: wrong port direction\n", who);
-        exit(1);
-    }
+    if ((port->mode & access) == 0)
+        npl_primitive_error(who, "wrong port direction", value);
     if ((port->mode & NPL_PORT_CLOSED) != 0) return npl_nil();
     if ((port->mode & NPL_PORT_OWNED) != 0 && port->stream) {
         if (fclose(port->stream) != 0) {
-            fprintf(stderr, "%s: close failed\n", who);
-            exit(1);
+            port->stream = NULL;
+            port->mode |= NPL_PORT_CLOSED;
+            npl_primitive_file_error(who, "close failed", value);
         }
         port->stream = NULL;
     }
@@ -589,10 +562,8 @@ NplVal npl_close_port(NplVal value)
 NplVal npl_flush_output_port(NplVal value)
 {
     NplPort *port = require_port(value, NPL_PORT_OUTPUT, "flush-output-port");
-    if ((port->mode & NPL_PORT_MEMORY) == 0 && fflush(port->stream) != 0) {
-        fprintf(stderr, "flush-output-port: flush failed\n");
-        exit(1);
-    }
+    if ((port->mode & NPL_PORT_MEMORY) == 0 && fflush(port->stream) != 0)
+        npl_primitive_file_error("flush-output-port", "flush failed", value);
     return npl_nil();
 }
 
@@ -718,10 +689,8 @@ NplVal npl_write_char(NplVal character, NplVal value)
 {
     NplPort *port = require_port_mode(value, NPL_PORT_OUTPUT,
                                      NPL_PORT_TEXTUAL, "write-char");
-    if (!npl_is_char(character) || npl_char_value(character) > UINT8_MAX) {
-        fprintf(stderr, "write-char: expected an ASCII character\n");
-        exit(1);
-    }
+    if (!npl_is_char(character) || npl_char_value(character) > UINT8_MAX)
+        npl_primitive_error("write-char", "expected a character", character);
     uint8_t byte = (uint8_t)npl_char_value(character);
     port_write_bytes(port, &byte, 1, "write-char");
     return npl_nil();
@@ -748,10 +717,8 @@ NplVal npl_write_byte(NplVal byte, NplVal value)
     NplPort *port = require_port_mode(value, NPL_PORT_OUTPUT,
                                      NPL_PORT_BINARY, "write-u8");
     if (!npl_is_fixnum(byte) || npl_fixnum_value(byte) < 0 ||
-        npl_fixnum_value(byte) > UINT8_MAX) {
-        fprintf(stderr, "write-u8: expected a byte\n");
-        exit(1);
-    }
+        npl_fixnum_value(byte) > UINT8_MAX)
+        npl_primitive_error("write-u8", "expected a byte", byte);
     uint8_t raw = (uint8_t)npl_fixnum_value(byte);
     port_write_bytes(port, &raw, 1, "write-u8");
     return npl_nil();
@@ -760,10 +727,9 @@ NplVal npl_write_byte(NplVal byte, NplVal value)
 static uint32_t require_nonnegative_count(NplVal value, const char *who)
 {
     if (!npl_is_fixnum(value) || npl_fixnum_value(value) < 0 ||
-        (uint64_t)npl_fixnum_value(value) > UINT32_MAX) {
-        fprintf(stderr, "%s: expected a nonnegative integer\n", who);
-        exit(1);
-    }
+        (uint64_t)npl_fixnum_value(value) > UINT32_MAX)
+        npl_primitive_error(who, "expected a non-negative exact integer",
+                            value);
     return (uint32_t)npl_fixnum_value(value);
 }
 
@@ -773,10 +739,10 @@ static void require_bytevector_range(NplBytevector *bytes, NplVal start_value,
 {
     *start = require_nonnegative_count(start_value, who);
     *end = require_nonnegative_count(end_value, who);
-    if (*start > *end || *end > bytes->length) {
-        fprintf(stderr, "%s: invalid bytevector range\n", who);
-        exit(1);
-    }
+    if (*start > *end || *end > bytes->length)
+        npl_primitive_error(who, "index out of range",
+                            npl_cons(start_value,
+                                     npl_cons(end_value, npl_nil())));
 }
 
 NplVal npl_read_bytevector(int64_t argc, NplVal *argv)
@@ -804,10 +770,9 @@ NplVal npl_read_bytevector_into(int64_t argc, NplVal *argv)
         exit(1);
     }
     NplBytevector *bytes = require_bytevector(argv[0], "read-bytevector!");
-    if ((bytes->header.flags & NPL_FLAG_LITERAL) != 0) {
-        fprintf(stderr, "read-bytevector!: cannot mutate a literal\n");
-        exit(1);
-    }
+    if ((bytes->header.flags & NPL_FLAG_LITERAL) != 0)
+        npl_primitive_error("read-bytevector!", "cannot mutate a literal",
+                            argv[0]);
     NplPort *port = require_port_mode(argv[1], NPL_PORT_INPUT,
                                      NPL_PORT_BINARY, "read-bytevector!");
     uint32_t start;
@@ -1236,11 +1201,7 @@ NplVal npl_read_file(NplVal path) {
 
     FILE *fp = fopen(buf, "rb");
     free(buf);
-    if (!fp) {
-        fprintf(stderr, "read-file: cannot open '%.*s'\n",
-                (int)p->length, p->data);
-        exit(1);
-    }
+    if (!fp) npl_primitive_file_error("read-file", "cannot open file", path);
     fseek(fp, 0, SEEK_END);
     long size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
@@ -1256,10 +1217,8 @@ NplVal npl_read_file(NplVal path) {
 
 static const NplString *process_string(NplVal value, const char *who)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING) {
-        fprintf(stderr, "%s: expected an argument string\n", who);
-        exit(1);
-    }
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING)
+        npl_primitive_error(who, "expected a string", value);
     return (const NplString *)npl_header(value);
 }
 
@@ -1267,18 +1226,16 @@ static size_t process_argument_count(NplVal arguments)
 {
     size_t count = 0;
     while (!npl_is_nil(arguments)) {
-        if (!npl_is_ptr(arguments) || npl_header(arguments)->tag != BOX_PAIR) {
-            fprintf(stderr, "run-process: arguments must be a proper list\n");
-            exit(1);
-        }
+        if (!npl_is_ptr(arguments) || npl_header(arguments)->tag != BOX_PAIR)
+            npl_primitive_error("run-process", "expected a proper list",
+                                arguments);
         (void)process_string(npl_car(arguments), "run-process");
         arguments = npl_cdr(arguments);
         count++;
     }
-    if (count == 0) {
-        fprintf(stderr, "run-process: arguments must not be empty\n");
-        exit(1);
-    }
+    if (count == 0)
+        npl_primitive_error("run-process", "expected a program name",
+                            npl_nil());
     return count;
 }
 
@@ -1363,10 +1320,9 @@ NplVal npl_file_exists(NplVal path_value)
 NplVal npl_delete_file(NplVal path_value)
 {
     const NplString *path = process_string(path_value, "delete-file");
-    if (unlink(path->data) != 0) {
-        fprintf(stderr, "delete-file: cannot remove '%s'\n", path->data);
-        exit(1);
-    }
+    if (unlink(path->data) != 0)
+        npl_primitive_file_error("delete-file", "cannot delete file",
+                                 path_value);
     return npl_nil();
 }
 
@@ -1380,8 +1336,9 @@ NplVal npl_make_temporary_directory(void)
     (void)snprintf(path, length, "%s/npl-driver.XXXXXX", root);
     if (!mkdtemp(path)) {
         free(path);
-        fprintf(stderr, "make-temporary-directory: cannot create directory\n");
-        exit(1);
+        npl_primitive_file_error("make-temporary-directory",
+                                 "cannot create directory",
+                                 npl_string(root, (uint32_t)strlen(root)));
     }
     NplVal value = npl_string(path, (uint32_t)strlen(path));
     free(path);
@@ -1391,10 +1348,9 @@ NplVal npl_make_temporary_directory(void)
 NplVal npl_delete_directory(NplVal path_value)
 {
     const NplString *path = process_string(path_value, "delete-directory");
-    if (rmdir(path->data) != 0) {
-        fprintf(stderr, "delete-directory: cannot remove '%s'\n", path->data);
-        exit(1);
-    }
+    if (rmdir(path->data) != 0)
+        npl_primitive_file_error("delete-directory", "cannot delete directory",
+                                 path_value);
     return npl_nil();
 }
 

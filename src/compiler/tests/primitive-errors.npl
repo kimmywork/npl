@@ -1,6 +1,7 @@
 ; Primitive error objects: who, message, and irritants agree between native
 ; and npli (tools/check_full_compiler.sh runs both); Guile's wording differs.
-(import (scheme base) (scheme write) (scheme process-context))
+(import (scheme base) (scheme write) (scheme file) (scheme read)
+        (scheme process-context))
 
 (include "framework.npl")
 
@@ -69,4 +70,28 @@
   (check "string<?" (lambda () (string<? "a" 1)) '("string<?: expected a string" (1)))
   (check "error message" (lambda () (error 'not-a-string))
          '("error: expected a string" (not-a-string)))
+  ; Ports (runtime/io.c).
+  (check "read-char port" (lambda () (read-char 1)) '("read-char: expected a port" (1)))
+  (check "write-char char" (lambda () (write-char 1 (open-output-string)))
+         '("write-char: expected a character" (1)))
+  (check "open-input-string" (lambda () (open-input-string 1))
+         '("open-input-string: expected a string" (1)))
+  (check "display port" (lambda () (display 1 'p)) '("display: expected a port" (p)))
+  (check "read syntax" (lambda () (read (open-input-string ")"))) '("unexpected )" ()))
+  (test-identity "closed port"
+                 (lambda ()
+                   (let ((port (open-output-string)))
+                     (close-port port)
+                     (guard (e ((error-object? e)
+                                (string=? (error-object-message e)
+                                          "write-char: port is closed")))
+                       (write-char #\a port))))
+                 #t)
+  (test-identity "delete-file is a file error"
+                 (lambda ()
+                   (guard (e ((file-error? e)
+                              (equal? (error-object-irritants e)
+                                      '("/nonexistent/npl-primitive-errors"))))
+                     (delete-file "/nonexistent/npl-primitive-errors")))
+                 #t)
   (finish-tests "primitive-errors"))

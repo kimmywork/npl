@@ -27,6 +27,10 @@
 (define r9h (report 'divide-by-zero (kind (lambda () (/ 1 0)))))
 (define r9i (report 'list-tail (kind (lambda () (list-tail '(1) 5)))))
 (define r9j (report 'vector-copy! (kind (lambda () (vector-copy! (vector 1) 3 (vector 1))))))
+(define r9k (report 'read-char-port (kind (lambda () (read-char 1)))))
+(define r9l (report 'closed-port
+  (kind (lambda () (let ((p (open-output-string))) (close-port p) (write-char #\a p))))))
+(define r9m (report 'open-input-string (kind (lambda () (open-input-string 1)))))
 (define r10 (report 'nested
   (guard (outer (#t (list 'outer (error-object? outer))))
     (guard (inner ((string? inner) 'wrong-clause))

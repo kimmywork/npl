@@ -15,8 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-static NplVal make_error_object(const char *who, const char *message,
-                                NplVal irritant)
+static NplVal make_error_object(const char *kind, const char *who,
+                                const char *message, NplVal irritant)
 {
     npl_gc_root(&irritant);
     size_t who_length = strlen(who);
@@ -34,7 +34,7 @@ static NplVal make_error_object(const char *who, const char *message,
     npl_gc_root(&irritants);
     NplVal fields[4];
     fields[0] = npl_symbol("npl-error-object", 16);
-    fields[1] = npl_symbol("error", 5);
+    fields[1] = npl_symbol(kind, (uint32_t)strlen(kind));
     fields[2] = message_value;
     fields[3] = irritants;
     NplVal object = npl_make_record(4, fields);
@@ -67,14 +67,25 @@ void npl_report_error_object(NplVal object)
     fprintf(stderr, "uncaught exception\n");
 }
 
-void npl_primitive_error(const char *who, const char *message,
-                         NplVal irritant)
+static void raise_error_object(NplVal object)
 {
-    NplVal object = make_error_object(who, message, irritant);
     if (!npl_raise_from_primitive(object)) {
         npl_report_error_object(object);
         exit(1);
     }
     /* npl_raise_from_primitive does not return when a handler exists. */
     exit(1);
+}
+
+void npl_primitive_error(const char *who, const char *message,
+                         NplVal irritant)
+{
+    raise_error_object(make_error_object("error", who, message, irritant));
+}
+
+/* An operating-system refusal on a file: satisfies file-error?. */
+void npl_primitive_file_error(const char *who, const char *message,
+                              NplVal irritant)
+{
+    raise_error_object(make_error_object("file", who, message, irritant));
 }
