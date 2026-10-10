@@ -1,7 +1,7 @@
 # L6 Design: Unicode Strings and Datum Labels
 
-Status: draft for review (2026-10-10). Plan item L6 of
-[plan-r7rs](plan-r7rs.md). No code is written until this design is accepted.
+Status: accepted 2026-10-10 (decisions below). Plan item L6 of
+[plan-r7rs](plan-r7rs.md).
 
 ## Scope
 
@@ -101,9 +101,9 @@ Cons:
 O(1) indexing with compact ASCII. It has the transcoding costs of U2 plus
 widening on mutation. It is the largest change of the three.
 
-### Decision requested
+### Choice
 
-U1. The rest of this section assumes it.
+U1 (accepted, Decision 1).
 
 ## Part U: Changes
 
@@ -124,9 +124,9 @@ Runtime (C, mechanisms only):
     `npl_string_char_length`, and `npl_string_length` keeps its byte meaning.
 - `integer->char` accepts 0..#x10FFFF excluding #xD800..#xDFFF.
 - Textual ports decode and encode UTF-8 in `read-char`, `peek-char`,
-  `write-char`, `display` and `write`. `char-ready?` stays byte-based, as R7RS
-  permits. Invalid UTF-8 input reads as U+FFFD; R7RS leaves this unspecified,
-  and Guile and Racket both substitute (measured).
+  `write-char`, `display` and `write`. Invalid UTF-8 input reads as U+FFFD;
+  R7RS leaves this unspecified, and Guile and Racket both substitute
+  (measured). `char-ready?` is character-based (Decision 3).
 - `write` escapes characters per R7RS 6.13.3. Character names follow R7RS
   (`#\alarm` and the rest), and other non-graphic characters use `#\xHH`.
 - Symbols with non-ASCII characters are written with vertical bars, as R7RS
@@ -134,10 +134,9 @@ Runtime (C, mechanisms only):
 
 Unicode data (generated, not hand-written):
 
-- A generator script, `tools/gen_unicode.py`, reads `UnicodeData.txt`,
-  `CaseFolding.txt`, `SpecialCasing.txt` and `PropList.txt` from a pinned
-  Unicode version, using the version Python's `unicodedata` reports when the
-  data files are absent. It emits compact range tables as an NPL source file,
+- A generator script, `tools/gen_unicode.py`, derives the tables from the
+  host Python's `unicodedata` (Decision 4) and records that version in the
+  output. It emits compact range tables as an NPL source file,
   `lib/scheme/unicode-tables.scm`. Lookups are binary searches over sorted
   vectors.
 - Keeping the tables in NPL keeps `(scheme char)` policy NPL-first. If the
@@ -203,7 +202,7 @@ Guile unless noted.
 | Inc | Content | Relay | Oracle |
 |---|---|---|---|
 | L6a | String header (`chars`, ASCII flag) and static data emission; behavior still ASCII | seed transition (two relays) | existing fixtures unchanged |
-| L6b | UTF-8 string/char primitives, `integer->char` range, UTF-8 ports, `write` escapes | relay | Guile |
+| L6b | UTF-8 string/char primitives, `integer->char` range, UTF-8 ports with lookahead, character-based `char-ready?`, `write` escapes | relay | Guile |
 | L6c | Unicode tables and `(scheme char)` | library only | Guile (Unicode 15.1 tables vs Guile's; differences classified) |
 | L6d | Runtime `read` datum labels | relay (runtime) | Racket for input; native/npli agreement |
 | L6e | `write`/`write-shared`/`write-simple`/`display` labelling, cycle-safe `equal?` | relay (runtime) | Guile for `write-shared`; R7RS and native/npli agreement for cyclic `write`/`display`/`equal?` |
@@ -216,12 +215,16 @@ Verification on top of fixtures:
 - a UTF-8 round-trip property test (random scalar strings through ports,
   `string->utf8`, and `read`/`write`).
 
-## Open Questions
+## Decisions (2026-10-10)
 
-1. Representation: accept U1 (UTF-8 with ASCII fast path and an index cache)?
-2. Invalid UTF-8 on textual input: substitute U+FFFD (Guile and Racket) or
-   raise a read error?
-3. `char-ready?` on a stream port with a partial UTF-8 sequence buffered:
-   return `#t` (byte-based, simple) or check for a complete character?
-4. Unicode version: pin 15.1 (matches the host's Python data) or the newest
-   release?
+1. Representation: U1 (UTF-8 storage, character count, ASCII fast path,
+   one-entry index cache).
+2. Invalid UTF-8 on textual input reads as U+FFFD, as Guile and Racket do.
+3. `char-ready?` is character-based: it returns `#t` only when a complete
+   character (or end of file) can be read without blocking. A partial UTF-8
+   sequence is not ready. The byte-level query is `u8-ready?` (R7RS 6.13.2).
+   Stream ports therefore need a small per-port lookahead buffer, so that
+   bytes `char-ready?` reads without blocking are not lost; the current
+   `poll`-only check also misses data already in the stdio buffer.
+4. Unicode version: the host Python's `unicodedata` (15.1.0), recorded in the
+   generated tables.

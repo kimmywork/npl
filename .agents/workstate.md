@@ -9,9 +9,9 @@ port, and file errors and library argument checks raise error objects.
 L5 is done (current ports as parameter objects, text I/O, with-*-file,
 features, (scheme time), (scheme complex)). L7 (scheme r5rs) is done; all
 R7RS-small libraries export their full name lists (556/556). Remaining: L6
-(Unicode strings and chars, datum labels): design draft
-[design-l6](../docs/design-l6.md) awaits review, no code before acceptance;
-then P1 (Guile performance baseline). The toolchain stage is complete and committed
+(Unicode strings and chars, datum labels): design
+[design-l6](../docs/design-l6.md) accepted; next is L6a (string header and
+static data, seed transition); then P1 (Guile performance baseline). The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed

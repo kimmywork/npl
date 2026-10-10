@@ -87,7 +87,7 @@ each). The three representation changes in L3-L5 were approved 2026-10-08.
    `(scheme complex)`. Done 2026-10-10.
 6. **L6 representation work** (each needs its own design review before code):
    Unicode strings and chars, datum labels in runtime `read` and
-   `write-shared`. Design draft: [design-l6](design-l6.md) (awaiting review).
+   `write-shared`. Design: [design-l6](design-l6.md) (accepted 2026-10-10).
 7. **L7 `(scheme r5rs)`**, re-exported from the completed libraries plus
    `null-environment` and `scheme-report-environment`. Done 2026-10-10.
 8. **P1 Guile performance baseline.** Fixed environment, warm-up, at least 10
