@@ -58,53 +58,53 @@ Guile 3.0 behavior used as the reference (measured):
 
 ## Part U: Representation
 
-### Option U1: UTF-8 bytes (recommended)
+Measured 2026-10-10. In one self-compilation (current seed, 256 MiB GC
+threshold), the compiler allocated 15.1 GB in 409M objects. Strings were
+558K of those objects, 314 MB (2.1% of bytes), and none contained non-ASCII.
+The run made 794K `string-byte-ref` calls, 632K `string-length` calls, and no
+character `string-ref` calls. Strings are a small part of the heap, and no
+string path is hot.
 
-`NplString` stays a byte array, but its contents are UTF-8. Two header fields
-are added:
+### Chosen: adaptive width (narrow 8-bit, wide 32-bit), O(1) indexing
 
-- the character count, so `string-length` is O(1);
-- an ASCII flag (`NPL_FLAG_ASCII`), meaning byte index equals character index.
+- A string holds characters, not encoded bytes. The header gains a width
+  flag, `NPL_FLAG_WIDE`.
+  - A narrow string stores one byte per character, for code points
+    0..255 (Latin-1, which includes all ASCII).
+  - A wide string stores one 32-bit code point per character.
+- `string-ref`, `string-set!`, `string-length`, and `substring` are O(1) at
+  either width. `length` always counts characters.
+- Storing a character above 255 into a narrow string promotes it to wide.
+  Promotion must keep `eq?` identity, but the data lives inline in the
+  object, whose size is fixed at allocation. So promotion moves the data to
+  a separately allocated wide buffer and marks the string
+  `NPL_FLAG_OUT_OF_LINE`, with the buffer pointer in the first data word.
+  Promotion happens at most once per string, and only for mutable strings.
+  Literals are immutable and never promoted.
+- Strings created wide (from a wide source or a scalar above 255) are inline
+  and wide.
+- Symbols use the same layout and are immutable.
+- C boundaries (paths, environment, `fopen`, `getenv`, process arguments)
+  encode to UTF-8 at the call. Ports encode and decode UTF-8.
+  `string->utf8` and `utf8->string` transcode. A narrow string whose bytes
+  are all ASCII is passed to C directly.
+- Compiler-emitted static strings and symbols are narrow, with flag 0 or
+  `NPL_FLAG_LITERAL`. Their emitted layout is unchanged, and the compiler's
+  own source is ASCII.
 
-Indexing works as follows:
+Fallback, if adaptive width proves too complex: Chez Scheme's layout, where
+every runtime string is 32-bit, with no promotion and no out-of-line case.
+Measured cost: about 0.9 GB more allocation per self-compilation (+6%).
 
-- When the ASCII flag is set, `string-ref` and `string-set!` are O(1), exactly
-  as today. Almost all strings, including all compiler source, are ASCII.
-- Otherwise `string-ref` is O(n), unless it hits a one-entry cache in the
-  string (the last character index and its byte offset). The cache makes
-  sequential loops (`string-for-each`, `string->list`, index loops) amortized
-  O(1).
-- `string-set!` with a character of a different encoded width rebuilds the
-  byte array. Strings already have `capacity`, so this needs no new indirection.
+### Frozen bootstrap and stage0
 
-Pros: the byte layout, the static string data the compiler emits, symbol
-boxes, port I/O, `string->utf8`, and C interop (`fopen`, `getenv`) are
-unchanged or become trivial. The compiler, stage0 and bootstrap keep working
-on byte entry points.
-
-Cons: non-ASCII random access is not O(1) (R7RS does not require it).
-Mutation can change byte length.
-
-### Option U2: UTF-32 code units
-
-Each character is 4 bytes, so indexing is O(1) everywhere.
-
-Cons:
-- 4x memory for every string, including the compiler's.
-- Every C boundary (paths, environment, ports, symbol interning, static data)
-  needs a transcoding step.
-- The frozen bootstrap's `npl_string_ref` would need a byte view of a UTF-32
-  string.
-
-### Option U3: adaptive width (Latin-1 / UCS-2 / UTF-32, like Python)
-
-O(1) indexing with compact ASCII. It has the transcoding costs of U2 plus
-widening on mutation. It is the largest change of the three.
-
-### Choice
-
-U1 (accepted, Decision 1).
-
+`bootstrap/bootstrap.ssa` and stage0 stay frozen, together with a runtime
+pinned to one commit. `tools/check_bootstrap.sh` builds that pinned runtime
+from `git archive` of the commit before L6a, and links the frozen artifacts
+against it. The current runtime is then free to change layout.
+`bootstrap/current.ssa` needs no pin: each relay emits it in the current
+layout, and runtime entry points that only old seeds used are removed once
+the new seed is installed.
 ## Part U: Changes
 
 Runtime (C, mechanisms only):
@@ -217,8 +217,10 @@ Verification on top of fixtures:
 
 ## Decisions (2026-10-10)
 
-1. Representation: U1 (UTF-8 storage, character count, ASCII fast path,
-   one-entry index cache).
+1. Representation: adaptive width (narrow 8-bit or wide 32-bit, O(1)
+   indexing, promotion to an out-of-line wide buffer). Revised the same day
+   after review: the first draft's UTF-8 option (U1) was dropped in favor of
+   O(1) indexing. The fallback is Chez's all-32-bit layout.
 2. Invalid UTF-8 on textual input reads as U+FFFD, as Guile and Racket do.
 3. `char-ready?` is character-based: it returns `#t` only when a complete
    character (or end of file) can be read without blocking. A partial UTF-8

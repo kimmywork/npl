@@ -11,7 +11,7 @@
 - Search the repository and read the relevant existing implementation before designing a new abstraction.
 - When a behavior has both compiler and evaluator paths, identify the shared semantic boundary and add differential tests or common fixtures; passing tests for only one path does not establish semantic consistency.
 - Explain any intentional duplication in the change description, including why reuse or extraction was not practical.
-- Keep the permanent bootstrap compiler and `bootstrap/bootstrap.ssa` frozen unless explicitly authorized.
+- Keep the permanent bootstrap compiler, `bootstrap/bootstrap.ssa`, stage0, and their frozen runtime `bootstrap/runtime/` frozen unless explicitly authorized. Do not make the current runtime (`runtime/`) compatible with them; the permanent chain links only against `bootstrap/runtime/`.
 - Use C99 for stage0 and runtime C, and preserve canonical, reproducible QBE SSA output.
 - Run the smallest relevant acceptance checks after each increment and report their output as evidence.
 - Record completed logical changes in `.agents/worklog/YYYY-MM-DD.md` and keep `.agents/workstate.md` current.

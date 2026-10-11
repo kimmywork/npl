@@ -47,5 +47,6 @@ enable_testing()
 
 add_subdirectory(tools)
 add_subdirectory(runtime)
+add_subdirectory(bootstrap/runtime)
 add_subdirectory(stage0)
 include(cmake/NplToolchain.cmake)

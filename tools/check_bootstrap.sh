@@ -5,12 +5,13 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BUILD="$ROOT/build"
 STAGE0="$BUILD/stage0/nplc0"
 QBE="$BUILD/qbe/qbe"
-RUNTIME="$BUILD/runtime/libnpl_runtime.a"
+# The permanent chain runs on its frozen runtime (bootstrap/runtime).
+RUNTIME="$BUILD/bootstrap-runtime/libnpl_runtime_frozen.a"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" nplc0 qbe_build npl_runtime >/dev/null
+ninja -C "$BUILD" nplc0 qbe_build npl_runtime_frozen >/dev/null
 
 build_ssa() {
     "$QBE" -o "$2.s" "$1"

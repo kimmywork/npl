@@ -22,11 +22,12 @@ target_compile_definitions(nplc0 PRIVATE
   QBE_PATH="${QBE_BIN}"
   AS_BIN="${AS_BIN}"
   CC_BIN="${CMAKE_C_COMPILER}"
-  RUNTIME_LIB_PATH="${CMAKE_BINARY_DIR}/runtime/libnpl_runtime.a -lm"
+  RUNTIME_LIB_PATH="${CMAKE_BINARY_DIR}/bootstrap-runtime/libnpl_runtime_frozen.a -lm"
 )
 
-# Link nplc0 with runtime (for testing)
-target_link_libraries(nplc0 PRIVATE npl_runtime)
+# stage0 is frozen with the bootstrap chain: the programs it compiles link
+# against the frozen runtime (bootstrap/runtime), not the current one.
+add_dependencies(nplc0 npl_runtime_frozen)
 
 set_target_properties(nplc0 PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/stage0

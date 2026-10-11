@@ -4,6 +4,8 @@ The repository stores compiler source and canonical QBE SSA, not a compiler bina
 
 ## Verify The Relay
 
+The permanent chain (stage0 `nplc0`, `bootstrap/compiler/`, `bootstrap/bootstrap.ssa`) is frozen together with its runtime, `bootstrap/runtime/`: a verbatim copy of `runtime/` at commit `43d2a14`, built as `npl_runtime_frozen`. `tools/check_bootstrap.sh`, stage0, and the stage0 checks link only against it, so the current runtime may change object layouts and entry points freely.
+
 `bootstrap/current.ssa` is the current full-compiler recovery artifact. Verify the historical relay with:
 
 ```bash
@@ -16,7 +18,7 @@ The command builds a compiler from `bootstrap/current.ssa`, emits `gen1.ssa`, re
 ./tools/check_current_fixed_point.sh --keep --work-dir /tmp/npl-fixed-point
 ```
 
-`bootstrap/current.ssa` is the unified `nplc` (compiler and driver in one program). The tracked artifact has 195,239 lines, SHA-256 `b9a93cea565569eae9589cbeec14b636ff4db2b58352de9bdacd98b7b71b40dc` as accepted on 2026-10-08; macOS arm64 and Linux aarch64 relays both regenerate this hash. Regeneration reports the authoritative hash for its source tree.
+`bootstrap/current.ssa` is the unified `nplc` (compiler and driver in one program). The tracked artifact's current line count and SHA-256 are recorded in `.agents/workstate.md` (Accepted Seed); a strict relay regenerates that hash. Regeneration reports the authoritative hash for its source tree.
 
 On a memory-constrained or heavily loaded host, run the relay with `NPL_GC_THRESHOLD_BYTES=268435456`: on 2026-09-30, with system swap nearly full, a default-threshold (1 GiB) emission stalled for hours in paging, while the same compiler at 256 MiB emitted in 82 s with 0.99 GB RSS and byte-identical SSA.
 
