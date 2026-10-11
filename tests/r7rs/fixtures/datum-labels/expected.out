@@ -1,0 +1,8 @@
+(cyclic-list (a b #t))
+(shared-elements (#t #t (x)))
+(cyclic-vector (1 #t 3))
+(nested-labels (#t (p)))
+(atom-labels (1 1 "s" "s"))
+(label-inside-vector #t)
+(errors (read-error read-error read-error))
+(labels-are-per-read ((a) read-error))

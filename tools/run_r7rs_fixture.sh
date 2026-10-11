@@ -23,7 +23,15 @@ get_meta() {
 name=$(get_meta name)
 native_source="$FIXTURE/$(get_meta native)"
 repl_input="$FIXTURE/$(get_meta repl)"
-guile_source="$FIXTURE/$(get_meta guile)"
+# oracle=none: behavior Guile 3.0 lacks (e.g. datum labels in read). The
+# expected output is then established from R7RS and cross-checked by hand
+# (recorded in the fixture's behavior file); native and npli must match it.
+oracle=$(get_meta oracle || true)
+if [ "$oracle" = none ]; then
+    guile_source="$FIXTURE/$(get_meta native)"
+else
+    guile_source="$FIXTURE/$(get_meta guile)"
+fi
 expected_out="$FIXTURE/$(get_meta expected-out)"
 expected_err="$FIXTURE/$(get_meta expected-err)"
 expected_status=$(get_meta expected-status)
@@ -82,8 +90,14 @@ run_capture "$WORK/native.out" "$WORK/native.err" "$WORK/native.status" "$WORK/n
 
 # Guile is used only in its R7RS language mode and with auto-compilation off,
 # so compiler notices do not contaminate the compared stderr.
-run_capture "$WORK/guile.out" "$WORK/guile.err" "$WORK/guile.status" \
-    guile --r7rs -q --no-auto-compile -s "$guile_source"
+if [ "$oracle" = none ]; then
+    cp "$expected_out" "$WORK/guile.out"
+    cp "$expected_err" "$WORK/guile.err"
+    printf '%s\n' "$expected_status" > "$WORK/guile.status"
+else
+    run_capture "$WORK/guile.out" "$WORK/guile.err" "$WORK/guile.status" \
+        guile --r7rs -q --no-auto-compile -s "$guile_source"
+fi
 
 compare_surface() {
     surface=$1
@@ -117,5 +131,13 @@ fi
 
 printf '%s\n' "fixture=$name surface=native status=PASS classification=matched-expected"
 printf '%s\n' "fixture=$name surface=repl status=PASS classification=matched-expected"
-printf '%s\n' "fixture=$name surface=guile status=PASS classification=matched-expected"
-printf '%s\n' "fixture=$name surfaces=native,repl,guile status=PASS classification=identical-observable-result"
+if [ "$oracle" = none ]; then
+    printf '%s\n' "fixture=$name surface=guile status=SKIP classification=oracle-unavailable"
+else
+    printf '%s\n' "fixture=$name surface=guile status=PASS classification=matched-expected"
+fi
+if [ "$oracle" = none ]; then
+    printf '%s\n' "fixture=$name surfaces=native,repl status=PASS classification=identical-observable-result"
+else
+    printf '%s\n' "fixture=$name surfaces=native,repl,guile status=PASS classification=identical-observable-result"
+fi

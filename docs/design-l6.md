@@ -222,7 +222,7 @@ Guile unless noted.
 |---|---|---|---|
 | L6a+b | Adaptive-width strings (`runtime/string.c`), static wide string data, scalar-value characters, UTF-8 ports with byte pushback, character-based `char-ready?` and byte `u8-ready?`, `string->utf8`/`utf8->string`, `read` and `write` syntax (Guile's non-graphic set, generated from `unicodedata`) | relays | Guile (done 2026-10-11, fixture `unicode-strings`) |
 | L6c | Unicode tables and `(scheme char)` | relay (table-lookup primitives) | Guile (done 2026-10-11, fixture `unicode-char`) |
-| L6d | Runtime `read` datum labels | relay (runtime) | Racket for input; native/npli agreement |
+| L6d | Runtime `read` datum labels | runtime only | Racket cross-check; native/npli agreement (done 2026-10-11, fixture `datum-labels`, `oracle=none`) |
 | L6e | `write`/`write-shared`/`write-simple`/`display` labelling, cycle-safe `equal?` | relay (runtime) | Guile for `write-shared`; R7RS and native/npli agreement for cyclic `write`/`display`/`equal?` |
 
 Verification on top of fixtures:

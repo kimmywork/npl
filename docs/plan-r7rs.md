@@ -43,7 +43,12 @@ Presence is not conformance; behavior is established only by fixtures.
   previous seed.
 - Differences with Guile are classified (`npl-bug`, `guile-extension`,
   `implementation-allowed`, `fixture-bug`, `unimplemented`,
-  `oracle-unavailable`); the last two never count as passing.
+  `oracle-unavailable`); the last two never count as Guile conformance.
+  A fixture whose behavior Guile 3.0 lacks (datum labels in `read`) sets
+  `oracle=none`: its expected output is derived from R7RS, cross-checked
+  against Racket, and documented in the fixture; the runner reports the
+  Guile surface as `oracle-unavailable` and only native/npli agreement as
+  passing.
 - Permanent `bootstrap/bootstrap.ssa` and `bootstrap/compiler/` stay frozen.
 - Each increment ends with `tools/run_tests.sh --skip-current-fixed-point`
   (plus the relay when applicable), a worklog entry, and a commit.

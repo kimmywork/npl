@@ -12,7 +12,8 @@ R7RS-small libraries export their full name lists (556/556). Remaining: L6
 (Unicode strings and chars, datum labels): design
 [design-l6](../docs/design-l6.md) accepted; L6a+b (Unicode strings,
 characters, ports, read/write syntax) and L6c (`(scheme char)` over Unicode)
-done. Next: L6d/L6e (datum labels, cycle-safe output and equal?), then P1. The toolchain stage is complete and committed
+done, L6d (datum labels in read) done. Next: L6e (cycle-aware write,
+write-shared, display; terminating equal?), then P1. The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed

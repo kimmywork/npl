@@ -7,10 +7,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Datum labels (R7RS 2.4): labels is a list of (n placeholder . value)
+ * entries for this read (rooted by npl_read_datum); value is the
+ * placeholder until the labelled datum is complete. */
 typedef struct {
     NplPort *port;
     int lookahead;
     int has_lookahead;
+    NplVal labels;
 } NplDatumReader;
 
 static jmp_buf *g_read_recovery = NULL;
@@ -294,9 +298,114 @@ static NplVal read_hash_radix_datum(NplDatumReader *reader, int prefix)
     return value;
 }
 
+/* ---- datum labels ---- */
+
+static NplVal label_entry(NplDatumReader *reader, int64_t label)
+{
+    for (NplVal rest = reader->labels; !npl_is_nil(rest);
+         rest = npl_pair_ptr(rest)->cdr) {
+        NplVal entry = npl_pair_ptr(rest)->car;
+        if (npl_fixnum_value(npl_pair_ptr(entry)->car) == label) return entry;
+    }
+    return npl_nil();
+}
+
+/* Pointer set for the patch walk (objects stay reachable from the datum). */
+typedef struct {
+    NplVal *slots;
+    size_t capacity;
+    size_t count;
+} NplSeen;
+
+static int seen_add(NplSeen *seen, NplVal value)
+{
+    if (seen->count * 2 >= seen->capacity) {
+        size_t capacity = seen->capacity ? seen->capacity * 2 : 64;
+        NplVal *slots = (NplVal *)calloc(capacity, sizeof(NplVal));
+        if (!slots) npl_runtime_oom_internal();
+        for (size_t i = 0; i < seen->capacity; i++) {
+            if (!seen->slots[i]) continue;
+            size_t k = (size_t)(seen->slots[i] >> 3) & (capacity - 1);
+            while (slots[k]) k = (k + 1) & (capacity - 1);
+            slots[k] = seen->slots[i];
+        }
+        free(seen->slots);
+        seen->slots = slots;
+        seen->capacity = capacity;
+    }
+    size_t k = (size_t)(value >> 3) & (seen->capacity - 1);
+    while (seen->slots[k]) {
+        if (seen->slots[k] == value) return 0;
+        k = (k + 1) & (seen->capacity - 1);
+    }
+    seen->slots[k] = value;
+    seen->count++;
+    return 1;
+}
+
+/* Replace references to placeholder inside value with replacement. */
+static NplVal patch_placeholder(NplVal original, NplVal placeholder,
+                                NplVal replacement, NplSeen *seen)
+{
+    if (original == placeholder) return replacement;
+    NplVal value = original;
+    while (npl_is_ptr(value) && seen_add(seen, value)) {
+        uint32_t tag = npl_header(value)->tag;
+        if (tag == BOX_VECTOR) {
+            NplVector *vector = (NplVector *)npl_header(value);
+            for (uint32_t i = 0; i < vector->length; i++)
+                vector->data[i] = patch_placeholder(vector->data[i], placeholder,
+                                                    replacement, seen);
+            break;
+        }
+        if (tag != BOX_PAIR) break;
+        NplPair *pair = npl_pair_ptr(value);
+        pair->car = patch_placeholder(pair->car, placeholder, replacement, seen);
+        if (pair->cdr == placeholder) {
+            pair->cdr = replacement;
+            break;
+        }
+        value = pair->cdr;
+    }
+    return original;
+}
+
+/* #n=datum or #n# after the digits of n. */
+static NplVal read_label_datum(NplDatumReader *reader, int first)
+{
+    int64_t label = first - '0';
+    int code;
+    while ((code = reader_get(reader)) >= '0' && code <= '9') {
+        if (label > (INT64_C(1) << 40)) read_error("datum label too large");
+        label = label * 10 + (code - '0');
+    }
+    if (code == '#') {
+        NplVal entry = label_entry(reader, label);
+        if (npl_is_nil(entry)) read_error("undefined datum label");
+        return npl_pair_ptr(npl_pair_ptr(entry)->cdr)->cdr;
+    }
+    if (code != '=') read_error("malformed datum label");
+    if (!npl_is_nil(label_entry(reader, label)))
+        read_error("duplicate datum label");
+    /* A fresh pair stands for the datum until it is read. */
+    NplVal placeholder = npl_cons(npl_false(), npl_false());
+    NplVal entry = npl_cons(npl_fixnum(label),
+                            npl_cons(placeholder, placeholder));
+    reader->labels = npl_cons(entry, reader->labels);
+    NplVal datum = read_datum_inner(reader, 0);
+    if (datum == placeholder)
+        read_error("datum label cannot reference itself");
+    NplSeen seen = { NULL, 0, 0 };
+    datum = patch_placeholder(datum, placeholder, datum, &seen);
+    free(seen.slots);
+    npl_pair_ptr(npl_pair_ptr(entry)->cdr)->cdr = datum;
+    return datum;
+}
+
 static NplVal read_hash_datum(NplDatumReader *reader)
 {
     int code = reader_get(reader);
+    if (code >= '0' && code <= '9') return read_label_datum(reader, code);
     if (code == 't' || code == 'f') {
         if (!datum_delimiter(reader_peek(reader)))
             read_error("invalid boolean literal");
@@ -336,8 +445,10 @@ NplVal npl_read_datum(NplVal port_value_arg)
 {
     NplPort *port = npl_port_require_mode_internal(port_value_arg, NPL_PORT_INPUT,
                                      NPL_PORT_TEXTUAL, "read");
-    NplDatumReader reader = { port, 0, 0 };
+    NplDatumReader reader = { port, 0, 0, npl_nil() };
+    npl_gc_root(&reader.labels);
     NplVal value = read_datum_inner(&reader, 1);
+    npl_gc_unroot(&reader.labels);
     if (reader.has_lookahead && reader.lookahead != EOF) {
         uint8_t bytes[4];
         size_t count = npl_utf8_encode_internal((uint32_t)reader.lookahead,
@@ -352,11 +463,14 @@ NplVal npl_read_result(NplVal port_value)
     jmp_buf recovery;
     jmp_buf *previous = g_read_recovery;
     g_read_recovery = &recovery;
+    /* read_error longjmps past the reader's roots; drop them on recovery. */
+    int roots = npl_gc_root_count_internal();
     NplVal items[2];
     if (setjmp(recovery) == 0) {
         items[0] = npl_true();
         items[1] = npl_read_datum(port_value);
     } else {
+        npl_gc_restore_root_count_internal(roots);
         items[0] = npl_false();
         items[1] = npl_string(g_read_error_message,
                               (uint32_t)strlen(g_read_error_message));
