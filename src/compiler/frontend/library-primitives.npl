@@ -14,7 +14,8 @@ get-environment-variables get-output-bytevector
 get-output-string
 input-port-open? input-port? int->string integer->char list->vector
 npl_make_record npl_record_p npl_record_ref npl_record_set npl_try_open_file
-npl_port_parameter npl_port_ready_p npl_jiffies_per_second
+npl_port_parameter npl_port_ready_p npl_byte_ready_p npl_jiffies_per_second
+npl_string_to_utf8 npl_utf8_to_string
 npl_current_jiffy npl_current_second
 make-temporary-directory
 newline not null?

@@ -492,17 +492,8 @@
     ((string=? name "integer->char")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)
-           (let ((code (car arguments)))
-             (cond
-               ((not (if (number? code) (npl_integer_p code) #f))
-                (eval-primitive-error "integer->char" "expected an exact integer"
-                                      code continuation))
-               ((if (>= code 0) (<= code 127) #f)
-                (continuation (integer->char code)))
-               (else
-                (eval-primitive-error "integer->char"
-                                      "outside supported ASCII repertoire"
-                                      code continuation)))))))
+           (eval-host-primitive (lambda () (integer->char (car arguments)))
+                                continuation))))
     ((string=? name "command-line")
      (let ((error (eval-arity arguments 0 name)))
        (if error (continuation error) (continuation (command-line)))))

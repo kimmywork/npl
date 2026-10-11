@@ -55,8 +55,13 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_RATIONAL 20
 #define BOX_COMPLEX 21
 #define BOX_RECORD 22   /* NplVector layout: data[0] = type, data[1..] = fields */
+#define BOX_STRING_DATA 23  /* out-of-line wide string characters (string.c) */
 
 #define NPL_FLAG_LITERAL 1
+/* Strings (string.c): 32-bit characters; characters in an out-of-line wide
+ * buffer whose pointer is the first data word. */
+#define NPL_FLAG_WIDE 2
+#define NPL_FLAG_OUT_OF_LINE 4
 #define IMM_CHAR_TAG 14
 
 /* ---- Immediate values ---- */
@@ -77,7 +82,9 @@ typedef struct {
     NplVal cdr;
 } NplPair;
 
-/* ---- String ---- */
+/* ---- String ----
+ * Layout is private to string.c (narrow bytes or wide code points); length
+ * counts characters of the inline data. Use the string.c accessors. */
 typedef struct {
     NplHeader header;
     uint32_t length;
@@ -189,7 +196,10 @@ typedef struct {
     uint32_t mode;
     uint32_t position;
     uint32_t length;
-    uint32_t reserved;
+    uint32_t pushed;        /* bytes in pushback (stream ports) */
+    uint8_t pushback[8];    /* read-ahead bytes, consumed first (io.c): at
+                               most one character of lookahead plus the
+                               tail of one invalid UTF-8 sequence */
 } NplPort;
 
 typedef struct {
@@ -538,7 +548,8 @@ NplVal npl_delete_directory(NplVal path);
 NplVal npl_executable_path(void);
 NplVal npl_try_open_file(NplVal path, NplVal kind); /* port or #f */
 NplVal npl_port_parameter(NplVal kind); /* current-*-port parameter */
-NplVal npl_port_ready_p(NplVal port);     /* char-ready? / u8-ready? */
+NplVal npl_port_ready_p(NplVal port);     /* char-ready? (a whole character) */
+NplVal npl_byte_ready_p(NplVal port);     /* u8-ready? */
 NplVal npl_jiffies_per_second(void);
 NplVal npl_current_jiffy(void);
 NplVal npl_current_second(void);            /* absolute path or #f */
@@ -549,7 +560,6 @@ NplVal npl_lex_class_w(NplVal cT, NplVal wantT);     /* PROPER bool */
 NplVal npl_lex_scan_sym_end(NplVal sT, NplVal jT);   /* tagged index */
 NplVal npl_tagged_num_to_string(NplVal v);           /* decimal of tagged bits */
 NplVal npl_lex_number(NplVal sT, NplVal iT, NplVal jT);
-NplVal npl_lex_tokens(NplVal source);
 
 /* Convert fixnum to string (for printing) */
 char *npl_fixnum_to_string(int64_t v);
@@ -562,6 +572,26 @@ uintptr_t npl_gc_swap_stack_bottom(uintptr_t stack_bottom);
 NplVal npl_box_bytes_internal(const char *bytes, uint32_t len,
                               uint32_t box_tag);
 const NplString *npl_require_bytes_internal(NplVal value, const char *who);
+/* Strings (string.c). */
+NplVal npl_string_from_chars_internal(const uint32_t *chars, uint32_t length,
+                                      uint32_t tag);
+NplVal npl_string_from_utf8(const uint8_t *bytes, size_t length, uint32_t tag);
+const char *npl_string_utf8(const NplString *string, size_t *length,
+                            int *owned);
+uint32_t npl_string_char_count_internal(const NplString *string);
+uint32_t npl_string_char_at_internal(const NplString *string, uint32_t index);
+void npl_string_store_internal(NplString *string, uint32_t index,
+                               uint32_t code);
+uint64_t npl_string_hash_internal(const NplString *string);
+int npl_string_same_chars_internal(const NplString *a, const NplString *b);
+void npl_string_mark_internal(const NplString *string);
+int npl_string_scalar_value_internal(uint32_t code);
+uint32_t npl_utf8_decode_internal(const uint8_t *bytes, size_t length,
+                                  size_t *index);
+int npl_utf8_sequence_length_internal(uint8_t lead);
+size_t npl_utf8_encode_internal(uint32_t code, uint8_t *out);
+NplVal npl_string_to_utf8(NplVal string, NplVal start, NplVal end);
+NplVal npl_utf8_to_string(NplVal bytevector, NplVal start, NplVal end);
 void npl_control_init(void);
 void npl_control_mark_roots(void);
 int npl_gc_root_count_internal(void);

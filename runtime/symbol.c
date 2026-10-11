@@ -19,30 +19,20 @@ static NplVal *g_symbols = NULL;   /* open addressing; 0 = empty slot */
 static size_t g_symbol_capacity = 0;
 static size_t g_symbol_count = 0;
 
-static uint64_t symbol_hash(const char *bytes, uint32_t length)
-{
-    uint64_t hash = UINT64_C(1469598103934665603);  /* FNV-1a */
-    for (uint32_t i = 0; i < length; i++) {
-        hash ^= (unsigned char)bytes[i];
-        hash *= UINT64_C(1099511628211);
-    }
-    return hash;
-}
-
+/* Symbols are keyed by their characters (string.c hashes and compares
+ * independently of narrow/wide storage). A lookup key is a symbol or string
+ * box; the table holds symbols only. */
 static const NplString *symbol_box(NplVal symbol)
 {
     return (const NplString *)npl_header(symbol);
 }
 
-static size_t symbol_slot(NplVal *table, size_t capacity, const char *bytes,
-                          uint32_t length)
+static size_t symbol_slot(NplVal *table, size_t capacity, const NplString *key)
 {
     size_t mask = capacity - 1;
-    size_t slot = (size_t)symbol_hash(bytes, length) & mask;
+    size_t slot = (size_t)npl_string_hash_internal(key) & mask;
     while (table[slot] != 0) {
-        const NplString *entry = symbol_box(table[slot]);
-        if (entry->length == length &&
-            memcmp(entry->data, bytes, length) == 0)
+        if (npl_string_same_chars_internal(symbol_box(table[slot]), key))
             return slot;
         slot = (slot + 1) & mask;
     }
@@ -57,8 +47,7 @@ static void symbol_table_grow(void)
     if (!table) npl_runtime_oom_internal();
     for (size_t i = 0; i < g_symbol_capacity; i++) {
         if (g_symbols[i] == 0) continue;
-        const NplString *entry = symbol_box(g_symbols[i]);
-        table[symbol_slot(table, capacity, entry->data, entry->length)] =
+        table[symbol_slot(table, capacity, symbol_box(g_symbols[i]))] =
             g_symbols[i];
     }
     free(g_symbols);
@@ -66,22 +55,57 @@ static void symbol_table_grow(void)
     g_symbol_capacity = capacity;
 }
 
-static NplVal *symbol_find_slot(const char *bytes, uint32_t length)
+static NplVal *symbol_find_slot(const NplString *key)
 {
     if (g_symbol_count * 2 >= g_symbol_capacity) symbol_table_grow();
-    return &g_symbols[symbol_slot(g_symbols, g_symbol_capacity, bytes, length)];
+    return &g_symbols[symbol_slot(g_symbols, g_symbol_capacity, key)];
 }
 
-NplVal npl_symbol(const char *bytes, uint32_t length)
+/* Intern the characters of key (a string or symbol box): the canonical
+ * symbol, created from a copy of key's characters when absent. */
+static NplVal intern_characters(NplVal key)
 {
-    NplVal *slot = symbol_find_slot(bytes, length);
+    NplVal *slot = symbol_find_slot(symbol_box(key));
     if (*slot != 0) return *slot;
+    npl_gc_root(&key);
+    uint32_t count = npl_string_char_count_internal(symbol_box(key));
+    uint32_t *chars = (uint32_t *)malloc(((size_t)count + 1) * sizeof(uint32_t));
+    if (!chars) npl_runtime_oom_internal();
+    for (uint32_t i = 0; i < count; i++)
+        chars[i] = npl_string_char_at_internal(symbol_box(key), i);
+    NplVal symbol = npl_string_from_chars_internal(chars, count, BOX_SYMBOL);
+    free(chars);
+    npl_gc_unroot(&key);
     /* Allocation may collect, but the table is only a root set: the slot
      * pointer stays valid because nothing else resizes the table. */
-    NplVal symbol = npl_box_bytes_internal(bytes, length, BOX_SYMBOL);
     *slot = symbol;
     g_symbol_count++;
     return symbol;
+}
+
+/* bytes are UTF-8 (ASCII for runtime-internal names). An ASCII name is
+ * looked up through an unmanaged stack key, so finding an existing symbol
+ * allocates nothing. */
+NplVal npl_symbol(const char *bytes, uint32_t length)
+{
+    int ascii = 1;
+    for (uint32_t i = 0; i < length; i++)
+        if ((unsigned char)bytes[i] >= 0x80) { ascii = 0; break; }
+    if (ascii && length <= 256) {
+        /* Aligned storage for a narrow NplString header plus its bytes. */
+        uint64_t storage[(sizeof(NplString) + 257 + 7) / 8];
+        NplString *probe = (NplString *)(void *)storage;
+        probe->header.tag = BOX_STRING;
+        probe->header.flags = 0;
+        probe->length = length;
+        probe->capacity = length;
+        memcpy(probe->data, bytes, length);
+        NplVal *slot = symbol_find_slot(probe);
+        if (*slot != 0) return *slot;
+    }
+    NplVal key = npl_string_from_utf8((const uint8_t *)bytes, length,
+                                      BOX_STRING);
+    return intern_characters(key);
 }
 
 /* Register a compiler-emitted static symbol. If a symbol with the same name
@@ -89,8 +113,7 @@ NplVal npl_symbol(const char *bytes, uint32_t length)
  * stable; the caller's slot is redirected to the canonical symbol. */
 NplVal npl_intern_static_symbol(NplVal symbol)
 {
-    const NplString *box = symbol_box(symbol);
-    NplVal *slot = symbol_find_slot(box->data, box->length);
+    NplVal *slot = symbol_find_slot(symbol_box(symbol));
     if (*slot != 0) return *slot;
     *slot = symbol;
     g_symbol_count++;
@@ -99,12 +122,9 @@ NplVal npl_intern_static_symbol(NplVal symbol)
 
 NplVal npl_string_to_symbol(NplVal string)
 {
-    if (!npl_is_ptr(string) || npl_header(string)->tag != BOX_STRING) {
-        fprintf(stderr, "string->symbol: expected a string\n");
-        exit(1);
-    }
-    const NplString *box = (const NplString *)npl_header(string);
-    return npl_symbol(box->data, box->length);
+    if (!npl_is_ptr(string) || npl_header(string)->tag != BOX_STRING)
+        npl_primitive_error("string->symbol", "expected a string", string);
+    return intern_characters(string);
 }
 
 void npl_symbol_mark_roots(void)

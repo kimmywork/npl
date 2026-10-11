@@ -32,7 +32,7 @@ NplVal npl_lex_class_w(NplVal cT, NplVal wantT) {
              (c >= '0' && c <= '9') ||
              c=='-' || c=='_' || c=='?' || c=='!' || c=='*' ||
              c=='/' || c=='+' || c=='=' || c=='<' || c=='>' ||
-             c=='%' || c=='.' || c==':')                 cls = 7; /* symch */
+             c=='%' || c=='.' || c==':' || c >= 128)     cls = 7; /* symch */
     else if (c == '#')                                 cls = 9; /* hash */
     else if (c == '`')                                 cls = 11;
     else if (c == ',')                                 cls = 12;
@@ -53,15 +53,16 @@ NplVal npl_tagged_num_to_string(NplVal v) {
 
 NplVal npl_lex_scan_sym_end(NplVal sT, NplVal jT) {
     const NplString *s = lex_str(sT);
-    uint32_t len = s->length;
+    uint32_t len = npl_string_char_count_internal(s);
     uint32_t j = (uint32_t)(jT >> 2);
     while (j < len) {
-        unsigned char c = (unsigned char)s->data[j];
+        uint32_t c = npl_string_char_at_internal(s, j);
+        /* Non-ASCII characters are symbol constituents (UTF-8 source). */
         int is_sym = ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
                       (c >= '0' && c <= '9') ||
                       c=='-' || c=='_' || c=='?' || c=='!' || c=='*' ||
                       c=='/' || c=='+' || c=='=' || c=='<' || c=='>' ||
-                      c=='%' || c=='.' || c==':');
+                      c=='%' || c=='.' || c==':' || c >= 128);
         if (!is_sym) break;
         j++;
     }
@@ -77,120 +78,4 @@ NplVal npl_lex_number(NplVal sT, NplVal iT, NplVal jT) {
     npl_gc_unroot(&text);
     npl_gc_unroot(&sT);
     return result;
-}
-
-static int lex_symbol_char(unsigned char c)
-{
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-           (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '?' ||
-           c == '!' || c == '*' || c == '/' || c == '+' || c == '=' ||
-           c == '<' || c == '>' || c == '%' || c == '.' || c == ':';
-}
-
-static NplVal lex_token(int kind, NplVal payload)
-{
-    return npl_cons(npl_fixnum(kind), payload);
-}
-
-static NplVal reverse_token_stream(NplVal stream)
-{
-    NplVal result = npl_nil();
-    while (!npl_is_nil(stream)) {
-        NplVal next = npl_cdr(stream);
-        npl_set_cdr(stream, result);
-        result = stream;
-        stream = next;
-    }
-    return result;
-}
-
-NplVal npl_lex_tokens(NplVal source)
-{
-    const NplString *string = lex_str(source);
-    const unsigned char *data = (const unsigned char *)string->data;
-    uint32_t length = string->length;
-    uint32_t i = 0;
-    NplVal tokens = npl_nil();
-
-    while (i < length) {
-        unsigned char c = data[i];
-        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-            i++;
-            continue;
-        }
-        if (c == ';') {
-            while (i < length && data[i] != '\n') i++;
-            continue;
-        }
-        if (c == '(' || c == ')' || c == '\'') {
-            int kind = c == '(' ? 1 : (c == ')' ? 2 : 3);
-            tokens = npl_cons(lex_token(kind, npl_nil()), tokens);
-            i++;
-            continue;
-        }
-        if (c == '"') {
-            uint32_t start = ++i;
-            while (i < length && data[i] != '"') i++;
-            if (i == length) {
-                fprintf(stdout, "nplc1: unterminated string literal\n");
-                fflush(stdout);
-                _Exit(20);
-            }
-            NplVal text = npl_box_bytes_internal((const char *)data + start,
-                                    i - start, BOX_STRING);
-            tokens = npl_cons(lex_token(6, text), tokens);
-            i++;
-            continue;
-        }
-        if (c == '#') {
-            if (i + 1 >= length || (data[i + 1] != 't' && data[i + 1] != 'f')) {
-                fprintf(stdout, "nplc1: bad boolean literal\n");
-                fflush(stdout);
-                _Exit(20);
-            }
-            int kind = data[i + 1] == 't' ? 8 : 9;
-            tokens = npl_cons(lex_token(kind, npl_nil()), tokens);
-            i += 2;
-            continue;
-        }
-        if ((c >= '0' && c <= '9') ||
-            (c == '-' && i + 1 < length &&
-             data[i + 1] >= '0' && data[i + 1] <= '9')) {
-            uint32_t start = i;
-            int negative = c == '-';
-            if (negative) i++;
-            int64_t number = 0;
-            while (i < length && data[i] >= '0' && data[i] <= '9') {
-                number = number * 10 + (data[i] - '0');
-                i++;
-            }
-            if (i < length && data[i] == '.' && i + 1 < length &&
-                data[i + 1] >= '0' && data[i + 1] <= '9') {
-                i++;
-                while (i < length && data[i] >= '0' && data[i] <= '9') i++;
-                NplVal text = npl_box_bytes_internal((const char *)data + start,
-                                        i - start, BOX_STRING);
-                tokens = npl_cons(lex_token(10, text), tokens);
-            } else {
-                if (negative) number = -number;
-                tokens = npl_cons(lex_token(5, npl_fixnum(number)), tokens);
-            }
-            continue;
-        }
-        if (lex_symbol_char(c)) {
-            uint32_t start = i++;
-            while (i < length && lex_symbol_char(data[i])) i++;
-            NplVal symbol = npl_box_bytes_internal((const char *)data + start,
-                                      i - start, BOX_STRING);
-            tokens = npl_cons(lex_token(4, symbol), tokens);
-            continue;
-        }
-
-        fprintf(stdout, "nplc1: bad character byte %u\n", (unsigned)c);
-        fflush(stdout);
-        _Exit(20);
-    }
-
-    tokens = npl_cons(lex_token(7, npl_nil()), tokens);
-    return reverse_token_stream(tokens);
 }

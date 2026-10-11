@@ -64,13 +64,7 @@
   (let ((txt (cdr init)))
     (cell-set! DATAN (+ 1 (cell-get DATAN)))
     (let ((lab (string-append "$s_" (number->string (cell-get DATAN)))))
-      (data-line
-        (string-append lab " = { w 1, w 1, w "
-                       (number->string (string-length txt))
-                       ", w "
-                       (number->string (+ 1 (string-length txt)))
-                       (byte-data txt 0)
-                       ", b 0 }")))))
+      (data-line (static-text-box lab 1 1 txt)))))
 
 
 

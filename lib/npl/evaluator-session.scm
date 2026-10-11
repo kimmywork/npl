@@ -45,7 +45,8 @@
         "open-binary-input-file" "open-binary-output-file" "read-bytevector"
         "read-bytevector!" "write-bytevector" "peek-char" "read-u8" "peek-u8"
         "write-u8" "flush-output-port" "write-shared" "write-simple"
-        "npl_port_ready_p" "npl_jiffies_per_second" "npl_current_jiffy"
+        "npl_port_ready_p" "npl_byte_ready_p" "npl_string_to_utf8"
+        "npl_utf8_to_string" "npl_jiffies_per_second" "npl_current_jiffy"
         "npl_current_second"))
 
 (define (eval-install-primitives environment names)

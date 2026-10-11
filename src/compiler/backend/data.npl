@@ -4,12 +4,46 @@
 
 (define DATUM-OBJS (cell ()))
 
+;; Static string and symbol boxes (runtime/string.c layout): narrow (one
+;; byte per character) unless a character is above 255, then wide (32-bit
+;; code points, flag NPL_FLAG_WIDE = 2). Header: tag, flags, length,
+;; capacity; then the characters and a terminating zero unit.
 (define (byte-data text index)
   (if (= index (string-length text))
       ""
       (string-append ", b "
         (string-append (number->string (string-byte-ref text index))
                        (byte-data text (+ index 1))))))
+
+(define (word-data text index)
+  (if (= index (string-length text))
+      ""
+      (string-append ", w "
+        (string-append (number->string (string-byte-ref text index))
+                       (word-data text (+ index 1))))))
+
+(define (wide-text? text index)
+  (if (= index (string-length text))
+      #f
+      (if (> (string-byte-ref text index) 255)
+          #t
+          (wide-text? text (+ index 1)))))
+
+; "$label = { ... }" for a static box; tag 1 string, 3 symbol; flags 1 for
+; literal strings, 0 for symbols. The capacity word is length + 1 (static
+; boxes are immutable, so the runtime never reads it).
+(define (static-text-box lab tag flags text)
+  (let ((wide (wide-text? text 0)))
+    (string-append lab " = { w " (number->string tag)
+      (string-append ", w " (number->string (if wide (+ flags 2) flags))
+        (string-append ", w " (number->string (string-length text))
+          (string-append ", w " (number->string (+ 1 (string-length text)))
+            (if wide
+                (string-append (word-data text 0) ", w 0 }")
+                (string-append (byte-data text 0) ", b 0 }"))))))))
+
+(define (static-text-data lab tag flags text)
+  (string-append "data " (static-text-box lab tag flags text)))
 
 (define (intern-sym nm)
   (let ((found (lk-s (cell-get SYMS) nm)))
@@ -19,26 +53,14 @@
           (cell-set! DATAN (+ 1 (cell-get DATAN)))
           (let ((lab (string-append "$sym_" (number->string (cell-get DATAN)))))
             (cell-set! SYMS (cons (cons nm lab) (cell-get SYMS)))
-            (data-line
-              (string-append "data " lab " = { w 3, w 0, w "
-                             (number->string (string-length nm))
-                             ", w "
-                             (number->string (+ 1 (string-length nm)))
-                             (byte-data nm 0)
-                             ", b 0 }"))
+            (data-line (static-text-data lab 3 0 nm))
             lab)))))
 
 (define (fresh-string-label text)
   (cell-set! DATAN (+ 1 (cell-get DATAN)))
   (let ((lab (string-append "$s_" (number->string (cell-get DATAN)))))
-    (data-line
-      ; flags 1 = NPL_FLAG_LITERAL: literal strings are immutable (R7RS 3.4)
-      (string-append "data " lab " = { w 1, w 1, w "
-                     (number->string (string-length text))
-                     ", w "
-                     (number->string (+ 1 (string-length text)))
-                     (byte-data text 0)
-                     ", b 0 }"))
+    ; flags 1 = NPL_FLAG_LITERAL: literal strings are immutable (R7RS 3.4)
+    (data-line (static-text-data lab 1 1 text))
     lab))
 
 (define (fresh-string-op text)

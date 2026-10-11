@@ -22,19 +22,6 @@ NplVal npl_string_p(NplVal value)
         ? npl_true() : npl_false();
 }
 
-NplVal npl_string(const char *s, uint32_t len) {
-    size_t size = sizeof(NplString) + len + 1;
-    NplString *str = (NplString *)npl_alloc_object(size);
-    str->header.tag = BOX_STRING;
-    str->header.flags = 0;
-    str->length = len;
-    str->capacity = len;
-    if (s) {
-        memcpy(str->data, s, len);
-    }
-    str->data[len] = '\0';
-    return (NplVal)(uintptr_t)str | TAG_PTR;
-}
 
 NplVal npl_float(double v) {
     NplFloat *f = (NplFloat *)npl_alloc_object(sizeof(NplFloat));
@@ -267,9 +254,10 @@ NplVal npl_integer_to_char(NplVal value)
         npl_primitive_error("integer->char", "expected an exact integer",
                             value);
     int64_t code = npl_fixnum_value(value);
-    if (code < 0 || code > 127)
-        npl_primitive_error("integer->char",
-                            "outside supported ASCII repertoire", value);
+    if (code < 0 || code > 0x10FFFF ||
+        !npl_string_scalar_value_internal((uint32_t)code))
+        npl_primitive_error("integer->char", "expected a Unicode scalar value",
+                            value);
     return npl_char((uint32_t)code);
 }
 
@@ -449,38 +437,23 @@ void npl_set_cdr(NplVal pair, NplVal val) {
 
 /* ---- String & symbol builtins (increment-2) ---- */
 
-NplVal npl_box_bytes_internal(const char *bytes, uint32_t len,
-                              uint32_t box_tag) {
-    size_t size = sizeof(NplString) + (size_t)len + 1;
-    NplString *str = (NplString *)npl_alloc_object(size);
-    str->header.tag = box_tag;
-    str->header.flags = 0;
-    str->length = len;
-    str->capacity = len;
-    if (len && bytes) memcpy(str->data, bytes, len);
-    str->data[len] = '\0';
-    return (NplVal)(uintptr_t)str | TAG_PTR;
+/* Characters of a string as a malloc'd array (strings may be narrow or
+ * wide; see string.c). */
+static uint32_t *string_chars(const NplString *string, uint32_t *count)
+{
+    uint32_t n = npl_string_char_count_internal(string);
+    uint32_t *chars = (uint32_t *)malloc(((size_t)n + 1) * sizeof(uint32_t));
+    if (!chars) npl_runtime_oom_internal();
+    for (uint32_t i = 0; i < n; i++)
+        chars[i] = npl_string_char_at_internal(string, i);
+    *count = n;
+    return chars;
 }
 
-const NplString *npl_require_bytes_internal(NplVal v, const char *who) {
-    if (!npl_is_ptr(v) || (npl_header(v)->tag != BOX_STRING &&
-                           npl_header(v)->tag != BOX_SYMBOL))
-        npl_primitive_error(who, "expected a string", v);
-    return (const NplString *)npl_header(v);
-}
-
-NplVal npl_string_append(NplVal a, NplVal b) {
-    const NplString *sa = npl_require_bytes_internal(a, "string-append");
-    const NplString *sb = npl_require_bytes_internal(b, "string-append");
-    uint32_t len = sa->length + sb->length;
-    char *tmp = (char *)malloc((size_t)len + 1);
-    if (!tmp) { fprintf(stderr, "string-append: oom\n"); exit(1); }
-    memcpy(tmp, sa->data, sa->length);
-    memcpy(tmp + sa->length, sb->data, sb->length);
-    tmp[len] = '\0';
-    NplVal out = npl_string(tmp, len);
-    free(tmp);
-    return out;
+NplVal npl_string_append(NplVal a, NplVal b)
+{
+    NplVal parts[2] = { a, b };
+    return npl_string_append_n(2, parts);
 }
 
 /* R7RS string-append over any number of strings, including none. */
@@ -488,34 +461,42 @@ NplVal npl_string_append_n(int64_t argc, NplVal *argv)
 {
     size_t total = 0;
     for (int64_t i = 0; i < argc; i++)
-        total += npl_require_bytes_internal(argv[i], "string-append")->length;
+        total += npl_string_char_count_internal(
+            npl_require_bytes_internal(argv[i], "string-append"));
     if (total > UINT32_MAX) npl_runtime_oom_internal();
-    /* Allocate first; argv entries stay reachable through the caller. */
-    NplVal out = npl_box_bytes_internal(NULL, (uint32_t)total, BOX_STRING);
-    NplString *result = (NplString *)npl_header(out);
+    uint32_t *chars = (uint32_t *)malloc((total + 1) * sizeof(uint32_t));
+    if (!chars) npl_runtime_oom_internal();
     size_t offset = 0;
     for (int64_t i = 0; i < argc; i++) {
         const NplString *part = (const NplString *)npl_header(argv[i]);
-        memcpy(result->data + offset, part->data, part->length);
-        offset += part->length;
+        uint32_t n = npl_string_char_count_internal(part);
+        for (uint32_t k = 0; k < n; k++)
+            chars[offset++] = npl_string_char_at_internal(part, k);
     }
-    result->data[total] = '\0';
+    NplVal out = npl_string_from_chars_internal(chars, (uint32_t)total,
+                                                BOX_STRING);
+    free(chars);
     return out;
 }
 
-int64_t npl_string_length(NplVal s) {
-    return (int64_t)npl_require_bytes_internal(s, "string-length")->length;
+/* Character count; the compiler's string-length (seed byte uses are on
+ * ASCII text, where characters and bytes agree). */
+int64_t npl_string_length(NplVal s)
+{
+    return (int64_t)npl_string_char_count_internal(
+        npl_require_bytes_internal(s, "string-length"));
 }
 
-/* Returns the byte at index i as a fixnum (v1: single-byte strings). */
-NplVal npl_string_ref(NplVal s, NplVal i) {
-    const NplString *st = npl_require_bytes_internal(s, "string-ref");
-    int64_t idx = (int64_t)(i >> 2);   /* expect tagged fixnum */
-    if (idx < 0 || idx >= (int64_t)st->length) {
-        fprintf(stderr, "string-ref: index out of range\n");
-        exit(1);
-    }
-    return npl_fixnum((unsigned char)st->data[idx]);
+/* Compiler-internal string-byte-ref: the character code at index i as a
+ * fixnum (the compiler only indexes ASCII source text). */
+NplVal npl_string_ref(NplVal s, NplVal i)
+{
+    const NplString *string = npl_require_bytes_internal(s, "string-ref");
+    if (!npl_is_fixnum(i) || npl_fixnum_value(i) < 0 ||
+        npl_fixnum_value(i) >= (int64_t)npl_string_char_count_internal(string))
+        npl_primitive_error("string-ref", "index out of range", i);
+    return npl_fixnum(npl_string_char_at_internal(
+        string, (uint32_t)npl_fixnum_value(i)));
 }
 
 static NplString *mutable_string(NplVal value, const char *who)
@@ -528,11 +509,11 @@ static NplString *mutable_string(NplVal value, const char *who)
     return string;
 }
 
-static uint8_t string_byte_of(NplVal character, const char *who)
+static uint32_t string_character(NplVal character, const char *who)
 {
-    if (!npl_is_char(character) || npl_char_value(character) > 127)
-        npl_primitive_error(who, "expected an ASCII character", character);
-    return (uint8_t)npl_char_value(character);
+    if (!npl_is_char(character))
+        npl_primitive_error(who, "expected a character", character);
+    return npl_char_value(character);
 }
 
 /* make-string k [char]: a fresh mutable string; the default fill is a space. */
@@ -542,12 +523,19 @@ NplVal npl_make_string(NplVal count, NplVal fill)
         npl_fixnum_value(count) > (int64_t)UINT32_MAX)
         npl_primitive_error("make-string", "expected a non-negative count",
                             count);
-    uint8_t byte = string_byte_of(fill, "make-string");
+    uint32_t code = string_character(fill, "make-string");
     uint32_t length = (uint32_t)npl_fixnum_value(count);
-    NplVal out = npl_box_bytes_internal(NULL, length, BOX_STRING);
-    NplString *string = (NplString *)npl_header(out);
-    memset(string->data, byte, length);
-    string->data[length] = '\0';
+    if (code <= 0xFF) {
+        NplVal out = npl_box_bytes_internal(NULL, length, BOX_STRING);
+        memset(((NplString *)npl_header(out))->data, (int)code, length);
+        return out;
+    }
+    uint32_t *chars = (uint32_t *)malloc(((size_t)length + 1) *
+                                         sizeof(uint32_t));
+    if (!chars) npl_runtime_oom_internal();
+    for (uint32_t i = 0; i < length; i++) chars[i] = code;
+    NplVal out = npl_string_from_chars_internal(chars, length, BOX_STRING);
+    free(chars);
     return out;
 }
 
@@ -556,50 +544,57 @@ NplVal npl_string_fill_range(NplVal value, NplVal character, NplVal start,
                              NplVal end)
 {
     NplString *string = mutable_string(value, "string-fill!");
-    uint8_t byte = string_byte_of(character, "string-fill!");
+    uint32_t code = string_character(character, "string-fill!");
+    uint32_t length = npl_string_char_count_internal(string);
     if (!npl_is_fixnum(start) || !npl_is_fixnum(end) ||
         npl_fixnum_value(start) < 0 ||
         npl_fixnum_value(start) > npl_fixnum_value(end) ||
-        npl_fixnum_value(end) > (int64_t)string->length)
+        npl_fixnum_value(end) > (int64_t)length)
         npl_primitive_error("string-fill!", "index out of range",
                             npl_cons(start, npl_cons(end, npl_nil())));
-    memset(string->data + npl_fixnum_value(start), byte,
-           (size_t)(npl_fixnum_value(end) - npl_fixnum_value(start)));
+    for (int64_t i = npl_fixnum_value(start); i < npl_fixnum_value(end); i++)
+        npl_string_store_internal(string, (uint32_t)i, code);
     return npl_nil();
 }
 
 NplVal npl_string_set(NplVal value, NplVal index, NplVal character)
 {
     NplString *string = mutable_string(value, "string-set!");
-    uint8_t byte = string_byte_of(character, "string-set!");
+    uint32_t code = string_character(character, "string-set!");
     if (!npl_is_fixnum(index) || npl_fixnum_value(index) < 0 ||
-        npl_fixnum_value(index) >= (int64_t)string->length)
+        npl_fixnum_value(index) >=
+            (int64_t)npl_string_char_count_internal(string))
         npl_primitive_error("string-set!", "index out of range", index);
-    string->data[npl_fixnum_value(index)] = (char)byte;
+    npl_string_store_internal(string, (uint32_t)npl_fixnum_value(index), code);
     return npl_nil();
 }
 
-/* R7RS string-ref: the character at index k (strings are ASCII bytes). */
+/* R7RS string-ref: the character at index k. */
 NplVal npl_string_char_ref(NplVal s, NplVal i)
 {
-    const NplString *st = npl_require_bytes_internal(s, "string-ref");
+    const NplString *string = npl_require_bytes_internal(s, "string-ref");
     if (!npl_is_fixnum(i) || npl_fixnum_value(i) < 0 ||
-        npl_fixnum_value(i) >= (int64_t)st->length)
+        npl_fixnum_value(i) >= (int64_t)npl_string_char_count_internal(string))
         npl_primitive_error("string-ref", "index out of range", i);
-    return npl_char((unsigned char)st->data[npl_fixnum_value(i)]);
+    return npl_char(npl_string_char_at_internal(
+        string, (uint32_t)npl_fixnum_value(i)));
 }
 
-int npl_string_equal(NplVal a, NplVal b) {
-    const NplString *sa = npl_require_bytes_internal(a, "string=?");
-    const NplString *sb = npl_require_bytes_internal(b, "string=?");
-    if (sa->length != sb->length) return 0;
-    return memcmp(sa->data, sb->data, sa->length) == 0;
+int npl_string_equal(NplVal a, NplVal b)
+{
+    return npl_string_same_chars_internal(
+        npl_require_bytes_internal(a, "string=?"),
+        npl_require_bytes_internal(b, "string=?"));
 }
 
-/* Copy bytes into a box with a different header tag (symbol<->string). */
-static NplVal retag_box(NplVal v, uint32_t new_tag) {
-    const NplString *src = (const NplString *)npl_header(v);
-    return npl_box_bytes_internal(src->data, src->length, new_tag);
+/* Copy characters into a box with a different header tag (symbol<->string). */
+static NplVal retag_box(NplVal v, uint32_t new_tag)
+{
+    uint32_t count;
+    uint32_t *chars = string_chars((const NplString *)npl_header(v), &count);
+    NplVal out = npl_string_from_chars_internal(chars, count, new_tag);
+    free(chars);
+    return out;
 }
 
 NplVal npl_symbol_to_string(NplVal s) {
@@ -623,25 +618,36 @@ NplVal npl_symbol_predicate(NplVal value)
         ? npl_true() : npl_false();
 }
 
-NplVal npl_substring(NplVal s, NplVal i, NplVal j) {
-    const NplString *st = npl_require_bytes_internal(s, "substring");
-    int64_t a = (int64_t)(i >> 2);
-    int64_t b = (int64_t)(j >> 2);
-    if (!npl_is_fixnum(i) || !npl_is_fixnum(j) ||
-        a < 0 || b < a || b > (int64_t)st->length)
+NplVal npl_substring(NplVal s, NplVal i, NplVal j)
+{
+    const NplString *string = npl_require_bytes_internal(s, "substring");
+    int64_t a = npl_fixnum_value(i);
+    int64_t b = npl_fixnum_value(j);
+    if (!npl_is_fixnum(i) || !npl_is_fixnum(j) || a < 0 || b < a ||
+        b > (int64_t)npl_string_char_count_internal(string))
         npl_primitive_error("substring", "index out of range",
                             npl_cons(i, npl_cons(j, npl_nil())));
-    return npl_box_bytes_internal(st->data + a, (uint32_t)(b - a), st->header.tag);
+    uint32_t length = (uint32_t)(b - a);
+    uint32_t *chars = (uint32_t *)malloc(((size_t)length + 1) *
+                                         sizeof(uint32_t));
+    if (!chars) npl_runtime_oom_internal();
+    for (uint32_t k = 0; k < length; k++)
+        chars[k] = npl_string_char_at_internal(string, (uint32_t)a + k);
+    NplVal out = npl_string_from_chars_internal(chars, length,
+                                                string->header.tag);
+    free(chars);
+    return out;
 }
 
-NplVal npl_int_to_string_char(NplVal code) {
-    int64_t v = (int64_t)(code >> 2);
-    if (v < 0 || v > 255) {
-        fprintf(stderr, "int->string: byte out of range\n");
-        exit(1);
-    }
-    char one = (char)v;
-    return npl_box_bytes_internal(&one, 1, BOX_STRING);
+/* Compiler-internal int->string: a one-character string of code point v. */
+NplVal npl_int_to_string_char(NplVal code)
+{
+    int64_t v = npl_fixnum_value(code);
+    if (!npl_is_fixnum(code) || v < 0 || v > 0x10FFFF ||
+        (v >= 0xD800 && v <= 0xDFFF))
+        npl_primitive_error("int->string", "expected a scalar value", code);
+    uint32_t one = (uint32_t)v;
+    return npl_string_from_chars_internal(&one, 1, BOX_STRING);
 }
 
 /* ---- Helper: fixnum to string ---- */

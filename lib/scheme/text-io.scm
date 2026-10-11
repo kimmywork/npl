@@ -44,7 +44,7 @@
             (loop (raw-add index 1)))))))
 
 (define (char-ready? . port) (npl_port_ready_p (input-port-argument port)))
-(define (u8-ready? . port) (npl_port_ready_p (input-port-argument port)))
+(define (u8-ready? . port) (npl_byte_ready_p (input-port-argument port)))
 
 ; The feature identifiers cond-expand accepts (frontend/library.npl).
 (define (features) (list 'r7rs 'npl))

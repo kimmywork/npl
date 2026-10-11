@@ -10,14 +10,15 @@ L5 is done (current ports as parameter objects, text I/O, with-*-file,
 features, (scheme time), (scheme complex)). L7 (scheme r5rs) is done; all
 R7RS-small libraries export their full name lists (556/556). Remaining: L6
 (Unicode strings and chars, datum labels): design
-[design-l6](../docs/design-l6.md) accepted; next is L6a (string header and
-static data, seed transition); then P1 (Guile performance baseline). The toolchain stage is complete and committed
+[design-l6](../docs/design-l6.md) accepted; L6a+b (Unicode strings,
+characters, ports, read/write syntax) done. Next: L6c (Unicode tables for
+`(scheme char)`), then L6d/L6e (datum labels), then P1. The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 203,437 lines; SHA-256
-  `daa4fe0012f3d74133e9cd4156163932920a6941d9a74f75e983325ab1e07093`
+- `bootstrap/current.ssa`: 204,683 lines; SHA-256
+  `741fe9ea596cb25c1bd2df3b23934027e6bb1aeda4c8fa26b2c52764f782580d`
   (macOS strict relay).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. On a swap-bound host set
@@ -28,7 +29,7 @@ static data, seed transition); then P1 (Guile performance baseline). The toolcha
 
 - `(sqrt -1.0-0.0i)` branch convention needs a user decision.
 - Files above the 800-line soft limit, to split when touched:
-  `runtime/io.c`, `runtime/control.c`.
+  `runtime/control.c`.
 - `guard` clauses run before dynamic-wind after thunks are unwound (R7RS
   4.2.7 evaluates them in guard's dynamic environment).
 - npli does not reject mutation of vector literals.

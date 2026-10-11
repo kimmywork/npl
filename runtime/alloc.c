@@ -349,6 +349,10 @@ void npl_gc_drain_internal(void)
         }
         case BOX_BIGNUM:
             break;
+        case BOX_STRING:
+        case BOX_SYMBOL:
+            npl_string_mark_internal((const NplString *)header);
+            break;
         case BOX_RATIONAL: {
             NplRational *rational = (NplRational *)header;
             npl_gc_mark_candidate_internal(rational->numerator);

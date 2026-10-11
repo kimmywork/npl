@@ -1,6 +1,6 @@
-; (scheme base) characters and strings (R7RS 6.6, 6.7). Strings are ASCII
-; byte strings until the Unicode representation work (plan L6); procedures
-; that would need non-ASCII characters reject them in the runtime.
+; (scheme base) characters and strings (R7RS 6.6, 6.7). Strings hold Unicode
+; scalar values (runtime/string.c); the UTF-8 conversions are runtime
+; primitives.
 
 ; ---------------- characters ----------------
 
@@ -84,13 +84,14 @@
 (define (string->vector source . range)
   (list->vector (apply string->list source range)))
 
-; ASCII strings are their own UTF-8 encoding.
 (define (string->utf8 source . range)
-  (apply bytevector (map char->integer (apply string->list source range))))
+  (let ((bounds (checked-range "string->utf8" (string-length source) range)))
+    (npl_string_to_utf8 source (car bounds) (cdr bounds))))
 
 (define (utf8->string source . range)
-  (list->string (map integer->char
-                     (bytevector-range->list "utf8->string" source range))))
+  (let ((bounds (checked-range "utf8->string" (bytevector-length source)
+                               range)))
+    (npl_utf8_to_string source (car bounds) (cdr bounds))))
 
 ; ---------------- comparison ----------------
 

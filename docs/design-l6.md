@@ -128,9 +128,21 @@ Runtime (C, mechanisms only):
   R7RS leaves this unspecified, and Guile and Racket both substitute
   (measured). `char-ready?` is character-based (Decision 3).
 - `write` escapes characters per R7RS 6.13.3. Character names follow R7RS
-  (`#\alarm` and the rest), and other non-graphic characters use `#\xHH`.
-- Symbols with non-ASCII characters are written with vertical bars, as R7RS
-  requires.
+  (`#\alarm` and the rest), except U+0000, which is written `#\nul` as in
+  Guile and Racket (`read` accepts `#\null` and `#\nul`). Other non-graphic
+  characters use `#\xHH`.
+- `write` follows Guile and Racket (Decision 2):
+  - Graphic non-ASCII characters are written as is, in strings, in
+    characters (`#\λ`), and in symbols (`λx`).
+  - Non-graphic characters use hex escapes: `\x200b;` in strings and
+    `#\x200b` for characters.
+  - Symbols that would not read back (spaces, delimiters, empty) are written
+    with vertical bars, `|a b|`. Guile writes `#{a b}#` and Racket `|a b|`;
+    R7RS 2.1 defines `|...|`.
+
+  R7RS 6.13.3 asks for vertical bars around any symbol containing non-ASCII
+  characters. Guile and Racket do not do this, and NPL follows them; this is a
+  recorded deviation.
 
 Unicode data (generated, not hand-written):
 
@@ -201,8 +213,7 @@ Guile unless noted.
 
 | Inc | Content | Relay | Oracle |
 |---|---|---|---|
-| L6a | String header (`chars`, ASCII flag) and static data emission; behavior still ASCII | seed transition (two relays) | existing fixtures unchanged |
-| L6b | UTF-8 string/char primitives, `integer->char` range, UTF-8 ports with lookahead, character-based `char-ready?`, `write` escapes | relay | Guile |
+| L6a+b | Adaptive-width strings (`runtime/string.c`), static wide string data, scalar-value characters, UTF-8 ports with byte pushback, character-based `char-ready?` and byte `u8-ready?`, `string->utf8`/`utf8->string`, `read` and `write` syntax (Guile's non-graphic set, generated from `unicodedata`) | relays | Guile (done 2026-10-11, fixture `unicode-strings`) |
 | L6c | Unicode tables and `(scheme char)` | library only | Guile (Unicode 15.1 tables vs Guile's; differences classified) |
 | L6d | Runtime `read` datum labels | relay (runtime) | Racket for input; native/npli agreement |
 | L6e | `write`/`write-shared`/`write-simple`/`display` labelling, cycle-safe `equal?` | relay (runtime) | Guile for `write-shared`; R7RS and native/npli agreement for cyclic `write`/`display`/`equal?` |

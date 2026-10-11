@@ -132,9 +132,10 @@
         (if (= digit 100) (fatal "invalid hexadecimal escape"))
         (hex-value s (+ index 1) end (+ (* value 16) digit)))))
 
-(define (ascii-scalar value)
-  (if (> value 127)
-      (fatal "character is outside the supported ASCII repertoire")
+; Unicode scalar values: 0..#x10FFFF excluding surrogates.
+(define (scalar-value value)
+  (if (if (> value 1114111) #t (if (> value 55295) (< value 57344) #f))
+      (fatal "character is not a Unicode scalar value")
       value))
 
 (define (character-code name)
@@ -144,12 +145,13 @@
         ((string=? name "escape") 27)
         ((string=? name "newline") 10)
         ((string=? name "null") 0)
+        ((string=? name "nul") 0)
         ((string=? name "return") 13)
         ((string=? name "space") 32)
         ((string=? name "tab") 9)
         ((= (string-length name) 1) (string-byte-ref name 0))
         ((= (string-byte-ref name 0) 120)
-         (ascii-scalar (hex-value name 1 (string-length name) 0)))
+         (scalar-value (hex-value name 1 (string-length name) 0)))
         (else (fatal "unknown character name"))))
 
 (define (lex-char s j acc)
@@ -227,7 +229,7 @@
        (let ((end (string-hex-end s (+ index 1))))
          (if (= end (+ index 1))
              (fatal "hexadecimal string escape needs a digit"))
-         (let ((value (ascii-scalar (hex-value s (+ index 1) end 0))))
+         (let ((value (scalar-value (hex-value s (+ index 1) end 0))))
            (lex-string s (+ end 1)
              (string-append out (int->string value)) acc))))
       ((10 13)

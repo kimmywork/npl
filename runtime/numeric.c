@@ -129,10 +129,17 @@ static NplVal integer_add_magnitudes(int32_t sign,
     return result;
 }
 
+/* Numeric syntax is ASCII, so the parsers below read narrow string bytes
+ * directly; a wide string (a character above 255) is never a number. */
+static int narrow_string(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_STRING &&
+           (npl_header(value)->flags & NPL_FLAG_WIDE) == 0;
+}
+
 NplVal npl_integer_string_p(NplVal value)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING)
-        return npl_false();
+    if (!narrow_string(value)) return npl_false();
     NplString *text = (NplString *)npl_header(value);
     uint32_t index = (text->length != 0 &&
                       (text->data[0] == '+' || text->data[0] == '-')) ? 1 : 0;
@@ -282,8 +289,7 @@ static NplVal exact_number_from_string(NplVal value, int radix, uint32_t begin)
 
 NplVal npl_number_from_string_radix(NplVal value, NplVal radix)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING ||
-        !npl_is_fixnum(radix)) return npl_false();
+    if (!narrow_string(value) || !npl_is_fixnum(radix)) return npl_false();
     int64_t base = npl_fixnum_value(radix);
     if (base < 2 || base > 36) return npl_false();
     return exact_number_from_string(value, (int)base, 0);
@@ -315,8 +321,7 @@ static NplVal complex_from_string(NplVal value)
 
 NplVal npl_number_from_string(NplVal value)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING)
-        return npl_false();
+    if (!narrow_string(value)) return npl_false();
     const NplString *text = (const NplString *)npl_header(value);
     NplVal complex = complex_from_string(value);
     if (complex != npl_false()) return complex;

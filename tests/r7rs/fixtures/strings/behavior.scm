@@ -1,5 +1,5 @@
-; (scheme base) and (scheme char) characters and strings, ASCII repertoire
-; (R7RS 6.6, 6.7). Non-ASCII characters are out of scope until plan L6.
+; (scheme base) and (scheme char) characters and strings over ASCII
+; (R7RS 6.6, 6.7); non-ASCII cases are in fixtures/unicode-strings.
 (define (report name value) (write (list name value)) (newline))
 (define (bytes b)
   (let loop ((i (- (bytevector-length b) 1)) (out '()))

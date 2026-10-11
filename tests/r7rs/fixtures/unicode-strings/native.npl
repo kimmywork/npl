@@ -1,0 +1,3 @@
+(import (scheme base) (scheme write) (scheme read))
+(include "behavior.scm")
+(define (main) 0)
