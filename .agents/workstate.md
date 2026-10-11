@@ -11,14 +11,14 @@ features, (scheme time), (scheme complex)). L7 (scheme r5rs) is done; all
 R7RS-small libraries export their full name lists (556/556). Remaining: L6
 (Unicode strings and chars, datum labels): design
 [design-l6](../docs/design-l6.md) accepted; L6a+b (Unicode strings,
-characters, ports, read/write syntax) done. Next: L6c (Unicode tables for
-`(scheme char)`), then L6d/L6e (datum labels), then P1. The toolchain stage is complete and committed
+characters, ports, read/write syntax) and L6c (`(scheme char)` over Unicode)
+done. Next: L6d/L6e (datum labels, cycle-safe output and equal?), then P1. The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 204,683 lines; SHA-256
-  `741fe9ea596cb25c1bd2df3b23934027e6bb1aeda4c8fa26b2c52764f782580d`
+- `bootstrap/current.ssa`: 204,715 lines; SHA-256
+  `e0a7d6cba7152fb038bd83156835bb3e83779f5a564e32d29e4a5c632100ff6c`
   (macOS strict relay).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. On a swap-bound host set

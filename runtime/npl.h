@@ -591,6 +591,11 @@ uint32_t npl_utf8_decode_internal(const uint8_t *bytes, size_t length,
 int npl_utf8_sequence_length_internal(uint8_t lead);
 size_t npl_utf8_encode_internal(uint32_t code, uint8_t *out);
 NplVal npl_string_to_utf8(NplVal string, NplVal start, NplVal end);
+/* (scheme char) table lookups (unicode.c). */
+NplVal npl_char_property(NplVal character, NplVal kind);
+NplVal npl_char_digit_value(NplVal character);
+NplVal npl_char_case(NplVal character, NplVal kind);
+NplVal npl_char_full_case(NplVal character, NplVal kind);
 NplVal npl_utf8_to_string(NplVal bytevector, NplVal start, NplVal end);
 void npl_control_init(void);
 void npl_control_mark_roots(void);

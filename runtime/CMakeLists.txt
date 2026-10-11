@@ -17,6 +17,7 @@ add_library(npl_runtime STATIC
   ${RUNTIME_SRC_DIR}/read.c
   ${RUNTIME_SRC_DIR}/string.c
   ${RUNTIME_SRC_DIR}/symbol.c
+  ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c
   ${RUNTIME_SRC_DIR}/write.c
 )

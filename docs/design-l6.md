@@ -146,14 +146,21 @@ Runtime (C, mechanisms only):
 
 Unicode data (generated, not hand-written):
 
-- A generator script, `tools/gen_unicode.py`, derives the tables from the
-  host Python's `unicodedata` (Decision 4) and records that version in the
-  output. It emits compact range tables as an NPL source file,
-  `lib/scheme/unicode-tables.scm`. Lookups are binary searches over sorted
-  vectors.
-- Keeping the tables in NPL keeps `(scheme char)` policy NPL-first. If the
-  tables are too slow, a C lookup primitive over the same generated data is
-  the fallback; that needs a measurement first.
+- `tools/gen_unicode.py` writes `runtime/unicode_tables.h` at the host
+  Python's `unicodedata` version (Decision 4). Properties unicodedata does
+  not expose (Alphabetic, Uppercase, Lowercase, White_Space, Cased,
+  Case_Ignorable) and the full case mappings come from the UCD files of the
+  same version (`--ucd DIR` or downloaded; the version is checked).
+- The tables are C arrays behind four lookup primitives
+  (`runtime/unicode.c`): binary search over sorted ranges and maps. The
+  `(scheme char)` policy (which mapping each procedure uses, Final_Sigma)
+  stays in NPL (`lib/scheme/char.sld`). Table data in NPL would be about
+  6,000 elements of static data per program, so C is the cheaper place for
+  data; behavior remains in NPL.
+- Guile and Racket differ on a few cases (Racket uses full folding for
+  `char-foldcase` of capital sharp s and the Other_* properties of
+  letterlike numbers and symbols; Guile does not), so the shared fixture
+  leaves them out. NPL follows the Unicode properties R7RS names.
 
 Library (NPL):
 
@@ -214,7 +221,7 @@ Guile unless noted.
 | Inc | Content | Relay | Oracle |
 |---|---|---|---|
 | L6a+b | Adaptive-width strings (`runtime/string.c`), static wide string data, scalar-value characters, UTF-8 ports with byte pushback, character-based `char-ready?` and byte `u8-ready?`, `string->utf8`/`utf8->string`, `read` and `write` syntax (Guile's non-graphic set, generated from `unicodedata`) | relays | Guile (done 2026-10-11, fixture `unicode-strings`) |
-| L6c | Unicode tables and `(scheme char)` | library only | Guile (Unicode 15.1 tables vs Guile's; differences classified) |
+| L6c | Unicode tables and `(scheme char)` | relay (table-lookup primitives) | Guile (done 2026-10-11, fixture `unicode-char`) |
 | L6d | Runtime `read` datum labels | relay (runtime) | Racket for input; native/npli agreement |
 | L6e | `write`/`write-shared`/`write-simple`/`display` labelling, cycle-safe `equal?` | relay (runtime) | Guile for `write-shared`; R7RS and native/npli agreement for cyclic `write`/`display`/`equal?` |
 
