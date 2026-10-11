@@ -147,13 +147,27 @@
   (assoc-loop value entries (if (pair? compare) (car compare) equal?)))
 
 ; ---------------- equal? ----------------
+; Structural equality on pairs, vectors, strings, and bytevectors; eqv?
+; elsewhere (R7RS 6.1). It must terminate on circular data. The direct pass
+; walks cdr chains iteratively and watches the left chain for a cycle
+; (tortoise and hare); every other cycle passes through a car or vector
+; element, so a bound on that nesting depth catches it. When either check
+; fires, the comparison restarts with union-find over the visited pairs and
+; vectors: two nodes already in one class are taken as equal, which decides
+; equality of the infinite trees (Adams and Dybvig, "Efficient
+; nondestructive equality checking for trees and graphs"). Acyclic data of
+; ordinary depth never leaves the direct pass, whatever its length.
 
-(define (vector-equal? left right index length)
-  (if (raw-equal index length)
-      #t
-      (if (equal? (vector-ref left index) (vector-ref right index))
-          (vector-equal? left right (raw-add index 1) length)
-          #f)))
+(define (equal-atoms? left right)
+  (cond
+    ((string? left) (if (string? right) (string=? left right) #f))
+    ((bytevector? left)
+     (if (bytevector? right)
+         (if (raw-equal (bytevector-length left) (bytevector-length right))
+             (bytevector-equal? left right 0 (bytevector-length left))
+             #f)
+         #f))
+    (else #f)))
 
 (define (bytevector-equal? left right index length)
   (if (raw-equal index length)
@@ -163,28 +177,92 @@
           (bytevector-equal? left right (raw-add index 1) length)
           #f)))
 
-; Structural equality on pairs, vectors, strings, and bytevectors; eqv?
-; elsewhere (R7RS 6.1). Cycles are not detected.
-(define (equal? left right)
+;; Direct pass: #t, #f, or 'cycle (give up; use the graph pass).
+(define (equal-direct left right depth)
+  (cond
+    ((eqv? left right) #t)
+    ((raw-greater depth 10000) 'cycle)
+    ((pair? left)
+     (if (pair? right) (equal-direct-list left right depth) #f))
+    ((vector? left)
+     (if (if (vector? right)
+             (raw-equal (vector-length left) (vector-length right))
+             #f)
+         (let loop ((index 0))
+           (if (raw-equal index (vector-length left))
+               #t
+               (let ((element (equal-direct (vector-ref left index)
+                                            (vector-ref right index)
+                                            (raw-add depth 1))))
+                 (if (eq? element #t) (loop (raw-add index 1)) element))))
+         #f))
+    (else (equal-atoms? left right))))
+
+; Both arguments are pairs. tortoise advances every second step along the
+; left chain; meeting it again means the left cdr chain is circular.
+(define (equal-direct-list left right depth)
+  (let loop ((left left) (right right) (tortoise left) (step #f))
+    (let ((head (equal-direct (car left) (car right) (raw-add depth 1))))
+      (if (not (eq? head #t))
+          head
+          (let ((left-rest (cdr left)) (right-rest (cdr right))
+                (tortoise (if step (cdr tortoise) tortoise)))
+            (cond
+              ((eq? left-rest tortoise) 'cycle)
+              ((pair? left-rest)
+               (if (pair? right-rest)
+                   (loop left-rest right-rest tortoise (not step))
+                   #f))
+              (else (equal-direct left-rest right-rest depth))))))))
+
+; Union-find over nodes (pairs and vectors), keyed by eq?: an association
+; list from node to its parent cell; small, because only the graph part
+; that defeated the bounded pass is visited.
+(define (equal-find classes node)
+  (let ((entry (assq node (car classes))))
+    (if entry
+        (let ((root (equal-find classes (cdr entry))))
+          (set-cdr! entry root)
+          root)
+        node)))
+
+(define (equal-union! classes a b)
+  (let ((ra (equal-find classes a)) (rb (equal-find classes b)))
+    (if (eq? ra rb)
+        #t
+        (begin (set-car! classes (cons (cons ra rb) (car classes))) #f))))
+
+(define (equal-graph? left right classes)
   (cond
     ((eqv? left right) #t)
     ((pair? left)
      (if (pair? right)
-         (if (equal? (car left) (car right))
-             (equal? (cdr left) (cdr right))
-             #f)
+         (let loop ((left left) (right right))
+           (cond
+             ((equal-union! classes left right) #t)
+             ((not (equal-graph? (car left) (car right) classes)) #f)
+             ((if (pair? (cdr left)) (pair? (cdr right)) #f)
+              (loop (cdr left) (cdr right)))
+             (else (equal-graph? (cdr left) (cdr right) classes))))
          #f))
-    ((string? left) (if (string? right) (string=? left right) #f))
     ((vector? left)
-     (if (vector? right)
-         (if (raw-equal (vector-length left) (vector-length right))
-             (vector-equal? left right 0 (vector-length left))
+     (if (if (vector? right)
+             (raw-equal (vector-length left) (vector-length right))
              #f)
+         (if (equal-union! classes left right)
+             #t
+             (let loop ((index 0))
+               (if (raw-equal index (vector-length left))
+                   #t
+                   (if (equal-graph? (vector-ref left index)
+                                     (vector-ref right index) classes)
+                       (loop (raw-add index 1))
+                       #f))))
          #f))
-    ((bytevector? left)
-     (if (bytevector? right)
-         (if (raw-equal (bytevector-length left) (bytevector-length right))
-             (bytevector-equal? left right 0 (bytevector-length left))
-             #f)
-         #f))
-    (else #f)))
+    (else (equal-atoms? left right))))
+
+(define (equal? left right)
+  (let ((result (equal-direct left right 0)))
+    (if (eq? result 'cycle)
+        (equal-graph? left right (list '()))
+        result)))

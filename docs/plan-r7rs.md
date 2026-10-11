@@ -21,7 +21,6 @@ Presence is not conformance; behavior is established only by fixtures.
 
 | Area | Gap |
 |---|---|
-| representation | strings and chars are bytes/ASCII; runtime `read` lacks datum labels and `write-shared` does not label cycles (L6) |
 | semantics | `guard` clauses run before dynamic-wind after thunks unwind (R7RS 4.2.7); `(sqrt -1.0-0.0i)` branch needs a user decision |
 | evaluator | does not reject mutation of vector literals; built-in numeric primitives used without imports keep their own error text |
 
@@ -93,6 +92,7 @@ each). The three representation changes in L3-L5 were approved 2026-10-08.
 6. **L6 representation work** (each needs its own design review before code):
    Unicode strings and chars, datum labels in runtime `read` and
    `write-shared`. Design: [design-l6](design-l6.md) (accepted 2026-10-10).
+   Done 2026-10-11.
 7. **L7 `(scheme r5rs)`**, re-exported from the completed libraries plus
    `null-environment` and `scheme-report-environment`. Done 2026-10-10.
 8. **P1 Guile performance baseline.** Fixed environment, warm-up, at least 10

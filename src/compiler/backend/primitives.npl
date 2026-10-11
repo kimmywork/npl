@@ -100,8 +100,8 @@
     ; output
     ("display" out-port "npl_display_port" 1 1)
     ("write" out-port "npl_write_port" 1 1)
-    ("write-shared" out-port "npl_write_port" 1 1)
-    ("write-simple" out-port "npl_write_port" 1 1)
+    ("write-shared" out-port "npl_write_shared_port" 1 1)
+    ("write-simple" out-port "npl_write_simple_port" 1 1)
     ("newline" out-port "npl_newline_port" 0 1)
     ("flush-output-port" out-port "npl_flush_output_port" 0 1)
     ("write-char" out-port "npl_write_char" 1 1)

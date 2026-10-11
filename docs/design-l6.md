@@ -202,14 +202,17 @@ needed. Its checks that require `eval-ascii-char?` widen to scalar values.
   - `display` uses `write`'s labelling so it always terminates; R7RS requires
     termination.
 
-  Labels are numbered in output order starting at 1, matching Guile's
-  `write-shared`, so those fixtures compare directly with Guile. The pass uses
-  a temporary hash table keyed by object address and is GC-safe because it
-  does not allocate managed objects.
-- `equal?` on cycles: R7RS requires termination. Implement it in NPL as a
-  bounded-recursion fast path, then fall back to a union-find over visited
-  pairs and vectors (the Adams–Dybvig "efficient nondestructive equality"
-  approach). Acyclic inputs keep their current cost.
+  Labels are numbered in output order from 0, as in R7RS 2.4's example and
+  Racket (Guile's `write-shared` starts at 1; its cyclic `write` is invalid
+  syntax), so the fixture uses `oracle=none`. The pass uses a temporary hash
+  table keyed by object address and is GC-safe because it does not allocate
+  managed objects.
+- `equal?` on cycles: R7RS requires termination (Guile 3.0 does not
+  terminate on circular lists). NPL: a direct pass walks cdr chains
+  iteratively, detects a circular left chain (tortoise and hare), and bounds
+  car/vector nesting; when either fires it restarts with union-find over
+  visited pairs and vectors (Adams and Dybvig). Acyclic data of ordinary
+  depth stays on the direct pass.
 - Separate primitives: `write-shared`/`write-simple` get their own runtime
   entries instead of the current `npl_write_port` alias.
 
@@ -223,7 +226,7 @@ Guile unless noted.
 | L6a+b | Adaptive-width strings (`runtime/string.c`), static wide string data, scalar-value characters, UTF-8 ports with byte pushback, character-based `char-ready?` and byte `u8-ready?`, `string->utf8`/`utf8->string`, `read` and `write` syntax (Guile's non-graphic set, generated from `unicodedata`) | relays | Guile (done 2026-10-11, fixture `unicode-strings`) |
 | L6c | Unicode tables and `(scheme char)` | relay (table-lookup primitives) | Guile (done 2026-10-11, fixture `unicode-char`) |
 | L6d | Runtime `read` datum labels | runtime only | Racket cross-check; native/npli agreement (done 2026-10-11, fixture `datum-labels`, `oracle=none`) |
-| L6e | `write`/`write-shared`/`write-simple`/`display` labelling, cycle-safe `equal?` | relay (runtime) | Guile for `write-shared`; R7RS and native/npli agreement for cyclic `write`/`display`/`equal?` |
+| L6e | `write`/`write-shared`/`write-simple`/`display` labelling, cycle-safe `equal?` | relay (`write-shared`/`write-simple` entries) | R7RS, Racket cross-check, native/npli agreement (done 2026-10-11, fixture `cyclic-data`, `oracle=none`) |
 
 Verification on top of fixtures:
 

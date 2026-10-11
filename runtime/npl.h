@@ -343,6 +343,8 @@ NplVal npl_textual_port_p(NplVal value);
 NplVal npl_binary_port_p(NplVal value);
 NplVal npl_display_port(NplVal value, NplVal port);
 NplVal npl_write_port(NplVal value, NplVal port);
+NplVal npl_write_shared_port(NplVal value, NplVal port);
+NplVal npl_write_simple_port(NplVal value, NplVal port);
 NplVal npl_newline_port(NplVal port);
 NplVal npl_read_datum(NplVal port);
 NplVal npl_read_result(NplVal port);
