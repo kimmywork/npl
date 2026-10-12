@@ -10,10 +10,23 @@
      (let ((single (direct-defined-identifier form)))
        (if (null? single) acc (cons single acc))))
     ((raw-form? form "define-values")
-     (append-forms (car (cdr form)) acc))
+     (append-forms (define-values-proper-formals (car (cdr form))) acc))
     ((raw-form? form "define-syntax")
      (if (datum-symbol? (car (cdr form))) (cons (car (cdr form)) acc) acc))
     (else acc)))
+
+;; Like begin-defined-list, but only names defined as values (define,
+;; define-values): syntax keywords must not be predeclared as variables.
+(define (begin-defined-value-list forms acc)
+  (if (pair? forms)
+      (begin-defined-value-list
+        (cdr forms)
+        (let ((form (car forms)))
+          (cond
+            ((raw-form? form "begin") (begin-defined-value-list (cdr form) acc))
+            ((raw-form? form "define-syntax") acc)
+            (else (begin-defined-identifiers form acc)))))
+      acc))
 
 (define (begin-defined-list forms acc)
   (if (pair? forms)

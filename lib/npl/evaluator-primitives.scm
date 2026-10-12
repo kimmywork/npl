@@ -305,8 +305,12 @@
          (let ((spread (eval-apply-arguments (cdr arguments))))
            (if (eval-proper-list? spread)
                (eval-apply (car arguments) spread environment continuation)
-               (continuation (eval-error "apply: expected a proper list"))))
-         (continuation (eval-error "apply: needs a procedure and a list"))))
+               (eval-primitive-error "apply" "expected a proper list"
+                                     (car (reverse arguments)) continuation)))
+         (eval-primitive-error "apply" "wrong number of arguments"
+                               (if (eval-proper-list? arguments)
+                                   (length arguments) 0)
+                               continuation)))
     ((string=? name "call/cc")
      (let ((error (eval-arity arguments 1 name)))
        (if error (continuation error)

@@ -202,8 +202,10 @@
                     (expand-top-sequence
                       (cons form ()) value-environment
                       (frontend-session-macro-environment session) ())))
+              ; The final value environment includes names defined by
+              ; spliced begin forms and macro output.
               (frontend-session-set-value-environment!
-                session value-environment)
+                session (cell-get TOP-VALUE-ENVIRONMENT))
               (frontend-session-set-macro-environment!
                 session (cdr expanded))
               (lower-program (car expanded))))))

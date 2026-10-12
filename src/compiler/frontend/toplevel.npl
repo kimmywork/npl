@@ -19,7 +19,7 @@
         (if (raw-form? form "define-values")
             (begin
               (require-raw-arity form 2 "define-values")
-              (car (cdr form)))
+              (define-values-proper-formals (car (cdr form))))
             ())
         (cons single ()))))
 
@@ -84,12 +84,51 @@
             macro-env))))
 
 ; result = (expanded-forms . final-macro-environment)
+;; Whether form's head is the core keyword name (not shadowed by a
+;; variable or a macro binding).
+(define (head-is-core? form name value-env macro-env)
+  (let ((head (car form)))
+    (if (datum-symbol? head)
+        (if (string=? (datum-symbol-name head) name)
+            (if (head-value-bound? head value-env)
+                #f
+                (null? (lookup-macro-binding head macro-env)))
+            #f)
+        #f)))
+
+(define (top-syntax-cells-unbound forms macro-env)
+  (if (null? forms)
+      macro-env
+      (top-syntax-cells-unbound
+        (cdr forms)
+        (if (if (raw-form? (car forms) "define-syntax")
+                (if (datum-symbol? (car (cdr (car forms))))
+                    (null? (top-syntax-prebound (car (cdr (car forms)))
+                                                macro-env))
+                    #f)
+                #f)
+            (add-macro-binding (car (cdr (car forms)))
+                               UNINITIALIZED-SYNTAX macro-env)
+            macro-env))))
+
 (define (expand-top-sequence forms value-env macro-env acc)
   (if (null? forms)
       (begin
         (cell-set! TOP-VALUE-ENVIRONMENT value-env)
         (cons (rev acc) macro-env))
       (let ((form (car forms)))
+        ; A top-level begin splices its forms (R7RS 5.6.1), including
+        ; syntax definitions, before any expansion.
+        (if (if (raw-form? form "begin")
+                (head-is-core? form "begin" value-env macro-env)
+                #f)
+           ; Keywords in the spliced forms are prebound only when the
+           ; enclosing sequence did not prebind them already.
+           (expand-top-sequence
+             (append-forms (cdr form) (cdr forms))
+             (predeclare-spliced-globals
+               (begin-defined-value-list (cdr form) ()) value-env)
+             (top-syntax-cells-unbound (cdr form) macro-env) acc)
         (if (raw-form? form "define-syntax")
             (begin
               (require-raw-arity form 2 "define-syntax")
@@ -125,14 +164,14 @@
                       (expand-top-sequence
                         (append-forms (cdr expanded) (cdr forms))
                         (predeclare-spliced-globals
-                          (begin-defined-list (cdr expanded) ()) value-env)
+                          (begin-defined-value-list (cdr expanded) ()) value-env)
                         macro-env acc)
                       (expand-top-sequence
                         (cdr forms)
                         (predeclare-spliced-globals
                           (direct-defined-identifiers expanded) value-env)
                         macro-env
-                        (cons expanded acc)))))))))
+                        (cons expanded acc))))))))))
 
 ; Top-level names defined by spliced macro output: unbound ones become
 ; globals named like direct definitions (with the library prefix inside a

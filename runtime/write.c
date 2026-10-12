@@ -131,38 +131,80 @@ static void write_character(NplPort *port, uint32_t code)
     }
 }
 
-/* write prints a symbol inside |...| when its plain text would not read
- * back as the same symbol (R7RS 2.1, 6.13.3): empty, ".", containing a
- * delimiter, '#' at the start, '|' or '\\', whitespace or other
- * non-graphic characters, or text that reads as a number. Non-ASCII graphic
- * characters print as they are (Guile, Racket; see docs/design-l6.md). */
+/* write prints a symbol inside |...| unless its text is an R7RS 7.1.1
+ * <identifier> other than |...|: an <initial> followed by <subsequent>s, or
+ * a <peculiar identifier> (+ - ... +a -.b and so on), which by grammar can
+ * never be a number. Non-ASCII graphic characters count as <initial>
+ * (Guile and Racket print them unbarred; docs/design-l6.md). */
+static int ascii_letter(uint32_t c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+static int special_initial(uint32_t c)
+{
+    return c == '!' || c == '$' || c == '%' || c == '&' || c == '*' ||
+           c == '/' || c == ':' || c == '<' || c == '=' || c == '>' ||
+           c == '?' || c == '^' || c == '_' || c == '~';
+}
+
+static int identifier_initial(uint32_t c)
+{
+    return ascii_letter(c) || special_initial(c) ||
+           (c >= 0x80 && write_graphic(c));
+}
+
+static int identifier_subsequent(uint32_t c)
+{
+    return identifier_initial(c) || (c >= '0' && c <= '9') ||
+           c == '+' || c == '-' || c == '.' || c == '@';
+}
+
+static int sign_subsequent(uint32_t c)
+{
+    return identifier_initial(c) || c == '+' || c == '-' || c == '@';
+}
+
 static int symbol_needs_bars(const NplString *symbol)
 {
     uint32_t count = npl_string_char_count_internal(symbol);
     if (count == 0) return 1;
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t c = npl_string_char_at_internal(symbol, i);
-        if (c == '(' || c == ')' || c == '"' || c == ';' || c == '\'' ||
-            c == '`' || c == ',' || c == '|' || c == '\\' ||
-            (c == '#' && i == 0) || c == ' ' || !write_graphic(c))
-            return 1;
-    }
-    if (count == 1 && npl_string_char_at_internal(symbol, 0) == '.')
-        return 1;
-    /* Reads as a number (2, +3, -.4, +i, +inf.0, +nan.0, ...)? */
     uint32_t first = npl_string_char_at_internal(symbol, 0);
-    if ((first >= '0' && first <= '9') || first == '+' || first == '-' ||
-        first == '.') {
+    uint32_t i = 1;
+    if (identifier_initial(first)) {
+        /* ordinary identifier */
+    } else if (first == '+' || first == '-') {
+        if (count == 1) return 0;
+        uint32_t second = npl_string_char_at_internal(symbol, 1);
+        if (second == '.') {
+            if (count == 2) return 1;
+            uint32_t third = npl_string_char_at_internal(symbol, 2);
+            if (!sign_subsequent(third) && third != '.') return 1;
+            i = 3;
+        } else {
+            if (!sign_subsequent(second)) return 1;
+            i = 2;
+        }
+    } else if (first == '.') {
+        if (count == 1) return 1;
+        uint32_t second = npl_string_char_at_internal(symbol, 1);
+        if (!sign_subsequent(second) && second != '.') return 1;
+        i = 2;
+    } else {
+        return 1;
+    }
+    for (; i < count; i++)
+        if (!identifier_subsequent(npl_string_char_at_internal(symbol, i)))
+            return 1;
+    /* The grammar's <peculiar identifier> overlaps the number syntax
+     * (+i, -inf.0, +nan.0): such text reads back as a number. */
+    if (first == '+' || first == '-' || first == '.') {
         size_t length;
         int owned;
         const char *bytes = npl_string_utf8(symbol, &length, &owned);
-        NplVal as_string = npl_string(bytes, (uint32_t)length);
+        NplVal text = npl_string(bytes, (uint32_t)length);
         if (owned) free((void *)bytes);
-        if (npl_number_from_string(as_string) != npl_false()) return 1;
-        /* Digits that are not a number (e.g. 1+) are still a peculiar
-         * identifier only when they start with + - or .; R7RS forbids a
-         * leading digit, so bars keep them readable. */
-        if (first >= '0' && first <= '9') return 1;
+        if (npl_number_from_string(text) != npl_false()) return 1;
     }
     return 0;
 }

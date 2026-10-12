@@ -270,7 +270,8 @@
   (if (not (< j (string-length s))) (fatal "unterminated |symbol|"))
   (let ((code (string-byte-ref s j)))
     (cond
-      ((= code 124) (lex-loop s (+ j 1) (cons (cons 4 out) acc)))
+      ; token 19: a |...| symbol, which is never the dot of a pair
+      ((= code 124) (lex-loop s (+ j 1) (cons (cons 19 out) acc)))
       ((= code 92)
        (if (not (< (+ j 1) (string-length s))) (fatal "unterminated |symbol|"))
        (let ((escaped (string-byte-ref s (+ j 1))))

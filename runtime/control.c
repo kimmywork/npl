@@ -789,20 +789,17 @@ void npl_tail_request(NplGenericFunction function, NplVal environment,
  * Spread the list and tail-call the procedure with the continuation last. */
 void npl_apply_tail(int64_t argc, NplVal *argv)
 {
-    if (argc < 3) {
-        fprintf(stderr, "apply: needs a procedure and a list\n");
-        exit(1);
-    }
+    if (argc < 3)
+        npl_primitive_error("apply", "wrong number of arguments",
+                            npl_fixnum(argc - 1));
     NplVal procedure = argv[0];
     NplVal list = argv[argc - 2];
     NplVal continuation = argv[argc - 1];
     int64_t fixed = argc - 3;
     int64_t spread = 0;
     for (NplVal rest = list; !npl_is_nil(rest); rest = npl_cdr(rest)) {
-        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR) {
-            fprintf(stderr, "apply: last argument is not a proper list\n");
-            exit(1);
-        }
+        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR)
+            npl_primitive_error("apply", "expected a proper list", list);
         spread++;
     }
     int64_t count = fixed + spread + 1;

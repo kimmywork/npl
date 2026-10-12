@@ -133,11 +133,18 @@
          #f))
     (else #f)))
 
+; A pattern identifier is a literal when it is the same identifier as one in
+; the literal list: same name and same syntax mark (bound-identifier=?).
+; An identifier a macro inserted into a pattern is a different identifier
+; from a user-written literal of the same name (R7RS 4.3.2; chibi
+; r7rs-tests "bound-identifier=?").
 (define (literal-identifier? identifier literals)
   (if (null? literals)
       #f
-      (if (string=? (datum-symbol-name identifier)
-                    (datum-symbol-name (car literals)))
+      (if (if (string=? (datum-symbol-name identifier)
+                        (datum-symbol-name (car literals)))
+              (= (identifier-mark identifier) (identifier-mark (car literals)))
+              #f)
           #t
           (literal-identifier? identifier (cdr literals)))))
 
@@ -163,7 +170,18 @@
                       #f
                       (string=? definition-binding use-binding))))))))
 
-; variable descriptor = (name . repetition-depth)
+;; Pattern variables are identifiers: a template symbol refers to a pattern
+;; variable only if it has the same name and syntax mark, so an identifier
+;; one macro inserts into another macro's rules does not capture the user's
+;; identifier of the same name (bound-identifier=?, R7RS 4.3.2).
+(define (pattern-key identifier)
+  (let ((mark (identifier-mark identifier)))
+    (if (= mark 0)
+        (datum-symbol-name identifier)
+        (string-append (datum-symbol-name identifier)
+          (string-append (int->string 1) (number->string mark))))))
+
+; variable descriptor = (key . repetition-depth)
 (define (variable-descriptor name variables)
   (if (null? variables)
       ()
@@ -181,9 +199,10 @@
            variables
            (if (active-ellipsis? pattern ellipsis literals)
                (fatal "misplaced ellipsis in pattern")
-               (if (not (null? (variable-descriptor name variables)))
+               (if (not (null? (variable-descriptor
+                                 (pattern-key pattern) variables)))
                    (fatal "duplicate pattern variable")
-                   (cons (cons name depth) variables))))))
+                   (cons (cons (pattern-key pattern) depth) variables))))))
     ((datum-vector? pattern)
      (validate-pattern-list (datum-vector-items pattern)
                             literals ellipsis depth variables))
@@ -369,7 +388,10 @@
         ((datum-symbol? pattern)
          (let ((name (datum-symbol-name pattern)))
            (cond
-             ((string=? name "_") captures)
+             ; A literal _ matches only _ (R7RS 4.3.2); otherwise _ is the
+             ; wildcard.
+             ((if (string=? name "_") (not (literal-identifier? pattern literals)) #f)
+              captures)
              ((active-ellipsis? pattern ellipsis literals)
               (fatal "misplaced ellipsis in pattern"))
              ((literal-identifier? pattern literals)
@@ -378,7 +400,7 @@
                     (transformer-definition-env transformer) use-env)
                   captures
                   MATCH-FAIL))
-             (else (add-capture name path input captures)))))
+             (else (add-capture (pattern-key pattern) path input captures)))))
         ((datum-vector? pattern)
          (if (datum-vector? input)
              (match-pattern-list (datum-vector-items pattern)
@@ -396,7 +418,9 @@
         ((datum-false? pattern)
          (if (datum-false? input) captures MATCH-FAIL))
         ((pair? pattern)
-         (if (pair? input)
+         ; Frontend atoms (symbols, strings, ...) are tagged pairs: a list
+         ; pattern matches only list structure.
+         (if (if (pair? input) (not (syntax-atomic? input)) #f)
              (match-pattern-list pattern input transformer use-env
                                  captures path)
              MATCH-FAIL))
@@ -417,7 +441,7 @@
                   (match-repeated-pattern
                     (car patterns) (cdr (cdr patterns)) input
                     transformer use-env captures path 0)
-                  (if (not (pair? input))
+                  (if (if (pair? input) (syntax-atomic? input) #t)
                       MATCH-FAIL
                       (let ((head-captures
                               (match-pattern (car patterns) (car input)
@@ -469,7 +493,7 @@
     ((datum-symbol? template)
      (let ((descriptor
              (variable-descriptor
-               (datum-symbol-name template)
+               (pattern-key template)
                (cell-get CURRENT-PATTERN-VARIABLES))))
        (if (null? descriptor)
            current
@@ -500,7 +524,7 @@
     ((datum-symbol? template)
      (let ((descriptor
              (variable-descriptor
-               (datum-symbol-name template)
+               (pattern-key template)
                (cell-get CURRENT-PATTERN-VARIABLES))))
        (if (null? descriptor)
            current
@@ -545,7 +569,7 @@
     ((datum-symbol? template)
      (let ((descriptor
              (variable-descriptor
-               (datum-symbol-name template)
+               (pattern-key template)
                (cell-get CURRENT-PATTERN-VARIABLES))))
        (if (null? descriptor)
            (begin

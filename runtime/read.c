@@ -101,6 +101,19 @@ static void read_directive(NplDatumReader *reader)
 /* Skips whitespace and comments: line (;), block (#|...|#), datum (#;),
  * and #! directives. A '#' that starts none of these is pushed back as the
  * reader's lookahead pair: reader->pending_hash. */
+static int symbol_named(NplVal value, const char *name)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_SYMBOL) return 0;
+    const NplString *symbol = (const NplString *)npl_header(value);
+    size_t length = strlen(name);
+    if (npl_string_char_count_internal(symbol) != length) return 0;
+    for (size_t i = 0; i < length; i++)
+        if (npl_string_char_at_internal(symbol, (uint32_t)i) !=
+            (unsigned char)name[i])
+            return 0;
+    return 1;
+}
+
 static void reader_skip_space(NplDatumReader *reader)
 {
     for (;;) {
@@ -118,7 +131,13 @@ static void reader_skip_space(NplDatumReader *reader)
                 skip_block_comment(reader);
             } else if (next == ';') {
                 (void)reader_get(reader);
-                (void)read_datum_inner(reader, 0);
+                /* The commented-out thing must be a datum: a lone '.' is
+                 * list syntax, not a datum (chibi r7rs-tests). */
+                reader_skip_space(reader);
+                int lead = reader_peek(reader);
+                NplVal skipped = read_datum_inner(reader, 0);
+                if (lead != '|' && symbol_named(skipped, "."))
+                    read_error("datum comment needs a datum");
             } else if (next == '!') {
                 (void)reader_get(reader);
                 read_directive(reader);
@@ -209,6 +228,19 @@ static NplVal read_string_datum(NplDatumReader *reader)
                 if (!hex_scalar(hex, used, &scalar))
                     read_buffer_error(buffer, "malformed \\x escape");
                 code = (int)scalar;
+            } else if (code == ' ' || code == '\t' || code == '\n' ||
+                       code == '\r') {
+                /* \<intraline whitespace>*<line ending><intraline
+                 * whitespace>* is a line continuation (R7RS 6.7). */
+                while (code == ' ' || code == '\t') code = reader_get(reader);
+                if (code == '\r') {
+                    if (reader_peek(reader) == '\n') (void)reader_get(reader);
+                } else if (code != '\n') {
+                    read_buffer_error(buffer, "unknown string escape");
+                }
+                while (reader_peek(reader) == ' ' || reader_peek(reader) == '\t')
+                    (void)reader_get(reader);
+                continue;
             } else if (code != '"' && code != '\\' && code != '|')
                 read_buffer_error(buffer, "unknown string escape");
         }
@@ -301,18 +333,6 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
     return value;
 }
 
-static int symbol_named(NplVal value, const char *name)
-{
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_SYMBOL) return 0;
-    const NplString *symbol = (const NplString *)npl_header(value);
-    size_t length = strlen(name);
-    if (npl_string_char_count_internal(symbol) != length) return 0;
-    for (size_t i = 0; i < length; i++)
-        if (npl_string_char_at_internal(symbol, (uint32_t)i) !=
-            (unsigned char)name[i])
-            return 0;
-    return 1;
-}
 
 static NplVal reverse_onto(NplVal values, NplVal tail)
 {
@@ -334,9 +354,12 @@ static NplVal read_list_datum(NplDatumReader *reader)
             (void)reader_get(reader);
             return reverse_onto(reversed, npl_nil());
         }
+        int bar = code == '|';
         NplVal value = read_datum_inner(reader, 0);
-        if (symbol_named(value, ".")) {
+        if (!bar && symbol_named(value, ".")) {
             if (npl_is_nil(reversed)) read_error("misplaced dot");
+            reader_skip_space(reader);
+            if (reader_peek(reader) == ')') read_error("missing datum after dot");
             NplVal tail = read_datum_inner(reader, 0);
             reader_skip_space(reader);
             if (reader_get(reader) != ')')
@@ -539,12 +562,20 @@ static NplVal read_hash_datum(NplDatumReader *reader)
     int code = reader_get(reader);
     if (code >= '0' && code <= '9') return read_label_datum(reader, code);
     if (code == 't' || code == 'f') {
-        if (!datum_delimiter(reader_peek(reader)))
-            read_error("invalid boolean literal");
+        /* #t #f #true #false (R7RS 2.1). */
+        const char *rest = code == 't' ? "rue" : "alse";
+        if (!datum_delimiter(reader_peek(reader))) {
+            for (const char *p = rest; *p; p++)
+                if (reader_get(reader) != *p)
+                    read_error("invalid boolean literal");
+            if (!datum_delimiter(reader_peek(reader)))
+                read_error("invalid boolean literal");
+        }
         return code == 't' ? npl_true() : npl_false();
     }
     if (code == 'b' || code == 'B' || code == 'o' || code == 'O' ||
-        code == 'd' || code == 'D' || code == 'x' || code == 'X')
+        code == 'd' || code == 'D' || code == 'x' || code == 'X' ||
+        code == 'e' || code == 'E' || code == 'i' || code == 'I')
         return read_hash_radix_datum(reader, code);
     if (code == '\\') return read_character_datum(reader);
     if (code == '(') return npl_list_to_vector(read_list_datum(reader));

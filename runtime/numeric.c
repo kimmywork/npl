@@ -295,27 +295,91 @@ NplVal npl_number_from_string_radix(NplVal value, NplVal radix)
     return exact_number_from_string(value, (int)base, 0);
 }
 
+/* Length of a "+inf.0" / "-nan.0" style token at text[start] (R7RS 7.1.1
+ * <infnan>, any case), or 0. */
+static uint32_t infnan_length(const char *text, uint32_t start, uint32_t end)
+{
+    static const char *names[] = { "inf.0", "nan.0" };
+    if (start + 6 > end || (text[start] != '+' && text[start] != '-')) return 0;
+    for (int n = 0; n < 2; n++) {
+        int match = 1;
+        for (int k = 0; k < 5 && match; k++) {
+            char c = text[start + 1 + k];
+            if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+            if (c != names[n][k]) match = 0;
+        }
+        if (match) return 6;
+    }
+    return 0;
+}
+
+/* Where the imaginary part of a rectangular complex begins: the last '+'
+ * or '-' that is not an exponent sign or the start of the text, so that
+ * "1e+2-3i" splits after "1e+2". Infinities are skipped as a whole. */
+static uint32_t imaginary_start(const char *text, uint32_t end)
+{
+    uint32_t split = 0;
+    uint32_t i = 0;
+    while (i < end) {
+        uint32_t infnan = infnan_length(text, i, end);
+        if (infnan) {
+            if (i > 0) split = i;
+            i += infnan;
+            continue;
+        }
+        char c = text[i];
+        if ((c == '+' || c == '-') && i > 0) {
+            char before = text[i - 1];
+            if (before != 'e' && before != 'E') split = i;
+        }
+        i++;
+    }
+    return split;
+}
+
+/* Rectangular complex syntax (R7RS 7.1.1): [real] (+|-) [ureal] i, where an
+ * omitted imaginary magnitude means 1. Any-case 'i' and infinities. */
 static NplVal complex_from_string(NplVal value)
 {
     const NplString *text = (const NplString *)npl_header(value);
-    if (text->length < 4 || text->data[text->length - 1] != 'i')
-        return npl_false();
-    uint32_t split = 1;
-    while (split + 1 < text->length && text->data[split] != '+' &&
-           text->data[split] != '-') split++;
-    if (split + 1 >= text->length) return npl_false();
+    uint32_t length = text->length;
+    if (length < 2) return npl_false();
+    char last = text->data[length - 1];
+    if (last != 'i' && last != 'I') return npl_false();
+    /* "+inf.0" itself ends with no i; "+inf.0i" is a pure imaginary. */
+    uint32_t split = imaginary_start(text->data, length - 1);
+    char sign = text->data[split];
+    if (sign != '+' && sign != '-') return npl_false();
     npl_gc_root(&value);
-    NplVal real_text = npl_substring(value, npl_fixnum(0), npl_fixnum(split));
-    NplVal imag_text = npl_substring(value, npl_fixnum(split),
-                                      npl_fixnum(text->length - 1));
-    npl_gc_root(&real_text); npl_gc_root(&imag_text);
-    NplVal real = npl_number_from_string(real_text);
-    NplVal imag = npl_number_from_string(imag_text);
-    npl_gc_root(&real); npl_gc_root(&imag);
-    NplVal result = (real == npl_false() || imag == npl_false())
-        ? npl_false() : npl_complex_make(real, imag);
-    npl_gc_unroot(&imag); npl_gc_unroot(&real);
-    npl_gc_unroot(&imag_text); npl_gc_unroot(&real_text); npl_gc_unroot(&value);
+    NplVal real = npl_fixnum(0);
+    if (split > 0) {
+        NplVal real_text = npl_substring(value, npl_fixnum(0),
+                                         npl_fixnum(split));
+        npl_gc_root(&real_text);
+        real = npl_number_from_string(real_text);
+        npl_gc_unroot(&real_text);
+        if (real == npl_false() || npl_is_complex(real)) {
+            npl_gc_unroot(&value);
+            return npl_false();
+        }
+    }
+    npl_gc_root(&real);
+    NplVal imag;
+    if (split + 2 == length) {
+        imag = npl_fixnum(sign == '-' ? -1 : 1);       /* "+i", "-i" */
+    } else {
+        text = (const NplString *)npl_header(value);
+        NplVal imag_text = npl_substring(value, npl_fixnum(split),
+                                         npl_fixnum(length - 1));
+        npl_gc_root(&imag_text);
+        imag = npl_number_from_string(imag_text);
+        npl_gc_unroot(&imag_text);
+        if (imag != npl_false() && npl_is_complex(imag)) imag = npl_false();
+    }
+    NplVal result = imag == npl_false() ? npl_false()
+                                        : npl_complex_make(real, imag);
+    npl_gc_unroot(&real);
+    npl_gc_unroot(&value);
     return result;
 }
 
@@ -369,11 +433,12 @@ NplVal npl_number_from_string(NplVal value)
         start += 2;
     }
     if (start == text->length) return npl_false();
-    if (start == 0 || (radix && !exactness && start == 2)) {
-        /* No prefix, or a radix alone: the existing radix parsers accept
-         * the "#x" form directly. */
-        if (start == 0) return unprefixed_number(value, 10);
-        return exact_number_from_string(value, radix, 2);
+    if (start == 0) return unprefixed_number(value, 10);
+    if (radix && radix != 10 && !exactness && start == 2) {
+        /* A non-decimal radix alone: the radix parser accepts "#x...". */
+        NplVal number = complex_from_string(value);
+        return number != npl_false() ? npl_false()
+                                     : exact_number_from_string(value, radix, 2);
     }
     NplVal rest = npl_string(text->data + start, text->length - start);
     npl_gc_root(&rest);
@@ -828,17 +893,18 @@ NplVal npl_number_to_string(NplVal value)
         npl_gc_root(&real); npl_gc_root(&imag);
         const NplString *r = (const NplString *)npl_header(real);
         const NplString *i = (const NplString *)npl_header(imag);
-        int negative = npl_number_compare(npl_complex_imag(value),
-                                          npl_fixnum(0)) < 0;
+        /* The imaginary text supplies its own sign when it has one ("-2",
+         * "+inf.0", "-nan.0"); otherwise a '+' joins the parts. */
+        int signed_text = i->length && (i->data[0] == '-' || i->data[0] == '+');
         uint64_t length = (uint64_t)r->length + 1 + i->length + 1;
         if (length > UINT32_MAX || length > SIZE_MAX) npl_runtime_oom_internal();
         char *buffer = malloc((size_t)length);
         if (!buffer) npl_runtime_oom_internal();
         memcpy(buffer, r->data, r->length);
-        buffer[r->length] = negative ? '-' : '+';
-        memcpy(buffer + r->length + 1, i->data + (negative ? 1 : 0),
-               i->length - (negative ? 1 : 0));
-        size_t used = r->length + 1 + i->length - (negative ? 1 : 0);
+        size_t used = r->length;
+        if (!signed_text) buffer[used++] = '+';
+        memcpy(buffer + used, i->data, i->length);
+        used += i->length;
         buffer[used++] = 'i';
         NplVal result = npl_string(buffer, (uint32_t)used);
         free(buffer);

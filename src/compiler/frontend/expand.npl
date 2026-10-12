@@ -337,6 +337,11 @@
                         (cdr body) value-env macro-env))
                 (let ((expanded
                         (expand-expression form value-env macro-env)))
+                  (if (raw-form? expanded "define-syntax")
+                      ; A macro use that produced a syntax definition: it
+                      ; defines a keyword for the rest of the body.
+                      (expand-body-sequence
+                        (cons expanded (cdr body)) value-env macro-env)
                   (if (definition-begin? expanded)
                       ; Definitions produced by a macro join the body scope
                       ; (R7RS 5.3.2): bind them before expanding the rest.
@@ -347,7 +352,7 @@
                                   spliced macro-env ()))
                               (spliced-values
                                 (cdr (bind-identifiers
-                                       (begin-defined-list (cdr expanded) ())
+                                       (begin-defined-value-list (cdr expanded) ())
                                        value-env))))
                           (expand-body-sequence
                             spliced spliced-values spliced-macros)))
@@ -357,7 +362,7 @@
                                   (cdr body) value-env macro-env))
                           (cons expanded
                                 (expand-expression-list
-                                  (cdr body) value-env macro-env))))))))))
+                                  (cdr body) value-env macro-env)))))))))))
 
 (define (expand-body body value-env macro-env)
   (let ((bound (bind-body-definitions body value-env)))
@@ -617,8 +622,66 @@
           (cdr identifiers)
           (cons (datum-symbol "cdr") (cons rest ()))))))
 
+;; (define-values formals expr) with dotted or single-identifier formals
+;; (R7RS 5.3.3) binds the extra values as a list: the formals become proper
+;; and the consumer packs its rest argument into the last variable.
+(define (define-values-proper-formals formals)
+  (if (pair? formals)
+      (if (datum-symbol? formals)
+          (cons formals ())
+          (cons (car formals) (define-values-proper-formals (cdr formals))))
+      (if (null? formals) () (cons formals ()))))
+
+(define (define-values-rest? formals)
+  (if (null? formals)
+      #f
+      (if (datum-symbol? formals)
+          #t
+          (if (pair? formals) (define-values-rest? (cdr formals)) #f))))
+
+;; The consumer lambda's formals: like the source formals, with each name
+;; replaced by its bound name (the rest stays in rest position).
+(define (define-values-consumer-formals formals bound)
+  (if (datum-symbol? formals)
+      (car bound)
+      (if (null? formals)
+          ()
+          (cons (car bound)
+                (define-values-consumer-formals (cdr formals) (cdr bound))))))
+
 (define (expand-define-values form value-env macro-env)
   (require-raw-arity form 2 "define-values")
+  (if (define-values-rest? (car (cdr form)))
+      (expand-define-values-rest form value-env macro-env)
+      (expand-define-values-proper form value-env macro-env)))
+
+(define (expand-define-values-rest form value-env macro-env)
+  (let ((identifiers (define-values-proper-formals (car (cdr form)))))
+    (let ((bound (bind-identifiers identifiers value-env)))
+      (let ((packed
+              (datum-symbol
+                (fresh-value-name (datum-symbol "values_packed")))))
+        (let ((initializer
+                (expand-expression
+                  (car (cdr (cdr form))) value-env macro-env)))
+          (cons (datum-symbol "begin")
+            (cons
+              (cons (datum-symbol "define")
+                (cons packed
+                  (cons
+                    (cons (datum-symbol "call-with-values")
+                      (cons (cons (datum-symbol "lambda")
+                              (cons () (cons initializer ())))
+                        (cons (cons (datum-symbol "lambda")
+                                (cons (define-values-consumer-formals
+                                        (car (cdr form)) (car bound))
+                                  (cons (values-pack-expression (car bound))
+                                        ())))
+                              ())))
+                    ())))
+              (define-values-forms identifiers packed))))))))
+
+(define (expand-define-values-proper form value-env macro-env)
   (let ((identifiers (car (cdr form))))
     (let ((bound (bind-identifiers identifiers value-env)))
       (let ((packed

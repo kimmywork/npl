@@ -154,8 +154,13 @@ NplVal npl_inexact_parse(NplVal value)
     const char *s = text->data;
     uint32_t length = text->length, i = 0, digits = 0;
     if (length == 6 && (s[0] == '+' || s[0] == '-')) {
-        if (memcmp(s + 1, "inf.0", 5) == 0) return npl_float(s[0] == '-' ? -INFINITY : INFINITY);
-        if (memcmp(s + 1, "nan.0", 5) == 0) return npl_float(NAN);
+        /* <infnan> is case-insensitive like the rest of number syntax. */
+        char lower[5];
+        for (int k = 0; k < 5; k++)
+            lower[k] = (s[1 + k] >= 'A' && s[1 + k] <= 'Z')
+                ? (char)(s[1 + k] - 'A' + 'a') : s[1 + k];
+        if (memcmp(lower, "inf.0", 5) == 0) return npl_float(s[0] == '-' ? -INFINITY : INFINITY);
+        if (memcmp(lower, "nan.0", 5) == 0) return npl_float(NAN);
     }
     if (i < length && (s[i] == '+' || s[i] == '-')) i++;
     while (i < length && s[i] >= '0' && s[i] <= '9') { i++; digits++; }
@@ -192,7 +197,22 @@ NplVal npl_inexact_string(NplVal value)
         snprintf(buffer, sizeof(buffer), "%.*g", precision, x);
         if (strtod(buffer, NULL) == x) break;
     }
-    if (!strchr(buffer, '.') && !strchr(buffer, 'e')) strcat(buffer, ".0");
+    /* Scheme form, as Guile writes: the mantissa always has a decimal point
+     * ("5.0e-324") and the exponent no '+' or leading zeros ("1.0e21"). */
+    char *e = strchr(buffer, 'e');
+    if (!e) {
+        if (!strchr(buffer, '.')) strcat(buffer, ".0");
+        return npl_string(buffer, (uint32_t)strlen(buffer));
+    }
+    char exponent[16];
+    const char *digits = e + 1;
+    int negative = *digits == '-';
+    if (*digits == '+' || *digits == '-') digits++;
+    while (*digits == '0' && digits[1]) digits++;
+    snprintf(exponent, sizeof(exponent), "e%s%s", negative ? "-" : "", digits);
+    *e = '\0';
+    if (!strchr(buffer, '.')) strcat(buffer, ".0");
+    strcat(buffer, exponent);
     return npl_string(buffer, (uint32_t)strlen(buffer));
 }
 
