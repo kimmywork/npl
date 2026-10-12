@@ -215,7 +215,7 @@
                 (frontend-runtime-list (cdr values)))))
 
     (define (frontend-runtime-symbol name)
-      (read (open-input-string name)))
+      (string->symbol name))
 
     (define (frontend-write-bytevector-items items port)
       (if (null? items)

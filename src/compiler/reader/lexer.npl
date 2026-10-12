@@ -81,6 +81,7 @@
          (lex-loop s (+ i 2) (cons (cons 12 ()) acc))
          (lex-loop s (+ i 1) (cons (cons 11 ()) acc))))
     ((lex-cls? (string-byte-ref s i) 6) (push-number s i acc))
+    ((= (string-byte-ref s i) 124) (lex-bar-symbol s (+ i 1) "" acc))
     ((sym-or-neg s i)
      (if (lex-cls? (string-byte-ref s i) 7)
          (push-symbol s i acc)
@@ -88,18 +89,41 @@
     (else (do-bad-char (string-byte-ref s i)))))
 
 (define (lex-hash s j acc)
+  (if (not (< j (string-length s))) (fatal "bad # syntax"))
   (case (string-byte-ref s j)
-    ((116) (lex-loop s (+ j 1) (cons (cons 8 ()) acc)))
-    ((102) (lex-loop s (+ j 1) (cons (cons 9 ()) acc)))
+    ((116) (lex-boolean s j "true" 8 acc))
+    ((102) (lex-boolean s j "false" 9 acc))
     ((92) (lex-char s (+ j 1) acc))
-    ((98 66 111 79 100 68 120 88)
+    ((98 66 111 79 100 68 120 88 101 69 105 73)
      (push-radix-number s (- j 1) acc))
+    ((124) (lex-loop s (skip-block-comment s (+ j 1) 1) acc))
+    ((59) (lex-loop s (+ j 1) (cons (cons 18 ()) acc)))
     ((40) (lex-loop s (+ j 1) (cons (cons 14 ()) acc)))
     ((117) (lex-bytevector-open s j acc))
     (else
       (if (lex-cls? (string-byte-ref s j) 6)
           (lex-datum-label s j acc)
           (do-bad-char (string-byte-ref s j))))))
+
+;; #t / #true and #f / #false (R7RS 2.1).
+(define (lex-boolean s j long kind acc)
+  (let ((end (sym-run-end s (+ j 1))))
+    (if (if (= end (+ j 1))
+            #t
+            (string=? (substring s j end) long))
+        (lex-loop s end (cons (cons kind ()) acc))
+        (fatal "invalid boolean literal"))))
+
+;; Position after the |# that closes a nested #| comment (R7RS 2.2).
+(define (skip-block-comment s i depth)
+  (cond
+    ((= depth 0) i)
+    ((not (< (+ i 1) (string-length s))) (fatal "unterminated block comment"))
+    ((if (= (string-byte-ref s i) 124) (= (string-byte-ref s (+ i 1)) 35) #f)
+     (skip-block-comment s (+ i 2) (- depth 1)))
+    ((if (= (string-byte-ref s i) 35) (= (string-byte-ref s (+ i 1)) 124) #f)
+     (skip-block-comment s (+ i 2) (+ depth 1)))
+    (else (skip-block-comment s (+ i 1) depth))))
 
 (define (lex-datum-label s j acc)
   (let ((end (num-run-end s j)))
@@ -240,6 +264,34 @@
            (skip-intraline s (finish-line-ending s line-start)) out acc)))
       (else (fatal "unknown string escape")))))
 
+;; |...| symbols (R7RS 2.1): characters up to the closing bar, with the
+;; string escapes \x..; \| \\ \n \t \r \a \b.
+(define (lex-bar-symbol s j out acc)
+  (if (not (< j (string-length s))) (fatal "unterminated |symbol|"))
+  (let ((code (string-byte-ref s j)))
+    (cond
+      ((= code 124) (lex-loop s (+ j 1) (cons (cons 4 out) acc)))
+      ((= code 92)
+       (if (not (< (+ j 1) (string-length s))) (fatal "unterminated |symbol|"))
+       (let ((escaped (string-byte-ref s (+ j 1))))
+         (if (= escaped 120)
+             (let ((end (string-hex-end s (+ j 2))))
+               (if (= end (+ j 2)) (fatal "hexadecimal escape needs a digit"))
+               (lex-bar-symbol s (+ end 1)
+                 (string-append out
+                   (int->string (scalar-value (hex-value s (+ j 2) end 0))))
+                 acc))
+             (lex-bar-symbol s (+ j 2)
+               (string-append out
+                 (int->string
+                   (case escaped
+                     ((110) 10) ((116) 9) ((114) 13) ((97) 7) ((98) 8)
+                     ((124 92 34) escaped)
+                     (else (fatal "unknown escape in |symbol|")))))
+               acc))))
+      (else
+       (lex-bar-symbol s (+ j 1) (string-append out (int->string code)) acc)))))
+
 (define (lex-string s j out acc)
   (if (not (< j (string-length s))) (fatal "unterminated string literal"))
   (let ((code (string-byte-ref s j)))
@@ -277,6 +329,21 @@
       (paren-state i line col opens mode)
       (let ((code (string-byte-ref s i)))
         (case mode
+          ((4)
+           ; inside |...|: \ escapes one character, | ends it
+           (cond ((= code 92)
+                  (check-parens-block s (+ i 2) line (+ col 2) opens 4 (- left 2)))
+                 ((= code 124)
+                  (check-parens-block s (+ i 1) line (+ col 1) opens 0 (- left 1)))
+                 ((= code 10)
+                  (check-parens-block s (+ i 1) (+ line 1) 1 opens 4 (- left 1)))
+                 (else
+                  (check-parens-block s (+ i 1) line (+ col 1) opens 4 (- left 1)))))
+          ((3)
+           ; inside #| ... |#: skip the whole nested comment at once
+           (let ((end (skip-block-comment s i 1)))
+             (check-parens-block s end
+               (+ line (count-newlines s i end 0)) 1 opens 0 (- left 1))))
           ((2)
            (if (= code 10)
                (check-parens-block s (+ i 1) (+ line 1) 1 opens 0 (- left 1))
@@ -315,6 +382,14 @@
                               (check-parens-block s next line
                                 (+ col (- next i)) opens 0
                                 (- left (- next i)))))))))
+                 ((if (= code 35)
+                      (if (< (+ i 1) (string-length s))
+                          (= (string-byte-ref s (+ i 1)) 124)
+                          #f)
+                      #f)
+                  (check-parens-block s (+ i 2) line (+ col 2) opens 3 (- left 2)))
+                 ((= code 124)
+                  (check-parens-block s (+ i 1) line (+ col 1) opens 4 (- left 1)))
                  ((= code 40)
                   (check-parens-block s (+ i 1) line (+ col 1)
                     (cons (cons line col) opens) 0 (- left 1)))
@@ -327,6 +402,12 @@
                   (check-parens-block s (+ i 1) (+ line 1) 1 opens 0 (- left 1)))
                  (else
                   (check-parens-block s (+ i 1) line (+ col 1) opens 0 (- left 1)))))))))
+
+(define (count-newlines s i end count)
+  (if (< i end)
+      (count-newlines s (+ i 1) end
+        (if (= (string-byte-ref s i) 10) (+ count 1) count))
+      count))
 
 (define (paren-close-error line col)
   (begin

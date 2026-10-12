@@ -13,13 +13,16 @@ R7RS-small libraries export their full name lists (556/556). Remaining: L6
 [design-l6](../docs/design-l6.md) accepted; L6a+b (Unicode strings,
 characters, ports, read/write syntax) and L6c (`(scheme char)` over Unicode)
 done, L6d (datum labels in read) and L6e (cycle-aware output, terminating
-equal?) done: L6 is complete. Next: P1 (Guile performance baseline). The toolchain stage is complete and committed
+equal?) done: L6 is complete. External check: chibi's r7rs-tests.scm via
+`tools/run_chibi_suite.sh` (npli: 1100 passed, 28 failed, 68 forms
+aborted). Next: fix the classified remainder (worklog 2026-10-12), run the
+suite natively, then P1. The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 204,715 lines; SHA-256
-  `852c48189efc0593ed8f9c6919a617de4a54e331b09a1c4c20fae0cc2d1ad0ef`
+- `bootstrap/current.ssa`: 211,896 lines; SHA-256
+  `a240a64e617dbbc42fd6282a28ecdb365072440e927647db9bb3111aece7f0ac`
   (macOS strict relay).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. On a swap-bound host set

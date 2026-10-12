@@ -131,6 +131,66 @@ static void write_character(NplPort *port, uint32_t code)
     }
 }
 
+/* write prints a symbol inside |...| when its plain text would not read
+ * back as the same symbol (R7RS 2.1, 6.13.3): empty, ".", containing a
+ * delimiter, '#' at the start, '|' or '\\', whitespace or other
+ * non-graphic characters, or text that reads as a number. Non-ASCII graphic
+ * characters print as they are (Guile, Racket; see docs/design-l6.md). */
+static int symbol_needs_bars(const NplString *symbol)
+{
+    uint32_t count = npl_string_char_count_internal(symbol);
+    if (count == 0) return 1;
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t c = npl_string_char_at_internal(symbol, i);
+        if (c == '(' || c == ')' || c == '"' || c == ';' || c == '\'' ||
+            c == '`' || c == ',' || c == '|' || c == '\\' ||
+            (c == '#' && i == 0) || c == ' ' || !write_graphic(c))
+            return 1;
+    }
+    if (count == 1 && npl_string_char_at_internal(symbol, 0) == '.')
+        return 1;
+    /* Reads as a number (2, +3, -.4, +i, +inf.0, +nan.0, ...)? */
+    uint32_t first = npl_string_char_at_internal(symbol, 0);
+    if ((first >= '0' && first <= '9') || first == '+' || first == '-' ||
+        first == '.') {
+        size_t length;
+        int owned;
+        const char *bytes = npl_string_utf8(symbol, &length, &owned);
+        NplVal as_string = npl_string(bytes, (uint32_t)length);
+        if (owned) free((void *)bytes);
+        if (npl_number_from_string(as_string) != npl_false()) return 1;
+        /* Digits that are not a number (e.g. 1+) are still a peculiar
+         * identifier only when they start with + - or .; R7RS forbids a
+         * leading digit, so bars keep them readable. */
+        if (first >= '0' && first <= '9') return 1;
+    }
+    return 0;
+}
+
+static void write_symbol(NplPort *port, const NplString *symbol)
+{
+    if (!symbol_needs_bars(symbol)) {
+        output_string(port, symbol);
+        return;
+    }
+    output_char(port, '|');
+    uint32_t count = npl_string_char_count_internal(symbol);
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t c = npl_string_char_at_internal(symbol, i);
+        if (c == '|' || c == '\\') {
+            output_char(port, '\\');
+            output_char(port, (int)c);
+        } else if (!write_graphic(c) && c != ' ') {
+            output_text(port, "\\x");
+            output_hex(port, c);
+            output_char(port, ';');
+        } else {
+            output_char(port, (int)c);
+        }
+    }
+    output_char(port, '|');
+}
+
 /* ---- datum labels for output (R7RS 2.4, 6.13.3) ----
  * A pre-pass over pairs and vectors marks the objects that need labels:
  * for write and display, objects on a cycle (reached again while still on
@@ -318,7 +378,8 @@ static void print_datum(NplPrinter *printer, NplVal value)
                 output_string(port, (const NplString *)header);
             break;
         case BOX_SYMBOL:
-            output_string(port, (const NplString *)header);
+            if (printer->write) write_symbol(port, (const NplString *)header);
+            else output_string(port, (const NplString *)header);
             break;
         case BOX_FLOAT:
         case BOX_BIGNUM:

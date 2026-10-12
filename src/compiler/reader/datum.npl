@@ -1,14 +1,28 @@
 ; Datum parsing, quotation, labels, and quasiquote normalization.
 
-(define (peek-kind cur) (car (car (car cur))))
+(define DATUM-LABELS (cell ()))
+(define ACTIVE-DATUM-LABELS (cell ()))
+
+;; Token kind 18 is a #; datum comment: the datum after it is skipped
+;; wherever a token is examined (R7RS 2.2).
+(define (peek-kind cur)
+  (skip-datum-comments! cur)
+  (car (car (car cur))))
 (define (peek-payload cur) (cdr (car (car cur))))
 (define (advance! cur) (set-car! cur (cdr (car cur))))
+
+(define (skip-datum-comments! cur)
+  (if (= (car (car (car cur))) 18)
+      (begin
+        (advance! cur)
+        (let ((saved-labels (cell-get ACTIVE-DATUM-LABELS)))
+          (parse-quote-datum cur)
+          (cell-set! ACTIVE-DATUM-LABELS saved-labels))
+        (skip-datum-comments! cur))))
 
 (define (expect-rparen cur what)
   (if (= (peek-kind cur) 2) (advance! cur) (fatal (string-append "expected ) after " what))))
 
-(define DATUM-LABELS (cell ()))
-(define ACTIVE-DATUM-LABELS (cell ()))
 (define QUASIQUOTE-LEVEL (cell 0))
 (define UNRESOLVED-DATUM (cons 110 ()))
 

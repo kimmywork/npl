@@ -84,10 +84,19 @@
           output
           (reverse-loop (cdr values) (cons (car values) output))))
     (define (reverse values) (reverse-loop values '()))
+    ; A proper list is finite (R7RS 6.4): a circular list answers #f.
+    ; The fast pointer moves two cdrs per step; meeting the slow one means
+    ; a cycle.
     (define (list? value)
-      (if (null? value)
-          #t
-          (if (pair? value) (list? (cdr value)) #f))))
+      (let loop ((fast value) (slow value))
+        (cond
+          ((null? fast) #t)
+          ((not (pair? fast)) #f)
+          ((null? (cdr fast)) #t)
+          ((not (pair? (cdr fast))) #f)
+          (else
+           (let ((fast (cdr (cdr fast))) (slow (cdr slow)))
+             (if (eq? fast slow) #f (loop fast slow))))))))
   (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
            "vector.scm" "string.scm" "record.scm"
            "error.scm" "text-io.scm"))

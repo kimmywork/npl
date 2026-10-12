@@ -319,22 +319,68 @@ static NplVal complex_from_string(NplVal value)
     return result;
 }
 
+/* #e / #i applied to a parsed number (componentwise for complex). An
+ * infinity or NaN has no exact value: the syntax is then not a number. */
+static NplVal apply_exactness(NplVal number, int exactness)
+{
+    if (npl_is_complex(number)) {
+        NplVal real = apply_exactness(npl_complex_real(number), exactness);
+        if (real == npl_false()) return npl_false();
+        npl_gc_root(&real);
+        NplVal imag = apply_exactness(npl_complex_imag(number), exactness);
+        npl_gc_unroot(&real);
+        if (imag == npl_false()) return npl_false();
+        return npl_complex_make(real, imag);
+    }
+    if (exactness == 'i')
+        return npl_is_inexact(number) ? number
+                                      : npl_float(npl_real_double(number));
+    if (!npl_is_inexact(number)) return number;
+    if (npl_finite_p(number) != npl_true()) return npl_false();
+    return npl_real_exact(number);
+}
+
+/* The number syntax without prefixes (decimal or a radix). */
+static NplVal unprefixed_number(NplVal value, int radix)
+{
+    NplVal complex = complex_from_string(value);
+    if (complex != npl_false()) return complex;
+    if (radix != 10) return exact_number_from_string(value, radix, 0);
+    NplVal exact = npl_number_from_string_radix(value, npl_fixnum(10));
+    return exact == npl_false() ? npl_inexact_parse(value) : exact;
+}
+
+/* R7RS 7.1.1 prefixes: at most one radix (#b #o #d #x) and one exactness
+ * (#e #i) marker, in either order. */
 NplVal npl_number_from_string(NplVal value)
 {
     if (!narrow_string(value)) return npl_false();
     const NplString *text = (const NplString *)npl_header(value);
-    NplVal complex = complex_from_string(value);
-    if (complex != npl_false()) return complex;
-    if (text->length >= 3 && text->data[0] == '#') {
-        unsigned char prefix = (unsigned char)text->data[1];
-        int radix = prefix == 'b' || prefix == 'B' ? 2
-                  : prefix == 'o' || prefix == 'O' ? 8
-                  : prefix == 'd' || prefix == 'D' ? 10
-                  : prefix == 'x' || prefix == 'X' ? 16 : 0;
-        if (radix) return exact_number_from_string(value, radix, 2);
+    int radix = 0, exactness = 0;
+    uint32_t start = 0;
+    while (start + 1 < text->length && text->data[start] == '#') {
+        unsigned char c = (unsigned char)text->data[start + 1];
+        int r = c == 'b' || c == 'B' ? 2 : c == 'o' || c == 'O' ? 8
+              : c == 'd' || c == 'D' ? 10 : c == 'x' || c == 'X' ? 16 : 0;
+        int e = c == 'e' || c == 'E' ? 'e' : c == 'i' || c == 'I' ? 'i' : 0;
+        if (r && !radix) radix = r;
+        else if (e && !exactness) exactness = e;
+        else return npl_false();
+        start += 2;
     }
-    NplVal exact = npl_number_from_string_radix(value, npl_fixnum(10));
-    return exact == npl_false() ? npl_inexact_parse(value) : exact;
+    if (start == text->length) return npl_false();
+    if (start == 0 || (radix && !exactness && start == 2)) {
+        /* No prefix, or a radix alone: the existing radix parsers accept
+         * the "#x" form directly. */
+        if (start == 0) return unprefixed_number(value, 10);
+        return exact_number_from_string(value, radix, 2);
+    }
+    NplVal rest = npl_string(text->data + start, text->length - start);
+    npl_gc_root(&rest);
+    NplVal number = unprefixed_number(rest, radix ? radix : 10);
+    npl_gc_unroot(&rest);
+    if (number == npl_false() || !exactness) return number;
+    return apply_exactness(number, exactness);
 }
 
 static int is_rational_box(NplVal value)

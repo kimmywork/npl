@@ -15,6 +15,7 @@ typedef struct {
     int lookahead;
     int has_lookahead;
     NplVal labels;
+    int fold_case;      /* #!fold-case in effect (R7RS 2.1) */
 } NplDatumReader;
 
 static jmp_buf *g_read_recovery = NULL;
@@ -61,17 +62,77 @@ static int datum_delimiter(int code)
 {
     return code == EOF || code == '(' || code == ')' || code == '"' ||
            code == ';' || code == '\'' || code == '`' || code == ',' ||
-           code == ' ' || code == '\t' || code == '\n' || code == '\r';
+           code == '|' || code == ' ' || code == '\t' || code == '\n' ||
+           code == '\r' || code == '\f';
 }
 
+static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof);
+
+/* #| ... |# comments nest (R7RS 2.2). */
+static void skip_block_comment(NplDatumReader *reader)
+{
+    int depth = 1;
+    int previous = 0;
+    while (depth > 0) {
+        int code = reader_get(reader);
+        if (code == EOF) read_error("unterminated block comment");
+        if (previous == '|' && code == '#') { depth--; code = 0; }
+        else if (previous == '#' && code == '|') { depth++; code = 0; }
+        previous = code;
+    }
+}
+
+/* #!fold-case / #!no-fold-case directives (R7RS 2.1). */
+static void read_directive(NplDatumReader *reader)
+{
+    char name[16];
+    size_t length = 0;
+    while (!datum_delimiter(reader_peek(reader))) {
+        int code = reader_get(reader);
+        if (length + 1 >= sizeof(name)) read_error("unknown directive");
+        name[length++] = (char)code;
+    }
+    name[length] = '\0';
+    if (strcmp(name, "fold-case") == 0) reader->fold_case = 1;
+    else if (strcmp(name, "no-fold-case") == 0) reader->fold_case = 0;
+    else read_error("unknown directive");
+}
+
+/* Skips whitespace and comments: line (;), block (#|...|#), datum (#;),
+ * and #! directives. A '#' that starts none of these is pushed back as the
+ * reader's lookahead pair: reader->pending_hash. */
 static void reader_skip_space(NplDatumReader *reader)
 {
     for (;;) {
         int code = reader_peek(reader);
-        if (code == ' ' || code == '\t' || code == '\n' || code == '\r') {
+        if (code == ' ' || code == '\t' || code == '\n' || code == '\r' ||
+            code == '\f') {
             (void)reader_get(reader);
         } else if (code == ';') {
             while ((code = reader_get(reader)) != EOF && code != '\n') {}
+        } else if (code == '#') {
+            (void)reader_get(reader);
+            int next = reader_peek(reader);
+            if (next == '|') {
+                (void)reader_get(reader);
+                skip_block_comment(reader);
+            } else if (next == ';') {
+                (void)reader_get(reader);
+                (void)read_datum_inner(reader, 0);
+            } else if (next == '!') {
+                (void)reader_get(reader);
+                read_directive(reader);
+            } else {
+                /* Not a comment: give the '#' back. The next character is
+                 * already in the lookahead, so keep both through the port. */
+                uint8_t bytes[8];
+                size_t count = next == EOF ? 0
+                    : npl_utf8_encode_internal((uint32_t)next, bytes + 1);
+                reader->has_lookahead = 0;
+                bytes[0] = '#';
+                npl_port_unread_bytes_internal(reader->port, bytes, count + 1);
+                return;
+            }
         } else {
             return;
         }
@@ -159,15 +220,71 @@ static NplVal read_string_datum(NplDatumReader *reader)
     return value;
 }
 
+/* Characters of a |...| symbol (R7RS 2.1), with string-like escapes. */
+static void read_bar_symbol_part(NplDatumReader *reader, char **buffer,
+                                 size_t *length, size_t *capacity)
+{
+    for (;;) {
+        int code = reader_get(reader);
+        if (code == EOF) read_buffer_error(*buffer, "unterminated |symbol|");
+        if (code == '|') return;
+        if (code == '\\') {
+            code = reader_get(reader);
+            if (code == 'x' || code == 'X') {
+                char hex[8];
+                size_t used = 0;
+                while ((code = reader_get(reader)) != ';') {
+                    if (code == EOF || used == sizeof(hex))
+                        read_buffer_error(*buffer, "malformed \\x escape");
+                    hex[used++] = (char)code;
+                }
+                uint32_t scalar;
+                if (!hex_scalar(hex, used, &scalar))
+                    read_buffer_error(*buffer, "malformed \\x escape");
+                code = (int)scalar;
+            } else if (code == 'n') code = '\n';
+            else if (code == 't') code = '\t';
+            else if (code == 'r') code = '\r';
+            else if (code == 'a') code = 7;
+            else if (code == 'b') code = 8;
+            else if (code != '|' && code != '\\' && code != '"')
+                read_buffer_error(*buffer, "unknown escape in |symbol|");
+        }
+        buffer_push(buffer, length, capacity, code);
+    }
+}
+
 static NplVal read_token_datum(NplDatumReader *reader, int first)
 {
     char *buffer = NULL;
     size_t length = 0;
     size_t capacity = 0;
-    buffer_push(&buffer, &length, &capacity, first);
-    while (!datum_delimiter(reader_peek(reader)))
-        buffer_push(&buffer, &length, &capacity, reader_get(reader));
+    int barred = 0;
+    if (first == '|') {
+        barred = 1;
+        read_bar_symbol_part(reader, &buffer, &length, &capacity);
+    } else {
+        buffer_push(&buffer, &length, &capacity, first);
+    }
+    /* A |...| part may continue the token, and vice versa (abc|d e|f). */
+    for (;;) {
+        int code = reader_peek(reader);
+        if (code == '|') {
+            (void)reader_get(reader);
+            barred = 1;
+            read_bar_symbol_part(reader, &buffer, &length, &capacity);
+        } else if (datum_delimiter(code)) {
+            break;
+        } else {
+            buffer_push(&buffer, &length, &capacity, reader_get(reader));
+        }
+    }
     buffer_push(&buffer, &length, &capacity, 0);
+    if (barred) {
+        NplVal symbol = npl_symbol(buffer, (uint32_t)(length - 1));
+        free(buffer);
+        return symbol;
+    }
 
     NplVal token = npl_string_from_utf8((const uint8_t *)buffer, length - 1,
                                         BOX_STRING);
@@ -178,6 +295,7 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
             numeric_start = buffer[1] >= '0' && buffer[1] <= '9';
         if (numeric_start) read_buffer_error(buffer, "invalid exact number");
         value = npl_symbol(buffer, (uint32_t)(length - 1));
+        if (reader->fold_case) value = npl_symbol_fold_internal(value);
     }
     free(buffer);
     return value;
@@ -229,9 +347,19 @@ static NplVal read_list_datum(NplDatumReader *reader)
     }
 }
 
+/* 'x `x ,x ,@x (R7RS 4.2.8). */
+static NplVal abbreviated_datum(const char *name, NplVal value)
+{
+    npl_gc_root(&value);
+    NplVal symbol = npl_symbol(name, (uint32_t)strlen(name));
+    NplVal result = npl_cons(symbol, npl_cons(value, npl_nil()));
+    npl_gc_unroot(&value);
+    return result;
+}
+
 static NplVal quoted_datum(NplVal value)
 {
-    return npl_cons(npl_symbol("quote", 5), npl_cons(value, npl_nil()));
+    return abbreviated_datum("quote", value);
 }
 
 /* #\<char>, #\<name> (R7RS 6.6), #\x<hex>. The first character after #\
@@ -246,6 +374,7 @@ static NplVal read_character_datum(NplDatumReader *reader)
     int first = reader_get(reader);
     if (first == EOF) read_error("empty character literal");
     if (datum_delimiter(reader_peek(reader))) return npl_char((uint32_t)first);
+    /* Names are compared after ASCII case folding under #!fold-case. */
     char buffer[32];
     size_t length = 0;
     buffer[length++] = (char)first;
@@ -257,6 +386,9 @@ static NplVal read_character_datum(NplDatumReader *reader)
     }
     buffer[length] = '\0';
     if (first >= 0x80) read_error("unknown character name");
+    if (reader->fold_case)
+        for (size_t i = 0; i < length; i++)
+            if (buffer[i] >= 'A' && buffer[i] <= 'Z') buffer[i] += 'a' - 'A';
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
         if (strcmp(buffer, names[i].name) == 0) return npl_char(names[i].code);
     uint32_t code;
@@ -437,6 +569,16 @@ static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof)
     if (code == ')') read_error("unexpected )");
     if (code == '"') return read_string_datum(reader);
     if (code == '\'') return quoted_datum(read_datum_inner(reader, 0));
+    if (code == '`')
+        return abbreviated_datum("quasiquote", read_datum_inner(reader, 0));
+    if (code == ',') {
+        if (reader_peek(reader) == '@') {
+            (void)reader_get(reader);
+            return abbreviated_datum("unquote-splicing",
+                                     read_datum_inner(reader, 0));
+        }
+        return abbreviated_datum("unquote", read_datum_inner(reader, 0));
+    }
     if (code == '#') return read_hash_datum(reader);
     return read_token_datum(reader, code);
 }
@@ -445,7 +587,7 @@ NplVal npl_read_datum(NplVal port_value_arg)
 {
     NplPort *port = npl_port_require_mode_internal(port_value_arg, NPL_PORT_INPUT,
                                      NPL_PORT_TEXTUAL, "read");
-    NplDatumReader reader = { port, 0, 0, npl_nil() };
+    NplDatumReader reader = { port, 0, 0, npl_nil(), 0 };
     npl_gc_root(&reader.labels);
     NplVal value = read_datum_inner(&reader, 1);
     npl_gc_unroot(&reader.labels);

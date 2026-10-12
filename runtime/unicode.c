@@ -137,3 +137,30 @@ NplVal npl_char_full_case(NplVal character, NplVal kind)
         result = npl_cons(npl_char(row[1 + i]), result);
     return result;
 }
+
+/* #!fold-case (R7RS 2.1): an identifier read under the directive is
+ * string-foldcase'd (full folding). */
+NplVal npl_symbol_fold_internal(NplVal symbol)
+{
+    const NplString *name = npl_require_bytes_internal(symbol, "fold-case");
+    uint32_t count = npl_string_char_count_internal(name);
+    uint32_t *chars = (uint32_t *)malloc(((size_t)count * 3 + 1) *
+                                         sizeof(uint32_t));
+    if (!chars) npl_runtime_oom_internal();
+    uint32_t used = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t code = npl_string_char_at_internal(name, i);
+        const uint32_t *row = full_lookup(npl_full_fold, COUNT(npl_full_fold),
+                                          code);
+        if (row) {
+            for (uint32_t k = 0; k < row[1]; k++) chars[used++] = row[2 + k];
+        } else {
+            uint32_t target = code;
+            map_lookup(npl_simple_fold, COUNT(npl_simple_fold), code, &target);
+            chars[used++] = target;
+        }
+    }
+    NplVal key = npl_string_from_chars_internal(chars, used, BOX_STRING);
+    free(chars);
+    return npl_string_to_symbol(key);
+}
