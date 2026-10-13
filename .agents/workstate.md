@@ -14,15 +14,16 @@ R7RS-small libraries export their full name lists (556/556). Remaining: L6
 characters, ports, read/write syntax) and L6c (`(scheme char)` over Unicode)
 done, L6d (datum labels in read) and L6e (cycle-aware output, terminating
 equal?) done: L6 is complete. External check: chibi's r7rs-tests.scm via
-`tools/run_chibi_suite.sh` (npli: 1207 passed, 4 failed, all classified
-as not NPL bugs; worklog 2026-10-12). Next: run the suite natively (needs
-the top-level adaptation), then P1. The toolchain stage is complete and committed
+`tools/run_chibi_suite.sh [--native]`: npli and native both 1207 passed,
+4 failed, all classified as not NPL bugs (worklogs 2026-10-12, -13).
+Next: P1 (Guile performance baseline); include compile time of large
+generated programs (inline guard expansion was very slow). The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 218,287 lines; SHA-256
-  `0cc1ad7b11f45925b47d4d013fcdd28157eb660348eec5e5da22beff213778b9`
+- `bootstrap/current.ssa`: 219,191 lines; SHA-256
+  `820dde3719244bb485fdb196b5ac80263e7e3845bf73a0033f7c47a80d76a2a1`
   (macOS strict relay).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. On a swap-bound host set

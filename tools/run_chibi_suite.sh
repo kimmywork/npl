@@ -1,14 +1,16 @@
 #!/bin/bash
 # Run chibi-scheme's tests/r7rs-tests.scm (an independent R7RS conformance
-# suite) on npli and report pass/fail counts plus the top-level forms that
-# raised outside any test.
+# suite) on npli and, with --native, also as an nplc program; report
+# pass/fail counts plus the top-level forms that raised outside any test.
 #
-# Usage: tools/run_chibi_suite.sh [r7rs-tests.scm]
+# Usage: tools/run_chibi_suite.sh [--native] [r7rs-tests.scm]
 #   Without an argument the suite is downloaded (pinned chibi-scheme commit).
 #   (chibi test) is the minimal portable version in tests/chibi/.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 COMMIT=${CHIBI_COMMIT:-master}
+NATIVE=0
+if [ "${1:-}" = --native ]; then NATIVE=1; shift; fi
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 if [ $# -ge 1 ]; then
@@ -28,3 +30,17 @@ grep '^FAIL' "$WORK/out" || true
 echo "--- top-level errors (form aborted, its tests not counted):"
 sort "$WORK/err" | uniq -c | sort -rn
 tail -1 "$WORK/out"
+if [ "$NATIVE" = 1 ]; then
+    echo "=== native (nplc)"
+    python3 "$ROOT/tests/chibi/native_adapt.py" "$WORK/r7rs-tests.scm" \
+        "$WORK/native.npl"
+    (cd "$WORK" && "$ROOT/build/bin/nplc" native.npl -o native)
+    # (scheme eval) environments load the standard library relative to the
+    # working directory.
+    (cd "$ROOT" && "$WORK/native" > "$WORK/native.out" \
+        2> "$WORK/native.err") || true
+    grep '^FAIL' "$WORK/native.out" || true
+    echo "--- top-level errors:"
+    sort "$WORK/native.err" | uniq -c | sort -rn
+    tail -1 "$WORK/native.out"
+fi

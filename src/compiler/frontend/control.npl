@@ -66,7 +66,54 @@
 (define (control-transform-symbol expression)
   (if (string=? (cdr expression) CONTROL-MAIN-SOURCE)
       (control-symbol CONTROL-MAIN-TARGET)
-      expression))
+      (if (control-transfer-name? (cdr expression))
+          (control-transform-lambda (control-transfer-procedure (cdr expression)))
+          expression)))
+
+;; Control-transfer operators are CPS special forms, not runtime
+;; primitives. Used as values (for example (map values xs) or
+;; (call/cc procedure?)), each becomes a procedure that applies the operator:
+;; (lambda args (apply name args)), with apply spreading the arguments into
+;; the operator's own CPS form.
+(define (control-transfer-name? name)
+  (if (string=? name "values") #t
+      (if (string=? name "call-with-values") #t
+          (if (string=? name "call/cc") #t
+              (if (string=? name "call-with-current-continuation") #t
+                  (if (string=? name "dynamic-wind") #t
+                      (if (string=? name "with-exception-handler") #t
+                          (if (string=? name "raise") #t
+                              (string=? name "raise-continuable")))))))))
+
+(define (control-transfer-procedure name)
+  (let ((arguments (control-symbol (control-fresh-name "_npl_arguments_"))))
+    (cons 212
+      (cons arguments
+        (cons
+          (cons (control-transfer-call name arguments) ())
+          ())))))
+
+;; Call name with the list arguments: fixed-arity operators take their
+;; operands from the list directly.
+(define (control-transfer-call name arguments)
+  (if (string=? name "values")
+      (cons (control-symbol "npl_list_to_values") (cons arguments ()))
+      (cons (control-symbol name)
+            (control-transfer-operands
+              arguments (control-transfer-arity name) ()))))
+
+(define (control-transfer-arity name)
+  (if (string=? name "dynamic-wind") 3
+      (if (string=? name "call-with-values") 2
+          (if (string=? name "with-exception-handler") 2 1))))
+
+(define (control-transfer-operands arguments count acc)
+  (if (= count 0)
+      (rev acc)
+      (control-transfer-operands
+        (cons (control-symbol "cdr") (cons arguments ()))
+        (- count 1)
+        (cons (cons (control-symbol "car") (cons arguments ())) acc))))
 
 (define (control-transform-simple expression)
   (cond
@@ -168,6 +215,19 @@
       (control-symbol CONTROL-MAIN-TARGET)
       head))
 
+;; A procedure value that a control form applies in CPS (with an extra
+;; continuation argument). A primitive name there means the primitive's
+;; closure, not an inline primitive call, so it is wrapped in a lambda that
+;; calls it with its own arguments.
+(define (control-procedure-value value)
+  (if (if (sym-atom? value) (control-primitive-name? (cdr value)) #f)
+      (let ((argument (control-symbol (control-fresh-name "_npl_argument_"))))
+        (control-transform-lambda
+          (cons 212
+            (cons (cons argument ())
+              (cons (cons (cons value (cons argument ())) ()) ())))))
+      value))
+
 (define (control-cps-known-call head arguments continuation)
   (control-evaluate-list
     arguments ()
@@ -195,9 +255,9 @@
 
 ;; (apply f a ... list): evaluate every operand, then let the runtime spread
 ;; the final list into a tail call of f with the continuation appended.
+; Too few operands is a runtime error (npl_apply_tail raises a catchable
+; error object), as for any other procedure call.
 (define (control-cps-apply application continuation)
-  (if (< (count-up (cdr application) 0) 2)
-      (fatal "apply needs a procedure and a list"))
   (control-evaluate-list
     (cdr application) ()
     (lambda (values)
@@ -254,7 +314,7 @@
             (core-single-let
               (cons (control-symbol handler-name)
                     (cons (control-symbol "npl_current_handler") ()))
-              (cons (car procedures)
+              (cons (control-procedure-value (car procedures))
                 (cons
                   (control-captured-continuation
                     continuation

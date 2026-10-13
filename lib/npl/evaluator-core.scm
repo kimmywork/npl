@@ -504,6 +504,12 @@
      (if (null? arguments)
          (eval-force procedure environment continuation)
          (continuation (eval-error "force: expected zero arguments"))))
+    ; A host (native) procedure passed in from the embedding program, for
+    ; example by eval-apply-in-environment arguments: apply it directly;
+    ; its errors re-raise through the evaluator's handlers.
+    ((procedure? procedure)
+     (set! EVAL-PRIMITIVE-ENVIRONMENT environment)
+     (eval-host-primitive (lambda () (apply procedure arguments)) continuation))
     (else
      (set! EVAL-PRIMITIVE-ENVIRONMENT environment)
      (eval-primitive-error "application" "not a procedure" procedure
