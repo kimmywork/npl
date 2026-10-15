@@ -20,6 +20,21 @@ Next: P1 (Guile performance baseline); include compile time of large
 generated programs (inline guard expansion was very slow). The toolchain stage is complete and committed
 (`b8508d1`): unified `nplc` seed, `npli`, install layout, Linux parity.
 
+## Performance Baseline (P1)
+
+Harness is in place: `tools/bench.py` + `bench/workloads/*.scm` — 9
+R7RS-small workloads under native, npli, Guile, and Racket, with compile
+time, median/min-max wall and CPU time, timeouts, and a cross-implementation
+stdout check. First pass (host load ~9, not a baseline): native is 1.4x
+slower than Guile only on `fact` and 42-140x slower on the rest; npli exceeds
+15 s on every workload; no output mismatches.
+
+Root cause confirmed: with `(import (scheme base))`, `=`, `+`, `-`, `<` stop
+compile-into-primitives and become calls into the generic varargs NPL
+procedures in `integer.scm` — the same 5000000-iteration loop is 0.19 s
+without the import and 6.52 s with it. Next: fixed-arity numeric fast paths
+in the compiler (native and npli), then a 10+ run baseline.
+
 ## Accepted Seed
 
 - `bootstrap/current.ssa`: 219,191 lines; SHA-256
