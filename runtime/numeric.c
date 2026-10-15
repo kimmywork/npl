@@ -712,6 +712,21 @@ NplVal npl_eqv(NplVal left, NplVal right)
 
 /* Search each base-10^9 quotient digit using unsigned limb magnitudes.
  * Scratch storage is outside the GC; only the final result is boxed. */
+/* Divide a magnitude (base 10^9 limbs, little endian) in place by a small
+ * divisor (< 2^32) and return the remainder: one linear pass. */
+static uint32_t limbs_divide_small(uint32_t *limbs, uint32_t *count,
+                                   uint32_t divisor)
+{
+    uint64_t remainder = 0;
+    for (uint32_t i = *count; i != 0; i--) {
+        uint64_t current = remainder * NPL_BIG_BASE + limbs[i - 1];
+        limbs[i - 1] = (uint32_t)(current / divisor);
+        remainder = current % divisor;
+    }
+    while (*count && limbs[*count - 1] == 0) (*count)--;
+    return (uint32_t)remainder;
+}
+
 static NplVal integer_divide(NplVal left, NplVal right, int want_remainder)
 {
     const char *who = want_remainder ? "remainder" : "quotient";
@@ -728,57 +743,94 @@ static NplVal integer_divide(NplVal left, NplVal right, int want_remainder)
     }
     if (integer_magnitude_compare(&a, &b) < 0)
         return want_remainder ? left : npl_fixnum(0);
-    uint64_t capacity = (uint64_t)b.count + 1;
-    uint64_t quotient_capacity = a.count;
-    if (capacity > UINT32_MAX || capacity > SIZE_MAX / sizeof(uint32_t) ||
-        quotient_capacity > SIZE_MAX / sizeof(uint32_t))
-        npl_runtime_oom_internal();
-    uint32_t *digits = calloc(a.count, sizeof(uint32_t));
-    uint32_t *rest = calloc((size_t)capacity, sizeof(uint32_t));
-    uint32_t *product = calloc((size_t)capacity, sizeof(uint32_t));
-    if (!digits || !rest || !product) npl_runtime_oom_internal();
-    NplIntegerView r = {0}, p = {0};
-    r.limbs = rest;
-    p.limbs = product;
-    for (uint32_t i = a.count; i != 0; i--) {
-        memmove(rest + 1, rest, (size_t)r.count * sizeof(uint32_t));
-        rest[0] = a.limbs[i - 1];
-        r.count++;
-        while (r.count && rest[r.count - 1] == 0) r.count--;
-        uint32_t low = 0, high = NPL_BIG_BASE - 1;
-        while (low < high) {
-            uint32_t middle = low + (high - low + 1) / 2;
-            uint64_t carry = 0;
-            for (uint32_t j = 0; j < b.count; j++) {
-                uint64_t limb = (uint64_t)b.limbs[j] * middle + carry;
-                product[j] = (uint32_t)(limb % NPL_BIG_BASE);
-                carry = limb / NPL_BIG_BASE;
-            }
-            product[b.count] = (uint32_t)carry;
-            p.count = b.count + (carry != 0);
-            if (integer_magnitude_compare(&p, &r) <= 0) low = middle;
-            else high = middle - 1;
-        }
-        digits[i - 1] = low;
-        uint64_t carry = 0;
-        int64_t borrow = 0;
-        for (uint32_t j = 0; j < r.count; j++) {
-            uint64_t limb = carry;
-            if (j < b.count) limb += (uint64_t)b.limbs[j] * low;
-            carry = limb / NPL_BIG_BASE;
-            int64_t difference = (int64_t)rest[j] -
-                                 (int64_t)(limb % NPL_BIG_BASE) - borrow;
-            borrow = difference < 0;
-            rest[j] = (uint32_t)(difference + (borrow ? NPL_BIG_BASE : 0));
-        }
-        while (r.count && rest[r.count - 1] == 0) r.count--;
+    if (b.count == 1) {
+        uint32_t count = a.count;
+        uint32_t *quotient = malloc((size_t)count * sizeof(uint32_t));
+        if (!quotient) npl_runtime_oom_internal();
+        memcpy(quotient, a.limbs, (size_t)count * sizeof(uint32_t));
+        uint32_t remainder = limbs_divide_small(quotient, &count, b.limbs[0]);
+        NplVal result = want_remainder
+            ? box_integer_limbs(a.sign, &remainder, remainder ? 1 : 0)
+            : box_integer_limbs(a.sign == b.sign ? 1 : -1, quotient, count);
+        free(quotient);
+        return result;
     }
-    NplVal result = want_remainder
-        ? box_integer_limbs(a.sign, rest, r.count)
-        : box_integer_limbs(a.sign == b.sign ? 1 : -1, digits, a.count);
-    free(product);
-    free(rest);
-    free(digits);
+    /* Long division (Knuth, TAOCP vol. 2, 4.3.1, Algorithm D) in base 10^9.
+     * Both operands are scaled by d = BASE / (top divisor limb + 1) so the
+     * divisor's top limb is at least BASE / 2; each quotient limb is then
+     * estimated from the top two remainder limbs and is at most 2 too
+     * large, which the correction steps fix. */
+    uint32_t n = b.count, m = a.count - b.count;
+    uint32_t *u = calloc((size_t)a.count + 1, sizeof(uint32_t));
+    uint32_t *v = calloc((size_t)n, sizeof(uint32_t));
+    uint32_t *q = calloc((size_t)m + 1, sizeof(uint32_t));
+    if (!u || !v || !q) npl_runtime_oom_internal();
+    uint64_t d = NPL_BIG_BASE / ((uint64_t)b.limbs[n - 1] + 1);
+    uint64_t carry = 0;
+    for (uint32_t i = 0; i < a.count; i++) {
+        uint64_t t = (uint64_t)a.limbs[i] * d + carry;
+        u[i] = (uint32_t)(t % NPL_BIG_BASE);
+        carry = t / NPL_BIG_BASE;
+    }
+    u[a.count] = (uint32_t)carry;
+    carry = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        uint64_t t = (uint64_t)b.limbs[i] * d + carry;
+        v[i] = (uint32_t)(t % NPL_BIG_BASE);
+        carry = t / NPL_BIG_BASE;
+    }
+    for (uint32_t j = m + 1; j != 0; j--) {
+        uint32_t k = j - 1;
+        uint64_t top = (uint64_t)u[k + n] * NPL_BIG_BASE + u[k + n - 1];
+        uint64_t qhat = top / v[n - 1];
+        uint64_t rhat = top % v[n - 1];
+        while (qhat >= NPL_BIG_BASE ||
+               (n >= 2 && qhat * v[n - 2] >
+                          rhat * NPL_BIG_BASE + u[k + n - 2])) {
+            qhat--;
+            rhat += v[n - 1];
+            if (rhat >= NPL_BIG_BASE) break;
+        }
+        /* u[k .. k+n] -= qhat * v */
+        int64_t borrow = 0;
+        carry = 0;
+        for (uint32_t i = 0; i < n; i++) {
+            uint64_t product = qhat * v[i] + carry;
+            carry = product / NPL_BIG_BASE;
+            int64_t t = (int64_t)u[k + i] -
+                        (int64_t)(product % NPL_BIG_BASE) - borrow;
+            borrow = t < 0;
+            u[k + i] = (uint32_t)(t + (borrow ? (int64_t)NPL_BIG_BASE : 0));
+        }
+        int64_t t = (int64_t)u[k + n] - (int64_t)carry - borrow;
+        borrow = t < 0;
+        u[k + n] = (uint32_t)(t + (borrow ? (int64_t)NPL_BIG_BASE : 0));
+        if (borrow) {
+            /* qhat was one too large: add v back. */
+            qhat--;
+            uint64_t add = 0;
+            for (uint32_t i = 0; i < n; i++) {
+                uint64_t sum = (uint64_t)u[k + i] + v[i] + add;
+                u[k + i] = (uint32_t)(sum % NPL_BIG_BASE);
+                add = sum / NPL_BIG_BASE;
+            }
+            u[k + n] = (uint32_t)(((uint64_t)u[k + n] + add) % NPL_BIG_BASE);
+        }
+        q[k] = (uint32_t)qhat;
+    }
+    NplVal result;
+    if (want_remainder) {
+        /* Unscale: the remainder is u[0 .. n-1] / d. */
+        uint32_t count = n;
+        while (count && u[count - 1] == 0) count--;
+        (void)limbs_divide_small(u, &count, (uint32_t)d);
+        result = box_integer_limbs(a.sign, u, count);
+    } else {
+        result = box_integer_limbs(a.sign == b.sign ? 1 : -1, q, m + 1);
+    }
+    free(q);
+    free(v);
+    free(u);
     return result;
 }
 
@@ -811,46 +863,62 @@ NplVal npl_number_gcd(NplVal left, NplVal right)
     return left;
 }
 
+/* Digits of an integer in radix 2..36. Base 10 prints each base-10^9 limb
+ * as nine digits directly (linear time). Other radices take whole chunks
+ * of digits per division by radix^k (the largest power below 2^32), so a
+ * conversion is quadratic in the length with a small constant, not cubic
+ * as with one full division per digit. */
 static NplVal integer_to_string_radix(NplVal value, int radix)
 {
+    static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
     NplIntegerView view;
     integer_view(&view, value, "number->string");
-    static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
-    int negative = view.sign < 0;
-    NplVal current = value;
-    npl_gc_root(&current);
-    if (negative) current = npl_number_sub(npl_fixnum(0), current);
-    size_t capacity = 32, length = 0;
+    if (view.sign == 0) return npl_string("0", 1);
+    size_t capacity = (size_t)view.count * 32 + 2;
     char *buffer = malloc(capacity);
     if (!buffer) npl_runtime_oom_internal();
-    do {
-        NplVal remainder = npl_number_remainder(current, npl_fixnum(radix));
-        current = npl_number_quotient(current, npl_fixnum(radix));
-        if (length == capacity) {
-            capacity *= 2;
-            char *grown = realloc(buffer, capacity);
-            if (!grown) npl_runtime_oom_internal();
-            buffer = grown;
+    size_t length = 0;
+    if (radix == 10) {
+        char chunk[16];
+        int used = snprintf(chunk, sizeof(chunk), "%u",
+                            (unsigned)view.limbs[view.count - 1]);
+        if (view.sign < 0) buffer[length++] = '-';
+        memcpy(buffer + length, chunk, (size_t)used);
+        length += (size_t)used;
+        for (uint32_t i = view.count - 1; i != 0; i--) {
+            snprintf(chunk, sizeof(chunk), "%09u", (unsigned)view.limbs[i - 1]);
+            memcpy(buffer + length, chunk, 9);
+            length += 9;
         }
-        buffer[length++] = digits[npl_fixnum_value(remainder)];
-    } while (current != npl_fixnum(0));
-    if (negative) {
-        if (length == capacity) {
-            capacity *= 2;
-            char *grown = realloc(buffer, capacity);
-            if (!grown) npl_runtime_oom_internal();
-            buffer = grown;
+    } else {
+        uint32_t chunk_digits = 0;
+        uint64_t power = 1;
+        while (power * (uint64_t)radix <= UINT32_MAX) {
+            power *= (uint64_t)radix;
+            chunk_digits++;
         }
-        buffer[length++] = '-';
-    }
-    for (size_t index = 0; index < length / 2; index++) {
-        char swap = buffer[index];
-        buffer[index] = buffer[length - index - 1];
-        buffer[length - index - 1] = swap;
+        uint32_t count = view.count;
+        uint32_t *work = malloc((size_t)count * sizeof(uint32_t));
+        if (!work) npl_runtime_oom_internal();
+        memcpy(work, view.limbs, (size_t)count * sizeof(uint32_t));
+        while (count) {
+            uint32_t chunk = limbs_divide_small(work, &count, (uint32_t)power);
+            for (uint32_t k = 0; k < chunk_digits; k++) {
+                if (count == 0 && chunk == 0) break;
+                buffer[length++] = digits[chunk % (uint32_t)radix];
+                chunk /= (uint32_t)radix;
+            }
+        }
+        free(work);
+        if (view.sign < 0) buffer[length++] = '-';
+        for (size_t index = 0; index < length / 2; index++) {
+            char swap = buffer[index];
+            buffer[index] = buffer[length - index - 1];
+            buffer[length - index - 1] = swap;
+        }
     }
     NplVal result = npl_string(buffer, (uint32_t)length);
     free(buffer);
-    npl_gc_unroot(&current);
     return result;
 }
 
