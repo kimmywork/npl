@@ -33,9 +33,17 @@ Root cause confirmed: with `(import (scheme base))`, `=`, `+`, `-`, `<`
 became calls into the generic varargs NPL procedures in `integer.scm`. Native
 fixnum fast paths for `+ - * = < <= > >=` are done (worklog 2026-10-19):
 loop 53.6 s -> 1.14 s, fib 10.5 -> 1.11 s, tak 5.46 -> 0.52 s; the slow path
-uses `npl_call_sync` (runtime/trampoline.c). Next: rerun `tools/bench.py`
-for the remaining gap, the npli side of the numeric fast path, then a 10+
-run baseline.
+uses `npl_call_sync` (runtime/trampoline.c). Bench after it (`--runs 3`,
+host load ~7, `e554744`): native vs Guile wall is 0.8x on fact, 2.6x tak,
+5.1x loop, 6.6x closures, 8.1x fib, 8.4x vectors, 9.3x lists and callcc,
+16x strings; native compile is 3.7-6.9 s (Guile 0.3-0.6 s); npli still
+exceeds 30 s on every workload. npli cost is structural (string-keyed
+environment lookup, string `cond` primitive dispatch, library numeric
+procedures interpreted), not only numeric. Allocator free-bin bitmap
+(worklog 2026-10-19 15:40) cut strings/lists/callcc user CPU 3-4x. Next:
+GC sweep and heap growth (compiler self-emit ~160 s wall, sweep-dominated),
+then an npli evaluator redesign (compile-to-closures, lexical addresses,
+direct primitive procedures), then a 10+ run baseline.
 
 ## Accepted Seed
 

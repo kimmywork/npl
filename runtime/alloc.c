@@ -66,6 +66,10 @@ static NplChunk *g_chunks = NULL;
 static NplChunkIndexEntry *g_chunk_index[NPL_CHUNK_INDEX_BUCKETS];
 static NplAllocMeta *g_alloc_head = NULL;
 static NplAllocMeta *g_free_bins[NPL_FREE_BIN_COUNT];
+/* Bit b is set when g_free_bins[b] is non-empty, so an allocation skips
+ * empty bins instead of scanning all of them. */
+#define NPL_FREE_MASK_WORDS ((NPL_FREE_BIN_COUNT + 63) / 64)
+static uint64_t g_free_bin_mask[NPL_FREE_MASK_WORDS];
 static NplAllocMeta *g_mark_stack = NULL;
 static size_t g_allocated = 0;
 static size_t g_threshold = NPL_GC_MIN_THRESHOLD;
@@ -176,12 +180,43 @@ static void add_free_block(NplAllocMeta *meta)
     size_t bin = free_bin_index(meta->capacity);
     meta->free_next = g_free_bins[bin];
     g_free_bins[bin] = meta;
+    g_free_bin_mask[bin / 64] |= UINT64_C(1) << (bin % 64);
+}
+
+static unsigned lowest_set_bit(uint64_t word)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    return (unsigned)__builtin_ctzll(word);
+#else
+    unsigned bit = 0;
+    while (!(word & 1)) {
+        word >>= 1;
+        bit++;
+    }
+    return bit;
+#endif
+}
+
+/* The first non-empty bin at or after first, or NPL_FREE_BIN_COUNT. */
+static size_t next_free_bin(size_t first)
+{
+    size_t word = first / 64;
+    if (word >= NPL_FREE_MASK_WORDS) return NPL_FREE_BIN_COUNT;
+    uint64_t bits = g_free_bin_mask[word] & (~UINT64_C(0) << (first % 64));
+    for (;;) {
+        if (bits) {
+            size_t bin = word * 64 + lowest_set_bit(bits);
+            return bin < NPL_FREE_BIN_COUNT ? bin : NPL_FREE_BIN_COUNT;
+        }
+        if (++word >= NPL_FREE_MASK_WORDS) return NPL_FREE_BIN_COUNT;
+        bits = g_free_bin_mask[word];
+    }
 }
 
 static NplAllocMeta *take_free_block(size_t size)
 {
-    size_t first = free_bin_index(size);
-    for (size_t bin = first; bin < NPL_FREE_BIN_COUNT; bin++) {
+    for (size_t bin = next_free_bin(free_bin_index(size));
+         bin < NPL_FREE_BIN_COUNT; bin = next_free_bin(bin + 1)) {
         NplAllocMeta **link = &g_free_bins[bin];
         while (*link && (*link)->capacity < size)
             link = &(*link)->free_next;
@@ -189,6 +224,8 @@ static NplAllocMeta *take_free_block(size_t size)
 
         NplAllocMeta *meta = *link;
         *link = meta->free_next;
+        if (!g_free_bins[bin])
+            g_free_bin_mask[bin / 64] &= ~(UINT64_C(1) << (bin % 64));
         if (meta->capacity >= size + NPL_META_SIZE + NPL_ALIGN) {
             NplAllocMeta *remainder = (NplAllocMeta *)(
                 (unsigned char *)meta + NPL_META_SIZE + size);
