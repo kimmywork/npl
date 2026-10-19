@@ -2,8 +2,11 @@
  * alloc.c — NPL runtime allocation and boxed values.
  *
  * Managed objects live in mmap chunks. Each object has private allocator
- * metadata immediately before its public NplHeader; sweep recycles metadata
- * blocks through a free list while chunks remain mapped for the process life.
+ * metadata immediately before its public NplHeader. A chunk is a sequence of
+ * blocks (metadata, then capacity bytes) from its header to chunk->used, so
+ * sweep walks each chunk in address order, merges each run of dead and free
+ * blocks into one free block, and rebuilds the free bins from those runs.
+ * Chunks remain mapped for the process life.
  */
 
 #include "npl.h"
@@ -50,7 +53,6 @@ struct NplChunkIndexEntry {
 
 struct NplAllocMeta {
     uint64_t magic;
-    NplAllocMeta *all_next;
     NplAllocMeta *free_next;
     NplAllocMeta *mark_next;
     NplChunk *owner;
@@ -64,7 +66,6 @@ struct NplAllocMeta {
 
 static NplChunk *g_chunks = NULL;
 static NplChunkIndexEntry *g_chunk_index[NPL_CHUNK_INDEX_BUCKETS];
-static NplAllocMeta *g_alloc_head = NULL;
 static NplAllocMeta *g_free_bins[NPL_FREE_BIN_COUNT];
 /* Bit b is set when g_free_bins[b] is non-empty, so an allocation skips
  * empty bins instead of scanning all of them. */
@@ -272,8 +273,6 @@ void *npl_alloc_object(size_t size)
     meta->marked = 0;
     meta->mark_next = NULL;
     meta->free_next = NULL;
-    meta->all_next = g_alloc_head;
-    g_alloc_head = meta;
     memset(meta_object(meta), 0, meta->capacity);
     g_allocated += size;
     g_live_objects++;
@@ -494,30 +493,50 @@ void npl_gc_drain_internal(void)
     }
 }
 
+/* Walk one chunk in address order. Unmarked live objects become free; each
+ * run of adjacent free blocks merges into its first block, which is binned
+ * once the run ends. */
+static void sweep_chunk(NplChunk *chunk)
+{
+    unsigned char *cursor =
+        (unsigned char *)chunk + align_up(sizeof(NplChunk), NPL_ALIGN);
+    unsigned char *end = (unsigned char *)chunk + chunk->used;
+    NplAllocMeta *run = NULL;
+    while (cursor < end) {
+        NplAllocMeta *meta = (NplAllocMeta *)cursor;
+        cursor += NPL_META_SIZE + meta->capacity;
+        if (meta->magic == NPL_META_MAGIC_LIVE) {
+            if (meta->marked) {
+                meta->marked = 0;
+                meta->mark_next = NULL;
+                if (run) {
+                    add_free_block(run);
+                    run = NULL;
+                }
+                continue;
+            }
+            if (chunk->live_blocks == 0) npl_runtime_oom_internal();
+            chunk->live_blocks--;
+            g_allocated -= meta->size;
+            g_live_objects--;
+        }
+        meta->magic = NPL_META_MAGIC_FREE;
+        if (run) {
+            run->capacity += NPL_META_SIZE + meta->capacity;
+        } else {
+            run = meta;
+            run->mark_next = NULL;
+        }
+    }
+    if (run) add_free_block(run);
+}
+
 void npl_gc_sweep_internal(void)
 {
-    NplAllocMeta **link = &g_alloc_head;
-    while (*link) {
-        NplAllocMeta *meta = *link;
-        if (meta->marked) {
-            meta->marked = 0;
-            meta->mark_next = NULL;
-            link = &meta->all_next;
-            continue;
-        }
-
-        *link = meta->all_next;
-        NplChunk *owner = meta->owner;
-        if (!owner || owner->live_blocks == 0) npl_runtime_oom_internal();
-        owner->live_blocks--;
-        g_allocated -= meta->size;
-        g_live_objects--;
-        meta->magic = NPL_META_MAGIC_FREE;
-        meta->all_next = NULL;
-        meta->mark_next = NULL;
-        meta->free_next = NULL;
-        add_free_block(meta);
-    }
+    memset(g_free_bins, 0, sizeof(g_free_bins));
+    memset(g_free_bin_mask, 0, sizeof(g_free_bin_mask));
+    for (NplChunk *chunk = g_chunks; chunk; chunk = chunk->next)
+        sweep_chunk(chunk);
 
     g_threshold = g_allocated * 2;
     if (g_threshold < g_min_threshold)

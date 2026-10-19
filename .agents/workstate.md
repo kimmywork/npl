@@ -40,9 +40,11 @@ host load ~7, `e554744`): native vs Guile wall is 0.8x on fact, 2.6x tak,
 exceeds 30 s on every workload. npli cost is structural (string-keyed
 environment lookup, string `cond` primitive dispatch, library numeric
 procedures interpreted), not only numeric. Allocator free-bin bitmap
-(worklog 2026-10-19 15:40) cut strings/lists/callcc user CPU 3-4x. Next:
-GC sweep and heap growth (compiler self-emit ~160 s wall, sweep-dominated),
-then an npli evaluator redesign (compile-to-closures, lexical addresses,
+(worklog 2026-10-19 15:40) cut strings/lists/callcc user CPU 3-4x; a
+per-chunk GC sweep (19:10) cut compiler self-emit to ~23 s wall at the
+default threshold. Next: re-measure the 1 GiB default threshold (256 MiB was
+faster and 4x smaller after the sweep change), rerun the bench, then an npli
+evaluator redesign (compile-to-closures, lexical addresses,
 direct primitive procedures), then a 10+ run baseline.
 
 ## Accepted Seed
