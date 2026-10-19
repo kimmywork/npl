@@ -27,10 +27,12 @@
                             "call $npl_tail_request_closure(l " closure
                             ", l " (number->string count) ", l " argv ")")))
                       (if (> (string-length (lookup-func (cdr head))) 0)
-                          (func-line
-                            (string-append "call $npl_tail_request(l $"
-                              (lookup-func (cdr head)) ", l 2, l "
-                              (number->string count) ", l " argv ")"))
+                          (if (> (string-length
+                                   (numeric-alias-primitive-name
+                                     (cdr head))) 0)
+                              (emit-numeric-alias-tail (cdr head) ops argv)
+                              (emit-tail-request-function (cdr head)
+                                (number->string count) argv))
                           (let ((closure (symbol-value (cdr head) env)))
                             (func-line
                               (string-append

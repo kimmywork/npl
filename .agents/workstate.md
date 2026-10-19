@@ -29,17 +29,19 @@ stdout check. First pass (host load ~9, not a baseline): native is 1.4x
 slower than Guile only on `fact` and 42-140x slower on the rest; npli exceeds
 15 s on every workload; no output mismatches.
 
-Root cause confirmed: with `(import (scheme base))`, `=`, `+`, `-`, `<` stop
-compile-into-primitives and become calls into the generic varargs NPL
-procedures in `integer.scm` — the same 5000000-iteration loop is 0.19 s
-without the import and 6.52 s with it. Next: fixed-arity numeric fast paths
-in the compiler (native and npli), then a 10+ run baseline.
+Root cause confirmed: with `(import (scheme base))`, `=`, `+`, `-`, `<`
+became calls into the generic varargs NPL procedures in `integer.scm`. Native
+fixnum fast paths for `+ - * = < <= > >=` are done (worklog 2026-10-19):
+loop 53.6 s -> 1.14 s, fib 10.5 -> 1.11 s, tak 5.46 -> 0.52 s; the slow path
+uses `npl_call_sync` (runtime/trampoline.c). Next: rerun `tools/bench.py`
+for the remaining gap, the npli side of the numeric fast path, then a 10+
+run baseline.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 219,191 lines; SHA-256
-  `820dde3719244bb485fdb196b5ac80263e7e3845bf73a0033f7c47a80d76a2a1`
-  (macOS strict relay).
+- `bootstrap/current.ssa`: 224,969 lines; SHA-256
+  `6253693bd20fe87a4b2b495f4a8c839d63ecab4eb75c57656f09ec38ef542830`
+  (macOS strict relay, 2026-10-19).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. On a swap-bound host set
   `NPL_GC_THRESHOLD_BYTES=268435456`.
@@ -48,8 +50,6 @@ in the compiler (native and npli), then a 10+ run baseline.
 ## Open Items
 
 - `(sqrt -1.0-0.0i)` branch convention needs a user decision.
-- Files above the 800-line soft limit, to split when touched:
-  `runtime/control.c`.
 - `guard` clauses run before dynamic-wind after thunks are unwound (R7RS
   4.2.7 evaluates them in guard's dynamic environment).
 - npli does not reject mutation of vector literals.

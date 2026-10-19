@@ -22,8 +22,16 @@
 
 ;; Registered intrinsics (backend/primitives.npl) evaluate synchronously and
 ;; stay outside CPS, except apply, which transfers control (tail call).
+; A registered intrinsic or a public numeric alias exported by a standard
+; library is synchronous: it never receives a continuation, so it may be
+; evaluated in place. Aliases keep the library procedure for operand sets the
+; inline fixnum operation does not cover; see numeric.npl.
 (define (control-primitive-name? name)
-  (if (string=? name "apply") #f (if (primitive-row name) #t #f)))
+  (if (string=? name "apply")
+      #f
+      (if (primitive-row name)
+          #t
+          (> (string-length (numeric-alias-primitive-name name)) 0))))
 
 (define (control-primitive-head? head)
   (if (sym-atom? head)

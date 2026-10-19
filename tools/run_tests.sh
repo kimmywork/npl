@@ -51,7 +51,7 @@ for fixture in integer-arithmetic rational-arithmetic radix-exact \
                symbols procedure-values apply lists vectors strings \
                definition-macros records-errors primitive-errors \
                port-parameters text-io-time r5rs unicode-strings unicode-char \
-               datum-labels cyclic-data; do
+               datum-labels cyclic-data numeric-alias-paths; do
     run "R7RS $fixture" \
         "$ROOT/tools/run_r7rs_fixture.sh" "$ROOT/tests/r7rs/fixtures/$fixture"
 done

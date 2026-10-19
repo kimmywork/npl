@@ -1,0 +1,49 @@
+; Public numeric operators exported by a standard library. `(scheme base)`
+; implements `+` and friends as validating NPL procedures, so a call site
+; cannot inline the primitive. A call to a registered alias may still take a
+; fixnum fast path, which is exact because the procedure validates its
+; arguments and then applies those same raw operations; any other operand set
+; keeps calling the procedure. Entry: (internal-name external-name); the
+; external name is the operation and is a PRIMITIVE-TABLE name.
+;
+; Library export resolution registers aliases, so the registry lives in the
+; frontend, which the compiler and (npl frontend) share. Only the compiler
+; backend consults it.
+(define PUBLIC-NUMERIC-ALIAS-SOURCES
+  '(("integer-add" "+") ("integer-subtract" "-") ("integer-multiply" "*")
+    ("integer-equal" "=") ("integer-less" "<") ("integer-less-equal" "<=")
+    ("integer-greater" ">") ("integer-greater-equal" ">=")))
+; Entry: (internal-function-name primitive-name).
+(define PUBLIC-NUMERIC-ALIASES (cell ()))
+
+(define (numeric-alias-listed? internal external entries)
+  (if (null? entries)
+      #f
+      (if (and (string=? internal (car (car entries)))
+               (string=? external (car (cdr (car entries)))))
+          #t
+          (numeric-alias-listed? internal external (cdr entries)))))
+
+; Records that internal is the procedure the exported external calls for.
+; Requiring both names keeps the fast path on that library's own
+; implementation, so a library exporting `+` for something else is never
+; inlined.
+(define (register-numeric-alias! external internal value)
+  (if (and (> (string-length value) 0)
+           (numeric-alias-listed? internal external
+                                  PUBLIC-NUMERIC-ALIAS-SOURCES)
+           (= (string-length (numeric-alias-primitive-name value)) 0))
+      (cell-set! PUBLIC-NUMERIC-ALIASES
+        (cons (cons value (cons external ())) (cell-get PUBLIC-NUMERIC-ALIASES)))
+      0))
+
+(define (numeric-alias-in name rows)
+  (if (null? rows)
+      ""
+      (if (string=? name (car (car rows)))
+          (car (cdr (car rows)))
+          (numeric-alias-in name (cdr rows)))))
+
+; The primitive an emitted function name stands for, or "".
+(define (numeric-alias-primitive-name name)
+  (numeric-alias-in name (cell-get PUBLIC-NUMERIC-ALIASES)))

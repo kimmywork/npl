@@ -89,3 +89,122 @@
         ((null? (cdr ops))
          (call-with-ops "npl_number_sub" (cons "0" ops)))
         (else (emit-integer-fold "npl_number_sub" (cdr ops) (car ops)))))))
+
+; ---------------- public numeric alias fast paths ----------------
+;
+; The guard is a tag test: TAG_FIXNUM is 0, so a fixnum has low word bits 0.
+; The result is 1 only when every operand is a fixnum.
+(define (fixnum-tag-test op)
+  (let ((low (new-tmp)))
+    (func-line (string-append low " =w and " op ", 3"))
+    (let ((hit (new-tmp)))
+      (func-line (string-append hit " =w ceqw " low ", 0"))
+      hit)))
+
+(define (map-cons fn xs)
+  (if (null? xs) () (cons (fn (car xs)) (map-cons fn (cdr xs)))))
+
+(define (combine-fixnum-guards ops)
+  (if (null? (cdr ops))
+      (car ops)
+      (let ((rest (combine-fixnum-guards (cdr ops))))
+        (let ((all (new-tmp)))
+          (func-line (string-append all " =w and " (car ops) ", " rest))
+          all))))
+
+; Call a registered function in value position. npl_call_sync supplies the
+; continuation and forwards a raise to the caller's trampoline, so a handler
+; that escapes resumes on the right C frame (runtime/trampoline.c).
+(define (emit-value-call nm ops)
+  (let ((result (new-tmp)))
+    (func-line
+      (string-append result " =l call $npl_call_sync(l $" (lookup-func nm)
+                     ", l 2, l " (number->string (count-up ops 0))
+                     ", l " (argv-op ops) ")"))
+    result))
+
+; Inline the primitive when every operand is a fixnum, otherwise apply the
+; library procedure the alias names. Both paths produce the same result, so
+; the two branches may define one SSA result before a merge block, as the
+; pair? emission already does.
+(define (emit-numeric-alias-ops nm primitive ops)
+  (let ((result (new-tmp)))
+    (if (null? ops)
+        (emit-numeric-alias-inline primitive ops)
+        (let ((fast (new-label)))
+          (let ((slow (new-label)))
+            (let ((merge (new-label)))
+              (let ((guard (combine-fixnum-guards (map-cons fixnum-tag-test ops))))
+                (begin
+                  (func-line (string-append "jnz " guard ", " fast ", " slow))
+                  (func-line fast)
+                  (let ((value (emit-numeric-alias-inline primitive ops)))
+                    (func-line (string-append result " =l copy " value)))
+                  (func-line (string-append "jmp " merge))
+                  (func-line slow)
+                  (func-line (string-append result " =l copy " (emit-value-call nm ops)))
+                  (func-line merge)
+                  result))))))))
+
+(define (emit-numeric-alias-inline primitive ops)
+  (cond
+    ((string=? primitive "+") (emit-integer-fold "npl_number_add" ops "0"))
+    ((string=? primitive "*") (emit-integer-fold "npl_number_mul" ops "4"))
+    ((string=? primitive "-")
+     (if (null? (cdr ops))
+         (call-with-ops "npl_number_sub" (cons "0" ops))
+         (emit-integer-fold "npl_number_sub" (cdr ops) (car ops))))
+    (else (emit-compare-chain primitive ops))))
+
+; A call to a public numeric alias takes the fixnum fast path when the operand
+; count is one the inline operation supports. Below that count the call goes
+; to the procedure, which reports the error at runtime. Value-position thunks
+; carry no continuation, so the procedure call supplies one.
+(define (emit-numeric-alias-call nm args env)
+  (let ((primitive (numeric-alias-primitive-name nm)))
+    (let ((count (count-up args 0)))
+      (let ((ops (eval-args-fixed args env count ())))
+        (if (< count (numeric-alias-min-count primitive))
+            (emit-value-call nm ops)
+            (emit-numeric-alias-ops nm primitive ops))))))
+
+; Tail-call request of a registered function; emitted by emit-tail-request and
+; by the numeric alias slow path.
+(define (emit-tail-request-function nm argc argv)
+  (func-line (string-append "call $npl_tail_request(l $" (lookup-func nm)
+                            ", l 2, l " argc
+                          ", l " argv ")")))
+
+; Fast path when every operand is a fixnum: inline the primitive and hand its
+; result to the caller's continuation. Otherwise apply the library procedure.
+; The caller emits the final `ret`.
+(define (emit-numeric-alias-guard nm primitive ops continuation argv argc)
+  (if (null? ops)
+      (emit-tail-request-function nm argc argv)
+      (let ((fast (new-label)) (slow (new-label)))
+        (let ((guard (combine-fixnum-guards (map-cons fixnum-tag-test ops))))
+          (begin
+            (func-line (string-append "jnz " guard ", " fast ", " slow))
+            (func-line fast)
+            (let ((result (emit-numeric-alias-inline primitive ops)))
+              (let ((result-argv (argv-op (cons result ()))))
+                (func-line (string-append "call $npl_tail_request_closure(l "
+                                        continuation ", l 1, l " result-argv
+                                        ")"))))
+            (func-line "ret 2")
+            (func-line slow)
+            (emit-tail-request-function nm argc argv))))))
+
+; Tail-position call to a public numeric alias. `ops` holds the evaluated
+; source operands followed by the continuation, as control conversion leaves
+; them, and `argv` already stores all of them for the procedure call.
+(define (emit-numeric-alias-tail nm ops argv)
+  (let ((reversed (rev ops)))
+    (let ((source-ops (rev (cdr reversed))))
+      (let ((primitive (numeric-alias-primitive-name nm))
+            (count (count-up ops 0)))
+        (if (< (count-up source-ops 0) (numeric-alias-min-count primitive))
+            (emit-tail-request-function nm (number->string count) argv)
+            (emit-numeric-alias-guard
+              nm primitive source-ops (car reversed) argv
+              (number->string count)))))))

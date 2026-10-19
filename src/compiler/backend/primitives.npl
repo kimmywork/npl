@@ -206,3 +206,13 @@
           (primitive-row-in name (cdr rows)))))
 
 (define (primitive-row name) (primitive-row-in name PRIMITIVE-TABLE))
+
+; Public numeric aliases are registered by the frontend
+; (frontend/numeric-aliases.npl).
+
+; Minimum operand count for which the inline operation agrees with the
+; library procedure; below it the call must reach the procedure, which
+; reports the error at runtime. `(scheme base)` allows `(+)` and `(*)`.
+(define (numeric-alias-min-count primitive)
+  (let ((row (primitive-row primitive)))
+    (if row (primitive-row-required row) -1)))

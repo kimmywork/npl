@@ -335,7 +335,12 @@
           (fatal "export rename needs identifiers"))
       (let ((value (lookup-value-binding internal value-env)))
         (if (> (string-length value) 0)
-            (library-binding (datum-symbol-name external) 1 value)
+            (begin
+              (register-numeric-alias!
+                (datum-symbol-name external)
+                (datum-symbol-name internal)
+                value)
+              (library-binding (datum-symbol-name external) 1 value))
             (let ((macro (lookup-macro-cell internal macro-env)))
               (if (null? macro)
                   (fatal (string-append "unknown export: "

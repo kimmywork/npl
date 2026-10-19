@@ -10,6 +10,7 @@
   "frontend/forms.npl"
   "frontend/source.npl"
   "frontend/library-primitives.npl"
+  "frontend/numeric-aliases.npl"
   "frontend/library.npl"
   "backend/primitives.npl"
   "frontend/control.npl"

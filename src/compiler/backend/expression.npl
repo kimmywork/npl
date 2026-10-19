@@ -384,7 +384,9 @@
     (cond
       ((not row)
        (if (> (string-length (lookup-func nm)) 0)
-           (user-call nm args env)
+           (if (> (string-length (numeric-alias-primitive-name nm)) 0)
+               (emit-numeric-alias-call nm args env)
+               (user-call nm args env))
            (unknown-call nm)))
       ((string=? (primitive-row-kind row) "fixed")
        (checked-call (primitive-row-symbol row)

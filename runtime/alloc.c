@@ -286,7 +286,7 @@ void npl_gc_root(NplVal *root)
     g_roots[g_root_count++] = root;
 }
 
-/* Primitive-error unwinding (control.c) drops roots registered by the C
+/* Primitive-error unwinding (trampoline.c) drops roots registered by the C
  * frames it discards; roots are registered and released in LIFO order. */
 int npl_gc_root_count_internal(void) { return g_root_count; }
 

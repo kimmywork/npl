@@ -458,6 +458,10 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
                       int64_t argc, NplVal *argv);
 void npl_tail_request(NplGenericFunction function, NplVal environment,
                       int64_t argc, NplVal *argv);
+/* Value-position call of a registered function; argc excludes the
+ * continuation, which the call supplies (trampoline.c). */
+NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
+                     int64_t argc, NplVal *argv);
 
 /* Garbage collection */
 void npl_gc_collect(void);
@@ -571,6 +575,7 @@ void *npl_alloc_object(size_t size);
 void npl_runtime_oom_internal(void);
 void npl_gc_mark_candidate_internal(NplVal value);
 uintptr_t npl_gc_swap_stack_bottom(uintptr_t stack_bottom);
+uintptr_t npl_gc_stack_bottom_internal(void);
 NplVal npl_box_bytes_internal(const char *bytes, uint32_t len,
                               uint32_t box_tag);
 const NplString *npl_require_bytes_internal(NplVal value, const char *who);
@@ -601,10 +606,12 @@ NplVal npl_char_full_case(NplVal character, NplVal kind);
 NplVal npl_symbol_fold_internal(NplVal symbol);
 NplVal npl_utf8_to_string(NplVal bytevector, NplVal start, NplVal end);
 void npl_control_init(void);
+/* Parameter object application in CPS (control.c, trampoline.c). */
+void npl_parameter_dispatch(NplVal parameter, int64_t argc, NplVal *argv);
 void npl_control_mark_roots(void);
 int npl_gc_root_count_internal(void);
 void npl_gc_restore_root_count_internal(int count);
-/* Catchable primitive errors (error.c, control.c). */
+/* Catchable primitive errors (error.c, trampoline.c). */
 int npl_raise_from_primitive(NplVal object);
 void npl_primitive_error(const char *who, const char *message,
                          NplVal irritant);

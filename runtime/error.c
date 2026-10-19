@@ -7,7 +7,7 @@
  *
  * The primitive's C frame cannot continue, so the runtime unwinds to the
  * innermost trampoline with longjmp and lets that trampoline run the
- * handler (control.c). With no handler, or no trampoline yet, the error is
+ * handler (trampoline.c). With no handler, or no trampoline yet, the error is
  * printed as "who: message: irritant" and the process exits with status 1. */
 
 #include "npl.h"
