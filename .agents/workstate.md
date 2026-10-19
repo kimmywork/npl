@@ -42,9 +42,14 @@ environment lookup, string `cond` primitive dispatch, library numeric
 procedures interpreted), not only numeric. Allocator free-bin bitmap
 (worklog 2026-10-19 15:40) cut strings/lists/callcc user CPU 3-4x; a
 per-chunk GC sweep (19:10) cut compiler self-emit to ~23 s wall at the
-default threshold. Next: re-measure the 1 GiB default threshold (256 MiB was
-faster and 4x smaller after the sweep change), rerun the bench, then an npli
-evaluator redesign (compile-to-closures, lexical addresses,
+default threshold. The 1 GiB default threshold is now a CPU/memory
+trade-off (worklog 19:45; 256 MiB: 4x less memory, ~10% more self-emit CPU),
+pending a user decision. Design for shared primitive declarations and C
+foreign calls drafted in `docs/design-primitives.md` (uncommitted, awaiting
+review). Bench after these changes (worklog 19:50): native 1.1-6.1x
+Guile wall, compile 2.3-3.5 s; npli > 30 s everywhere. Next: profile the
+remaining native gap (loop: per-iteration trampoline round trip) and npli,
+then an npli evaluator redesign (compile-to-closures, lexical addresses,
 direct primitive procedures), then a 10+ run baseline.
 
 ## Accepted Seed
