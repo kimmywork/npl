@@ -370,127 +370,200 @@ void npl_gc_mark_roots_internal(void)
     npl_symbol_mark_roots();
 }
 
-void npl_gc_drain_internal(void)
+/* Every NplVal field of an object, for marking and barrier verification. */
+typedef void (*NplChildVisitor)(NplVal value);
+
+static void visit_children(NplHeader *header, NplChildVisitor visit)
 {
-    while (g_mark_stack) {
-        NplAllocMeta *meta = g_mark_stack;
-        g_mark_stack = meta->mark_next;
-        NplHeader *header = (NplHeader *)meta_object(meta);
         switch (header->tag) {
         case BOX_PAIR: {
             NplPair *pair = (NplPair *)header;
-            npl_gc_mark_candidate_internal(pair->car);
-            npl_gc_mark_candidate_internal(pair->cdr);
+            visit(pair->car);
+            visit(pair->cdr);
             break;
         }
         case BOX_BIGNUM:
             break;
         case BOX_STRING:
         case BOX_SYMBOL:
-            npl_string_mark_internal((const NplString *)header);
+            visit(npl_string_owned_buffer_internal((const NplString *)header));
             break;
         case BOX_RATIONAL: {
             NplRational *rational = (NplRational *)header;
-            npl_gc_mark_candidate_internal(rational->numerator);
-            npl_gc_mark_candidate_internal(rational->denominator);
+            visit(rational->numerator);
+            visit(rational->denominator);
             break;
         }
         case BOX_COMPLEX: {
             NplComplex *complex = (NplComplex *)header;
-            npl_gc_mark_candidate_internal(complex->real);
-            npl_gc_mark_candidate_internal(complex->imag);
+            visit(complex->real);
+            visit(complex->imag);
             break;
         }
         case BOX_RECORD:
         case BOX_VECTOR: {
             NplVector *vector = (NplVector *)header;
             for (uint32_t i = 0; i < vector->length; i++)
-                npl_gc_mark_candidate_internal(vector->data[i]);
+                visit(vector->data[i]);
             break;
         }
         case BOX_CLOSURE: {
             NplClosure *closure = (NplClosure *)header;
-            npl_gc_mark_candidate_internal(closure->environment);
+            visit(closure->environment);
             break;
         }
         case BOX_VALUES: {
             NplValues *values = (NplValues *)header;
             for (uint32_t i = 0; i < values->count; i++)
-                npl_gc_mark_candidate_internal(values->data[i]);
+                visit(values->data[i]);
             break;
         }
         case BOX_WIND_FRAME: {
             NplWindFrame *frame = (NplWindFrame *)header;
-            npl_gc_mark_candidate_internal(frame->parent);
-            npl_gc_mark_candidate_internal(frame->before);
-            npl_gc_mark_candidate_internal(frame->after);
+            visit(frame->parent);
+            visit(frame->before);
+            visit(frame->after);
             break;
         }
         case BOX_WIND_TRANSITION: {
             NplWindTransition *transition = (NplWindTransition *)header;
-            npl_gc_mark_candidate_internal(transition->target);
-            npl_gc_mark_candidate_internal(transition->target_handler);
-            npl_gc_mark_candidate_internal(transition->continuation);
-            npl_gc_mark_candidate_internal(transition->value);
-            npl_gc_mark_candidate_internal(transition->entering);
+            visit(transition->target);
+            visit(transition->target_handler);
+            visit(transition->continuation);
+            visit(transition->value);
+            visit(transition->entering);
             uint32_t count = transition->exit_count + transition->entry_count;
             for (uint32_t i = 0; i < count; i++)
-                npl_gc_mark_candidate_internal(transition->frames[i]);
+                visit(transition->frames[i]);
             break;
         }
         case BOX_HANDLER_FRAME: {
             NplHandlerFrame *frame = (NplHandlerFrame *)header;
-            npl_gc_mark_candidate_internal(frame->parent);
-            npl_gc_mark_candidate_internal(frame->procedure);
+            visit(frame->parent);
+            visit(frame->procedure);
             break;
         }
         case BOX_RAISE_CONTEXT: {
             NplRaiseContext *context = (NplRaiseContext *)header;
-            npl_gc_mark_candidate_internal(context->frame);
-            npl_gc_mark_candidate_internal(context->continuation);
-            npl_gc_mark_candidate_internal(context->value);
+            visit(context->frame);
+            visit(context->continuation);
+            visit(context->value);
             break;
         }
         case BOX_PARAMETER: {
             NplParameter *parameter = (NplParameter *)header;
-            npl_gc_mark_candidate_internal(parameter->converter);
-            npl_gc_mark_candidate_internal(parameter->value);
+            visit(parameter->converter);
+            visit(parameter->value);
             break;
         }
         case BOX_PARAMETER_BINDING: {
             NplParameterBinding *binding = (NplParameterBinding *)header;
-            npl_gc_mark_candidate_internal(binding->parent);
-            npl_gc_mark_candidate_internal(binding->parameter);
-            npl_gc_mark_candidate_internal(binding->value);
+            visit(binding->parent);
+            visit(binding->parameter);
+            visit(binding->value);
             break;
         }
         case BOX_PARAMETER_CONTEXT: {
             NplParameterContext *context = (NplParameterContext *)header;
-            npl_gc_mark_candidate_internal(context->parameter);
-            npl_gc_mark_candidate_internal(context->continuation);
+            visit(context->parameter);
+            visit(context->continuation);
             break;
         }
         case BOX_PROMISE: {
             NplPromise *promise = (NplPromise *)header;
-            npl_gc_mark_candidate_internal(promise->value);
+            visit(promise->value);
             break;
         }
         case BOX_PROMISE_CONTEXT: {
             NplPromiseContext *context = (NplPromiseContext *)header;
-            npl_gc_mark_candidate_internal(context->root);
-            npl_gc_mark_candidate_internal(context->current);
-            npl_gc_mark_candidate_internal(context->continuation);
+            visit(context->root);
+            visit(context->current);
+            visit(context->continuation);
             break;
         }
         case BOX_PORT: {
             NplPort *port = (NplPort *)header;
-            npl_gc_mark_candidate_internal(port->buffer);
+            visit(port->buffer);
             break;
         }
         default:
             break;
         }
+}
+
+void npl_gc_drain_internal(void)
+{
+    while (g_mark_stack) {
+        NplAllocMeta *meta = g_mark_stack;
+        g_mark_stack = meta->mark_next;
+        visit_children((NplHeader *)meta_object(meta),
+                       npl_gc_mark_candidate_internal);
     }
+}
+
+/* ---- Generations: remembered set and barrier verification ----
+ *
+ * An object that survives a collection is old (NPL_FLAG_OLD, set by sweep).
+ * npl_gc_write_barrier (npl.h) records an old object that receives a
+ * pointer to a young one; the set is empty again after each collection. */
+
+static NplHeader **g_remembered = NULL;
+static size_t g_remembered_count = 0;
+static size_t g_remembered_capacity = 0;
+
+void npl_gc_remember_internal(NplHeader *object)
+{
+    if (g_remembered_count == g_remembered_capacity) {
+        size_t capacity = g_remembered_capacity ? g_remembered_capacity * 2
+                                                : 1024;
+        NplHeader **grown = (NplHeader **)realloc(
+            g_remembered, capacity * sizeof(NplHeader *));
+        if (!grown) npl_runtime_oom_internal();
+        g_remembered = grown;
+        g_remembered_capacity = capacity;
+    }
+    object->flags |= NPL_FLAG_REMEMBERED;
+    g_remembered[g_remembered_count++] = object;
+}
+
+static const NplHeader *g_verify_holder = NULL;
+static size_t g_verify_missed = 0;
+static int g_verify_report = 0;
+
+static void verify_child(NplVal value)
+{
+    if (!npl_is_ptr(value)) return;
+    NplHeader *child = npl_header(value);
+    if (!find_managed_meta(child) || (child->flags & NPL_FLAG_OLD)) return;
+    if (g_verify_report && g_verify_missed < 8)
+        fprintf(stderr, "npl gc verify: old tag %u holds young tag %u "
+                "without a barrier\n", g_verify_holder->tag, child->tag);
+    g_verify_missed++;
+}
+
+/* Count old, unremembered objects holding a pointer to a young object: each
+ * is a store that skipped npl_gc_write_barrier. */
+size_t npl_gc_verify_barriers(int report)
+{
+    g_verify_missed = 0;
+    g_verify_report = report;
+    for (NplChunk *chunk = g_chunks; chunk; chunk = chunk->next) {
+        unsigned char *cursor =
+            (unsigned char *)chunk + align_up(sizeof(NplChunk), NPL_ALIGN);
+        unsigned char *end = (unsigned char *)chunk + chunk->used;
+        while (cursor < end) {
+            NplAllocMeta *meta = (NplAllocMeta *)cursor;
+            cursor += NPL_META_SIZE + meta->capacity;
+            if (meta->magic != NPL_META_MAGIC_LIVE) continue;
+            NplHeader *header = (NplHeader *)meta_object(meta);
+            if ((header->flags & (NPL_FLAG_OLD | NPL_FLAG_REMEMBERED)) !=
+                NPL_FLAG_OLD)
+                continue;
+            g_verify_holder = header;
+            visit_children(header, verify_child);
+        }
+    }
+    return g_verify_missed;
 }
 
 /* Walk one chunk in address order. Unmarked live objects become free; each
@@ -507,6 +580,9 @@ static void sweep_chunk(NplChunk *chunk)
         cursor += NPL_META_SIZE + meta->capacity;
         if (meta->magic == NPL_META_MAGIC_LIVE) {
             if (meta->marked) {
+                NplHeader *header = (NplHeader *)meta_object(meta);
+                header->flags = (header->flags | NPL_FLAG_OLD) &
+                                ~(uint32_t)NPL_FLAG_REMEMBERED;
                 meta->marked = 0;
                 meta->mark_next = NULL;
                 if (run) {
@@ -537,6 +613,7 @@ void npl_gc_sweep_internal(void)
     memset(g_free_bin_mask, 0, sizeof(g_free_bin_mask));
     for (NplChunk *chunk = g_chunks; chunk; chunk = chunk->next)
         sweep_chunk(chunk);
+    g_remembered_count = 0;
 
     g_threshold = g_allocated * 2;
     if (g_threshold < g_min_threshold)

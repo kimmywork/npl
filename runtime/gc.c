@@ -7,6 +7,8 @@
 
 #include "npl.h"
 #include <setjmp.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -37,11 +39,31 @@ static void mark_words(uintptr_t begin, uintptr_t end)
     }
 }
 
+/* NPL_GC_VERIFY=1: before every collection, check that each old object
+ * holding a young pointer is in the remembered set; a miss is a store that
+ * skipped npl_gc_write_barrier, so stop with status 70. */
+static void verify_barriers_if_enabled(void)
+{
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char *text = getenv("NPL_GC_VERIFY");
+        enabled = text && text[0] == '1' && text[1] == '\0';
+    }
+    if (!enabled) return;
+    size_t missed = npl_gc_verify_barriers(1);
+    if (missed != 0) {
+        fprintf(stderr, "npl gc verify: %zu missed write barriers\n", missed);
+        exit(70);
+    }
+}
+
 void npl_gc_collect(void)
 {
     uintptr_t stack_marker = 0;
     uintptr_t stack_bottom = npl_gc_stack_bottom_internal();
     jmp_buf registers;
+
+    verify_barriers_if_enabled();
 
     npl_gc_begin_internal();
     npl_gc_mark_roots_internal();

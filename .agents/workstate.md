@@ -91,7 +91,7 @@ rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
   stub driver and pointer representation decided first.
 - P7 optional inline type checks, gated on bench evidence.
 
-Next: G1.
+G1 done (worklog 2026-10-20 13:40). Next: G2.
 
 ## Accepted Seed
 

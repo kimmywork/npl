@@ -62,6 +62,11 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
  * buffer whose pointer is the first data word. */
 #define NPL_FLAG_WIDE 2
 #define NPL_FLAG_OUT_OF_LINE 4
+/* Generations (alloc.c): an object that survived a collection is old; an
+ * old object in the remembered set may point to young objects. Static
+ * (data-segment) objects never carry these bits. */
+#define NPL_FLAG_OLD 8
+#define NPL_FLAG_REMEMBERED 16
 #define IMM_CHAR_TAG 14
 
 /* ---- Immediate values ---- */
@@ -72,7 +77,7 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 /* ---- Boxed value header ---- */
 typedef struct {
     uint32_t tag;      /* BOX_PAIR, BOX_STRING, etc. */
-    uint32_t flags;    /* bit 0 = GC mark */
+    uint32_t flags;    /* NPL_FLAG_* bits */
 } NplHeader;
 
 /* ---- Pair ---- */
@@ -298,6 +303,18 @@ static inline NplHeader *npl_header(NplVal v) {
     return (NplHeader *)(v & ~(NplVal)3);
 }
 
+void npl_gc_remember_internal(NplHeader *object);
+
+/* Write barrier: call after storing value into a field of an existing heap
+ * object. Stores into an object the same function just allocated, before
+ * any further allocation, need none. */
+static inline void npl_gc_write_barrier(void *object, NplVal value) {
+    NplHeader *holder = (NplHeader *)object;
+    if ((holder->flags & (NPL_FLAG_OLD | NPL_FLAG_REMEMBERED)) == NPL_FLAG_OLD &&
+        npl_is_ptr(value) && !(npl_header(value)->flags & NPL_FLAG_OLD))
+        npl_gc_remember_internal(holder);
+}
+
 static inline NplPair *npl_pair_ptr(NplVal v) {
     return (NplPair *)(v & ~(NplVal)3);
 }
@@ -478,6 +495,9 @@ size_t npl_gc_allocated(void);
 size_t npl_gc_threshold(void);
 size_t npl_gc_live_objects(void);
 size_t npl_gc_collections(void);
+/* Old objects holding a young pointer outside the remembered set (a missed
+ * write barrier); NPL_GC_VERIFY=1 checks this before every collection. */
+size_t npl_gc_verify_barriers(int report);
 
 /* Display a value and return the unspecified value. */
 NplVal npl_display(NplVal v);
@@ -591,7 +611,7 @@ void npl_string_store_internal(NplString *string, uint32_t index,
                                uint32_t code);
 uint64_t npl_string_hash_internal(const NplString *string);
 int npl_string_same_chars_internal(const NplString *a, const NplString *b);
-void npl_string_mark_internal(const NplString *string);
+NplVal npl_string_owned_buffer_internal(const NplString *string);
 int npl_string_scalar_value_internal(uint32_t code);
 uint32_t npl_utf8_decode_internal(const uint8_t *bytes, size_t length,
                                   size_t *index);

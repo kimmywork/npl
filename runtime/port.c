@@ -395,6 +395,7 @@ static void ensure_memory_output(NplPort *port, uint32_t needed)
     NplVal grown_value = make_byte_buffer(capacity);
     NplVal previous = port->buffer;
     port->buffer = grown_value;
+    npl_gc_write_barrier(port, grown_value);
     if (port->length)
         memcpy(memory_output_data(port, "write"),
                ((NplBytevector *)npl_header(previous))->data, port->length);

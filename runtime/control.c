@@ -175,11 +175,13 @@ NplVal npl_parameter_set(NplVal parameter_value, NplVal value)
             (NplParameterBinding *)npl_header(binding_value);
         if (binding->parameter == parameter_value) {
             binding->value = value;
+            npl_gc_write_barrier(binding, value);
             return npl_nil();
         }
         binding_value = binding->parent;
     }
     parameter->value = value;
+    npl_gc_write_barrier(parameter, value);
     return npl_nil();
 }
 
@@ -223,6 +225,7 @@ NplVal npl_parameters_enter(NplVal parameters_value, NplVal values_value,
             created->value = values->data[i];
             frame_value = (NplVal)(uintptr_t)created | TAG_PTR;
             frames->data[i] = frame_value;
+            npl_gc_write_barrier(frames, frame_value);
         } else if (!npl_is_ptr(frame_value) ||
                    npl_header(frame_value)->tag != BOX_PARAMETER_BINDING) {
             fprintf(stderr, "parameterize: invalid binding reentry\n");
@@ -391,10 +394,12 @@ static NplVal promise_force_resume(NplVal environment, int64_t argc,
     if (promise->state == PROMISE_DELAY) {
         promise->state = PROMISE_DONE;
         promise->value = argv[0];
+        npl_gc_write_barrier(promise, argv[0]);
         promise_force_step(environment, context->current);
     } else if (promise->state == PROMISE_CHAIN) {
         promise->state = PROMISE_REDIRECT;
         promise->value = argv[0];
+        npl_gc_write_barrier(promise, argv[0]);
         promise_force_step(environment, argv[0]);
     } else {
         promise_force_step(environment, context->current);
@@ -418,6 +423,7 @@ static void promise_force_step(NplVal context_value, NplVal value)
             continue;
         }
         context->current = value;
+        npl_gc_write_barrier(context, value);
         NplVal callback = npl_make_closure(
             promise_force_resume, context_value, 1);
         npl_tail_request_closure(promise->value, 1, &callback);
@@ -430,6 +436,7 @@ static void promise_force_step(NplVal context_value, NplVal value)
         if (root->state != PROMISE_DONE) {
             root->state = PROMISE_DONE;
             root->value = value;
+            npl_gc_write_barrier(root, value);
         } else {
             value = root->value;
         }
@@ -624,6 +631,7 @@ static void schedule_wind_transition(NplVal transition_value)
         NplWindFrame *frame = require_wind_frame(frame_value, "continuation");
         transition->entry_index++;
         transition->entering = frame_value;
+        npl_gc_write_barrier(transition, frame_value);
         thunk = frame->before;
     } else {
         g_current_wind = transition->target;

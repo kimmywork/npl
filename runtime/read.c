@@ -508,16 +508,20 @@ static NplVal patch_placeholder(NplVal original, NplVal placeholder,
         uint32_t tag = npl_header(value)->tag;
         if (tag == BOX_VECTOR) {
             NplVector *vector = (NplVector *)npl_header(value);
-            for (uint32_t i = 0; i < vector->length; i++)
+            for (uint32_t i = 0; i < vector->length; i++) {
                 vector->data[i] = patch_placeholder(vector->data[i], placeholder,
                                                     replacement, seen);
+                npl_gc_write_barrier(vector, vector->data[i]);
+            }
             break;
         }
         if (tag != BOX_PAIR) break;
         NplPair *pair = npl_pair_ptr(value);
         pair->car = patch_placeholder(pair->car, placeholder, replacement, seen);
+        npl_gc_write_barrier(pair, pair->car);
         if (pair->cdr == placeholder) {
             pair->cdr = replacement;
+            npl_gc_write_barrier(pair, replacement);
             break;
         }
         value = pair->cdr;
@@ -554,6 +558,7 @@ static NplVal read_label_datum(NplDatumReader *reader, int first)
     datum = patch_placeholder(datum, placeholder, datum, &seen);
     free(seen.slots);
     npl_pair_ptr(npl_pair_ptr(entry)->cdr)->cdr = datum;
+    npl_gc_write_barrier(npl_pair_ptr(npl_pair_ptr(entry)->cdr), datum);
     return datum;
 }
 

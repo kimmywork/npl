@@ -286,6 +286,7 @@ static void promote(NplString *string)
     buffer->data[count] = 0;
     memcpy(string->data, &buffer, sizeof(buffer));
     string->header.flags |= NPL_FLAG_WIDE | NPL_FLAG_OUT_OF_LINE;
+    npl_gc_write_barrier(string, (NplVal)(uintptr_t)buffer | TAG_PTR);
 }
 
 /* May allocate (promotion): the caller keeps the string's value reachable
@@ -304,11 +305,11 @@ void npl_string_store_internal(NplString *string, uint32_t index,
 }
 
 /* GC: an out-of-line buffer is a managed object the string owns. */
-void npl_string_mark_internal(const NplString *string)
+NplVal npl_string_owned_buffer_internal(const NplString *string)
 {
     if (string->header.flags & NPL_FLAG_OUT_OF_LINE)
-        npl_gc_mark_candidate_internal(
-            (NplVal)(uintptr_t)out_of_line(string) | TAG_PTR);
+        return (NplVal)(uintptr_t)out_of_line(string) | TAG_PTR;
+    return npl_nil();
 }
 
 int npl_string_scalar_value_internal(uint32_t code)

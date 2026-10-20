@@ -78,6 +78,7 @@ NplVal npl_record_set(NplVal value, NplVal type, NplVal index, NplVal field)
 {
     NplVector *record = require_record(value, type, "record modifier");
     record->data[npl_fixnum_value(index)] = field;
+    npl_gc_write_barrier(record, field);
     return npl_nil();
 }
 
@@ -126,6 +127,7 @@ NplVal npl_vector_set(NplVal value, NplVal index, NplVal element)
     if (i < 0 || (uint64_t)i >= vector->length)
         npl_primitive_error("vector-set!", "index out of range", index);
     vector->data[i] = element;
+    npl_gc_write_barrier(vector, element);
     return npl_nil();
 }
 
@@ -279,11 +281,15 @@ NplVal npl_append(NplVal left, NplVal right)
             npl_primitive_error("append", "expected a proper list", left);
         NplVal item = npl_cons(npl_car(rest), npl_nil());
         if (npl_is_nil(head)) head = item;
-        else npl_pair_ptr(tail)->cdr = item;
+        else {
+            npl_pair_ptr(tail)->cdr = item;
+            npl_gc_write_barrier(npl_pair_ptr(tail), item);
+        }
         tail = item;
         rest = npl_cdr(rest);
     }
     npl_pair_ptr(tail)->cdr = right;
+    npl_gc_write_barrier(npl_pair_ptr(tail), right);
     npl_gc_unroot(&right);
     npl_gc_unroot(&rest);
     npl_gc_unroot(&tail);
@@ -424,6 +430,7 @@ void npl_set_car(NplVal pair, NplVal val) {
     if (p->header.flags & NPL_FLAG_LITERAL)
         npl_primitive_error("set-car!", "cannot mutate a literal", pair);
     p->car = val;
+    npl_gc_write_barrier(p, val);
 }
 
 void npl_set_cdr(NplVal pair, NplVal val) {
@@ -433,6 +440,7 @@ void npl_set_cdr(NplVal pair, NplVal val) {
     if (p->header.flags & NPL_FLAG_LITERAL)
         npl_primitive_error("set-cdr!", "cannot mutate a literal", pair);
     p->cdr = val;
+    npl_gc_write_barrier(p, val);
 }
 
 /* ---- String & symbol builtins (increment-2) ---- */
