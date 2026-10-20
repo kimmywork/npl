@@ -47,10 +47,51 @@ trade-off (worklog 19:45; 256 MiB: 4x less memory, ~10% more self-emit CPU),
 pending a user decision. Design for shared primitive declarations and C
 foreign calls drafted in `docs/design-primitives.md` (uncommitted, awaiting
 review). Bench after these changes (worklog 19:50): native 1.1-6.1x
-Guile wall, compile 2.3-3.5 s; npli > 30 s everywhere. Next: profile the
-remaining native gap (loop: per-iteration trampoline round trip) and npli,
-then an npli evaluator redesign (compile-to-closures, lexical addresses,
-direct primitive procedures), then a 10+ run baseline.
+Guile wall, compile 2.3-3.5 s; npli > 30 s everywhere.
+
+## Agreed Plan (2026-10-20)
+
+Scope: shared primitive declarations and C foreign calls
+([design-primitives](../docs/design-primitives.md)), an npli evaluator
+rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
+2026-10-20 11:10), user-accepted.
+
+- P0 done: npli cost breakdown (measurement only).
+- G1 write barrier in runtime mutators (~40 sites; compiled code mutates the
+  heap only through runtime calls) plus `NPL_GC_VERIFY`, which checks that
+  every old-to-young pointer is remembered at each full collection. Full
+  suite under verify mode; emitted SSA unchanged.
+- G2 non-moving nursery (conservative stack scan rules out copying): young
+  objects marked in place, minor collection from roots plus remembered set,
+  in-place promotion, full collection when the old generation doubles;
+  `NPL_GC_NURSERY_BYTES`. Full suite with a 64 KiB nursery under verify,
+  ASan gc_stress, identical output and SSA, relay.
+- G3 defaults: self-emit and bench CPU <= 105% of the 1 GiB threshold, peak
+  RSS <= the 256 MiB threshold (self-emit ~0.72 GB).
+- R0 runtime argument errors raise catchable error objects: the 9
+  `numeric_error` sites, and an audit of `exit(1)` sites separating argument
+  errors from internal invariant failures. Fixture: each class caught by
+  `guard` under native.
+- P1 wrapper symbols by C symbol, not table index; SSA equal after symbol
+  renaming; relay.
+- P2 naming rule, `%c-call`/`%c-procedure`, typed `define-c-primitive`; 124
+  `fixed` rows move to `(npl primitive)`; SSA byte-identical; relay.
+- E1 evaluator design: compile the shared frontend's core AST to native
+  closures, lexical addresses, native control operators and higher-order
+  procedures, native primitives from P2, compiled standard library (absorbs
+  the former P3 and P4). For user review.
+- E2 implement E1; differential native/npli fixture incl. error messages;
+  chibi npli 1207 passed; imported loop within 1.5x of the import-free loop.
+- E3 evaluator-side tuning (direct operand reads) until all 9 bench
+  workloads finish under npli within 30 s. If native non-tail call cost
+  still blocks it, a compiler change is decided separately with the user.
+- P5 FFI level A (nplc `-l`/`-L`; npli whole-runtime link, `dlopen`,
+  fixed-arity trampolines); C extension test on macOS and Linux.
+- P6 FFI level B (opaque pointer, `define-c-function`, generated stubs);
+  stub driver and pointer representation decided first.
+- P7 optional inline type checks, gated on bench evidence.
+
+Next: G1.
 
 ## Accepted Seed
 
