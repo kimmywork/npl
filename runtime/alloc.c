@@ -7,6 +7,22 @@
  * sweep walks each chunk in address order, merges each run of dead and free
  * blocks into one free block, and rebuilds the free bins from those runs.
  * Chunks remain mapped for the process life.
+ *
+ * Generations: objects allocated since the last collection are young and
+ * listed in the young log. A minor collection (the nursery is full) marks
+ * from the roots and the remembered set, follows young objects only, and
+ * sweeps the young log alone, so its cost follows the nursery, not the
+ * heap. Young survivors are promoted in place (NPL_FLAG_OLD); objects never
+ * move. A full collection, run when the whole heap reaches the threshold,
+ * coalesces every chunk.
+ *
+ * Allocation bumps a cursor through one region at a time: a hole (a free
+ * run of at least NPL_FREE_EXACT_BINS * NPL_ALIGN bytes, from the large bin)
+ * or the unused tail of the newest chunk. Small free blocks are used only
+ * when no region fits, before a new chunk is mapped. Bumping keeps new
+ * objects contiguous: with first-fit reuse of scattered free blocks, the
+ * compiler's own mutator frames took 2-3x the samples under a nursery
+ * (profile, worklog 2026-10-20).
  */
 
 #include "npl.h"
@@ -32,6 +48,9 @@
 #define NPL_CHUNK_INDEX_BUCKETS 65536
 #define NPL_FREE_EXACT_BINS 128
 #define NPL_FREE_BIN_COUNT (NPL_FREE_EXACT_BINS + 1)
+#ifndef NPL_GC_NURSERY_DEFAULT
+#define NPL_GC_NURSERY_DEFAULT (2u * 1024u * 1024u)
+#endif
 
 typedef struct NplChunkIndexEntry NplChunkIndexEntry;
 
@@ -83,6 +102,23 @@ static int g_root_capacity = 0;
 static uintptr_t g_stack_bottom = 0;
 static int g_runtime_initialized = 0;
 static int g_gc_running = 0;
+static NplAllocMeta **g_young = NULL;    /* allocated since the last collection */
+static size_t g_young_count = 0;
+static size_t g_young_capacity = 0;
+static size_t g_young_bytes = 0;
+static size_t g_nursery_bytes = NPL_GC_NURSERY_DEFAULT;
+static int g_minor = 0;
+/* Current bump region: [g_bump_cursor, g_bump_limit) in g_bump_chunk. A
+ * hole region is free memory inside chunk->used; a tail region advances
+ * chunk->used with the cursor. */
+static unsigned char *g_bump_cursor = NULL;
+static unsigned char *g_bump_limit = NULL;
+static NplChunk *g_bump_chunk = NULL;
+static int g_bump_hole = 0;
+static size_t g_minor_collections = 0;
+static NplHeader **g_remembered = NULL;
+static size_t g_remembered_count = 0;
+static size_t g_remembered_capacity = 0;
 
 static size_t align_up(size_t n, size_t alignment)
 {
@@ -214,19 +250,26 @@ static size_t next_free_bin(size_t first)
     }
 }
 
+/* First block in bin with capacity >= size, unlinked; NULL when none. */
+static NplAllocMeta *take_from_bin(size_t bin, size_t size)
+{
+    NplAllocMeta **link = &g_free_bins[bin];
+    while (*link && (*link)->capacity < size)
+        link = &(*link)->free_next;
+    if (!*link) return NULL;
+    NplAllocMeta *meta = *link;
+    *link = meta->free_next;
+    if (!g_free_bins[bin])
+        g_free_bin_mask[bin / 64] &= ~(UINT64_C(1) << (bin % 64));
+    return meta;
+}
+
 static NplAllocMeta *take_free_block(size_t size)
 {
     for (size_t bin = next_free_bin(free_bin_index(size));
          bin < NPL_FREE_BIN_COUNT; bin = next_free_bin(bin + 1)) {
-        NplAllocMeta **link = &g_free_bins[bin];
-        while (*link && (*link)->capacity < size)
-            link = &(*link)->free_next;
-        if (!*link) continue;
-
-        NplAllocMeta *meta = *link;
-        *link = meta->free_next;
-        if (!g_free_bins[bin])
-            g_free_bin_mask[bin / 64] &= ~(UINT64_C(1) << (bin % 64));
+        NplAllocMeta *meta = take_from_bin(bin, size);
+        if (!meta) continue;
         if (meta->capacity >= size + NPL_META_SIZE + NPL_ALIGN) {
             NplAllocMeta *remainder = (NplAllocMeta *)(
                 (unsigned char *)meta + NPL_META_SIZE + size);
@@ -242,32 +285,109 @@ static NplAllocMeta *take_free_block(size_t size)
     return NULL;
 }
 
+/* Carve one block from the bump region. A remainder too small to hold a
+ * free block's metadata is absorbed into this block, so the region always
+ * ends on a block boundary. */
+static NplAllocMeta *bump_take(size_t size)
+{
+    size_t total = NPL_META_SIZE + size;
+    if (!g_bump_cursor || (size_t)(g_bump_limit - g_bump_cursor) < total)
+        return NULL;
+    NplAllocMeta *meta = (NplAllocMeta *)(void *)g_bump_cursor;
+    size_t capacity = size;
+    size_t left = (size_t)(g_bump_limit - g_bump_cursor) - total;
+    if (left < NPL_META_SIZE) capacity += left;
+    g_bump_cursor += NPL_META_SIZE + capacity;
+    if (!g_bump_hole)
+        g_bump_chunk->used =
+            (size_t)(g_bump_cursor - (unsigned char *)g_bump_chunk);
+    memset(meta, 0, NPL_META_SIZE);
+    meta->capacity = capacity;
+    meta->owner = g_bump_chunk;
+    return meta;
+}
+
+/* End the bump region: the unused part of a hole becomes a free block, so
+ * chunk walks (sweep, verification) see only whole blocks. */
+static void retire_bump_region(void)
+{
+    if (g_bump_hole && g_bump_cursor < g_bump_limit) {
+        NplAllocMeta *rest = (NplAllocMeta *)(void *)g_bump_cursor;
+        memset(rest, 0, NPL_META_SIZE);
+        rest->magic = NPL_META_MAGIC_FREE;
+        rest->owner = g_bump_chunk;
+        rest->capacity =
+            (size_t)(g_bump_limit - g_bump_cursor) - NPL_META_SIZE;
+        add_free_block(rest);
+    }
+    g_bump_cursor = g_bump_limit = NULL;
+    g_bump_chunk = NULL;
+    g_bump_hole = 0;
+}
+
+static void start_region(NplChunk *chunk, unsigned char *begin,
+                         unsigned char *end, int hole)
+{
+    g_bump_chunk = chunk;
+    g_bump_cursor = begin;
+    g_bump_limit = end;
+    g_bump_hole = hole;
+}
+
+static NplAllocMeta *refill_and_take(size_t size)
+{
+    size_t total = NPL_META_SIZE + size;
+    retire_bump_region();
+    NplAllocMeta *hole = take_from_bin(NPL_FREE_EXACT_BINS, size);
+    if (hole) {
+        unsigned char *begin = (unsigned char *)hole;
+        start_region(hole->owner, begin,
+                     begin + NPL_META_SIZE + hole->capacity, 1);
+        return bump_take(size);
+    }
+    NplChunk *chunk = g_chunks;
+    if (!chunk || chunk->used + total > chunk->map_size) {
+        NplAllocMeta *meta = take_free_block(size);
+        if (meta) return meta;
+        chunk = map_chunk(total);
+    }
+    start_region(chunk, (unsigned char *)chunk + chunk->used,
+                 (unsigned char *)chunk + chunk->map_size, 0);
+    return bump_take(size);
+}
+
 void *npl_alloc_object(size_t size)
 {
     if (!g_runtime_initialized)
         npl_runtime_init();
     size = align_up(size, NPL_ALIGN);
-    if (g_runtime_initialized && !g_gc_running &&
-        g_allocated + size >= g_threshold) {
-        npl_gc_collect();
+    if (g_runtime_initialized && !g_gc_running) {
+        if (g_allocated + size >= g_threshold)
+            npl_gc_collect();
+        else if (g_nursery_bytes != 0 &&
+                 g_young_bytes + size >= g_nursery_bytes)
+            npl_gc_collect_minor_internal();
     }
 
-    NplAllocMeta *meta = take_free_block(size);
-    if (!meta) {
-        size_t total = NPL_META_SIZE + size;
-        NplChunk *chunk = g_chunks;
-        if (!chunk || chunk->used + total > chunk->map_size)
-            chunk = map_chunk(total);
-        meta = (NplAllocMeta *)((unsigned char *)chunk + chunk->used);
-        chunk->used += total;
-        memset(meta, 0, NPL_META_SIZE);
-        meta->capacity = size;
-        meta->owner = chunk;
-    }
+    NplAllocMeta *meta = bump_take(size);
+    if (!meta) meta = refill_and_take(size);
 
     NplChunk *owner = meta->owner;
     if (!owner) npl_runtime_oom_internal();
     owner->live_blocks++;
+    /* Without a nursery every collection is full: no young log. */
+    if (g_nursery_bytes != 0) {
+        if (g_young_count == g_young_capacity) {
+            size_t capacity = g_young_capacity ? g_young_capacity * 2 : 65536;
+            NplAllocMeta **grown = (NplAllocMeta **)realloc(
+                g_young, capacity * sizeof(NplAllocMeta *));
+            if (!grown) npl_runtime_oom_internal();
+            g_young = grown;
+            g_young_capacity = capacity;
+        }
+        g_young[g_young_count++] = meta;
+    }
+    g_young_bytes += size;
     meta->magic = NPL_META_MAGIC_LIVE;
     meta->size = size;
     meta->marked = 0;
@@ -279,16 +399,16 @@ void *npl_alloc_object(size_t size)
     return meta_object(meta);
 }
 
-/* NPL_GC_THRESHOLD_BYTES overrides the minimum collection threshold so tests
- * can force frequent collections; malformed or zero values are ignored. */
-static size_t initial_threshold(void)
+/* A byte count from the environment, or fallback when unset or malformed;
+ * zero is accepted only when allow_zero. */
+static size_t env_bytes(const char *name, size_t fallback, int allow_zero)
 {
-    const char *text = getenv("NPL_GC_THRESHOLD_BYTES");
-    if (!text || !*text) return NPL_GC_MIN_THRESHOLD;
+    const char *text = getenv(name);
+    if (!text || !*text) return fallback;
     char *end = NULL;
     unsigned long long value = strtoull(text, &end, 10);
-    if (*end != '\0' || value == 0 || value > SIZE_MAX)
-        return NPL_GC_MIN_THRESHOLD;
+    if (*end != '\0' || (value == 0 && !allow_zero) || value > SIZE_MAX)
+        return fallback;
     return (size_t)value;
 }
 
@@ -298,7 +418,12 @@ void npl_runtime_init(void)
     if (g_runtime_initialized) return;
     g_runtime_initialized = 1;
     g_stack_bottom = (uintptr_t)(void *)&marker + sizeof(marker);
-    g_min_threshold = initial_threshold();
+    /* NPL_GC_THRESHOLD_BYTES: minimum heap size for a full collection;
+     * NPL_GC_NURSERY_BYTES: young bytes per minor collection, 0 = none. */
+    g_min_threshold = env_bytes("NPL_GC_THRESHOLD_BYTES",
+                                NPL_GC_MIN_THRESHOLD, 0);
+    g_nursery_bytes = env_bytes("NPL_GC_NURSERY_BYTES",
+                                NPL_GC_NURSERY_DEFAULT, 1);
     g_threshold = g_min_threshold;
     g_root_count = 0;
     npl_control_init();
@@ -345,9 +470,11 @@ void npl_gc_unroot(NplVal *root)
     }
 }
 
-void npl_gc_begin_internal(void)
+void npl_gc_begin_internal(int minor)
 {
+    retire_bump_region();
     g_gc_running = 1;
+    g_minor = minor;
     g_mark_stack = NULL;
 }
 
@@ -356,6 +483,10 @@ void npl_gc_mark_candidate_internal(NplVal value)
     if (!npl_is_ptr(value)) return;
     NplAllocMeta *meta = find_managed_meta(npl_header(value));
     if (!meta || meta->marked) return;
+    /* A minor collection neither marks nor traces old objects: their young
+     * children are reached through the remembered set. */
+    if (g_minor && (((NplHeader *)meta_object(meta))->flags & NPL_FLAG_OLD))
+        return;
     meta->marked = 1;
     meta->mark_next = g_mark_stack;
     g_mark_stack = meta;
@@ -368,127 +499,10 @@ void npl_gc_mark_roots_internal(void)
     }
     npl_control_mark_roots();
     npl_symbol_mark_roots();
-}
-
-/* Every NplVal field of an object, for marking and barrier verification. */
-typedef void (*NplChildVisitor)(NplVal value);
-
-static void visit_children(NplHeader *header, NplChildVisitor visit)
-{
-        switch (header->tag) {
-        case BOX_PAIR: {
-            NplPair *pair = (NplPair *)header;
-            visit(pair->car);
-            visit(pair->cdr);
-            break;
-        }
-        case BOX_BIGNUM:
-            break;
-        case BOX_STRING:
-        case BOX_SYMBOL:
-            visit(npl_string_owned_buffer_internal((const NplString *)header));
-            break;
-        case BOX_RATIONAL: {
-            NplRational *rational = (NplRational *)header;
-            visit(rational->numerator);
-            visit(rational->denominator);
-            break;
-        }
-        case BOX_COMPLEX: {
-            NplComplex *complex = (NplComplex *)header;
-            visit(complex->real);
-            visit(complex->imag);
-            break;
-        }
-        case BOX_RECORD:
-        case BOX_VECTOR: {
-            NplVector *vector = (NplVector *)header;
-            for (uint32_t i = 0; i < vector->length; i++)
-                visit(vector->data[i]);
-            break;
-        }
-        case BOX_CLOSURE: {
-            NplClosure *closure = (NplClosure *)header;
-            visit(closure->environment);
-            break;
-        }
-        case BOX_VALUES: {
-            NplValues *values = (NplValues *)header;
-            for (uint32_t i = 0; i < values->count; i++)
-                visit(values->data[i]);
-            break;
-        }
-        case BOX_WIND_FRAME: {
-            NplWindFrame *frame = (NplWindFrame *)header;
-            visit(frame->parent);
-            visit(frame->before);
-            visit(frame->after);
-            break;
-        }
-        case BOX_WIND_TRANSITION: {
-            NplWindTransition *transition = (NplWindTransition *)header;
-            visit(transition->target);
-            visit(transition->target_handler);
-            visit(transition->continuation);
-            visit(transition->value);
-            visit(transition->entering);
-            uint32_t count = transition->exit_count + transition->entry_count;
-            for (uint32_t i = 0; i < count; i++)
-                visit(transition->frames[i]);
-            break;
-        }
-        case BOX_HANDLER_FRAME: {
-            NplHandlerFrame *frame = (NplHandlerFrame *)header;
-            visit(frame->parent);
-            visit(frame->procedure);
-            break;
-        }
-        case BOX_RAISE_CONTEXT: {
-            NplRaiseContext *context = (NplRaiseContext *)header;
-            visit(context->frame);
-            visit(context->continuation);
-            visit(context->value);
-            break;
-        }
-        case BOX_PARAMETER: {
-            NplParameter *parameter = (NplParameter *)header;
-            visit(parameter->converter);
-            visit(parameter->value);
-            break;
-        }
-        case BOX_PARAMETER_BINDING: {
-            NplParameterBinding *binding = (NplParameterBinding *)header;
-            visit(binding->parent);
-            visit(binding->parameter);
-            visit(binding->value);
-            break;
-        }
-        case BOX_PARAMETER_CONTEXT: {
-            NplParameterContext *context = (NplParameterContext *)header;
-            visit(context->parameter);
-            visit(context->continuation);
-            break;
-        }
-        case BOX_PROMISE: {
-            NplPromise *promise = (NplPromise *)header;
-            visit(promise->value);
-            break;
-        }
-        case BOX_PROMISE_CONTEXT: {
-            NplPromiseContext *context = (NplPromiseContext *)header;
-            visit(context->root);
-            visit(context->current);
-            visit(context->continuation);
-            break;
-        }
-        case BOX_PORT: {
-            NplPort *port = (NplPort *)header;
-            visit(port->buffer);
-            break;
-        }
-        default:
-            break;
-        }
+    if (g_minor)
+        for (size_t i = 0; i < g_remembered_count; i++)
+            npl_gc_visit_children_internal(g_remembered[i],
+                                           npl_gc_mark_candidate_internal);
 }
 
 void npl_gc_drain_internal(void)
@@ -496,7 +510,7 @@ void npl_gc_drain_internal(void)
     while (g_mark_stack) {
         NplAllocMeta *meta = g_mark_stack;
         g_mark_stack = meta->mark_next;
-        visit_children((NplHeader *)meta_object(meta),
+        npl_gc_visit_children_internal((NplHeader *)meta_object(meta),
                        npl_gc_mark_candidate_internal);
     }
 }
@@ -507,9 +521,6 @@ void npl_gc_drain_internal(void)
  * npl_gc_write_barrier (npl.h) records an old object that receives a
  * pointer to a young one; the set is empty again after each collection. */
 
-static NplHeader **g_remembered = NULL;
-static size_t g_remembered_count = 0;
-static size_t g_remembered_capacity = 0;
 
 void npl_gc_remember_internal(NplHeader *object)
 {
@@ -526,7 +537,7 @@ void npl_gc_remember_internal(NplHeader *object)
     g_remembered[g_remembered_count++] = object;
 }
 
-static const NplHeader *g_verify_holder = NULL;
+static NplHeader *g_verify_holder = NULL;
 static size_t g_verify_missed = 0;
 static int g_verify_report = 0;
 
@@ -545,6 +556,7 @@ static void verify_child(NplVal value)
  * is a store that skipped npl_gc_write_barrier. */
 size_t npl_gc_verify_barriers(int report)
 {
+    retire_bump_region();  /* chunk walks need whole blocks */
     g_verify_missed = 0;
     g_verify_report = report;
     for (NplChunk *chunk = g_chunks; chunk; chunk = chunk->next) {
@@ -560,7 +572,7 @@ size_t npl_gc_verify_barriers(int report)
                 NPL_FLAG_OLD)
                 continue;
             g_verify_holder = header;
-            visit_children(header, verify_child);
+            npl_gc_visit_children_internal(header, verify_child);
         }
     }
     return g_verify_missed;
@@ -607,13 +619,117 @@ static void sweep_chunk(NplChunk *chunk)
     if (run) add_free_block(run);
 }
 
+/* Every survivor is now old: no remembered entries and no young objects. */
+static void end_young_generation(void)
+{
+    for (size_t i = 0; i < g_remembered_count; i++)
+        g_remembered[i]->flags &= ~(uint32_t)NPL_FLAG_REMEMBERED;
+    g_remembered_count = 0;
+    g_young_count = 0;
+    g_young_bytes = 0;
+}
+
+static int g_poison_freed = 0;
+
+/* Minor sweep over the young log: marked young objects are promoted,
+ * unmarked ones are freed. Blocks split from one free run are logged in
+ * ascending address order, so consecutive dead entries that touch in memory
+ * merge into one free block; later allocations then split that run instead
+ * of scattering over single-object blocks. */
+void npl_gc_sweep_minor_internal(void)
+{
+    NplAllocMeta *run = NULL;
+    for (size_t i = 0; i < g_young_count; i++) {
+        NplAllocMeta *meta = g_young[i];
+        NplHeader *header = (NplHeader *)meta_object(meta);
+        if (meta->marked) {
+            header->flags |= NPL_FLAG_OLD;
+            meta->marked = 0;
+            meta->mark_next = NULL;
+            if (run) {
+                add_free_block(run);
+                run = NULL;
+            }
+            continue;
+        }
+        NplChunk *owner = meta->owner;
+        if (!owner || owner->live_blocks == 0) npl_runtime_oom_internal();
+        owner->live_blocks--;
+        g_allocated -= meta->size;
+        g_live_objects--;
+        if (g_poison_freed) memset(header, 0xdb, meta->capacity);
+        meta->magic = NPL_META_MAGIC_FREE;
+        meta->mark_next = NULL;
+        if (run && (unsigned char *)run + NPL_META_SIZE + run->capacity ==
+                       (unsigned char *)meta) {
+            run->capacity += NPL_META_SIZE + meta->capacity;
+            continue;
+        }
+        if (run) add_free_block(run);
+        run = meta;
+    }
+    if (run) add_free_block(run);
+    end_young_generation();
+    g_minor_collections++;
+    g_minor = 0;
+    g_gc_running = 0;
+}
+
+void npl_gc_set_poison_internal(int enabled) { g_poison_freed = enabled; }
+
+static int address_in_chunk(uintptr_t address)
+{
+    for (NplChunkIndexEntry *entry = chunks_for_address(address);
+         entry; entry = entry->next) {
+        uintptr_t begin = (uintptr_t)entry->chunk;
+        if (address >= begin && address < begin + entry->chunk->used)
+            return 1;
+    }
+    return 0;
+}
+
+static size_t g_dangling = 0;
+
+static void verify_live_child(NplVal value)
+{
+    if (!npl_is_ptr(value)) return;
+    NplHeader *child = npl_header(value);
+    if (find_managed_meta(child) || !address_in_chunk((uintptr_t)child))
+        return;
+    if (g_dangling < 8)
+        fprintf(stderr, "npl gc verify: tag %u holds a freed object\n",
+                g_verify_holder->tag);
+    g_dangling++;
+}
+
+/* After a collection every field of a live object must reach a live object
+ * (or memory outside the heap, such as a static literal). */
+size_t npl_gc_verify_heap_internal(void)
+{
+    g_dangling = 0;
+    for (NplChunk *chunk = g_chunks; chunk; chunk = chunk->next) {
+        unsigned char *cursor =
+            (unsigned char *)chunk + align_up(sizeof(NplChunk), NPL_ALIGN);
+        unsigned char *end = (unsigned char *)chunk + chunk->used;
+        while (cursor < end) {
+            NplAllocMeta *meta = (NplAllocMeta *)cursor;
+            cursor += NPL_META_SIZE + meta->capacity;
+            if (meta->magic != NPL_META_MAGIC_LIVE) continue;
+            g_verify_holder = (NplHeader *)meta_object(meta);
+            npl_gc_visit_children_internal(g_verify_holder,
+                                           verify_live_child);
+        }
+    }
+    return g_dangling;
+}
+
 void npl_gc_sweep_internal(void)
 {
     memset(g_free_bins, 0, sizeof(g_free_bins));
     memset(g_free_bin_mask, 0, sizeof(g_free_bin_mask));
     for (NplChunk *chunk = g_chunks; chunk; chunk = chunk->next)
         sweep_chunk(chunk);
-    g_remembered_count = 0;
+    end_young_generation();
 
     g_threshold = g_allocated * 2;
     if (g_threshold < g_min_threshold)
@@ -638,3 +754,4 @@ size_t npl_gc_allocated(void) { return g_allocated; }
 size_t npl_gc_threshold(void) { return g_threshold; }
 size_t npl_gc_live_objects(void) { return g_live_objects; }
 size_t npl_gc_collections(void) { return g_collections; }
+size_t npl_gc_minor_collections(void) { return g_minor_collections; }

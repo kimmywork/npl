@@ -304,6 +304,9 @@ static inline NplHeader *npl_header(NplVal v) {
 }
 
 void npl_gc_remember_internal(NplHeader *object);
+/* Every NplVal field of a heap object, for marking and verification. */
+typedef void (*NplChildVisitor)(NplVal value);
+void npl_gc_visit_children_internal(NplHeader *header, NplChildVisitor visit);
 
 /* Write barrier: call after storing value into a field of an existing heap
  * object. Stores into an object the same function just allocated, before
@@ -495,6 +498,7 @@ size_t npl_gc_allocated(void);
 size_t npl_gc_threshold(void);
 size_t npl_gc_live_objects(void);
 size_t npl_gc_collections(void);
+size_t npl_gc_minor_collections(void);
 /* Old objects holding a young pointer outside the remembered set (a missed
  * write barrier); NPL_GC_VERIFY=1 checks this before every collection. */
 size_t npl_gc_verify_barriers(int report);
@@ -592,6 +596,7 @@ char *npl_fixnum_to_string(int64_t v);
 
 /* Internal module interfaces. */
 void *npl_alloc_object(size_t size);
+void npl_gc_collect_minor_internal(void);
 void npl_runtime_oom_internal(void);
 void npl_gc_mark_candidate_internal(NplVal value);
 uintptr_t npl_gc_swap_stack_bottom(uintptr_t stack_bottom);

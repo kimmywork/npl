@@ -46,8 +46,9 @@ int main(void)
     }
 
     npl_gc_unroot(&retained);
-    printf("PASS: 1000000 allocations, %zu collections, %zu live objects, %zu bytes\n",
-           collections, live, allocated);
+    printf("PASS: 1000000 allocations, %zu collections, %zu minor collections, "
+           "%zu live objects, %zu bytes\n",
+           collections, npl_gc_minor_collections(), live, allocated);
     (void)garbage;
     return 0;
 }

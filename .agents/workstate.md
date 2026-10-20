@@ -91,7 +91,10 @@ rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
   stub driver and pointer representation decided first.
 - P7 optional inline type checks, gated on bench evidence.
 
-G1 done (worklog 2026-10-20 13:40). Next: G2.
+G1 done (worklog 2026-10-20 13:40). G2 done (17:30): nursery default
+2 MiB provisional; self-emit 0.24 GB peak, user CPU 120-160% of
+nursery-off. Next: G3 (explain why larger nurseries are slower, tune,
+interleaved self-emit and bench runs).
 
 ## Accepted Seed
 
