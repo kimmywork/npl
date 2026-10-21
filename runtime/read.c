@@ -28,8 +28,9 @@ static void read_error(const char *message)
                        "%s", message);
         longjmp(*g_read_recovery, 1);
     }
-    fprintf(stderr, "read: %s\n", message);
-    exit(1);
+    /* Outside read-result (for example the raw read primitive), a syntax
+     * error is the same read error object (scheme read) raises. */
+    npl_primitive_read_error(message);
 }
 
 static void read_buffer_error(char *buffer, const char *message)

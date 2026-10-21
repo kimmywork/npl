@@ -19,10 +19,8 @@ NplVal npl_inexact_p(NplVal value)
 
 NplVal npl_inexact_bits(NplVal value)
 {
-    if (!npl_is_inexact(value)) {
-        fprintf(stderr, "inexact-bits: expected an inexact number\n");
-        exit(1);
-    }
+    if (!npl_is_inexact(value))
+        npl_primitive_error("inexact-bits", "expected an inexact number", value);
     uint64_t bits;
     double real = ((NplFloat *)npl_header(value))->value;
     memcpy(&bits, &real, sizeof(bits));

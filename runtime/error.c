@@ -8,7 +8,13 @@
  * The primitive's C frame cannot continue, so the runtime unwinds to the
  * innermost trampoline with longjmp and lets that trampoline run the
  * handler (trampoline.c). With no handler, or no trampoline yet, the error is
- * printed as "who: message: irritant" and the process exits with status 1. */
+ * printed as "who: message: irritant" and the process exits with status 1.
+ *
+ * Every error a program can cause through a primitive's arguments or the
+ * operating system is raised this way. The remaining fprintf-and-exit sites
+ * in runtime/ are internal invariant failures (compiler-emitted calls with
+ * impossible arguments, corrupted runtime frames) and the final report of an
+ * uncaught raise. */
 
 #include "npl.h"
 #include <stdio.h>
@@ -81,6 +87,23 @@ void npl_primitive_error(const char *who, const char *message,
                          NplVal irritant)
 {
     raise_error_object(make_error_object("error", who, message, irritant));
+}
+
+/* A syntax error from the datum reader: satisfies read-error?. The message
+ * carries no "read:" prefix and the irritants are empty, as in the error
+ * (scheme read) builds from read-result. */
+void npl_primitive_read_error(const char *message)
+{
+    NplVal message_value = npl_string(message, (uint32_t)strlen(message));
+    npl_gc_root(&message_value);
+    NplVal fields[4];
+    fields[0] = npl_symbol("npl-error-object", 16);
+    fields[1] = npl_symbol("read", 4);
+    fields[2] = message_value;
+    fields[3] = npl_nil();
+    NplVal object = npl_make_record(4, fields);
+    npl_gc_unroot(&message_value);
+    raise_error_object(object);
 }
 
 /* An operating-system refusal on a file: satisfies file-error?. */

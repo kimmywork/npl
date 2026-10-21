@@ -120,6 +120,7 @@ run_suite first-wave-libraries "PASS first-wave-libraries 16"
 run_suite process "PASS process 9"
 run_suite error-objects "PASS error-objects 6"
 run_suite primitive-errors "PASS primitive-errors 37"
+run_suite runtime-errors "PASS runtime-errors 14"
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
@@ -135,10 +136,10 @@ reject_literal_mutation literal-string-mutation \
     "string-set!: cannot mutate a literal"
 reject_runtime contracts/multiple-values-in-single-context.npl \
     multiple-values-in-single-context \
-    "value context: expected 1 value, got 2"
+    "value context: expected 1 value: 2"
 reject_runtime contracts/zero-values-in-single-context.npl \
     zero-values-in-single-context \
-    "value context: expected 1 value, got 0"
+    "value context: expected 1 value: 0"
 reject_runtime contracts/value-consumer-arity.npl \
     value-consumer-arity \
     "procedure: wrong number of arguments: 2"
@@ -147,10 +148,10 @@ reject_runtime contracts/dotted-value-consumer-arity.npl \
     "procedure: wrong number of arguments: 0"
 reject_runtime contracts/continuation-zero-values.npl \
     continuation-zero-values \
-    "value context: expected 1 value, got 0"
+    "value context: expected 1 value: 0"
 reject_runtime contracts/continuation-multiple-values.npl \
     continuation-multiple-values \
-    "value context: expected 1 value, got 2"
+    "value context: expected 1 value: 2"
 reject_runtime contracts/dynamic-wind-nonprocedure.npl \
     dynamic-wind-nonprocedure \
     "application: not a procedure"

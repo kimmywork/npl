@@ -1,0 +1,54 @@
+; Runtime argument errors that (scheme base) normally prevents by validating
+; first: called through the raw (npl primitive) names, each must raise a
+; catchable error object with its who, message, and irritant, instead of
+; exiting the process. Native only: npli implements these names itself.
+(import (scheme base) (scheme write) (scheme process-context)
+        (prefix (npl primitive) p:))
+
+(include "framework.npl")
+
+(define (caught thunk)
+  (guard (e ((error-object? e)
+             (list (error-object-message e) (error-object-irritants e)))
+            (#t (list 'not-an-error-object e)))
+    (thunk)
+    'returned))
+
+(define (check name thunk expected)
+  (test-identity name (lambda () (equal? (caught thunk) expected)) #t))
+
+(define (main)
+  (check "quotient by zero" (lambda () (p:npl_number_quotient 7 0))
+         '("quotient: division by zero" (7)))
+  (check "remainder by zero" (lambda () (p:npl_number_remainder 7 0))
+         '("remainder: division by zero" (7)))
+  (check "divide by zero" (lambda () (p:npl_number_div 1 0))
+         '("/: division by zero" (1)))
+  (check "quotient type" (lambda () (p:npl_number_quotient 'a 1))
+         '("quotient: expected an exact integer" (a)))
+  (check "exact->inexact type" (lambda () (p:npl_exact_to_inexact 'a))
+         '("exact->inexact: expected a number" (a)))
+  (check "inexact->exact type" (lambda () (p:npl_inexact_to_exact 1))
+         '("inexact->exact: expected an inexact number" (1)))
+  (check "make-rectangular type" (lambda () (p:npl_complex_make 'a 1))
+         '("make-rectangular: expected a real number" (a)))
+  (check "inexact-bits type" (lambda () (p:npl_inexact_bits 1))
+         '("inexact-bits: expected an inexact number" (1)))
+  (check "handler not a procedure"
+         (lambda () (with-exception-handler 1 (lambda () 42)))
+         '("with-exception-handler: handler is not a procedure" (1)))
+  (check "parameter arity" (lambda () ((make-parameter 0) 1 2))
+         '("parameter: expected zero or one argument" (2)))
+  (check "parameterize non-parameter" (lambda () (parameterize ((42 1)) 0))
+         '("parameterize: not a parameter" (42)))
+  (check "multiple values in a single-value context"
+         (lambda () (+ (values 20 22) 0))
+         '("value context: expected 1 value" (2)))
+  (check "raw read syntax error"
+         (lambda ()
+           (guard (e ((read-error? e) (raise (list 'read-error))))
+             (p:read (p:open-input-string ")"))))
+         '(not-an-error-object (read-error)))
+  ; The process survives every error above.
+  (test-identity "still running" (lambda () 'alive) 'alive)
+  (finish-tests "runtime-errors"))

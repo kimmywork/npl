@@ -93,7 +93,8 @@ rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
 
 G1 done (worklog 2026-10-20 13:40). G2 done (17:30). G3 done (worklog
 2026-10-21 08:00): defaults 1 MiB nursery and 128 MiB full threshold;
-self-emit ~80% of nursery-off CPU at 0.27 GB peak. Next: R0.
+self-emit ~80% of nursery-off CPU at 0.27 GB peak. R0 done (worklog
+2026-10-21 10:30). Next: P1.
 
 ## Accepted Seed
 

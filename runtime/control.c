@@ -71,9 +71,8 @@ NplVal npl_expect_one(NplVal value)
 {
     if (npl_is_ptr(value) && npl_header(value)->tag == BOX_VALUES) {
         NplValues *values = (NplValues *)npl_header(value);
-        fprintf(stderr, "value context: expected 1 value, got %u\n",
-                values->count);
-        exit(1);
+        npl_primitive_error("value context", "expected 1 value",
+                            npl_fixnum((int64_t)values->count));
     }
     return value;
 }
@@ -82,10 +81,9 @@ void npl_values_dispatch(NplVal consumer_value, NplVal continuation,
                          NplVal value)
 {
     if (!npl_is_ptr(consumer_value) ||
-        npl_header(consumer_value)->tag != BOX_CLOSURE) {
-        fprintf(stderr, "call-with-values: consumer is not a procedure\n");
-        exit(1);
-    }
+        npl_header(consumer_value)->tag != BOX_CLOSURE)
+        npl_primitive_error("call-with-values", "expected a procedure",
+                            consumer_value);
 
     uint32_t count = 1;
     NplVal *values = &value;
@@ -125,20 +123,17 @@ NplVal npl_current_handler(void)
 
 static NplParameter *require_parameter(NplVal value, const char *who)
 {
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PARAMETER) {
-        fprintf(stderr, "%s: not a parameter\n", who);
-        exit(1);
-    }
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PARAMETER)
+        npl_primitive_error(who, "not a parameter", value);
     return (NplParameter *)npl_header(value);
 }
 
 NplVal npl_make_parameter(NplVal converter, NplVal value)
 {
     if (!npl_is_nil(converter) &&
-        (!npl_is_ptr(converter) || npl_header(converter)->tag != BOX_CLOSURE)) {
-        fprintf(stderr, "make-parameter: converter is not a procedure\n");
-        exit(1);
-    }
+        (!npl_is_ptr(converter) || npl_header(converter)->tag != BOX_CLOSURE))
+        npl_primitive_error("make-parameter", "expected a procedure",
+                            converter);
     NplParameter *parameter =
         (NplParameter *)npl_alloc_object(sizeof(NplParameter));
     parameter->header.tag = BOX_PARAMETER;
@@ -313,8 +308,9 @@ void npl_parameter_dispatch(NplVal parameter, int64_t argc, NplVal *argv)
         parameter_convert(parameter, argv[0], argv[1], 1);
         return;
     }
-    fprintf(stderr, "parameter: expected zero or one argument\n");
-    exit(1);
+    /* argc counts the trailing continuation. */
+    npl_primitive_error("parameter", "expected zero or one argument",
+                        npl_fixnum(argc - 1));
 }
 
 #define PROMISE_DONE 0u
@@ -343,10 +339,8 @@ static NplVal make_promise(NplVal value)
 static NplVal make_delayed_promise(NplVal thunk, uint32_t state,
                                    const char *who)
 {
-    if (!npl_is_ptr(thunk) || npl_header(thunk)->tag != BOX_CLOSURE) {
-        fprintf(stderr, "%s: not a procedure\n", who);
-        exit(1);
-    }
+    if (!npl_is_ptr(thunk) || npl_header(thunk)->tag != BOX_CLOSURE)
+        npl_primitive_error(who, "expected a procedure", thunk);
     return make_promise_state(state, thunk);
 }
 
@@ -462,10 +456,9 @@ void npl_force(NplVal value, NplVal continuation)
 
 NplVal npl_handler_push(NplVal procedure)
 {
-    if (!npl_is_ptr(procedure) || npl_header(procedure)->tag != BOX_CLOSURE) {
-        fprintf(stderr, "with-exception-handler: handler is not a procedure\n");
-        exit(1);
-    }
+    if (!npl_is_ptr(procedure) || npl_header(procedure)->tag != BOX_CLOSURE)
+        npl_primitive_error("with-exception-handler",
+                            "handler is not a procedure", procedure);
     NplHandlerFrame *frame =
         (NplHandlerFrame *)npl_alloc_object(sizeof(NplHandlerFrame));
     frame->header.tag = BOX_HANDLER_FRAME;
@@ -543,11 +536,10 @@ static NplVal raise_handler_returned(NplVal environment, int64_t argc,
 
 NplVal npl_wind_push(NplVal before, NplVal after)
 {
-    if (!npl_is_ptr(before) || npl_header(before)->tag != BOX_CLOSURE ||
-        !npl_is_ptr(after) || npl_header(after)->tag != BOX_CLOSURE) {
-        fprintf(stderr, "dynamic-wind: before and after must be procedures\n");
-        exit(1);
-    }
+    if (!npl_is_ptr(before) || npl_header(before)->tag != BOX_CLOSURE)
+        npl_primitive_error("dynamic-wind", "expected a procedure", before);
+    if (!npl_is_ptr(after) || npl_header(after)->tag != BOX_CLOSURE)
+        npl_primitive_error("dynamic-wind", "expected a procedure", after);
     NplWindFrame *frame = (NplWindFrame *)npl_alloc_object(sizeof(NplWindFrame));
     frame->header.tag = BOX_WIND_FRAME;
     frame->header.flags = 0;

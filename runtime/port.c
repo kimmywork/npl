@@ -405,10 +405,9 @@ static void port_write_bytes(NplPort *port, const uint8_t *bytes, size_t count,
                              const char *who)
 {
     if ((port->mode & NPL_PORT_MEMORY) == 0) {
-        if (count && fwrite(bytes, 1, count, port->stream) != count) {
-            fprintf(stderr, "%s: write failed\n", who);
-            exit(1);
-        }
+        if (count && fwrite(bytes, 1, count, port->stream) != count)
+            npl_primitive_file_error(who, "write failed",
+                                     (NplVal)(uintptr_t)port | TAG_PTR);
         return;
     }
     if (count > UINT32_MAX - port->position) npl_runtime_oom_internal();

@@ -15,11 +15,10 @@ int npl_is_complex(NplVal value)
  * number, and a complex box never mixes exact and inexact components. */
 NplVal npl_complex_make(NplVal real, NplVal imag)
 {
-    if (!npl_number_p(real) || !npl_number_p(imag) ||
-        npl_is_complex(real) || npl_is_complex(imag)) {
-        fprintf(stderr, "make-rectangular: expected real numbers\n");
-        exit(1);
-    }
+    if (npl_number_p(real) != npl_true() || npl_is_complex(real))
+        npl_primitive_error("make-rectangular", "expected a real number", real);
+    if (npl_number_p(imag) != npl_true() || npl_is_complex(imag))
+        npl_primitive_error("make-rectangular", "expected a real number", imag);
     if (imag == npl_fixnum(0)) return real;
     npl_gc_root(&real);
     npl_gc_root(&imag);

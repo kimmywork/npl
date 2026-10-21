@@ -16,10 +16,11 @@ typedef struct {
     uint32_t small[3];
 } NplIntegerView;
 
-static void numeric_error(const char *who, const char *message)
+/* Argument errors raise catchable error objects (runtime/error.c). */
+static void numeric_error(const char *who, const char *message,
+                          NplVal irritant)
 {
-    fprintf(stderr, "%s: %s\n", who, message);
-    exit(1);
+    npl_primitive_error(who, message, irritant);
 }
 
 static NplVal box_integer_limbs(int32_t sign, const uint32_t *limbs,
@@ -80,7 +81,7 @@ static void integer_view(NplIntegerView *view, NplVal value,
         view->limbs = number->limbs;
         return;
     }
-    numeric_error(who, "expected an exact integer");
+    numeric_error(who, "expected an exact integer", value);
 }
 
 static int integer_magnitude_compare(const NplIntegerView *left,
@@ -153,7 +154,7 @@ NplVal npl_integer_string_p(NplVal value)
 NplVal npl_integer_from_string(NplVal value)
 {
     if (npl_integer_string_p(value) != npl_true())
-        numeric_error("integer-from-string", "invalid decimal integer");
+        numeric_error("integer-from-string", "invalid decimal integer", value);
     const NplString *text = (const NplString *)npl_header(value);
     uint32_t index = 0;
     int32_t sign = 1;
@@ -207,14 +208,15 @@ NplVal npl_inexact_eqv(NplVal left, NplVal right)
 
 NplVal npl_exact_to_inexact(NplVal value)
 {
-    if (!npl_number_p(value)) numeric_error("exact->inexact", "expected a number");
+    if (npl_number_p(value) != npl_true())
+        numeric_error("exact->inexact", "expected a number", value);
     return npl_is_inexact(value) ? value : npl_float(npl_real_double(value));
 }
 
 NplVal npl_inexact_to_exact(NplVal value)
 {
-    if (!npl_number_p(value) || !npl_is_inexact(value))
-        numeric_error("inexact->exact", "expected an inexact number");
+    if (npl_number_p(value) != npl_true() || !npl_is_inexact(value))
+        numeric_error("inexact->exact", "expected an inexact number", value);
     return npl_real_exact(value);
 }
 
@@ -474,7 +476,7 @@ NplVal npl_rational_make(NplVal numerator, NplVal denominator)
     NplIntegerView n, d;
     integer_view(&n, numerator, "rational");
     integer_view(&d, denominator, "rational");
-    if (d.sign == 0) numeric_error("rational", "zero denominator");
+    if (d.sign == 0) numeric_error("rational", "zero denominator", numerator);
     if (n.sign == 0) return npl_fixnum(0);
     npl_gc_root(&numerator);
     npl_gc_root(&denominator);
@@ -520,7 +522,8 @@ static NplVal rational_arithmetic(NplVal left, NplVal right, char operation)
         values[4] = npl_number_mul(values[0], values[2]);
         values[5] = npl_number_mul(values[1], values[3]);
     } else {
-        if (values[2] == npl_fixnum(0)) numeric_error("/", "division by zero");
+        if (values[2] == npl_fixnum(0))
+            numeric_error("/", "division by zero", left);
         values[4] = npl_number_mul(values[0], values[3]);
         values[5] = npl_number_mul(values[1], values[2]);
     }
@@ -552,7 +555,7 @@ NplVal npl_number_zero_p(NplVal value)
         return (npl_number_zero_p(npl_complex_real(value)) == npl_true() &&
                 npl_number_zero_p(npl_complex_imag(value)) == npl_true())
             ? npl_true() : npl_false();
-    if (!npl_number_p(value)) return npl_false();
+    if (npl_number_p(value) != npl_true()) return npl_false();
     return npl_number_compare(value, npl_fixnum(0)) == 0 ? npl_true() : npl_false();
 }
 
@@ -668,7 +671,8 @@ NplVal npl_number_mul(NplVal left, NplVal right)
 int32_t npl_number_compare(NplVal left, NplVal right)
 {
     if (npl_is_complex(left) || npl_is_complex(right))
-        numeric_error("number comparison", "complex number is unordered");
+        numeric_error("number comparison", "complex number is unordered",
+                      npl_is_complex(left) ? left : right);
     if (npl_is_inexact(left) || npl_is_inexact(right))
         return npl_inexact_compare(left, right);
     if (is_rational_box(left) || is_rational_box(right)) {
@@ -733,7 +737,7 @@ static NplVal integer_divide(NplVal left, NplVal right, int want_remainder)
     NplIntegerView a, b;
     integer_view(&a, left, who);
     integer_view(&b, right, who);
-    if (b.sign == 0) numeric_error(who, "division by zero");
+    if (b.sign == 0) numeric_error(who, "division by zero", left);
     if (a.sign == 0) return npl_fixnum(0);
     if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
         int64_t x = npl_fixnum_value(left), y = npl_fixnum_value(right);

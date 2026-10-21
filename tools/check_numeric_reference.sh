@@ -25,7 +25,8 @@ for operation in quotient remainder divide rational; do
     if [ "$operation" = divide ]; then who=/; fi
     message='division by zero'
     if [ "$operation" = rational ]; then message='zero denominator'; fi
-    printf '%s: %s\n' "$who" "$message" > "$WORK/expected-error"
+    # Uncaught primitive error report: who: message: irritant (the dividend).
+    printf '%s: %s: 1\n' "$who" "$message" > "$WORK/expected-error"
     cmp "$WORK/expected-error" "$WORK/error"
 done
 printf 'numeric Guile reference: PASS (%s results; 4 zero-divisor errors)\n' "$(wc -l < "$WORK/actual" | tr -d ' ')"

@@ -83,7 +83,10 @@ NplVal npl_read_file(NplVal path) {
     fseek(fp, 0, SEEK_END);
     long size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
-    if (size < 0) { fclose(fp); exit(1); }
+    if (size < 0) {
+        fclose(fp);
+        npl_primitive_file_error("read-file", "cannot read file", path);
+    }
     char *data = (char *)malloc((size_t)size + 1);
     size_t got = fread(data, 1, (size_t)size, fp);
     fclose(fp);
@@ -147,8 +150,8 @@ NplVal npl_process_run(NplVal arguments, NplVal output_path)
         for (size_t index = 0; index < count; index++) free(argv[index]);
         free(argv);
         free(output_file);
-        fprintf(stderr, "run-process: cannot configure output\n");
-        exit(1);
+        npl_primitive_file_error("run-process", "cannot configure output",
+                                 output_path);
     }
 
     pid_t child = 0;
@@ -161,10 +164,8 @@ NplVal npl_process_run(NplVal arguments, NplVal output_path)
     if (spawn_status != 0) return npl_fixnum(127);
 
     int status = 0;
-    if (waitpid(child, &status, 0) < 0) {
-        fprintf(stderr, "run-process: wait failed\n");
-        exit(1);
-    }
+    if (waitpid(child, &status, 0) < 0)
+        npl_primitive_error("run-process", "wait failed", arguments);
     if (WIFEXITED(status)) return npl_fixnum(WEXITSTATUS(status));
     if (WIFSIGNALED(status)) return npl_fixnum(128 + WTERMSIG(status));
     return npl_fixnum(1);
