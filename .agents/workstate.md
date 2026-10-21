@@ -91,10 +91,9 @@ rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
   stub driver and pointer representation decided first.
 - P7 optional inline type checks, gated on bench evidence.
 
-G1 done (worklog 2026-10-20 13:40). G2 done (17:30): nursery default
-2 MiB provisional; self-emit 0.24 GB peak, user CPU 120-160% of
-nursery-off. Next: G3 (explain why larger nurseries are slower, tune,
-interleaved self-emit and bench runs).
+G1 done (worklog 2026-10-20 13:40). G2 done (17:30). G3 done (worklog
+2026-10-21 08:00): defaults 1 MiB nursery and 128 MiB full threshold;
+self-emit ~80% of nursery-off CPU at 0.27 GB peak. Next: R0.
 
 ## Accepted Seed
 
@@ -102,8 +101,8 @@ interleaved self-emit and bench runs).
   `6253693bd20fe87a4b2b495f4a8c839d63ecab4eb75c57656f09ec38ef542830`
   (macOS strict relay, 2026-10-19).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
-  (`tools/check_linux.sh`) ~12 min. On a swap-bound host set
-  `NPL_GC_THRESHOLD_BYTES=268435456`.
+  (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
+  host since the 2026-10-21 defaults.
 - Permanent `bootstrap/bootstrap.ssa` and `bootstrap/compiler/` unchanged.
 
 ## Open Items
@@ -117,6 +116,6 @@ interleaved self-emit and bench runs).
 - Guile 3.0 oracle gaps (covered by native suite `error-objects` instead):
   failed `open-input-file` is not `file-error?`; absent irritants are #f.
 
-History: [worklog](worklog/). On a loaded host, run gates with
-`NPL_GC_THRESHOLD_BYTES=268435456` and expect ~10 min without the relay; a
-relay can take over an hour under heavy load, so run it in the background.
+History: [worklog](worklog/). Expect ~10 min for gates without the relay;
+a relay can take over an hour under heavy load, so run it in the
+background.

@@ -5,8 +5,8 @@
 #
 # Usage: tools/check_linux.sh [run_tests.sh options...]
 #   DOCKER_CONTEXT (default colima), NPL_LINUX_IMAGE (default npl-linux:bookworm)
-#   NPL_GC_THRESHOLD_BYTES (default 134217728; the default 2 GiB VM cannot hold
-#   self-compilation at the 1 GiB native default)
+#   NPL_GC_THRESHOLD_BYTES (default 134217728, the runtime default; pinned
+#   because the 2 GiB VM could not hold the former 1 GiB default)
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CONTEXT=${DOCKER_CONTEXT:-colima}

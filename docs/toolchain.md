@@ -20,7 +20,7 @@ The command builds a compiler from `bootstrap/current.ssa`, emits `gen1.ssa`, re
 
 `bootstrap/current.ssa` is the unified `nplc` (compiler and driver in one program). The tracked artifact's current line count and SHA-256 are recorded in `.agents/workstate.md` (Accepted Seed); a strict relay regenerates that hash. Regeneration reports the authoritative hash for its source tree.
 
-On a memory-constrained or heavily loaded host, run the relay with `NPL_GC_THRESHOLD_BYTES=268435456`: on 2026-09-30, with system swap nearly full, a default-threshold (1 GiB) emission stalled for hours in paging, while the same compiler at 256 MiB emitted in 82 s with 0.99 GB RSS and byte-identical SSA.
+Since 2026-10-21 the runtime collects a 1 MiB nursery and runs full collections from 128 MiB, so a self-compilation emission peaks near 0.27 GB RSS and no threshold override is needed on a loaded host. (With the earlier 1 GiB threshold an emission stalled for hours in paging on 2026-09-30 and needed `NPL_GC_THRESHOLD_BYTES=268435456`.)
 
 Every emission succeeds with status 0. Seeds from before the unified `nplc` exit 44 on success; relay from such a seed once with `--seed-status 44` (also accepted by `update_current_ssa.sh`).
 
@@ -101,7 +101,7 @@ tools/check_linux.sh                         # full gate in a Debian container
 tools/check_linux.sh --skip-current-fixed-point
 ```
 
-The script copies tracked and non-ignored files into `build/linux/src` and runs `tools/run_tests.sh` in the local colima VM (`DOCKER_CONTEXT`, default `colima`) using `tools/linux/Dockerfile` (Debian bookworm, clang, Guile 3). It sets `NPL_GC_THRESHOLD_BYTES=134217728` because the default 2 GiB VM cannot hold self-compilation at the 1 GiB native default (the kernel kills it with status 137). Executables link `-lm` explicitly; on macOS it is part of libSystem.
+The script copies tracked and non-ignored files into `build/linux/src` and runs `tools/run_tests.sh` in the local colima VM (`DOCKER_CONTEXT`, default `colima`) using `tools/linux/Dockerfile` (Debian bookworm, clang, Guile 3). It passes `NPL_GC_THRESHOLD_BYTES=134217728`, now equal to the runtime default; the default 2 GiB VM could not hold self-compilation at the former 1 GiB default (the kernel killed it with status 137). Executables link `-lm` explicitly; on macOS it is part of libSystem.
 
 ## Standard Libraries
 
@@ -125,7 +125,7 @@ Measured on macOS arm64; single samples on a loaded host.
 
 Cell allocation is limited to `set!` targets (`collect-assigned`), and closures capture only referenced free variables (`lambda-captures`). Both analyses skip literal data and ignore shadowing, so they over-approximate safely. Data-segment globals are registered as GC roots by `$npl_global_inits`; `src/compiler/tests/gc-roots.npl` guards this.
 
-`NPL_GC_THRESHOLD_BYTES` overrides the 1 GiB minimum collection threshold. Lower defaults were measured and rejected: self-compilation took 100 s at 1 GiB, 113 s at 256 MiB, 149 s at 64 MiB, with byte-identical SSA. Sweep cost scales with the whole object list, so lowering the default needs a different collector design, not a smaller constant.
+The collector is generational and non-moving (`runtime/alloc.c`, `runtime/gc.c`): young objects are collected when `NPL_GC_NURSERY_BYTES` (default 1 MiB; 0 disables the nursery) have been allocated, and the whole heap when it reaches `NPL_GC_THRESHOLD_BYTES` (default 128 MiB, doubling with live data). Runtime stores into existing objects go through `npl_gc_write_barrier`; `NPL_GC_VERIFY=N` checks barriers and dangling references at every Nth collection. Measured 2026-10-21 (host load ~8): self-compilation 13.3-13.6 s CPU and 0.27 GB peak RSS, against 16.6-16.7 s and 2.65 GB without the nursery at the former 1 GiB threshold; all nine bench workloads take equal or less CPU, with identical output.
 
 Known costs: the evaluator allocates heavily per step (CPS continuations, linear lookup in a ~200-binding global frame); the million-step `delay-force` test dominates `check_repl.sh`. Mapped chunks are never returned, and allocator metadata adds 64 bytes per object.
 

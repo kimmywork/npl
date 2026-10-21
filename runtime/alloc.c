@@ -37,7 +37,7 @@
 #endif
 
 #ifndef NPL_GC_MIN_THRESHOLD
-#define NPL_GC_MIN_THRESHOLD (1024u * 1024u * 1024u)
+#define NPL_GC_MIN_THRESHOLD (128u * 1024u * 1024u)
 #endif
 #define NPL_CHUNK_SIZE (1024u * 1024u)
 #define NPL_ALIGN      16u
@@ -49,7 +49,7 @@
 #define NPL_FREE_EXACT_BINS 128
 #define NPL_FREE_BIN_COUNT (NPL_FREE_EXACT_BINS + 1)
 #ifndef NPL_GC_NURSERY_DEFAULT
-#define NPL_GC_NURSERY_DEFAULT (2u * 1024u * 1024u)
+#define NPL_GC_NURSERY_DEFAULT (1024u * 1024u)
 #endif
 
 typedef struct NplChunkIndexEntry NplChunkIndexEntry;
