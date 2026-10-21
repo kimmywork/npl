@@ -12,17 +12,16 @@
 ; primitive accepts when called through its value form.
 (define PRIMITIVE-VALUE-SPREAD 6)
 
-(define (primitive-index-in name rows index)
-  (if (null? rows)
-      -1
-      (if (string=? name (primitive-row-name (car rows)))
-          index
-          (primitive-index-in name (cdr rows) (+ index 1)))))
-
-; Wrapper symbols use the table index; sanitized names would collide (+ -).
+; A wrapper is named by its row's C symbol, which is unique in the table, so
+; the name does not depend on row order (moving rows out of the table leaves
+; emitted SSA unchanged). Rows without a C symbol (+, null?, exit, ...) use
+; the sanitized row name under a separate prefix. sanitize escapes every _,
+; so neither form can equal a sanitized user function name.
 (define (primitive-wrapper-symbol name)
-  (string-append "_npl_prim_"
-    (number->string (primitive-index-in name PRIMITIVE-TABLE 0))))
+  (let ((symbol (primitive-row-symbol (primitive-row name))))
+    (if (> (string-length symbol) 0)
+        (string-append "_npl_prim_" symbol)
+        (string-append "_npl_op_" (sanitize name 0 "")))))
 
 ; Closure arity in the runtime convention, counting the continuation:
 ; n >= 0 exact, -(m + 1) for at least m.

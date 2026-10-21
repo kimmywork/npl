@@ -94,13 +94,13 @@ rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
 G1 done (worklog 2026-10-20 13:40). G2 done (17:30). G3 done (worklog
 2026-10-21 08:00): defaults 1 MiB nursery and 128 MiB full threshold;
 self-emit ~80% of nursery-off CPU at 0.27 GB peak. R0 done (worklog
-2026-10-21 10:30). Next: P1.
+2026-10-21 10:30). P1 done (14:50). Next: P2.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 224,969 lines; SHA-256
-  `6253693bd20fe87a4b2b495f4a8c839d63ecab4eb75c57656f09ec38ef542830`
-  (macOS strict relay, 2026-10-19).
+- `bootstrap/current.ssa`: 224,932 lines; SHA-256
+  `fb351808ed6edb51815088e7c199d71dfcb161a4599727f65aaee066aadc3e8a`
+  (macOS strict relay, 2026-10-21).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.
