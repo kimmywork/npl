@@ -107,7 +107,7 @@ The script copies tracked and non-ignored files into `build/linux/src` and runs 
 
 R7RS library sources live under `lib/scheme/`; they are runtime compiler inputs, not embedded in `bootstrap/current.ssa`. `nplc` locates them as described above. User libraries remain relative to the source program.
 
-Only `(npl primitive)` is compiler-defined. It maps the backend/runtime intrinsics and derived syntax needed by checked-in standard libraries. Changes to ordinary `(scheme ...)` implementation or exports do not require canonical compiler regeneration; changes to the primitive registry, loader, lowering, or runtime ABI do.
+Libraries and programs can declare further runtime C functions with `define-c-primitive`; see [C Functions From NPL](ffi.md). Only `(npl primitive)` is compiler-defined. It maps the backend/runtime intrinsics and derived syntax needed by checked-in standard libraries. Changes to ordinary `(scheme ...)` implementation or exports do not require canonical compiler regeneration; changes to the primitive registry, loader, lowering, or runtime ABI do.
 
 ## Fixed Point Scope
 

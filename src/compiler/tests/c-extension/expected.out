@@ -1,0 +1,4 @@
+(10 0 4)
+(5 9)
+(1 "two")
+("clamp: expected a fixnum" (a))

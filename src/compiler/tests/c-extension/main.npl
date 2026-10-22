@@ -1,0 +1,19 @@
+; docs/ffi.md example: C functions from clamp.c, declared at top level.
+(import (scheme base) (scheme write) (scheme process-context))
+
+(define-c-primitive (clamp (x fixnum) (lo fixnum) (hi fixnum)) fixnum
+  "demo_clamp")
+(define-c-primitive (pair-up (a any) (b any)) pair "demo_pair_up")
+
+(define (main)
+  (write (list (clamp 15 0 10) (clamp -3 0 10) (clamp 4 0 10)))
+  (newline)
+  (write (map clamp '(1 20) '(5 5) '(9 9)))
+  (newline)
+  (write (pair-up 1 "two"))
+  (newline)
+  (write (guard (e ((error-object? e)
+                    (list (error-object-message e) (error-object-irritants e))))
+           (clamp 'a 0 1)))
+  (newline)
+  (exit 0))

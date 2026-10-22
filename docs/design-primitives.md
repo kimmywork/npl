@@ -59,7 +59,7 @@ wrapper; import, rename, and prefix apply as to any binding. A symbol that
 is already registered keeps its row and must agree on operand count. The
 `fixed` rows stay in the table because import-free programs, including the
 compiler, resolve through it (P2a). npli rejects these forms until P5 can
-resolve symbols at run time.
+resolve symbols at run time. User documentation: [ffi](ffi.md).
 
 A compiler core form calls a C function directly:
 

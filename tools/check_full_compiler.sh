@@ -127,6 +127,15 @@ run_suite c-primitives "PASS c-primitives 11"
 grep -F 'call $npl_integer_string_p(' "$WORK/c-primitives.ssa" >/dev/null
 [ "$(grep -c 'function l $_npl_prim_npl_integer_string_p(' \
       "$WORK/c-primitives.ssa")" -eq 1 ]
+# docs/ffi.md example: user C functions linked next to the runtime.
+EXTENSION="$TESTS/c-extension"
+emit "$WORK/compiler" "$EXTENSION/main.npl" "$WORK/c-extension.ssa"
+"$QBE" -o "$WORK/c-extension.s" "$WORK/c-extension.ssa"
+cc -std=c99 -Wall -Werror -I "$ROOT/runtime" -c -o "$WORK/clamp.o" \
+    "$EXTENSION/clamp.c"
+cc -o "$WORK/c-extension" "$WORK/c-extension.s" "$WORK/clamp.o" "$RUNTIME" -lm
+"$WORK/c-extension" > "$WORK/c-extension.out"
+cmp "$EXTENSION/expected.out" "$WORK/c-extension.out"
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
