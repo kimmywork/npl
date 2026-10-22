@@ -3,49 +3,42 @@
 
 (define LIBRARY-PRIMITIVE-MACROS (cell ()))
 
-(define PRIMITIVE-VALUE-SOURCE
-"(+ - * < <= = > >= append bytevector bytevector-length
-bytevector-u8-ref bytevector-u8-set! bytevector? binary-port? car cdr
-char->integer char? close-input-port close-output-port close-port cons
-current-error-port current-input-port current-output-port delete-directory
-delete-file dynamic-wind executable-path exit
-eof-object eof-object? eq? eqv? flush-output-port get-environment-variable
-get-environment-variables get-output-bytevector
-get-output-string
-input-port-open? input-port? int->string integer->char list->vector
-npl_make_record npl_record_p npl_record_ref npl_record_set npl_try_open_file
-npl_port_parameter npl_port_ready_p npl_byte_ready_p npl_jiffies_per_second
-npl_string_to_utf8 npl_utf8_to_string npl_char_property npl_char_digit_value
-npl_char_case npl_char_full_case
-npl_current_jiffy npl_current_second
-make-temporary-directory
-newline not null?
-number->string number? npl_lex_class_w npl_lex_number npl_lex_scan_sym_end
-npl_number_div npl_integer_p npl_rational_numerator npl_rational_denominator
-npl_number_from_string npl_number_from_string_radix
-npl_number_to_string_radix npl_complex_make npl_complex_p
-npl_complex_real npl_complex_imag npl_number_zero_p
-npl_number_gcd npl_number_quotient npl_number_remainder string?
-npl_inexact_p npl_inexact_bits npl_inexact_op npl_inexact_binary npl_finite_p npl_nan_p npl_infinite_p
-npl_exact_to_inexact npl_inexact_to_exact
-npl_make_parameter npl_parameter_converter npl_list_to_values
-npl_parameters_enter npl_parameters_leave npl_promise_op program-arguments
-command-line set-command-line!
-run-process
-open-binary-input-file open-binary-output-file
-open-input-bytevector open-input-file open-input-string
-open-output-bytevector open-output-file open-output-string file-exists?
-output-port-open? output-port? pair? peek-char peek-u8 port? raise
-raise-continuable read read-file read-result read-bytevector read-bytevector!
-read-char
-read-u8
-set-car! set-cdr! string-append string-length string-ref string-byte-ref
-npl_make_string string-set! npl_string_fill string=? symbol?
-substring procedure?
-symbol->string string->symbol textual-port? values vector vector-length vector-ref vector-set!
-vector? call-with-current-continuation call/cc call-with-values apply
-display with-exception-handler write write-bytevector write-char write-shared
-write-simple write-u8)" )
+; Value names (npl primitive) exports: every registered primitive except
+; the control-conversion internals below, plus the control operators that
+; control conversion lowers itself (not table rows).
+(define PRIMITIVE-INTERNAL-NAMES
+  '("npl_tagged_num_to_string"
+    "npl_expect_one"
+    "npl_make_values"
+    "npl_current_wind"
+    "npl_wind_push"
+    "npl_wind_pop"
+    "npl_current_handler"
+    "npl_handler_push"
+    "npl_handler_pop"))
+
+(define PRIMITIVE-CONTROL-SOURCE
+"(call-with-current-continuation call-with-values call/cc dynamic-wind raise raise-continuable values with-exception-handler)" )
+
+(define (primitive-name-listed? name names)
+  (if (null? names)
+      #f
+      (if (string=? name (car names))
+          #t
+          (primitive-name-listed? name (cdr names)))))
+
+(define (library-primitive-table-names rows)
+  (if (null? rows)
+      ()
+      (let ((name (primitive-row-name (car rows))))
+        (if (primitive-name-listed? name PRIMITIVE-INTERNAL-NAMES)
+            (library-primitive-table-names (cdr rows))
+            (cons (datum-symbol name)
+                  (library-primitive-table-names (cdr rows)))))))
+
+(define (library-primitive-value-names)
+  (append-forms (library-primitive-table-names PRIMITIVE-TABLE)
+                (library-primitive-names PRIMITIVE-CONTROL-SOURCE)))
 
 (define PRIMITIVE-MACRO-SOURCE
 "(and or when unless cond case do let*-values guard make-parameter
@@ -86,7 +79,7 @@ parameterize make-promise promise? force delay delay-force)" )
 (define (library-primitive-bindings)
   (append-forms
     (library-primitive-value-bindings
-      (library-primitive-names PRIMITIVE-VALUE-SOURCE))
+      (library-primitive-value-names))
     (library-primitive-macro-bindings
       (library-primitive-names PRIMITIVE-MACRO-SOURCE))))
 

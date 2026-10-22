@@ -22,6 +22,7 @@
   (include "../../src/compiler/frontend/toplevel.npl")
   (include "../../src/compiler/frontend/forms.npl")
   (include "../../src/compiler/frontend/source.npl")
+  (include "../../src/compiler/frontend/primitive-table.npl")
   (include "../../src/compiler/frontend/library-primitives.npl")
   (include "../../src/compiler/frontend/numeric-aliases.npl")
   (include "../../src/compiler/frontend/library.npl")

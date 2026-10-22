@@ -74,8 +74,11 @@ rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
   `guard` under native.
 - P1 wrapper symbols by C symbol, not table index; SSA equal after symbol
   renaming; relay.
-- P2 naming rule, `%c-call`/`%c-procedure`, typed `define-c-primitive`; 124
-  `fixed` rows move to `(npl primitive)`; SSA byte-identical; relay.
+- P2 (revised 2026-10-22: import-free programs, including the compiler,
+  use the table directly) P2a: one shared table in the frontend with
+  rule-derived C symbols and generated `(npl primitive)` exports; SSA
+  byte-identical; relay. P2b: `%c-call`/`%c-procedure` and typed
+  `define-c-primitive` so libraries declare new primitives without a relay.
 - E1 evaluator design: compile the shared frontend's core AST to native
   closures, lexical addresses, native control operators and higher-order
   procedures, native primitives from P2, compiled standard library (absorbs
@@ -94,13 +97,17 @@ rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
 G1 done (worklog 2026-10-20 13:40). G2 done (17:30). G3 done (worklog
 2026-10-21 08:00): defaults 1 MiB nursery and 128 MiB full threshold;
 self-emit ~80% of nursery-off CPU at 0.27 GB peak. R0 done (worklog
-2026-10-21 10:30). P1 done (14:50). Next: P2.
+2026-10-21 10:30). P1 done (14:50). P2a done (worklog
+2026-10-22 10:50): one shared primitive table, rule-derived C symbols,
+generated `(npl primitive)` exports. Next: P2b (`%c-call`,
+`%c-procedure`, typed `define-c-primitive` for library-declared
+primitives without a relay).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 224,932 lines; SHA-256
-  `fb351808ed6edb51815088e7c199d71dfcb161a4599727f65aaee066aadc3e8a`
-  (macOS strict relay, 2026-10-21).
+- `bootstrap/current.ssa`: 226,315 lines; SHA-256
+  `dd07fad7ef147c7b65f74e894437aab7f75054fec56cf63fecddb7318f2c72a7`
+  (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

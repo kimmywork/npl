@@ -728,7 +728,7 @@
           (expand-top-sequence
             (parse-source-text DERIVED-SYNTAX-SOURCE)
             (library-primitive-value-environment
-              (library-primitive-names PRIMITIVE-VALUE-SOURCE) ())
+              (library-primitive-value-names) ())
             () ())))
     (if (not (null? (car primitive-result)))
         (fatal "derived syntax source emitted runtime forms"))

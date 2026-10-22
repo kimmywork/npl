@@ -9,6 +9,7 @@
   "frontend/toplevel.npl"
   "frontend/forms.npl"
   "frontend/source.npl"
+  "frontend/primitive-table.npl"
   "frontend/library-primitives.npl"
   "frontend/numeric-aliases.npl"
   "frontend/library.npl"
