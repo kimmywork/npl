@@ -1,0 +1,194 @@
+; Declared C primitives. A program or library body declares a runtime C
+; function with
+;   (define-c-primitive (name (param type) ...) result-type ["c-symbol"])
+; The C symbol follows from name by primitive-c-name unless given. The
+; declaration registers a `fixed` row in this compilation's primitive table
+; (DECLARED-PRIMITIVE-ROWS, primitive-table.npl) and binds name to that row,
+; so a call emits a direct `call $symbol(...)` like a table row, a value use
+; shares the primitive wrapper, and import, rename, and prefix work as for
+; any binding. The undeclared forms register the same rows:
+;   (%c-call "c-symbol" (type ...) arg ...)
+;   (%c-procedure "c-symbol" (type ...))
+;
+; Types are recorded, not checked: the C function validates its arguments.
+; A declaration is valid at top level only and precedes the uses of its
+; name. npli cannot yet call C functions it was not built with, so its
+; frontend rejects these forms (C-PRIMITIVES-SUPPORTED).
+;
+; Tests below are single predicate calls: control conversion copies an if's
+; continuation into both branches, so a compound test (nested if, and, or)
+; would emit the rest of the procedure once per path.
+
+(define C-PRIMITIVE-TYPES
+  '("any" "pair" "fixnum" "index" "integer" "number" "real" "char" "string"
+    "symbol" "vector" "bytevector" "procedure" "port" "boolean"))
+
+(define C-PRIMITIVES-SUPPORTED (cell #t))
+
+(define (c-primitive-type-name type)
+  (if (not (datum-symbol? type))
+      (fatal "C primitive type must be an identifier"))
+  (if (primitive-name-listed? (datum-symbol-name type) C-PRIMITIVE-TYPES)
+      (datum-symbol-name type)
+      (fatal (string-append "unknown C primitive type: "
+                            (datum-symbol-name type)))))
+
+; Datum lists are pairs; a datum symbol is a pair too, so exclude it.
+(define (c-primitive-list-pair? value)
+  (if (pair? value) (not (datum-symbol? value)) #f))
+
+(define (c-primitive-type-names types)
+  (cond
+    ((null? types) ())
+    ((c-primitive-list-pair? types)
+     (cons (c-primitive-type-name (car types))
+           (c-primitive-type-names (cdr types))))
+    (else (fatal "C primitive types must be a list"))))
+
+(define (c-symbol-byte? c first)
+  (cond
+    ((ch-alpha-up-e c) #t)
+    ((ch-alpha-low-e c) #t)
+    ((= c 95) #t)
+    (first #f)
+    (else (ch-digit-q2 c))))
+
+(define (c-symbol-byte-at? text index)
+  (c-symbol-byte? (string-byte-ref text index) (= index 0)))
+
+(define (c-symbol-valid? text index)
+  (if (= index (string-length text))
+      (> index 0)
+      (if (c-symbol-byte-at? text index)
+          (c-symbol-valid? text (+ index 1))
+          #f)))
+
+; The symbol is emitted into QBE as $text, so it must be a C identifier.
+(define (c-primitive-checked-symbol text)
+  (if (c-symbol-valid? text 0)
+      text
+      (fatal (string-append "invalid C symbol: " text))))
+
+(define (c-primitive-symbol value)
+  (if (not (datum-string? value))
+      (fatal "C symbol must be a string"))
+  (c-primitive-checked-symbol (datum-string-text value)))
+
+(define (c-primitive-row-with-symbol symbol rows)
+  (cond
+    ((null? rows) #f)
+    ((string=? symbol (primitive-row-symbol (car rows))) (car rows))
+    (else (c-primitive-row-with-symbol symbol (cdr rows)))))
+
+(define (c-primitive-registered-row symbol)
+  (let ((row (c-primitive-row-with-symbol symbol PRIMITIVE-TABLE)))
+    (if row
+        row
+        (c-primitive-row-with-symbol
+          symbol (cell-get DECLARED-PRIMITIVE-ROWS)))))
+
+(define (c-primitive-row-accepts? row count)
+  (if (string=? (primitive-row-kind row) "fixed")
+      (= (primitive-row-required row) count)
+      #f))
+
+(define (c-primitive-existing-name row symbol count)
+  (if (c-primitive-row-accepts? row count)
+      (primitive-row-name row)
+      (fatal (string-append
+               "C primitive declaration conflicts with registered " symbol))))
+
+(define (c-primitive-new-name symbol count types result)
+  (let ((name (string-append "_npl_cprim_" symbol)))
+    ; Row layout of primitive-table.npl, then argument and result types.
+    (cell-set! DECLARED-PRIMITIVE-ROWS
+      (cons (cons name (cons 'fixed (cons symbol (cons count (cons 0
+              (cons types (cons result ())))))))
+            (cell-get DECLARED-PRIMITIVE-ROWS)))
+    name))
+
+; Registers symbol with one operand per type and returns the row name that
+; call sites use. A symbol already registered (by the table or an earlier
+; declaration) keeps its row, so each C function has one wrapper; the row
+; must agree on the operand count.
+(define (register-c-primitive! symbol types result)
+  (if (not (cell-get C-PRIMITIVES-SUPPORTED))
+      (fatal "C primitives need nplc: npli cannot call C functions yet"))
+  (let ((row (c-primitive-registered-row symbol)))
+    (if row
+        (c-primitive-existing-name row symbol (raw-list-count types 0))
+        (c-primitive-new-name symbol (raw-list-count types 0) types result))))
+
+(define (c-primitive-parameter? parameter)
+  (cond
+    ((not (c-primitive-list-pair? parameter)) #f)
+    ((not (datum-symbol? (car parameter))) #f)
+    ((not (c-primitive-list-pair? (cdr parameter))) #f)
+    (else (null? (cdr (cdr parameter))))))
+
+(define (c-primitive-parameter-type parameter)
+  (if (c-primitive-parameter? parameter)
+      (car (cdr parameter))
+      (fatal "define-c-primitive parameter must be (name type)")))
+
+(define (c-primitive-parameter-types parameters)
+  (cond
+    ((null? parameters) ())
+    ((c-primitive-list-pair? parameters)
+     (cons (c-primitive-parameter-type (car parameters))
+           (c-primitive-parameter-types (cdr parameters))))
+    (else (fatal "define-c-primitive parameters must be a list"))))
+
+(define (c-primitive-declaration-count? count)
+  (if (= count 2) #t (= count 3)))
+
+(define (c-primitive-signature? signature)
+  (if (c-primitive-list-pair? signature) (datum-symbol? (car signature)) #f))
+
+(define (c-primitive-declared-symbol form count name)
+  (if (= count 3)
+      (c-primitive-symbol (car (cdr (cdr (cdr form)))))
+      (c-primitive-checked-symbol (primitive-c-name (datum-symbol-name name)))))
+
+; Top-level form (define-c-primitive ...) not shadowed by a binding.
+(define (c-primitive-declaration? form value-env macro-env)
+  (if (raw-form? form "define-c-primitive")
+      (head-is-core? form "define-c-primitive" value-env macro-env)
+      #f))
+
+; Top-level declaration: returns value-env with the name bound to its row.
+(define (declare-c-primitive form value-env)
+  (let ((count (raw-list-count (cdr form) 0)))
+    (if (not (c-primitive-declaration-count? count))
+        (fatal "malformed define-c-primitive"))
+    (let ((signature (car (cdr form))))
+      (if (not (c-primitive-signature? signature))
+          (fatal "define-c-primitive needs (name (param type) ...)"))
+      (let ((name (car signature)))
+        (if (> (string-length (lookup-value-binding name value-env)) 0)
+            (fatal (string-append "define-c-primitive: already bound: "
+                                  (datum-symbol-name name))))
+        (let ((types (c-primitive-type-names
+                       (c-primitive-parameter-types (cdr signature))))
+              (result (c-primitive-type-name (car (cdr (cdr form)))))
+              (symbol (c-primitive-declared-symbol form count name)))
+          (add-value-binding name
+            (register-c-primitive! symbol types result) value-env))))))
+
+(define (expand-c-call form value-env macro-env)
+  (if (< (raw-list-count form 0) 3) (fatal "malformed %c-call"))
+  (let ((types (c-primitive-type-names (car (cdr (cdr form)))))
+        (arguments (cdr (cdr (cdr form)))))
+    (if (not (= (raw-list-count types 0) (raw-list-count arguments 0)))
+        (fatal "%c-call: argument count differs from its types"))
+    (cons (datum-symbol
+            (register-c-primitive!
+              (c-primitive-symbol (car (cdr form))) types "any"))
+          (expand-expression-list arguments value-env macro-env))))
+
+(define (expand-c-procedure form)
+  (require-raw-arity form 2 "%c-procedure")
+  (datum-symbol
+    (register-c-primitive!
+      (c-primitive-symbol (car (cdr form)))
+      (c-primitive-type-names (car (cdr (cdr form)))) "any")))

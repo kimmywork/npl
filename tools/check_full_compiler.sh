@@ -121,6 +121,12 @@ run_suite process "PASS process 9"
 run_suite error-objects "PASS error-objects 6"
 run_suite primitive-errors "PASS primitive-errors 37"
 run_suite runtime-errors "PASS runtime-errors 14"
+run_suite c-primitives "PASS c-primitives 11"
+# Declared C primitives are called directly, like table rows, and a symbol
+# used as a value gets one wrapper.
+grep -F 'call $npl_integer_string_p(' "$WORK/c-primitives.ssa" >/dev/null
+[ "$(grep -c 'function l $_npl_prim_npl_integer_string_p(' \
+      "$WORK/c-primitives.ssa")" -eq 1 ]
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
@@ -196,6 +202,14 @@ reject_compile contracts/library-duplicate.npl \
     library-duplicate "duplicate library"
 reject_compile contracts/library-unimported-standard.npl \
     library-unimported-standard "unbound identifier: display"
+reject_compile contracts/c-primitive-nested.npl \
+    c-primitive-nested "define-c-primitive is valid at top level only"
+reject_compile contracts/c-primitive-type.npl \
+    c-primitive-type "unknown C primitive type: pear"
+reject_compile contracts/c-primitive-conflict.npl \
+    c-primitive-conflict "C primitive declaration conflicts with registered npl_car"
+reject_compile contracts/c-primitive-symbol.npl \
+    c-primitive-symbol "invalid C symbol: npl-f"
 
 reject_reader bad-dotted "expected ) after dotted datum"
 reject_reader bad-byte "bytevector literal byte out of range"

@@ -18,12 +18,14 @@
   (include "../../src/compiler/frontend/derived.npl")
   (include "../../src/compiler/frontend/syntax.npl")
   (include "../../src/compiler/frontend/expand.npl")
+  (include "../../src/compiler/frontend/expand-values.npl")
   (include "../../src/compiler/frontend/transcription.npl")
   (include "../../src/compiler/frontend/toplevel.npl")
   (include "../../src/compiler/frontend/forms.npl")
   (include "../../src/compiler/frontend/source.npl")
   (include "../../src/compiler/frontend/primitive-table.npl")
   (include "../../src/compiler/frontend/library-primitives.npl")
+  (include "../../src/compiler/frontend/c-primitives.npl")
   (include "../../src/compiler/frontend/numeric-aliases.npl")
   (include "../../src/compiler/frontend/library.npl")
   (begin
@@ -117,6 +119,7 @@
                       () () 0 () 0 () 1000000000 0 0
                       "" () () () () 0 () ())))
         (cell-set! EXPAND-REQUIRE-BOUND 0)
+        (cell-set! C-PRIMITIVES-SUPPORTED #f)
         (cell-set! TRANSCRIPTION-ALIASES ())
         (cell-set! TRANSCRIPTION-MACRO-ALIASES ())
         (cell-set! SYNTAX-MARKS ())

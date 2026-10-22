@@ -50,6 +50,17 @@ Checked 2026-10-19 against the code.
 
 ### 1. Primitive declarations in library source
 
+As implemented in P2b (2026-10-22, `src/compiler/frontend/c-primitives.npl`):
+NPL has no identifier macros, so `define-c-primitive` is a top-level
+declaration handled by the frontend rather than a macro over `%c-call`. It
+registers a `fixed` row (with its types) for the current compilation and
+binds the name to that row, so calls are direct and value uses share the P1
+wrapper; import, rename, and prefix apply as to any binding. A symbol that
+is already registered keeps its row and must agree on operand count. The
+`fixed` rows stay in the table because import-free programs, including the
+compiler, resolve through it (P2a). npli rejects these forms until P5 can
+resolve symbols at run time.
+
 A compiler core form calls a C function directly:
 
 ```scheme

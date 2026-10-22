@@ -99,14 +99,15 @@ G1 done (worklog 2026-10-20 13:40). G2 done (17:30). G3 done (worklog
 self-emit ~80% of nursery-off CPU at 0.27 GB peak. R0 done (worklog
 2026-10-21 10:30). P1 done (14:50). P2a done (worklog
 2026-10-22 10:50): one shared primitive table, rule-derived C symbols,
-generated `(npl primitive)` exports. Next: P2b (`%c-call`,
-`%c-procedure`, typed `define-c-primitive` for library-declared
-primitives without a relay).
+generated `(npl primitive)` exports. P2b done (worklog 2026-10-22
+13:30): `define-c-primitive`, `%c-call`, `%c-procedure` register rows per
+compilation; nplc only until P5. Next: E1 evaluator design (for user
+review).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 226,315 lines; SHA-256
-  `dd07fad7ef147c7b65f74e894437aab7f75054fec56cf63fecddb7318f2c72a7`
+- `bootstrap/current.ssa`: 233,699 lines; SHA-256
+  `35f6a535fa43630d65d69081be90e0f86768337c0f571c9da1a8a166d2c7b3a2`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded

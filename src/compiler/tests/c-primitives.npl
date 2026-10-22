@@ -1,0 +1,36 @@
+; C primitives declared by a library and by %c-call/%c-procedure: direct
+; calls, value uses, import prefix and rename, and a declaration sharing a
+; table row's C symbol. tools/check_full_compiler.sh also checks the call
+; sites are direct C calls.
+(import (scheme base) (scheme write) (scheme process-context)
+        (libraries c-primitives)
+        (prefix (only (libraries c-primitives) decimal?) c:))
+
+(include "framework.npl")
+
+; Shares the table row for car (symbol npl_car).
+(define-c-primitive (first (p pair)) any "npl_car")
+
+(define (main)
+  (test-identity "declared call" (lambda () (decimal? "-42")) #t)
+  (test-identity "declared call false" (lambda () (decimal? "4x")) #f)
+  (test-identity "prefixed import" (lambda () (c:decimal? "7")) #t)
+  (test-identity "renamed export" (lambda () (integer-text? "+") ) #f)
+  (test-identity "value use" (lambda () (car (map decimal? '("x" "1")))) #f)
+  (test-equal "library procedure" (lambda () (decimal-count '("1" "b" "22"))) 2)
+  (test-identity "rule-derived symbol"
+                 (lambda () (string=? (number-text 255) "ff")) #t)
+  (test-identity "%c-call"
+                 (lambda () (%c-call "npl_integer_string_p" (string) "12")) #t)
+  (test-identity "%c-procedure"
+                 (lambda ()
+                   (apply (%c-procedure "npl_integer_string_p" (string))
+                          '("1x")))
+                 #f)
+  (test-equal "shared table symbol" (lambda () (first '(5 6))) 5)
+  (test-identity "error object from declared call"
+                 (lambda ()
+                   (guard (e ((error-object? e) 'caught))
+                     (number-text 'a)))
+                 'caught)
+  (finish-tests "c-primitives"))

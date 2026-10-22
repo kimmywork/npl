@@ -258,4 +258,10 @@
           (car rows)
           (primitive-row-in name (cdr rows)))))
 
-(define (primitive-row name) (primitive-row-in name PRIMITIVE-TABLE))
+;; Rows this compilation declared with define-c-primitive, %c-call, or
+;; %c-procedure (c-primitives.npl); same layout plus argument and result types.
+(define DECLARED-PRIMITIVE-ROWS (cell ()))
+
+(define (primitive-row name)
+  (let ((row (primitive-row-in name PRIMITIVE-TABLE)))
+    (if row row (primitive-row-in name (cell-get DECLARED-PRIMITIVE-ROWS)))))

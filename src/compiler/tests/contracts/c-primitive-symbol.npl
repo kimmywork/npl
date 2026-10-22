@@ -1,0 +1,3 @@
+; The C symbol is emitted into QBE and must be a C identifier.
+(define-c-primitive (f (x any)) any "npl-f")
+(define (main) (f 1))

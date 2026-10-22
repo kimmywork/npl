@@ -1,0 +1,3 @@
+; Declared types come from a fixed vocabulary.
+(define-c-primitive (f (x pear)) any "npl_integer_string_p")
+(define (main) (f "1"))

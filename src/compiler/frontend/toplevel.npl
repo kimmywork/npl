@@ -129,6 +129,9 @@
              (predeclare-spliced-globals
                (begin-defined-value-list (cdr form) ()) value-env)
              (top-syntax-cells-unbound (cdr form) macro-env) acc)
+        (if (c-primitive-declaration? form value-env macro-env)
+            (expand-top-sequence
+              (cdr forms) (declare-c-primitive form value-env) macro-env acc)
         (if (raw-form? form "define-syntax")
             (begin
               (require-raw-arity form 2 "define-syntax")
@@ -171,7 +174,7 @@
                         (predeclare-spliced-globals
                           (direct-defined-identifiers expanded) value-env)
                         macro-env
-                        (cons expanded acc))))))))))
+                        (cons expanded acc)))))))))))
 
 ; Top-level names defined by spliced macro output: unbound ones become
 ; globals named like direct definitions (with the library prefix inside a

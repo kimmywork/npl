@@ -108,6 +108,16 @@ set -e
 [ "$bad_status" -eq 70 ]
 grep -F 'error: car: expected a pair' "$WORK/bad.err" >/dev/null
 
+# Declared C primitives are nplc-only until npli resolves symbols (P5).
+printf '(import (scheme base))\n(%%c-call "npl_car" (pair) (cons 1 2))\n' \
+    > "$WORK/c-call.scm"
+set +e
+"$ROOT/build/bin/npli" "$WORK/c-call.scm" > /dev/null 2> "$WORK/c-call.err"
+c_call_status=$?
+set -e
+[ "$c_call_status" -eq 70 ]
+grep -F 'error: C primitives need nplc' "$WORK/c-call.err" >/dev/null
+
 # Primitive error objects agree with native (src/compiler/tests, same file).
 TESTS="$ROOT/src/compiler/tests"
 # Inline framework.npl in place of its include line, then call main.

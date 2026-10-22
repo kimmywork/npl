@@ -1,0 +1,4 @@
+; define-c-primitive is a top-level declaration only.
+(define (main)
+  (define-c-primitive (f (x any)) any "npl_integer_string_p")
+  (f "1"))
