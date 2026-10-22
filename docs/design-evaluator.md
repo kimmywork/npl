@@ -178,7 +178,7 @@ Deleted: `evaluator-control.scm`, most of `evaluator-primitives.scm` and
 
 ## Increments
 
-1. **U0 (if D1 is accepted):** runtime unspecified value, compiler emission,
+1. **U0 (done 2026-10-22):** runtime unspecified value, compiler emission,
    writer, REPL suppression; fixtures and the native suites updated where
    they print such values; seed relay.
 2. **E2a:** closure compiler, native control and errors, primitives bound

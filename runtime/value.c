@@ -79,7 +79,7 @@ NplVal npl_record_set(NplVal value, NplVal type, NplVal index, NplVal field)
     NplVector *record = require_record(value, type, "record modifier");
     record->data[npl_fixnum_value(index)] = field;
     npl_gc_write_barrier(record, field);
-    return npl_nil();
+    return npl_unspecified();
 }
 
 NplVal npl_make_vector(int64_t argc, NplVal *argv)
@@ -128,7 +128,7 @@ NplVal npl_vector_set(NplVal value, NplVal index, NplVal element)
         npl_primitive_error("vector-set!", "index out of range", index);
     vector->data[i] = element;
     npl_gc_write_barrier(vector, element);
-    return npl_nil();
+    return npl_unspecified();
 }
 
 NplVal npl_vector_p(NplVal value)
@@ -229,7 +229,7 @@ NplVal npl_bytevector_set(NplVal value, NplVal index, NplVal element)
     if (!npl_is_fixnum(element) || byte < 0 || byte > 255)
         npl_primitive_error("bytevector-u8-set!", "expected a byte", element);
     vector->data[i] = (uint8_t)byte;
-    return npl_nil();
+    return npl_unspecified();
 }
 
 NplVal npl_bytevector_p(NplVal value)
@@ -562,7 +562,7 @@ NplVal npl_string_fill_range(NplVal value, NplVal character, NplVal start,
                             npl_cons(start, npl_cons(end, npl_nil())));
     for (int64_t i = npl_fixnum_value(start); i < npl_fixnum_value(end); i++)
         npl_string_store_internal(string, (uint32_t)i, code);
-    return npl_nil();
+    return npl_unspecified();
 }
 
 NplVal npl_string_set(NplVal value, NplVal index, NplVal character)
@@ -574,7 +574,7 @@ NplVal npl_string_set(NplVal value, NplVal index, NplVal character)
             (int64_t)npl_string_char_count_internal(string))
         npl_primitive_error("string-set!", "index out of range", index);
     npl_string_store_internal(string, (uint32_t)npl_fixnum_value(index), code);
-    return npl_nil();
+    return npl_unspecified();
 }
 
 /* R7RS string-ref: the character at index k. */

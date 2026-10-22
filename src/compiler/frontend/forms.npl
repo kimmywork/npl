@@ -31,6 +31,8 @@
 
 (define (core-true) (cons 108 ()))
 (define (core-false) (cons 109 ()))
+; The unspecified value (runtime IMM_UNSPECIFIED): one-armed if and set!.
+(define (core-unspecified) (cons 110 ()))
 
 (define (lower-program forms)
   (if (null? forms)
@@ -213,7 +215,7 @@
         (let ((alternate
                 (if (= count 3)
                     (lower-expr (car (cdr (cdr (cdr form)))))
-                    (core-false))))
+                    (core-unspecified))))
           (cons 213
             (cons test (cons consequent (cons alternate ())))))))))
 

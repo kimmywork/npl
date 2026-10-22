@@ -104,12 +104,13 @@ generated `(npl primitive)` exports. P2b done (worklog 2026-10-22
 compilation; nplc only until P5. FFI user guide `docs/ffi.md`. E1 done:
 `docs/design-evaluator.md` accepted 2026-10-22 with D1 runtime unspecified
 immediate, D2 `%library-definitions`, D3 native REPL re-entry. Increments
-now U0 (unspecified value), E2a, E2b, E3 as listed there. Next: U0.
+now U0 (unspecified value), E2a, E2b, E3 as listed there. U0 done (worklog
+2026-10-22 17:40). Next: E2a.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 233,699 lines; SHA-256
-  `35f6a535fa43630d65d69081be90e0f86768337c0f571c9da1a8a166d2c7b3a2`
+- `bootstrap/current.ssa`: 233,862 lines; SHA-256
+  `2a7a5820c4f54291eaffd18d66e423943e4a644e4f94513e3255d5110286e7be`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded

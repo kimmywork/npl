@@ -36,7 +36,7 @@
               (if (> (string-length global) 0)
                   (func-line (string-append "storel " value ", " global))
                   (fatal (string-append "set!: unbound " name))))))
-      "2")))
+      "18")))
 
 (define (binding-values binds env)
   (if (null? binds)

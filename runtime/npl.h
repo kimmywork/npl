@@ -73,6 +73,10 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define IMM_NIL     0
 #define IMM_TRUE    1
 #define IMM_FALSE   2
+/* Result of procedures whose value R7RS leaves unspecified (vector-set!,
+ * display, one-armed if, set!, ...). 3 is unusable: (3 << 2) | TAG_IMM
+ * equals IMM_CHAR_TAG, the encoding of #\x0. */
+#define IMM_UNSPECIFIED 4
 
 /* ---- Boxed value header ---- */
 typedef struct {
@@ -265,6 +269,10 @@ static inline NplVal npl_true(void) {
 
 static inline NplVal npl_false(void) {
     return (NplVal)(IMM_FALSE << 2) | TAG_IMM;
+}
+
+static inline NplVal npl_unspecified(void) {
+    return (NplVal)(IMM_UNSPECIFIED << 2) | TAG_IMM;
 }
 
 static inline int npl_is_fixnum(NplVal v) {

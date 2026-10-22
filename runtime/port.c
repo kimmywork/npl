@@ -308,7 +308,7 @@ static NplVal close_port_direction(NplVal value, uint32_t access,
     NplPort *port = port_value(value, who);
     if ((port->mode & access) == 0)
         npl_primitive_error(who, "wrong port direction", value);
-    if ((port->mode & NPL_PORT_CLOSED) != 0) return npl_nil();
+    if ((port->mode & NPL_PORT_CLOSED) != 0) return npl_unspecified();
     if ((port->mode & NPL_PORT_OWNED) != 0 && port->stream) {
         if (fclose(port->stream) != 0) {
             port->stream = NULL;
@@ -318,7 +318,7 @@ static NplVal close_port_direction(NplVal value, uint32_t access,
         port->stream = NULL;
     }
     port->mode |= NPL_PORT_CLOSED;
-    return npl_nil();
+    return npl_unspecified();
 }
 
 NplVal npl_close_input_port(NplVal port)
@@ -343,7 +343,7 @@ NplVal npl_flush_output_port(NplVal value)
     NplPort *port = require_port(value, NPL_PORT_OUTPUT, "flush-output-port");
     if ((port->mode & NPL_PORT_MEMORY) == 0 && fflush(port->stream) != 0)
         npl_primitive_file_error("flush-output-port", "flush failed", value);
-    return npl_nil();
+    return npl_unspecified();
 }
 
 static const uint8_t *memory_input_data(NplPort *port, const char *who)
@@ -583,7 +583,7 @@ NplVal npl_write_char(NplVal character, NplVal value)
     if (!npl_is_char(character))
         npl_primitive_error("write-char", "expected a character", character);
     npl_port_write_char_internal(port, npl_char_value(character));
-    return npl_nil();
+    return npl_unspecified();
 }
 
 NplVal npl_read_byte(NplVal value)
@@ -611,7 +611,7 @@ NplVal npl_write_byte(NplVal byte, NplVal value)
         npl_primitive_error("write-u8", "expected a byte", byte);
     uint8_t raw = (uint8_t)npl_fixnum_value(byte);
     port_write_bytes(port, &raw, 1, "write-u8");
-    return npl_nil();
+    return npl_unspecified();
 }
 
 static uint32_t require_nonnegative_count(NplVal value, const char *who)
@@ -689,7 +689,7 @@ NplVal npl_write_bytevector(int64_t argc, NplVal *argv)
                              &start, &end);
     port_write_bytes(port, bytes->data + start, end - start,
                      "write-bytevector");
-    return npl_nil();
+    return npl_unspecified();
 }
 
 NplVal npl_eof_object(void) { return g_eof_object; }

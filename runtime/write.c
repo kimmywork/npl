@@ -404,6 +404,8 @@ static void print_datum(NplPrinter *printer, NplVal value)
         output_text(port, "#t");
     } else if (value == npl_false()) {
         output_text(port, "#f");
+    } else if (value == npl_unspecified()) {
+        output_text(port, "#<unspecified>");
     } else if (npl_is_char(value)) {
         if (printer->write) write_character(port, npl_char_value(value));
         else output_char(port, (int)npl_char_value(value));
@@ -489,7 +491,7 @@ static NplVal print_to_port(NplVal value, NplVal port_value_arg, int mode,
     print_value(port, value, mode);
     npl_gc_unroot(&port_value_arg);
     npl_gc_unroot(&value);
-    return npl_nil();
+    return npl_unspecified();
 }
 
 NplVal npl_display(NplVal value)
@@ -522,7 +524,7 @@ NplVal npl_newline(void)
 {
     npl_runtime_init();
     output_char(port_value(npl_current_output_port(), "newline"), '\n');
-    return npl_nil();
+    return npl_unspecified();
 }
 
 
@@ -531,5 +533,5 @@ NplVal npl_newline_port(NplVal port_value_arg)
     NplPort *port = require_port_mode(port_value_arg, NPL_PORT_OUTPUT,
                                      NPL_PORT_TEXTUAL, "newline");
     output_char(port, '\n');
-    return npl_nil();
+    return npl_unspecified();
 }

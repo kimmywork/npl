@@ -65,7 +65,7 @@
           (core-names-list e refs acc)
           (case (car e)
             ((100) (if refs (cons (cdr e) acc) acc))
-            ((101 102 103 104 108 109 204) acc)
+            ((101 102 103 104 108 109 110 204) acc)
             ((200) (core-names (car (cdr (cdr e))) refs acc))
             ((211 212) (core-names-list (car (cdr (cdr e))) refs acc))
             ((214 220 221 222)

@@ -219,7 +219,7 @@ NplVal npl_delete_file(NplVal path_value)
     if (failed)
         npl_primitive_file_error("delete-file", "cannot delete file",
                                  path_value);
-    return npl_nil();
+    return npl_unspecified();
 }
 
 NplVal npl_make_temporary_directory(void)
@@ -249,7 +249,7 @@ NplVal npl_delete_directory(NplVal path_value)
     if (failed)
         npl_primitive_file_error("delete-directory", "cannot delete directory",
                                  path_value);
-    return npl_nil();
+    return npl_unspecified();
 }
 
 /* Absolute path of the running executable, or #f when the OS cannot say.

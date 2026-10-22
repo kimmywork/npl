@@ -121,7 +121,8 @@
 (define EVAL-PROMISE-TAG (cons EVAL-TAG-OWNER 912))
 (define EVAL-ENVIRONMENT-TAG (cons EVAL-TAG-OWNER 913))
 (define EVAL-SESSION-TAG (cons EVAL-TAG-OWNER 914))
-(define EVAL-UNSPECIFIED (vector 906))
+; The runtime unspecified value, as native procedures return it.
+(define EVAL-UNSPECIFIED (if #f #f))
 
 (define EVAL-PROMISE-DONE 0)
 (define EVAL-PROMISE-DELAY 1)
@@ -727,6 +728,7 @@
            (car (cdr expression)))))
       ((= tag 108) (continuation #t))
       ((= tag 109) (continuation #f))
+      ((= tag 110) (continuation EVAL-UNSPECIFIED))
       ((= tag 204)
        (continuation
          (frontend-datum->runtime (car (cdr expression)))))
@@ -748,6 +750,8 @@
     ((eval-core-tagged? expression 108)
      (eval-core-literal expression continuation))
     ((eval-core-tagged? expression 109)
+     (eval-core-literal expression continuation))
+    ((eval-core-tagged? expression 110)
      (eval-core-literal expression continuation))
     ((eval-core-tagged? expression 204)
      (eval-core-literal expression continuation))

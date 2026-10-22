@@ -62,6 +62,7 @@
     ((= (car expression) 104) #t)
     ((= (car expression) 108) #t)
     ((= (car expression) 109) #t)
+    ((= (car expression) 110) #t)
     ((= (car expression) 204) #t)
     (else #f)))
 
@@ -523,7 +524,7 @@
       (cons 217
         (cons (car (cdr expression))
               (cons value ())))
-      (cons (control-send continuation ()) ()))))
+      (cons (control-send continuation (cons 110 ())) ()))))
 
 (define (control-cps-set expression continuation)
   (let ((value (car (cdr (cdr expression)))))
