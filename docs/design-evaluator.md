@@ -1,6 +1,7 @@
 # Design: Closure-Compiling Evaluator for npli
 
-Status: proposed 2026-10-22 (increment E1), for review. Builds on
+Status: accepted 2026-10-22 (increment E1) with the recommended option for
+D1, D2, and D3 (see "Decisions"). Builds on
 [design-primitives](design-primitives.md) sections 3 and 4 and the P0
 measurements (worklog 2026-10-20 11:10).
 
@@ -200,7 +201,10 @@ Deleted: `evaluator-control.scm`, most of `evaluator-primitives.scm` and
    under npli within 30 s. If native non-tail call cost still blocks that,
    a compiler change is decided separately.
 
-## Decisions Requested
+## Decisions
+
+Accepted by the user 2026-10-22: D1 runtime immediate, D2
+`%library-definitions` form, D3 native re-entry.
 
 - **D1** unspecified value: runtime immediate (recommended) or REPL-only
   suppression of `()`.

@@ -101,9 +101,10 @@ self-emit ~80% of nursery-off CPU at 0.27 GB peak. R0 done (worklog
 2026-10-22 10:50): one shared primitive table, rule-derived C symbols,
 generated `(npl primitive)` exports. P2b done (worklog 2026-10-22
 13:30): `define-c-primitive`, `%c-call`, `%c-procedure` register rows per
-compilation; nplc only until P5. FFI user guide `docs/ffi.md`. E1 draft
-`docs/design-evaluator.md` (worklog 2026-10-22 15:10) awaits user review of
-D1-D3; no evaluator code until then.
+compilation; nplc only until P5. FFI user guide `docs/ffi.md`. E1 done:
+`docs/design-evaluator.md` accepted 2026-10-22 with D1 runtime unspecified
+immediate, D2 `%library-definitions`, D3 native REPL re-entry. Increments
+now U0 (unspecified value), E2a, E2b, E3 as listed there. Next: U0.
 
 ## Accepted Seed
 
