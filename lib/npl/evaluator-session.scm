@@ -53,7 +53,9 @@
 ; frontend names each declared C function by a row name, which is bound in
 ; the environment being expanded to a procedure calling the function. The
 ; symbol resolves through npli itself and the libraries loaded with
-; npli -l (runtime/ffi.c).
+; npli -l (runtime/ffi.c). npl_ffi_procedure is itself a primitive table
+; row, so evaluating this library from source (eval in a compiled program)
+; needs no symbol lookup.
 (define-c-primitive (eval-ffi-procedure (symbol string) (count fixnum)) any
   "npl_ffi_procedure")
 

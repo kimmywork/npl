@@ -110,15 +110,17 @@ now U0 (unspecified value), E2a, E2b, E3 as listed there. U0 done (worklog
 (worklog 2026-10-23 13:30): all 9 bench workloads under npli in 30 s
 (slowest loop 18.4 s). Remaining npli cost is native non-tail call
 allocation; a cheaper call convention is a separate compiler decision.
-P5 (FFI level A) done on macOS: P5a nplc -l/-L (14:20), P5b npli -l
-with runtime/ffi.c (15:10). Pending: Linux gate (tools/check_linux.sh).
+P5 (FFI level A) done: P5a nplc -l/-L (14:20), P5b npli -l with
+runtime/ffi.c (15:10), Linux gate fixes (16:20). Linux gate: only the
+`strings` fixture's Guile surface fails (bookworm Guile 3.0.8 bug in
+multi-string string-for-each); handling not yet decided.
 Next: P6 (FFI level B); first decide the stub driver and the pointer
 representation (docs/design-primitives.md, Open Questions).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 237,711 lines; SHA-256
-  `966b804059b1e7c277e9dc4dfc75196e1255491cb17fa808843f926f8ef5d55c`
+- `bootstrap/current.ssa`: 237,723 lines; SHA-256
+  `f3fd0abb4ebfec0755d844268587cb02d43e137180785e0e8841c7cd787c1862`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded

@@ -171,6 +171,10 @@
     ("make-temporary-directory" fixed 0 0)
     ("delete-directory" fixed 1 0)
     ("executable-path" fixed 0 0)
+    ; foreign calls (runtime/ffi.c): table rows, so evaluated declarations
+    ; of them need no symbol lookup
+    ("npl_ffi_load_library" fixed 1 0)
+    ("npl_ffi_procedure" fixed 2 0)
     ; control mechanisms used by control conversion and (scheme base)
     ("npl_expect_one" fixed 1 0)
     ("npl_make_values" count 0 -1)

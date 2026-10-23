@@ -27,5 +27,8 @@ mkdir -p "$COPY"
 (cd "$ROOT" && { git ls-files -z; git ls-files -z --others --exclude-standard; } \
     | rsync -a --from0 --files-from=- ./ "$COPY/")
 
+# Guile reads fixture sources in the locale's encoding; the image default
+# (POSIX) misreads the UTF-8 fixtures.
 docker run --rm -e NPL_GC_THRESHOLD_BYTES="$THRESHOLD" -e CC=clang \
+    -e LC_ALL=C.UTF-8 \
     -v "$COPY:/src" "$IMAGE" tools/run_tests.sh "$@"

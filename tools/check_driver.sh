@@ -39,7 +39,8 @@ cmp "$WORK/stdout.ssa" "$WORK/alias.ssa"
 
 # Assembly and object kinds; the object links into a working program.
 TMPDIR="$WORK/tmp" "$NPLC" -S "$SOURCE" -o "$WORK/hello.s"
-grep -F '_main' "$WORK/hello.s" >/dev/null
+# C symbols carry a leading underscore on macOS only.
+grep -E '^_?main:' "$WORK/hello.s" >/dev/null
 TMPDIR="$WORK/tmp" "$NPLC" -c "$SOURCE" -o "$WORK/hello.o"
 file "$WORK/hello.o" | grep -Ei 'object|relocatable' >/dev/null
 cc -o "$WORK/linked" "$WORK/hello.o" "$ROOT/build/lib/npl/libnpl_runtime.a" -lm
