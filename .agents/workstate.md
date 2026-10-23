@@ -105,13 +105,14 @@ compilation; nplc only until P5. FFI user guide `docs/ffi.md`. E1 done:
 `docs/design-evaluator.md` accepted 2026-10-22 with D1 runtime unspecified
 immediate, D2 `%library-definitions`, D3 native REPL re-entry. Increments
 now U0 (unspecified value), E2a, E2b, E3 as listed there. U0 done (worklog
-2026-10-22 17:40). E2a done (worklog 2026-10-23 11:40). Next: E2b
-(standard libraries bound natively through `%library-definitions`).
+2026-10-22 17:40). E2a done (worklog 2026-10-23 11:40). E2b done (worklog
+2026-10-23 12:50): imported loop 1.02x the import-free one. Next: E3
+(evaluator tuning until all 9 bench workloads finish under npli in 30 s).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 234,425 lines; SHA-256
-  `b3c08620068bfe56376fb0f6e6e4eb21b1230b8dcd897773ad7492ffa6ff6e99`
+- `bootstrap/current.ssa`: 237,008 lines; SHA-256
+  `15aa259aa4824bd32956d4041cf93e9c9e17ace3612874408952b76157b97847`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded

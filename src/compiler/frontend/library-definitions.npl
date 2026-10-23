@@ -1,32 +1,190 @@
-; (%library-definitions library-name ...) evaluates to, for each named
-; library, (key (name . value) ...): the value definitions the library
-; provides, keyed by source name, with key its library-name-key
-; ("npl/primitive"). npli binds these names to the compiled procedures
-; instead of evaluating their source (docs/design-evaluator.md, D2).
-; Supported so far: (npl primitive), whose values are its exports generated
-; from the shared primitive table.
+; Native library definitions for npli (docs/design-evaluator.md, D2).
 ;
-; The expansion is final: identifiers name primitives directly and string
-; literals carry the keys, so the result does not depend on the bindings
-; around the use.
+; (%library-definitions library-name ...) evaluates to, for each named
+; library, (key checksum (name . value) ...): every value definition of the
+; library body, keyed by its emitted name without the library prefix, bound
+; to the compiled procedure or object. The checksum covers the library's
+; parsed declarations, including included files. (npl primitive) lists its
+; generated value exports, with checksum 0.
+;
+; When npli's frontend loads a library, library-record-load! asks
+; LIBRARY-NATIVE-HOOK (key checksum-thunk definitions) whether the
+; evaluator has native values for exactly this library: same checksum and
+; the same definition names. If so, the body is replaced by one call
+;   (%eval-bind-native key '((suffix . emitted-name) ...))
+; which the evaluator binds in the importing environment; otherwise the body
+; is evaluated from source as before. nplc never sets the hook.
+;
+; The expansion is final: identifiers name primitives or emitted globals
+; directly, so the result does not depend on the bindings around the use.
+
+(define LIBRARY-NATIVE-HOOK (cell #f))
+
+; ---------------- loaded library information ----------------
+
+(define (library-prefixed? name prefix)
+  (if (< (string-length name) (string-length prefix))
+      #f
+      (string=? (substring name 0 (string-length prefix)) prefix)))
+
+(define (library-define-target-name target)
+  (if (datum-symbol? target)
+      (datum-symbol-name target)
+      (datum-symbol-name (car target))))
+
+(define (library-defined-target form)
+  (if (raw-form? form "define")
+      (library-define-target-name (car (cdr form)))
+      ""))
+
+; A definition without the library prefix (a hygienic temporary) keeps its
+; whole name, which differs between compilations, so such a library never
+; matches and is evaluated from source.
+(define (library-definition-pair-add name prefix rest)
+  (cond
+    ((= (string-length name) 0) rest)
+    ((library-prefixed? name prefix)
+     (cons (cons (substring name (string-length prefix) (string-length name))
+                 name)
+           rest))
+    (else (cons (cons name name) rest))))
+
+; (suffix . emitted-name) for each definition in an expanded body.
+(define (library-definition-pairs forms prefix)
+  (if (null? forms)
+      ()
+      (library-definition-pair-add
+        (library-defined-target (car forms)) prefix
+        (library-definition-pairs (cdr forms) prefix))))
+
+(define LIBRARY-HASH-MODULUS 1000000007)
+
+(define (library-hash-step hash value)
+  (npl_number_remainder (+ (* hash 31) value) LIBRARY-HASH-MODULUS))
+
+(define (library-hash-text text index hash)
+  (if (= index (string-length text))
+      hash
+      (library-hash-text text (+ index 1)
+                         (library-hash-step hash (string-byte-ref text index)))))
+
+(define (library-hash-list values hash)
+  (if (null? values)
+      hash
+      (library-hash-list (cdr values) (library-hash-datum (car values) hash))))
+
+; Datum wrappers are pairs, so they are tested before pair?.
+(define (library-hash-datum value hash)
+  (cond
+    ((null? value) (library-hash-step hash 1))
+    ((number? value)
+     (library-hash-text (number->string value) 0 (library-hash-step hash 2)))
+    ((datum-symbol? value)
+     (library-hash-text (datum-symbol-name value) 0 (library-hash-step hash 3)))
+    ((datum-string? value)
+     (library-hash-text (datum-string-text value) 0 (library-hash-step hash 4)))
+    ((datum-char? value)
+     (library-hash-step (library-hash-step hash 5) (datum-char-code value)))
+    ((datum-vector? value)
+     (library-hash-list (datum-vector-items value) (library-hash-step hash 6)))
+    ((datum-bytevector? value)
+     (library-hash-list (datum-bytevector-items value)
+                        (library-hash-step hash 7)))
+    ((datum-true? value) (library-hash-step hash 8))
+    ((datum-false? value) (library-hash-step hash 9))
+    ((pair? value)
+     (library-hash-datum (cdr value)
+                         (library-hash-datum (car value)
+                                             (library-hash-step hash 10))))
+    (else (library-hash-step hash 11))))
+
+; Info: (prefix parts expanded-body), set when the library is loaded.
+(define (library-entry-checksum entry)
+  (library-hash-datum
+    (car (cdr (cell-get (library-entry-info entry))))
+    (library-hash-text (library-entry-key entry) 0 7)))
+
+(define (library-entry-definitions entry)
+  (let ((info (cell-get (library-entry-info entry))))
+    (library-definition-pairs (car (cdr (cdr info))) (car info))))
+
+(define (library-native-match? entry)
+  (if (cell-get LIBRARY-NATIVE-HOOK)
+      ((cell-get LIBRARY-NATIVE-HOOK)
+       (library-entry-key entry)
+       (lambda () (library-entry-checksum entry))
+       (library-entry-definitions entry))
+      #f))
+
+(define (library-native-pairs-datum pairs)
+  (if (null? pairs)
+      ()
+      (cons (cons (datum-string (car (car pairs)))
+                  (datum-string (cdr (car pairs))))
+            (library-native-pairs-datum (cdr pairs)))))
+
+; Already expanded: the operator is a global the evaluator binds.
+(define (library-native-bind-form entry)
+  (cons (datum-symbol "%eval-bind-native")
+    (cons (datum-string (library-entry-key entry))
+      (cons (cons (datum-symbol "quote")
+                  (cons (library-native-pairs-datum
+                          (library-entry-definitions entry))
+                        ()))
+            ()))))
+
+(define (library-load-output entry wrapped)
+  (if (library-native-match? entry)
+      (cons (library-native-bind-form entry) ())
+      wrapped))
+
+; Called by library-load after expanding a body.
+(define (library-record-load! entry prefix parts expanded wrapped)
+  (cell-set! (library-entry-info entry)
+             (cons prefix (cons parts (cons expanded ()))))
+  (cell-set! LIBRARY-OUTPUT
+    (append-forms (cell-get LIBRARY-OUTPUT)
+                  (library-load-output entry wrapped))))
+
+; ---------------- the expansion ----------------
 
 (define (library-definitions-cons first rest)
   (cons (datum-symbol "cons") (cons first (cons rest ()))))
 
-(define (library-definitions-pairs identifiers)
+(define (library-definitions-primitive-pairs identifiers)
   (if (null? identifiers)
       ()
       (let ((name (datum-symbol-name (car identifiers))))
         (library-definitions-cons
           (library-definitions-cons (datum-string name) (datum-symbol name))
-          (library-definitions-pairs (cdr identifiers))))))
+          (library-definitions-primitive-pairs (cdr identifiers))))))
+
+(define (library-definitions-pairs pairs)
+  (if (null? pairs)
+      ()
+      (library-definitions-cons
+        (library-definitions-cons (datum-string (car (car pairs)))
+                                  (datum-symbol (cdr (car pairs))))
+        (library-definitions-pairs (cdr pairs)))))
+
+(define (library-definitions-library name)
+  (library-load name)
+  (let ((entry (library-external-entry name)))
+    (library-definitions-cons
+      (datum-string (library-entry-key entry))
+      (library-definitions-cons
+        (library-entry-checksum entry)
+        (library-definitions-pairs (library-entry-definitions entry))))))
 
 (define (library-definitions-entry name)
   (if (library-primitive-name? name)
       (library-definitions-cons
         (datum-string (library-name-key name))
-        (library-definitions-pairs (library-primitive-value-names)))
-      (fatal "%library-definitions: only (npl primitive) is supported")))
+        (library-definitions-cons
+          0
+          (library-definitions-primitive-pairs
+            (library-primitive-value-names))))
+      (library-definitions-library name)))
 
 (define (library-definitions-list names)
   (if (null? names)

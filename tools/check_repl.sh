@@ -136,6 +136,22 @@ TESTS="$ROOT/src/compiler/tests"
 } > "$WORK/primitive-errors.scm"
 "$ROOT/build/bin/npli" "$WORK/primitive-errors.scm" > "$WORK/primitive-errors-suite.out"
 grep -Fx 'PASS primitive-errors 37' "$WORK/primitive-errors-suite.out" >/dev/null
+# Standard libraries are bound to npli's compiled procedures only when their
+# source matches what npli was built from; an edited library is evaluated
+# from source (lib/npl/evaluator-session.scm, EVAL-NATIVE-LIBRARIES).
+mkdir -p "$WORK/stdlib-edited"
+cp -R "$ROOT/lib/." "$WORK/stdlib-edited/"
+sed 's/(define (current-jiffy) (npl_current_jiffy))/(define (current-jiffy) 42)/' \
+    "$ROOT/lib/scheme/time.sld" > "$WORK/stdlib-edited/scheme/time.sld"
+! cmp -s "$ROOT/lib/scheme/time.sld" "$WORK/stdlib-edited/scheme/time.sld"
+printf '(import (scheme base) (scheme write) (scheme time))\n(write (list (current-jiffy) (+ 20 22)))\n' \
+    > "$WORK/edited-library.scm"
+"$ROOT/build/bin/npli" --stdlib-root "$WORK/stdlib-edited" \
+    "$WORK/edited-library.scm" > "$WORK/edited-library.out"
+printf '(42 42)' | cmp - "$WORK/edited-library.out"
+"$ROOT/build/bin/npli" "$WORK/edited-library.scm" > "$WORK/native-library.out"
+! grep -Fx '(42 42)' "$WORK/native-library.out" >/dev/null
+
 # Raw primitive errors are native error objects under npli as well.
 {
     sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'

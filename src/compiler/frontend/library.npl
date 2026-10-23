@@ -7,12 +7,14 @@
 (define LIBRARY-OUTPUT (cell ()))
 (define LIBRARY-NEXT-ID (cell 0))
 
+; Entry: (key form base state exports info); info is set by library-load
+; (library-record-load!, library-definitions.npl).
 (define (library-entry key form base)
   (cons key
     (cons form
       (cons base
         (cons (cell 0)
-          (cons (cell ()) ()))))))
+          (cons (cell ()) (cons (cell ()) ())))))))
 
 (define (library-entry-key entry) (car entry))
 (define (library-entry-form entry) (car (cdr entry)))
@@ -20,6 +22,8 @@
 (define (library-entry-state entry) (car (cdr (cdr (cdr entry)))))
 (define (library-entry-exports entry)
   (car (cdr (cdr (cdr (cdr entry))))))
+(define (library-entry-info entry)
+  (car (cdr (cdr (cdr (cdr (cdr entry)))))))
 
 (define (library-find key entries)
   (if (null? entries)
@@ -661,10 +665,9 @@
                                   (car parts)
                                   (cell-get TOP-VALUE-ENVIRONMENT)
                                   (cdr expanded))))
-                          (cell-set! LIBRARY-OUTPUT
-                            (append-forms
-                              (cell-get LIBRARY-OUTPUT)
-                              (library-wrap-expressions (car expanded))))
+                          (library-record-load!
+                            entry prefix parts (car expanded)
+                            (library-wrap-expressions (car expanded)))
                           (cell-set! (library-entry-exports entry) exports)
                           (cell-set! (library-entry-state entry) 2)
                           exports)))))))))))))

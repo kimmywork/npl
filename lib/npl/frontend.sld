@@ -10,7 +10,8 @@
           frontend-datum->runtime
           (rename core-expand-letstar frontend-expand-core-letstar)
           (rename core-body-expression frontend-core-body-expression)
-          frontend-bytevector-items->runtime)
+          frontend-bytevector-items->runtime
+          frontend-set-native-hook!)
   (import (npl primitive))
   (include "../../src/compiler/common/base.npl")
   (include "../../src/compiler/reader/lexer.npl")
@@ -26,9 +27,9 @@
   (include "../../src/compiler/frontend/primitive-table.npl")
   (include "../../src/compiler/frontend/library-primitives.npl")
   (include "../../src/compiler/frontend/c-primitives.npl")
-  (include "../../src/compiler/frontend/library-definitions.npl")
   (include "../../src/compiler/frontend/numeric-aliases.npl")
   (include "../../src/compiler/frontend/library.npl")
+  (include "../../src/compiler/frontend/library-definitions.npl")
   (begin
     (define FRONTEND-ERROR-TAG 930)
     (define FRONTEND-SESSION-TAG 931)
@@ -44,6 +45,10 @@
           #f))
 
     (define (frontend-error-message value) (vector-ref value 1))
+
+    ; See src/compiler/frontend/library-definitions.npl.
+    (define (frontend-set-native-hook! hook)
+      (cell-set! LIBRARY-NATIVE-HOOK hook))
 
     (define (with-frontend-errors thunk)
       (call/cc

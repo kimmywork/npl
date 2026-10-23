@@ -3,15 +3,60 @@
 ; by the shared frontend, compiled once (evaluator-compile.scm), and run.
 ; Errors are raised as R7RS error objects, as in compiled code.
 
-; Native values of the (npl primitive) names, generated from the shared
-; primitive table when npli is compiled.
-(define EVAL-NATIVE-LIBRARIES (%library-definitions (npl primitive)))
+; Native values of the libraries compiled into npli: the (npl primitive)
+; names, generated from the shared primitive table, and every definition of
+; the standard libraries below, each with a checksum of its source. Entry:
+; (key checksum (name . value) ...). (scheme eval), (scheme load),
+; (scheme repl), and (scheme r5rs) stay evaluated from source: their
+; procedures act on the running evaluator's environments.
+(define EVAL-NATIVE-LIBRARIES
+  (%library-definitions
+    (npl primitive) (scheme base) (scheme case-lambda) (scheme char)
+    (scheme complex) (scheme cxr) (scheme file) (scheme inexact)
+    (scheme lazy) (scheme process-context) (scheme read) (scheme time)
+    (scheme write)))
 
-(define (eval-native-definitions key libraries)
+(define (eval-native-library key libraries)
   (cond
-    ((null? libraries) '())
-    ((string=? key (car (car libraries))) (cdr (car libraries)))
-    (else (eval-native-definitions key (cdr libraries)))))
+    ((null? libraries) #f)
+    ((string=? key (car (car libraries))) (car libraries))
+    (else (eval-native-library key (cdr libraries)))))
+
+(define (eval-native-definitions key)
+  (cdr (cdr (eval-native-library key EVAL-NATIVE-LIBRARIES))))
+
+(define (eval-native-names-match? definitions natives)
+  (cond
+    ((null? definitions) (null? natives))
+    ((null? natives) #f)
+    ((string=? (car (car definitions)) (car (car natives)))
+     (eval-native-names-match? (cdr definitions) (cdr natives)))
+    (else #f)))
+
+(define (eval-native-library-match? library checksum definitions)
+  (if (eval-native-names-match? definitions (cdr (cdr library)))
+      (= (checksum) (car (cdr library)))
+      #f))
+
+; Frontend hook (src/compiler/frontend/library-definitions.npl): a library
+; loaded from source is bound natively when npli was compiled from the same
+; source, so its definitions and checksum agree.
+(define (eval-native-match? key checksum definitions)
+  (let ((library (eval-native-library key EVAL-NATIVE-LIBRARIES)))
+    (if library
+        (eval-native-library-match? library checksum definitions)
+        #f)))
+
+(frontend-set-native-hook! eval-native-match?)
+
+; Pairs (name . emitted-name) are in the order of the native entry.
+(define (eval-bind-native! environment pairs natives)
+  (if (pair? pairs)
+      (begin
+        (set-car! (eval-environment-cell environment (cdr (car pairs)))
+                  (cdr (car natives)))
+        (eval-bind-native! environment (cdr pairs) (cdr natives)))
+      EVAL-UNSPECIFIED))
 
 ; The first-class values of the unbounded inline operators accept a bounded
 ; number of operands (PRIMITIVE-VALUE-SPREAD); longer calls fold through
@@ -61,8 +106,7 @@
 
 (define EVAL-PRIMITIVE-BINDINGS
   (cons (cons "list" (lambda values values))
-        (map eval-primitive-binding
-             (eval-native-definitions "npl/primitive" EVAL-NATIVE-LIBRARIES))))
+        (map eval-primitive-binding (eval-native-definitions "npl/primitive"))))
 
 (define (set-eval-standard-root! root)
   (frontend-set-standard-root! root))
@@ -80,7 +124,11 @@
     (cons "%eval-make-environment" make-eval-environment-from-imports)
     (cons "%eval-evaluate" eval-in-environment)
     (cons "%eval-load-file"
-          (lambda (filename) (eval-load-file filename environment)))))
+          (lambda (filename) (eval-load-file filename environment)))
+    (cons "%eval-bind-native"
+          (lambda (key pairs)
+            (eval-bind-native! environment pairs
+                               (eval-native-definitions key))))))
 
 (define (eval-new-environment)
   (let ((session (make-frontend-session)))

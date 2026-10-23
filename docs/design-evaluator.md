@@ -97,10 +97,13 @@ native `map`, handlers, and `dynamic-wind` with `raise`.
 A compiler form provides native values that npli can bind by name:
 
 ```scheme
-(%library-definitions (scheme base) (scheme char) ... (npl primitive))
-; => (("scheme/base" ("car" . <procedure>) ("record-constructor" . <procedure>) ...)
+(%library-definitions (npl primitive) (scheme base) (scheme char) ...)
+; => (("npl/primitive" 0 ("car" . <procedure>) ...)
+;     ("scheme/base" checksum ("list" . <procedure>) ("record-constructor" . <procedure>) ...)
 ;     ...)
 ```
+
+As implemented in E2b (2026-10-23, `src/compiler/frontend/library-definitions.npl`):
 
 - The form expands to an association list of every value definition in each
   named library's body, internal ones included, keyed by source name. For
@@ -108,14 +111,20 @@ A compiler form provides native values that npli can bind by name:
   shared primitive table (P2a). Whole-program compilation already contains
   all of these procedures. The form only makes them reachable from npli's
   own source.
-- When a session imports a library, the shared frontend loads its source
-  exactly as today (syntax, hygiene, `cond-expand`, `include`). It emits the
-  body's definitions under that library's prefix. If the native table has
-  the library, its definition names match, and a checksum of its source
-  files (recorded by the form at build time) matches, the evaluator binds each
-  definition's cell to the native value and skips the body. Exported macros
-  therefore keep working: their templates refer to internal names such as
-  `record-constructor`, which are now native values.
+- When a session imports a library, the shared frontend loads and expands
+  its source exactly as before (syntax, hygiene, `cond-expand`, `include`).
+  It then asks the evaluator's hook (`frontend-set-native-hook!`) whether the
+  native table has this library with the same definition names and the same
+  checksum. The checksum is a hash of the parsed declarations, including
+  included files, so it covers every source file. On a match the expanded
+  body is replaced by one form, `(%eval-bind-native key pairs)`, which binds
+  each definition's cell to its native value. Exported macros keep working:
+  their templates refer to internal names such as `record-constructor`,
+  which are now native values.
+- Bound natively: `(scheme base)`, `case-lambda`, `char`, `complex`, `cxr`,
+  `file`, `inexact`, `lazy`, `process-context`, `read`, `time`, `write`.
+  `(scheme eval)`, `load`, `repl`, and `r5rs` stay evaluated from source,
+  because their procedures act on the running evaluator's environments.
 - If either check fails (a `lib/` edited after npli was built), or the
   library is the user's own, the body is closure-compiled and run like any
   other code. That path is slower but still correct.
@@ -193,7 +202,7 @@ Deleted: `evaluator-control.scm`, most of `evaluator-primitives.scm` and
    - New tests: REPL continuation re-entry, an evaluator procedure passed to
      native `map`/`sort`, and an error raised from a C primitive through an
      evaluator frame.
-3. **E2b:** standard libraries bound natively. Acceptance:
+3. **E2b (done 2026-10-23):** standard libraries bound natively. Acceptance:
    - The imported loop is within 1.5x of the import-free loop.
    - The fallback path is tested by importing a copied, edited library.
 4. **E3:** evaluator-side tuning (operand kinds read directly, constant
