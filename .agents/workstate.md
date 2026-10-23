@@ -106,8 +106,11 @@ compilation; nplc only until P5. FFI user guide `docs/ffi.md`. E1 done:
 immediate, D2 `%library-definitions`, D3 native REPL re-entry. Increments
 now U0 (unspecified value), E2a, E2b, E3 as listed there. U0 done (worklog
 2026-10-22 17:40). E2a done (worklog 2026-10-23 11:40). E2b done (worklog
-2026-10-23 12:50): imported loop 1.02x the import-free one. Next: E3
-(evaluator tuning until all 9 bench workloads finish under npli in 30 s).
+2026-10-23 12:50): imported loop 1.02x the import-free one. E3 done
+(worklog 2026-10-23 13:30): all 9 bench workloads under npli in 30 s
+(slowest loop 18.4 s). Remaining npli cost is native non-tail call
+allocation; a cheaper call convention is a separate compiler decision.
+Next: P5 (FFI level A).
 
 ## Accepted Seed
 

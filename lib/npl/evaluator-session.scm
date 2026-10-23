@@ -49,6 +49,35 @@
 
 (frontend-set-native-hook! eval-native-match?)
 
+; (procedure . opcode) for (scheme base)'s numeric procedures, as bound by
+; eval-bind-native!; opcodes follow eval-make-fast-2.
+(define EVAL-FAST-OPERATOR-NAMES '("+" "-" "*" "=" "<" ">" "<=" ">="))
+
+(define (eval-operator-opcode name names index)
+  (if (string=? name (car names))
+      index
+      (eval-operator-opcode name (cdr names) (+ index 1))))
+
+(define (eval-native-value suffix definitions)
+  (cond
+    ((null? definitions) #f)
+    ((string=? suffix (car (car definitions))) (cdr (car definitions)))
+    (else (eval-native-value suffix (cdr definitions)))))
+
+(define (eval-fast-operators aliases definitions)
+  (if (null? aliases)
+      '()
+      (let ((value (eval-native-value (car (car aliases)) definitions)))
+        (if value
+            (cons (cons value (eval-operator-opcode
+                                (cdr (car aliases)) EVAL-FAST-OPERATOR-NAMES 0))
+                  (eval-fast-operators (cdr aliases) definitions))
+            (eval-fast-operators (cdr aliases) definitions)))))
+
+(set-car! EVAL-FAST-OPERATORS
+          (eval-fast-operators (frontend-numeric-alias-suffixes)
+                               (eval-native-definitions "scheme/base")))
+
 ; Pairs (name . emitted-name) are in the order of the native entry.
 (define (eval-bind-native! environment pairs natives)
   (if (pair? pairs)

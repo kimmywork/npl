@@ -17,3 +17,10 @@
 count
 (map (lambda (x) (car x)) '(1))
 'after-error
+; A numeric call compiled while + was (scheme base)'s takes its fixnum fast
+; path only while the binding is unchanged.
+(define (add2 x y) (+ x y))
+(add2 1 2)
+(add2 1.5 2)
+(set! + (lambda args 'redefined))
+(add2 1 2)

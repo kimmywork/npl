@@ -11,6 +11,10 @@
 ; c-primitives.npl).
 
 (define EVAL-UNSPECIFIED (if #f #f))
+
+; ((procedure . opcode) ...) for (scheme base)'s numeric procedures; filled
+; by evaluator-session.scm, read by eval-make-global-application-2.
+(define EVAL-FAST-OPERATORS (list '()))
 (define (eval-unspecified? value) (eq? value EVAL-UNSPECIFIED))
 
 ; ---------------- global cells ----------------
@@ -266,10 +270,121 @@
 
 (define (eval-compile-application expression scope environment)
   (if (eval-proper-list? expression)
-      (eval-make-application
-        (eval-compile (car expression) scope environment)
-        (eval-compile-list (cdr expression) scope environment))
+      (eval-application-of
+        (car expression)
+        (eval-compile-list (cdr expression) scope environment)
+        scope environment)
       (error "malformed application")))
+
+; The cell of an operator that names a global variable, else #f.
+(define (eval-global-operator-cell operator scope environment)
+  (if (eval-core-symbol? operator)
+      (if (eval-scope-lookup (cdr operator) scope 0)
+          #f
+          (eval-environment-cell environment (cdr operator)))
+      #f))
+
+(define (eval-application-of operator operands scope environment)
+  (let ((cell (eval-global-operator-cell operator scope environment)))
+    (if cell
+        (eval-make-global-application cell operands)
+        (eval-make-application (eval-compile operator scope environment)
+                               operands))))
+
+; A global operator is read from its cell directly. R7RS leaves the order of
+; operator and operand evaluation unspecified; the cell is read last.
+(define (eval-cell-procedure cell)
+  (let ((procedure (car cell)))
+    (if (eq? procedure EVAL-UNBOUND) (eval-unbound cell) procedure)))
+
+(define (eval-make-global-application cell operands)
+  (let ((count (length operands)))
+    (cond
+      ((= count 0) (lambda (frame) ((eval-cell-procedure cell))))
+      ((= count 1)
+       (let ((a (car operands)))
+         (lambda (frame)
+           (let ((x (a frame)))
+             ((eval-cell-procedure cell) x)))))
+      ((= count 2)
+       (eval-make-global-application-2 cell (car operands)
+                                       (car (cdr operands))))
+      ((= count 3)
+       (let ((a (car operands)) (b (car (cdr operands)))
+             (c (car (cdr (cdr operands)))))
+         (lambda (frame)
+           (let ((x (a frame)))
+             (let ((y (b frame)))
+               (let ((z (c frame)))
+                 ((eval-cell-procedure cell) x y z)))))))
+      (else
+       (lambda (frame)
+         (let ((arguments (eval-run-list operands frame)))
+           (apply (eval-cell-procedure cell) arguments)))))))
+
+(define (eval-cell-call-2 cell x y) ((eval-cell-procedure cell) x y))
+
+; When the operator's cell holds one of (scheme base)'s numeric procedures
+; at compile time, the call applies the same operator in this source, whose
+; compiled fixnum fast path falls back to that very procedure. The cell is
+; checked on each call, so a later redefinition takes the general path.
+(define (eval-make-global-application-2 cell a b)
+  (let ((opcode (eval-fast-opcode (car cell) (car EVAL-FAST-OPERATORS))))
+    (if opcode
+        (eval-make-fast-2 opcode cell (car cell) a b)
+        (lambda (frame)
+          (let ((x (a frame)))
+            (let ((y (b frame)))
+              ((eval-cell-procedure cell) x y)))))))
+
+(define (eval-fast-opcode procedure operators)
+  (cond
+    ((null? operators) #f)
+    ((eq? procedure (car (car operators))) (cdr (car operators)))
+    (else (eval-fast-opcode procedure (cdr operators)))))
+
+(define (eval-make-fast-2 opcode cell expected a b)
+  (cond
+    ((= opcode 0)
+     (lambda (frame)
+       (let ((x (a frame)))
+         (let ((y (b frame)))
+           (if (eq? (car cell) expected) (+ x y) (eval-cell-call-2 cell x y))))))
+    ((= opcode 1)
+     (lambda (frame)
+       (let ((x (a frame)))
+         (let ((y (b frame)))
+           (if (eq? (car cell) expected) (- x y) (eval-cell-call-2 cell x y))))))
+    ((= opcode 2)
+     (lambda (frame)
+       (let ((x (a frame)))
+         (let ((y (b frame)))
+           (if (eq? (car cell) expected) (* x y) (eval-cell-call-2 cell x y))))))
+    ((= opcode 3)
+     (lambda (frame)
+       (let ((x (a frame)))
+         (let ((y (b frame)))
+           (if (eq? (car cell) expected) (= x y) (eval-cell-call-2 cell x y))))))
+    ((= opcode 4)
+     (lambda (frame)
+       (let ((x (a frame)))
+         (let ((y (b frame)))
+           (if (eq? (car cell) expected) (< x y) (eval-cell-call-2 cell x y))))))
+    ((= opcode 5)
+     (lambda (frame)
+       (let ((x (a frame)))
+         (let ((y (b frame)))
+           (if (eq? (car cell) expected) (> x y) (eval-cell-call-2 cell x y))))))
+    ((= opcode 6)
+     (lambda (frame)
+       (let ((x (a frame)))
+         (let ((y (b frame)))
+           (if (eq? (car cell) expected) (<= x y) (eval-cell-call-2 cell x y))))))
+    (else
+     (lambda (frame)
+       (let ((x (a frame)))
+         (let ((y (b frame)))
+           (if (eq? (car cell) expected) (>= x y) (eval-cell-call-2 cell x y))))))))
 
 ; The operator is evaluated first, then the operands from left to right.
 (define (eval-make-application operator operands)

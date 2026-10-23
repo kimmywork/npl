@@ -11,7 +11,8 @@
           (rename core-expand-letstar frontend-expand-core-letstar)
           (rename core-body-expression frontend-core-body-expression)
           frontend-bytevector-items->runtime
-          frontend-set-native-hook!)
+          frontend-set-native-hook!
+          frontend-numeric-alias-suffixes)
   (import (npl primitive))
   (include "../../src/compiler/common/base.npl")
   (include "../../src/compiler/reader/lexer.npl")
@@ -49,6 +50,20 @@
     ; See src/compiler/frontend/library-definitions.npl.
     (define (frontend-set-native-hook! hook)
       (cell-set! LIBRARY-NATIVE-HOOK hook))
+
+    ; (suffix . operator) for the library procedures behind the public
+    ; numeric operators (frontend/numeric-aliases.npl). suffix is the
+    ; procedure's emitted name without its library prefix, as keys appear in
+    ; %library-definitions entries.
+    (define (frontend-numeric-alias-suffixes-in sources)
+      (if (null? sources)
+          ()
+          (cons (cons (sanitize (car (car sources)) 0 "")
+                      (car (cdr (car sources))))
+                (frontend-numeric-alias-suffixes-in (cdr sources)))))
+
+    (define (frontend-numeric-alias-suffixes)
+      (frontend-numeric-alias-suffixes-in PUBLIC-NUMERIC-ALIAS-SOURCES))
 
     (define (with-frontend-errors thunk)
       (call/cc

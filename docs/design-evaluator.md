@@ -205,7 +205,7 @@ Deleted: `evaluator-control.scm`, most of `evaluator-primitives.scm` and
 3. **E2b (done 2026-10-23):** standard libraries bound natively. Acceptance:
    - The imported loop is within 1.5x of the import-free loop.
    - The fallback path is tested by importing a copied, edited library.
-4. **E3:** evaluator-side tuning (operand kinds read directly, constant
+4. **E3 (done 2026-10-23; slowest workload 18.4 s):** evaluator-side tuning (operand kinds read directly, constant
    folding of operator cells where safe) until all 9 bench workloads finish
    under npli within 30 s. If native non-tail call cost still blocks that,
    a compiler change is decided separately.
