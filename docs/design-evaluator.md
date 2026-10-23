@@ -181,7 +181,7 @@ Deleted: `evaluator-control.scm`, most of `evaluator-primitives.scm` and
 1. **U0 (done 2026-10-22):** runtime unspecified value, compiler emission,
    writer, REPL suppression; fixtures and the native suites updated where
    they print such values; seed relay.
-2. **E2a:** closure compiler, native control and errors, primitives bound
+2. **E2a (done 2026-10-23):** closure compiler, native control and errors, primitives bound
    through `%library-definitions` for `(npl primitive)`. Standard libraries
    are still compiled from source in each session. Compiler change for the
    form, seed relay. Acceptance:

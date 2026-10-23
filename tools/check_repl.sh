@@ -59,6 +59,14 @@ cmp "$ROOT/src/repl/tests/eval.out" "$WORK/eval.out"
 cmp "$ROOT/src/repl/tests/eval.err" "$WORK/eval.err"
 
 (
+    cd "$WORK"
+    "$ROOT/build/bin/npli" --no-prompt
+) < "$ROOT/src/repl/tests/interop.in" \
+    > "$WORK/interop.out" 2> "$WORK/interop.err"
+cmp "$ROOT/src/repl/tests/interop.out" "$WORK/interop.out"
+cmp "$ROOT/src/repl/tests/interop.err" "$WORK/interop.err"
+
+(
     cd "$ROOT/src/repl/tests"
     "$ROOT/build/bin/npli" --no-prompt
 ) < "$ROOT/src/repl/tests/load.in" \
@@ -128,6 +136,14 @@ TESTS="$ROOT/src/compiler/tests"
 } > "$WORK/primitive-errors.scm"
 "$ROOT/build/bin/npli" "$WORK/primitive-errors.scm" > "$WORK/primitive-errors-suite.out"
 grep -Fx 'PASS primitive-errors 37' "$WORK/primitive-errors-suite.out" >/dev/null
+# Raw primitive errors are native error objects under npli as well.
+{
+    sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'
+/^(include "framework.npl")$/d' "$TESTS/runtime-errors.npl"
+    printf '(main)\n'
+} > "$WORK/runtime-errors.scm"
+"$ROOT/build/bin/npli" "$WORK/runtime-errors.scm" > "$WORK/runtime-errors-suite.out"
+grep -Fx 'PASS runtime-errors 14' "$WORK/runtime-errors-suite.out" >/dev/null
 [ "$missing_status" -eq 66 ]
 [ "$option_status" -eq 2 ]
 "$ROOT/build/bin/npli" -e '(import (scheme base) (scheme write))' \

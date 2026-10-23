@@ -26,6 +26,7 @@
   (include "../../src/compiler/frontend/primitive-table.npl")
   (include "../../src/compiler/frontend/library-primitives.npl")
   (include "../../src/compiler/frontend/c-primitives.npl")
+  (include "../../src/compiler/frontend/library-definitions.npl")
   (include "../../src/compiler/frontend/numeric-aliases.npl")
   (include "../../src/compiler/frontend/library.npl")
   (begin

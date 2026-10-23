@@ -21,25 +21,32 @@
           #f)
       #f))
 
+; Each value of a form is printed on its own line, except the unspecified
+; value.
 (define (repl-print-value value)
   (if (eval-unspecified? value)
       #f
-      (if (eval-values? value)
-          (repl-print-values (eval-values-list value))
-          (begin (write value) (newline)))))
+      (begin (write value) (newline))))
 
 (define (repl-print-values values)
-  (if (null? values)
-      #f
+  (if (pair? values)
       (begin
-        (write (car values))
-        (newline)
-        (repl-print-values (cdr values)))))
+        (repl-print-value (car values))
+        (repl-print-values (cdr values)))
+      #f))
 
-(define (repl-report-error error)
+(define (repl-report-error condition)
   (display "error: " (current-error-port))
-  (display (eval-error-message error) (current-error-port))
+  (display (eval-condition-text condition) (current-error-port))
   (newline (current-error-port)))
+
+; Any raise that reaches the top level of a form is reported; the session
+; continues with the next form.
+(define (repl-evaluate expression environment)
+  (guard (condition (#t (repl-report-error condition)))
+    (call-with-values
+      (lambda () (eval-in-environment expression environment))
+      (lambda values (repl-print-values values)))))
 
 (define (repl-loop environment prompt?)
   (if prompt?
@@ -58,10 +65,8 @@
               0
               (if (repl-exit-form? expression)
                   0
-                  (let ((value (eval-in-environment expression environment)))
-                    (if (eval-error? value)
-                        (repl-report-error value)
-                        (repl-print-value value))
+                  (begin
+                    (repl-evaluate expression environment)
                     (repl-loop environment prompt?))))))))
 
 ; ---------------- program runner ----------------
@@ -75,9 +80,13 @@
 
 ; Evaluation errors terminate a program with status 70 (EX_SOFTWARE); a
 ; program's own (exit n) exits with n.
-(define (npli-fail error)
-  (repl-report-error error)
+(define (npli-fail condition)
+  (repl-report-error condition)
   (exit 70))
+
+(define (npli-evaluate form environment)
+  (guard (condition (#t (npli-fail condition)))
+    (eval-in-environment form environment)))
 
 (define (npli-evaluate-source source environment)
   (let ((port (open-input-string source)))
@@ -85,8 +94,8 @@
       (let ((form (read port)))
         (if (eof-object? form)
             0
-            (let ((value (eval-in-environment form environment)))
-              (if (eval-error? value) (npli-fail value))
+            (begin
+              (npli-evaluate form environment)
               (loop)))))))
 
 (define (npli-run-file path arguments environment)
@@ -97,9 +106,9 @@
         (newline (current-error-port))
         (exit 66)))
   (set-command-line! (cons path arguments))
-  (let ((value (eval-load-file path environment)))
-    (if (eval-error? value) (npli-fail value))
-    0))
+  (guard (condition (#t (npli-fail condition)))
+    (eval-load-file path environment))
+  0)
 
 ; Options come first; the first non-option argument is the program and the
 ; rest are its arguments, never interpreted by npli.

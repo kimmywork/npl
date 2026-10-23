@@ -13,6 +13,7 @@
   "frontend/primitive-table.npl"
   "frontend/library-primitives.npl"
   "frontend/c-primitives.npl"
+  "frontend/library-definitions.npl"
   "frontend/numeric-aliases.npl"
   "frontend/library.npl"
   "backend/primitives.npl"

@@ -190,6 +190,7 @@
     ((string=? name "syntax-error") (expand-syntax-error form))
     ((string=? name "%c-call") (expand-c-call form value-env macro-env))
     ((string=? name "%c-procedure") (expand-c-procedure form))
+    ((string=? name "%library-definitions") (expand-library-definitions form))
     ((string=? name "define-c-primitive")
      (fatal "define-c-primitive is valid at top level only"))
     ((string=? name "define-syntax")

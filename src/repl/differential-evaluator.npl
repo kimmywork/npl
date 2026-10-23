@@ -7,18 +7,22 @@
 
 (define environment (make-eval-environment))
 
+(define (fail condition)
+  (display (eval-condition-text condition) (current-error-port))
+  (newline (current-error-port))
+  (exit 1))
+
+(define (evaluate form)
+  (guard (condition (#t (fail condition)))
+    (eval-in-environment form environment)))
+
 (define (load-forms port)
   (let ((form (read port)))
     (if (eof-object? form)
         #t
-        (let ((result (eval-in-environment form environment)))
-          (if (eval-error? result)
-              (begin
-                (display (eval-error-message result)
-                         (current-error-port))
-                (newline (current-error-port))
-                (exit 1))
-              (load-forms port))))))
+        (begin
+          (evaluate form)
+          (load-forms port)))))
 
 (define (main)
   (let ((arguments (cdr (command-line))))
@@ -27,16 +31,6 @@
     (let ((port (open-input-file (car arguments))))
       (load-forms port)
       (close-input-port port))
-    (let ((result
-            (eval-in-environment
-              (read (open-input-string "(differential-results)"))
-              environment)))
-      (if (eval-error? result)
-          (begin
-            (display (eval-error-message result) (current-error-port))
-            (newline (current-error-port))
-            (exit 1))
-          (begin
-            (write result)
-            (newline)
-            0)))))
+    (write (evaluate (read (open-input-string "(differential-results)"))))
+    (newline)
+    0))

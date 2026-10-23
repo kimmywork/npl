@@ -1,0 +1,19 @@
+; Evaluator procedures and native code call each other: closures passed to
+; native higher-order procedures, native errors caught by evaluator guard,
+; and a continuation captured in one REPL form re-entered from later forms
+; (docs/design-evaluator.md section 6, D3). After an uncaught error the
+; session continues.
+(import (scheme base) (scheme write))
+(map (lambda (x) (* x x)) '(1 2 3))
+(vector-map (lambda (x) (+ x 1)) #(1 2))
+(let ((total 0)) (string-for-each (lambda (c) (set! total (+ total (char->integer c)))) "ab") total)
+(guard (e ((error-object? e) (list (error-object-message e) (error-object-irritants e)))) (map (lambda (p) (car p)) '((1) 2)))
+(call-with-values (lambda () (apply values (map (lambda (x) x) '(1 2)))) (lambda (a b) (+ a b)))
+(define k #f)
+(define count 0)
+(+ 100 (call/cc (lambda (c) (set! k c) 1)))
+(set! count (+ count 1))
+(if (< count 3) (k (* 10 count)) 'done)
+count
+(map (lambda (x) (car x)) '(1))
+'after-error

@@ -14,6 +14,12 @@
 (define (evaluated source)
   (eval-in-environment (source-datum source) environment))
 
+; Evaluation errors are raised error objects, as in compiled code.
+(define (raises? source)
+  (guard (condition ((error-object? condition) #t))
+    (evaluated source)
+    #f))
+
 (define (main)
   (test-equal "literal" (lambda () (evaluated "42")) 42)
   (test-equal "arithmetic" (lambda () (evaluated "(+ 20 22)")) 42)
@@ -84,14 +90,14 @@
   (test-equal "persistent imported alias"
               (lambda () (evaluated "(plus 20 22)")) 42)
   (test-identity "recoverable unbound error"
-                 (lambda () (eval-error? (evaluated "missing"))) #t)
+                 (lambda () (raises? "missing")) #t)
   (test-equal "state survives error" (lambda () (evaluated "answer")) 42)
   (test-identity "recoverable arithmetic type error"
-                 (lambda () (eval-error? (evaluated "(+ #t 1)"))) #t)
+                 (lambda () (raises? "(+ #t 1)")) #t)
   (test-identity "recoverable pair type error"
-                 (lambda () (eval-error? (evaluated "(car 1)"))) #t)
+                 (lambda () (raises? "(car 1)")) #t)
   (test-identity "recoverable vector bounds error"
-                 (lambda () (eval-error? (evaluated "(vector-ref #(42) 1)"))) #t)
+                 (lambda () (raises? "(vector-ref #(42) 1)")) #t)
   (test-equal "state survives primitive errors"
               (lambda () (evaluated "answer")) 42)
   (test-equal "dynamic-wind normal order"

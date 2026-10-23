@@ -1,0 +1,39 @@
+; (%library-definitions library-name ...) evaluates to, for each named
+; library, (key (name . value) ...): the value definitions the library
+; provides, keyed by source name, with key its library-name-key
+; ("npl/primitive"). npli binds these names to the compiled procedures
+; instead of evaluating their source (docs/design-evaluator.md, D2).
+; Supported so far: (npl primitive), whose values are its exports generated
+; from the shared primitive table.
+;
+; The expansion is final: identifiers name primitives directly and string
+; literals carry the keys, so the result does not depend on the bindings
+; around the use.
+
+(define (library-definitions-cons first rest)
+  (cons (datum-symbol "cons") (cons first (cons rest ()))))
+
+(define (library-definitions-pairs identifiers)
+  (if (null? identifiers)
+      ()
+      (let ((name (datum-symbol-name (car identifiers))))
+        (library-definitions-cons
+          (library-definitions-cons (datum-string name) (datum-symbol name))
+          (library-definitions-pairs (cdr identifiers))))))
+
+(define (library-definitions-entry name)
+  (if (library-primitive-name? name)
+      (library-definitions-cons
+        (datum-string (library-name-key name))
+        (library-definitions-pairs (library-primitive-value-names)))
+      (fatal "%library-definitions: only (npl primitive) is supported")))
+
+(define (library-definitions-list names)
+  (if (null? names)
+      ()
+      (library-definitions-cons
+        (library-definitions-entry (car names))
+        (library-definitions-list (cdr names)))))
+
+(define (expand-library-definitions form)
+  (library-definitions-list (cdr form)))
