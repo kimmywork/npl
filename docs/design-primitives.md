@@ -251,7 +251,9 @@ result, checks inside).
 4. Evaluator-side tuning until the bench workloads finish under npli.
 5. Level A foreign calls: nplc link options, npli `dlopen` trampolines,
    npli linked with the whole runtime (`-force_load`, `--whole-archive`,
-   `-rdynamic`).
+   `-rdynamic`). Done 2026-10-23: `nplc -l/-L`; `npli -l PATH` (chosen
+   over a source-level library declaration) and `runtime/ffi.c`. User
+   guide: [ffi](ffi.md).
 6. Level B foreign calls: pointer type, typed `define-c-function`,
    generated per-library stubs (npli) and direct calls (nplc).
 7. Optional: inline checks for `pair`, `fixnum`, `char`, and `index`

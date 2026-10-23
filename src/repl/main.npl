@@ -3,6 +3,7 @@
 ;   npli [--no-prompt]            interactive loop on standard input
 ;   npli FILE [ARG ...]           run FILE, then exit
 ;   npli -e EXPR ... [FILE ...]   evaluate expressions (then run FILE)
+;   npli -l LIBRARY ...           first load a shared library of C functions
 ;   npli -h | --help
 ;
 ; A program sees (command-line) as (FILE ARG ...), like other R7RS runners.
@@ -11,6 +12,8 @@
 "usage: npli [--no-prompt]
        npli [--stdlib-root DIR] FILE [ARG ...]
        npli [--stdlib-root DIR] -e EXPR [-e EXPR ...] [FILE [ARG ...]]
+Options:
+  -l LIBRARY        load a shared library of C functions (docs/ffi.md)
 ")
 
 (define (repl-exit-form? expression)
@@ -110,6 +113,21 @@
     (eval-load-file path environment))
   0)
 
+; C functions declared with define-c-primitive resolve through npli and the
+; libraries loaded here (runtime/ffi.c). The path is passed to dlopen as
+; given, so a name without a slash is searched for by the system loader.
+(define-c-primitive (npli-load-library (path string)) any
+  "npl_ffi_load_library")
+
+(define (npli-load! path)
+  (let ((loaded (npli-load-library path)))
+    (if (string? loaded)
+        (begin
+          (display (string-append "npli: cannot load " path ": " loaded)
+                   (current-error-port))
+          (newline (current-error-port))
+          (exit 66)))))
+
 ; Options come first; the first non-option argument is the program and the
 ; rest are its arguments, never interpreted by npli.
 (define (npli-main arguments expressions prompt?)
@@ -130,6 +148,10 @@
      (if (null? (cdr arguments))
          (npli-usage-error "--stdlib-root needs a directory"))
      (set-eval-standard-root! (car (cdr arguments)))
+     (npli-main (cdr (cdr arguments)) expressions prompt?))
+    ((string=? (car arguments) "-l")
+     (if (null? (cdr arguments)) (npli-usage-error "-l needs a library"))
+     (npli-load! (car (cdr arguments)))
      (npli-main (cdr (cdr arguments)) expressions prompt?))
     ((string=? (car arguments) "-e")
      (if (null? (cdr arguments)) (npli-usage-error "-e needs an expression"))

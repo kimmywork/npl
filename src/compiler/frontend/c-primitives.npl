@@ -12,8 +12,10 @@
 ;
 ; Types are recorded, not checked: the C function validates its arguments.
 ; A declaration is valid at top level only and precedes the uses of its
-; name. npli cannot yet call C functions it was not built with, so its
-; frontend rejects these forms (C-PRIMITIVES-SUPPORTED).
+; name. nplc leaves the symbol to the linker; npli resolves it when the
+; declaration is expanded, through C-PRIMITIVE-HOOK (set by
+; lib/npl/evaluator-session.scm), which binds the row name to a procedure
+; calling the C function.
 ;
 ; Tests below are single predicate calls: control conversion copies an if's
 ; continuation into both branches, so a compound test (nested if, and, or)
@@ -23,7 +25,8 @@
   '("any" "pair" "fixnum" "index" "integer" "number" "real" "char" "string"
     "symbol" "vector" "bytevector" "procedure" "port" "boolean"))
 
-(define C-PRIMITIVES-SUPPORTED (cell #t))
+; #f, or (hook row-name symbol count) -> #f when bound, else a message.
+(define C-PRIMITIVE-HOOK (cell #f))
 
 (define (c-primitive-type-name type)
   (if (not (datum-symbol? type))
@@ -111,13 +114,28 @@
 ; call sites use. A symbol already registered (by the table or an earlier
 ; declaration) keeps its row, so each C function has one wrapper; the row
 ; must agree on the operand count.
-(define (register-c-primitive! symbol types result)
-  (if (not (cell-get C-PRIMITIVES-SUPPORTED))
-      (fatal "C primitives need nplc: npli cannot call C functions yet"))
+(define (c-primitive-row-name symbol types result)
   (let ((row (c-primitive-registered-row symbol)))
     (if row
         (c-primitive-existing-name row symbol (raw-list-count types 0))
         (c-primitive-new-name symbol (raw-list-count types 0) types result))))
+
+(define (c-primitive-resolved name problem)
+  (if problem (fatal problem) name))
+
+; Table rows are already procedures in npli. A declared row is resolved on
+; each registration: rows are shared by every environment of an npli
+; process, and each environment binds its own row names.
+(define (c-primitive-resolve name symbol count)
+  (cond
+    ((not (cell-get C-PRIMITIVE-HOOK)) name)
+    ((primitive-row-in name PRIMITIVE-TABLE) name)
+    (else (c-primitive-resolved
+            name ((cell-get C-PRIMITIVE-HOOK) name symbol count)))))
+
+(define (register-c-primitive! symbol types result)
+  (c-primitive-resolve (c-primitive-row-name symbol types result)
+                       symbol (raw-list-count types 0)))
 
 (define (c-primitive-parameter? parameter)
   (cond

@@ -36,7 +36,17 @@ npl_escape() {
     printf '(include "%s")\n' "$(npl_escape "$ROOT/src/repl/main.npl")"
 } > "$work/repl.npl"
 
-"$ROOT/build/bin/nplc" "$work/repl.npl" -o "$OUTPUT"
+# C libraries loaded with npli -l call back into the runtime through npli's
+# own symbols (docs/design-primitives.md, section 5), so npli links every
+# runtime member, not only those it uses, and exports them on Linux.
+RUNTIME="$ROOT/build/lib/npl/libnpl_runtime.a"
+"$ROOT/build/bin/nplc" -c "$work/repl.npl" -o "$work/repl.o"
+case "$(uname -s)" in
+    Darwin) whole=("-Wl,-force_load,$RUNTIME") ;;
+    *) whole=(-rdynamic -Wl,--whole-archive "$RUNTIME" -Wl,--no-whole-archive
+              -ldl) ;;
+esac
+"${NPL_CC:-${CC:-cc}}" -o "$OUTPUT" "$work/repl.o" "${whole[@]}" -lm
 # The pre-rename binary is no longer produced or used.
 rm -f "$ROOT/build/bin/npl-repl"
 printf 'built npli: %s\n' "$OUTPUT"

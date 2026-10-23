@@ -91,7 +91,10 @@ SSA to standard output is emitted in-process; this is the relay path. File-produ
 npli                                  # interactive REPL (--no-prompt for transcripts)
 npli program.scm arg ...              # run a program; (command-line) is (program.scm arg ...)
 npli -e '(import (scheme base))' -e EXPR [program.scm ...]
+npli -l ./libclamp.so program.scm     # load C functions first (docs/ffi.md)
 ```
+
+`npli` links the whole runtime archive (`-Wl,-force_load` on macOS; `--whole-archive` and `-rdynamic` on Linux, `tools/build_npli.sh`) so a library loaded with `-l` can call every runtime function through it. A library that cannot be loaded exits 66.
 
 A program's `(exit n)` sets the process status (`#t` is 0, `#f` is 1, as R7RS 6.14 and Guile). An evaluation error prints `error: ...` and exits 70; a missing program exits 66; a usage error exits 2. The standard library root is `--stdlib-root`, then `NPL_STDLIB_ROOT`, then the install layout, then the build-time checkout path. `npli` is not a bootstrap artifact.
 

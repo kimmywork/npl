@@ -3,12 +3,13 @@
 NPL code can call C functions written against the runtime ABI: each takes
 and returns `NplVal`. A declaration in a program or library makes such a
 function an ordinary NPL procedure, with no compiler change and no seed
-relay. Calls compile to a direct C call, as for built-in primitives.
+relay. Under `nplc` calls compile to a direct C call, as for built-in
+primitives; `npli` looks the function up when the declaration is evaluated.
 
-Supported by `nplc` since 2026-10-22 (P2b); `nplc -l`/`-L` since
-2026-10-23. Not yet supported: `npli`, C types and pointers, callbacks into
-NPL. See
-"Limitations" and the plan in [design-primitives](design-primitives.md).
+Supported by `nplc` since 2026-10-22 (P2b); `nplc -l`/`-L` and `npli -l`
+since 2026-10-23. Not yet supported: C types and pointers, callbacks into
+NPL. See "Limitations" and the plan in
+[design-primitives](design-primitives.md).
 
 ## Declaring A Function
 
@@ -114,13 +115,42 @@ cc -o main main.o clamp.o PREFIX/lib/npl/libnpl_runtime.a -lm
 `npl.h` is in the source checkout's `runtime/` and is not installed yet. On
 macOS `-lm` is part of libSystem and may be omitted.
 
+### Running Under npli
+
+Build the same C file as a shared library and load it with `npli -l`
+before the program:
+
+```bash
+cc -std=c99 -I path/to/npl/runtime -dynamiclib -undefined dynamic_lookup \
+    -o libclamp.dylib clamp.c                      # macOS
+cc -std=c99 -I path/to/npl/runtime -shared -fPIC -o libclamp.so clamp.c   # Linux
+npli -l ./libclamp.dylib main.scm
+```
+
+- The path goes to `dlopen` unchanged: a name without a slash
+  (`-l libclamp.so`) is searched for by the system loader
+  (`LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`), unlike `nplc -l clamp`.
+- `-l` may be repeated; each library is loaded with global symbols in
+  order, so a later library can use an earlier one's functions.
+- The library calls runtime functions (`npl_cons`, `npl_primitive_error`)
+  through npli itself, which exports the whole runtime. Do not link the
+  library against `libnpl_runtime.a`: it would get a second runtime with
+  its own heap.
+- A declaration binds its name when evaluated, so the function must be
+  loaded by then. `%c-call` and `%c-procedure` also work in `eval`.
+- npli calls functions of at most 8 arguments.
+- `npli` defines `main` as an ordinary procedure: a program written for
+  `nplc` calls `(main)` itself when run under npli.
+
 The complete example is `src/compiler/tests/c-extension/` (`main.npl`,
-`clamp.c`, `expected.out`). `tools/check_full_compiler.sh` links it by hand
-and `tools/check_driver.sh` through `-L`/`-l`.
+`clamp.c`, `expected.out`). `tools/check_full_compiler.sh` links it by hand,
+`tools/check_driver.sh` through `-L`/`-l`, and `tools/check_repl.sh` runs it
+under `npli -l`.
 
 ## Diagnostics
 
-Compile-time errors from `nplc`:
+Errors from `nplc` at compile time, and from `npli` (status 70) when the
+form is evaluated:
 
 | Message | Cause |
 |---|---|
@@ -131,14 +161,19 @@ Compile-time errors from `nplc`:
 | `C primitive declaration conflicts with registered S` | symbol is a built-in or earlier declaration with another operand count or kind |
 | `%c-call: argument count differs from its types` | type list and arguments differ in length |
 
-A symbol with no definition at link time is reported by the linker as an
-undefined symbol.
+A symbol with no definition is reported by the `nplc` linker as an undefined
+symbol. Under `npli`:
+
+| Message | Cause |
+|---|---|
+| `C function not found: S (load its library with npli -l PATH)` | no loaded code defines `S` |
+| `npli calls C functions of at most 8 arguments: S` | more than 8 parameters |
+| `npli: cannot load PATH: ...` (status 66) | `dlopen` failed; the loader's reason follows |
 
 ## Limitations
 
-- **npli** rejects these forms (`error: C primitives need nplc: npli cannot
-  call C functions yet`, status 70). Running C code in the evaluator needs
-  run-time symbol lookup (`dlsym`), planned as P5.
+- **npli** calls at most 8 arguments, and the declaration must be evaluated
+  after its library is loaded (see "Running Under npli").
 - **Values only.** Arguments and results are `NplVal`. Calling an existing
   C library with C types (`int`, `double`, `char *`, pointers) needs a
   small `NplVal` wrapper like the one above. Typed C declarations with

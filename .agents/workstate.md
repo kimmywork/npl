@@ -101,7 +101,7 @@ self-emit ~80% of nursery-off CPU at 0.27 GB peak. R0 done (worklog
 2026-10-22 10:50): one shared primitive table, rule-derived C symbols,
 generated `(npl primitive)` exports. P2b done (worklog 2026-10-22
 13:30): `define-c-primitive`, `%c-call`, `%c-procedure` register rows per
-compilation; nplc only until P5. FFI user guide `docs/ffi.md`. E1 done:
+compilation; npli resolves them since P5b. FFI user guide `docs/ffi.md`. E1 done:
 `docs/design-evaluator.md` accepted 2026-10-22 with D1 runtime unspecified
 immediate, D2 `%library-definitions`, D3 native REPL re-entry. Increments
 now U0 (unspecified value), E2a, E2b, E3 as listed there. U0 done (worklog
@@ -110,15 +110,15 @@ now U0 (unspecified value), E2a, E2b, E3 as listed there. U0 done (worklog
 (worklog 2026-10-23 13:30): all 9 bench workloads under npli in 30 s
 (slowest loop 18.4 s). Remaining npli cost is native non-tail call
 allocation; a cheaper call convention is a separate compiler decision.
-P5 (FFI level A) in progress: P5a done (nplc -l/-L, worklog 2026-10-23
-14:20). Next P5b: runtime ffi.c (dlopen/dlsym, 0..8 NplVal trampolines),
-npli linked with the whole runtime, `npli -l PATH`, npli support for
-define-c-primitive/%c-call/%c-procedure; then the Linux check.
+P5 (FFI level A) done on macOS: P5a nplc -l/-L (14:20), P5b npli -l
+with runtime/ffi.c (15:10). Pending: Linux gate (tools/check_linux.sh).
+Next: P6 (FFI level B); first decide the stub driver and the pointer
+representation (docs/design-primitives.md, Open Questions).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 237,680 lines; SHA-256
-  `7c875807e371ea43c71cd3f3fdd695b1628a369a5aacec407894a741eee77377`
+- `bootstrap/current.ssa`: 237,711 lines; SHA-256
+  `966b804059b1e7c277e9dc4dfc75196e1255491cb17fa808843f926f8ef5d55c`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded

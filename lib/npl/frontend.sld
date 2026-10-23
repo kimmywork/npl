@@ -12,6 +12,7 @@
           (rename core-body-expression frontend-core-body-expression)
           frontend-bytevector-items->runtime
           frontend-set-native-hook!
+          frontend-set-c-primitive-hook!
           frontend-numeric-alias-suffixes)
   (import (npl primitive))
   (include "../../src/compiler/common/base.npl")
@@ -50,6 +51,9 @@
     ; See src/compiler/frontend/library-definitions.npl.
     (define (frontend-set-native-hook! hook)
       (cell-set! LIBRARY-NATIVE-HOOK hook))
+
+    (define (frontend-set-c-primitive-hook! hook)
+      (cell-set! C-PRIMITIVE-HOOK hook))
 
     ; (suffix . operator) for the library procedures behind the public
     ; numeric operators (frontend/numeric-aliases.npl). suffix is the
@@ -140,7 +144,6 @@
                       () () 0 () 0 () 1000000000 0 0
                       "" () () () () 0 () ())))
         (cell-set! EXPAND-REQUIRE-BOUND 0)
-        (cell-set! C-PRIMITIVES-SUPPORTED #f)
         (cell-set! TRANSCRIPTION-ALIASES ())
         (cell-set! TRANSCRIPTION-MACRO-ALIASES ())
         (cell-set! SYNTAX-MARKS ())

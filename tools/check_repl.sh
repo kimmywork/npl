@@ -116,18 +116,66 @@ set -e
 [ "$bad_status" -eq 70 ]
 grep -F 'error: car: expected a pair' "$WORK/bad.err" >/dev/null
 
-# Declared C primitives are nplc-only until npli resolves symbols (P5).
-printf '(import (scheme base))\n(%%c-call "npl_car" (pair) (cons 1 2))\n' \
-    > "$WORK/c-call.scm"
-set +e
-"$ROOT/build/bin/npli" "$WORK/c-call.scm" > /dev/null 2> "$WORK/c-call.err"
-c_call_status=$?
-set -e
-[ "$c_call_status" -eq 70 ]
-grep -F 'error: C primitives need nplc' "$WORK/c-call.err" >/dev/null
+# Declared C primitives under npli (runtime/ffi.c): the docs/ffi.md example
+# as a shared library loaded with -l, the shared C primitive suite and its
+# contracts, eval environments, and lookup and load failures.
+TESTS="$ROOT/src/compiler/tests"
+EXTENSION="$TESTS/c-extension"
+case "$(uname -s)" in
+    Darwin) shared=(-dynamiclib -undefined dynamic_lookup)
+            library="$WORK/libdemoclamp.dylib" ;;
+    *) shared=(-shared -fPIC); library="$WORK/libdemoclamp.so" ;;
+esac
+"${CC:-cc}" -std=c99 -Wall -Werror -I "$ROOT/runtime" "${shared[@]}" \
+    -o "$library" "$EXTENSION/clamp.c"
+{ cat "$EXTENSION/main.npl"; printf '(main)\n'; } > "$WORK/c-extension.scm"
+"$ROOT/build/bin/npli" -l "$library" "$WORK/c-extension.scm" \
+    > "$WORK/c-extension.out"
+cmp "$EXTENSION/expected.out" "$WORK/c-extension.out"
+cat > "$WORK/c-environments.scm" <<'SCHEME'
+(import (scheme base) (scheme write) (scheme eval))
+(define-c-primitive (clamp (x fixnum) (lo fixnum) (hi fixnum)) fixnum
+  "demo_clamp")
+(define env (environment '(scheme base)))
+(write (list (clamp 15 0 10)
+             (eval '(%c-call "demo_clamp" (any any any) -4 0 3) env)
+             (eval '((%c-procedure "demo_clamp" (any any any)) 9 0 3) env)))
+SCHEME
+"$ROOT/build/bin/npli" -l "$library" "$WORK/c-environments.scm" \
+    > "$WORK/c-environments.out"
+printf '(10 0 3)' | cmp - "$WORK/c-environments.out"
+{
+    sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'
+/^(include "framework.npl")$/d' "$TESTS/c-primitives.npl"
+    printf '(main)\n'
+} > "$WORK/c-primitives.scm"
+(cd "$TESTS" && "$ROOT/build/bin/npli" "$WORK/c-primitives.scm") \
+    > "$WORK/c-primitives.out"
+grep -Fx 'PASS c-primitives 11' "$WORK/c-primitives.out" >/dev/null
+reject_npli() {
+    set +e
+    "$ROOT/build/bin/npli" "$@" > /dev/null 2> "$WORK/rejected.err"
+    rejected_status=$?
+    set -e
+}
+for contract in "nested:define-c-primitive is valid at top level only" \
+                "type:unknown C primitive type: pear" \
+                "conflict:C primitive declaration conflicts with registered npl_car" \
+                "symbol:invalid C symbol: npl-f"; do
+    { cat "$TESTS/contracts/c-primitive-${contract%%:*}.npl"; printf '(main)\n'; } \
+        > "$WORK/contract.scm"
+    reject_npli "$WORK/contract.scm"
+    [ "$rejected_status" -eq 70 ]
+    grep -F "error: ${contract#*:}" "$WORK/rejected.err" >/dev/null
+done
+reject_npli "$WORK/c-extension.scm"
+[ "$rejected_status" -eq 70 ]
+grep -F 'error: C function not found: demo_clamp' "$WORK/rejected.err" >/dev/null
+reject_npli -l "$WORK/missing-library" "$WORK/c-extension.scm"
+[ "$rejected_status" -eq 66 ]
+grep -F "npli: cannot load $WORK/missing-library" "$WORK/rejected.err" >/dev/null
 
 # Primitive error objects agree with native (src/compiler/tests, same file).
-TESTS="$ROOT/src/compiler/tests"
 # Inline framework.npl in place of its include line, then call main.
 {
     sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'

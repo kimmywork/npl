@@ -49,6 +49,50 @@
 
 (frontend-set-native-hook! eval-native-match?)
 
+; Declared C primitives (src/compiler/frontend/c-primitives.npl): the
+; frontend names each declared C function by a row name, which is bound in
+; the environment being expanded to a procedure calling the function. The
+; symbol resolves through npli itself and the libraries loaded with
+; npli -l (runtime/ffi.c).
+(define-c-primitive (eval-ffi-procedure (symbol string) (count fixnum)) any
+  "npl_ffi_procedure")
+
+(define EVAL-FFI-MAX-ARGUMENTS 8)
+
+; The environment whose forms the frontend is expanding. Expansion does not
+; run evaluated code (macros are syntax-rules), so it does not nest.
+(define EVAL-EXPANSION-ENVIRONMENT (list #f))
+
+(define (eval-bind-c-procedure! name procedure)
+  (set-car! (eval-environment-cell (car EVAL-EXPANSION-ENVIRONMENT) name)
+            procedure)
+  #f)
+
+(define (eval-c-procedure-problem symbol procedure name)
+  (if procedure
+      (eval-bind-c-procedure! name procedure)
+      (string-append "C function not found: " symbol
+                     " (load its library with npli -l PATH)")))
+
+; Returns #f once name is bound, else the reason it cannot be.
+(define (eval-bind-c-primitive! name symbol count)
+  (if (> count EVAL-FFI-MAX-ARGUMENTS)
+      (string-append "npli calls C functions of at most 8 arguments: "
+                     symbol)
+      (eval-c-procedure-problem symbol (eval-ffi-procedure symbol count)
+                                name)))
+
+(frontend-set-c-primitive-hook! eval-bind-c-primitive!)
+
+(define (eval-expand expression environment)
+  (let ((previous (car EVAL-EXPANSION-ENVIRONMENT)))
+    (set-car! EVAL-EXPANSION-ENVIRONMENT environment)
+    (let ((forms (frontend-expand-datum
+                   (eval-environment-frontend-session environment)
+                   expression)))
+      (set-car! EVAL-EXPANSION-ENVIRONMENT previous)
+      forms)))
+
 ; (procedure . opcode) for (scheme base)'s numeric procedures, as bound by
 ; eval-bind-native!; opcodes follow eval-make-fast-2.
 (define EVAL-FAST-OPERATOR-NAMES '("+" "-" "*" "=" "<" ">" "<=" ">="))
@@ -209,19 +253,13 @@
 
 (define (eval-checked-expression expression environment)
   (if (eval-environment-mutable? environment)
-      (eval-expanded
-        (frontend-expand-datum
-          (eval-environment-frontend-session environment) expression)
-        environment)
+      (eval-expanded (eval-expand expression environment) environment)
       (eval-frozen-expression expression environment)))
 
 (define (eval-frozen-expression expression environment)
   (if (eval-definition-form? expression)
       (error "eval: immutable environment")
-      (eval-expanded
-        (frontend-expand-datum
-          (eval-environment-frontend-session environment) expression)
-        environment)))
+      (eval-expanded (eval-expand expression environment) environment)))
 
 (define (eval-in-environment expression environment)
   (if (eval-environment? environment)
