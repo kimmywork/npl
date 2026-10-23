@@ -24,6 +24,8 @@ Options:
   --qbe PATH        QBE executable          (env NPL_QBE)
   --cc PATH         C compiler and linker   (env NPL_CC, then CC)
   --runtime PATH    runtime archive         (env NPL_RUNTIME)
+  -l NAME, -lNAME   link library NAME into the executable
+  -L DIR, -LDIR     search DIR for -l libraries
   -h, --help        show this help
 ")
 
@@ -36,8 +38,10 @@ Options:
 (define DRIVER-CC 5)
 (define DRIVER-RUNTIME 6)
 (define DRIVER-KEEP 7)
+; Linker arguments (-lNAME, -LDIR), most recent first.
+(define DRIVER-LINK 8)
 
-(define (driver-config) (vector "exe" #f #f #f #f #f #f #f))
+(define (driver-config) (vector "exe" #f #f #f #f #f #f #f ()))
 (define (driver-get config slot) (vector-ref config slot))
 (define (driver-set! config slot value) (vector-set! config slot value))
 
@@ -71,6 +75,18 @@ Options:
   (if (null? rest)
       (driver-error (string-append option " needs a value"))
       (car rest)))
+
+; -l and -L take their value attached (-lm) or as the next argument (-l m).
+(define (driver-link-option? argument)
+  (if (driver-prefix? "-l" argument) #t (driver-prefix? "-L" argument)))
+
+(define (driver-add-link! config argument rest)
+  (let ((attached (> (string-length argument) 2)))
+    (driver-set! config DRIVER-LINK
+      (cons (if attached argument
+                (string-append argument (driver-value argument rest)))
+            (driver-get config DRIVER-LINK)))
+    (if attached rest (cdr rest))))
 
 (define (driver-parse! config arguments)
   (if (null? arguments)
@@ -112,6 +128,8 @@ Options:
           ((string=? argument "--runtime")
            (driver-set! config DRIVER-RUNTIME (driver-value argument rest))
            (driver-parse! config (cdr rest)))
+          ((driver-link-option? argument)
+           (driver-parse! config (driver-add-link! config argument rest)))
           ((if (driver-prefix? "-" argument)
                (> (string-length argument) 1) #f)
            (driver-error (string-append "unknown option " argument)))
@@ -248,13 +266,16 @@ Options:
             #f)))
     (if (= status 0) 0 (driver-stage-failure "cc" status))))
 
+; User libraries precede the runtime archive: they may call into it.
 (define (driver-link config assembly executable)
   (let ((runtime (driver-runtime config)))
     (let ((status
             (run-process
               (cons (driver-cc config)
                 (cons "-o" (cons executable
-                  (cons assembly (cons runtime (cons "-lm" ()))))))
+                  (cons assembly
+                    (rev-into (driver-get config DRIVER-LINK)
+                              (cons runtime (cons "-lm" ())))))))
               #f)))
       (if (= status 0) 0 (driver-stage-failure "link" status)))))
 

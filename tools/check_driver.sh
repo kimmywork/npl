@@ -47,6 +47,23 @@ cc -o "$WORK/linked" "$WORK/hello.o" "$ROOT/build/lib/npl/libnpl_runtime.a" -lm
 cmp "$WORK/native.expected" "$WORK/linked.out"
 empty_tmp
 
+# -L/-l link a C library of declared primitives (docs/ffi.md), with the value
+# attached or separate; -l without a value is a usage error.
+EXTENSION="$ROOT/src/compiler/tests/c-extension"
+mkdir -p "$WORK/c lib"
+cc -std=c99 -Wall -Werror -I "$ROOT/runtime" -c -o "$WORK/clamp.o" \
+    "$EXTENSION/clamp.c"
+ar rcs "$WORK/c lib/libdemoclamp.a" "$WORK/clamp.o"
+TMPDIR="$WORK/tmp" "$NPLC" "$EXTENSION/main.npl" -L "$WORK/c lib" \
+    -l democlamp -o "$WORK/extension"
+"$WORK/extension" > "$WORK/extension.out"
+cmp "$EXTENSION/expected.out" "$WORK/extension.out"
+TMPDIR="$WORK/tmp" "$NPLC" "-L$WORK/c lib" -ldemoclamp "$EXTENSION/main.npl" \
+    -o "$WORK/extension-attached"
+"$WORK/extension-attached" > "$WORK/extension.out"
+cmp "$EXTENSION/expected.out" "$WORK/extension.out"
+empty_tmp
+
 # Runs from outside the repository.
 (cd /tmp && TMPDIR="$WORK/tmp" "$NPLC" "$SOURCE" -o "$WORK/outside")
 "$WORK/outside" > "$WORK/outside.out"
@@ -85,6 +102,12 @@ for arguments in "--emit=dylib" "--emit=staticlib" "--emit=bogus" "--bogus"; do
     [ "$option_status" -eq 2 ]
     [ -s "$WORK/option.err" ]
 done
+set +e
+"$NPLC" "$SOURCE" -l > /dev/null 2> "$WORK/option.err"
+option_status=$?
+set -e
+[ "$option_status" -eq 2 ]
+grep -F 'nplc: -l needs a value' "$WORK/option.err" >/dev/null
 "$NPLC" --help | grep -F 'usage: nplc' >/dev/null
 
 # --keep-temps reports and keeps the intermediate directory.

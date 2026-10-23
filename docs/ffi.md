@@ -5,8 +5,9 @@ and returns `NplVal`. A declaration in a program or library makes such a
 function an ordinary NPL procedure, with no compiler change and no seed
 relay. Calls compile to a direct C call, as for built-in primitives.
 
-Supported by `nplc` since 2026-10-22 (P2b). Not yet supported: `npli`,
-`nplc` link options, C types and pointers, callbacks into NPL. See
+Supported by `nplc` since 2026-10-22 (P2b); `nplc -l`/`-L` since
+2026-10-23. Not yet supported: `npli`, C types and pointers, callbacks into
+NPL. See
 "Limitations" and the plan in [design-primitives](design-primitives.md).
 
 ## Declaring A Function
@@ -90,22 +91,32 @@ Rules, all from `runtime/npl.h`:
 
 ## Building
 
-`nplc` has no options for extra objects or libraries yet, so compile the
-NPL program to an object and link the C code yourself:
+Build the C functions into a library and name it with `-l`; `-L` adds a
+search directory. Both take the value attached (`-lclamp`) or as the next
+argument (`-l clamp`), and are passed to the linker in order, before the
+runtime archive:
+
+```bash
+cc -std=c99 -I path/to/npl/runtime -c clamp.c      # clamp.o
+ar rcs libclamp.a clamp.o
+nplc main.npl -L . -l clamp -o main
+```
+
+A library the C functions themselves use is linked the same way
+(`-l sqlite3`). Alternatively, compile the program to an object and link it
+yourself:
 
 ```bash
 nplc -c main.npl                                   # main.o
-cc -std=c99 -I path/to/npl/runtime -c clamp.c      # clamp.o
 cc -o main main.o clamp.o PREFIX/lib/npl/libnpl_runtime.a -lm
 ```
 
-`npl.h` is in the source checkout's `runtime/` and is not installed yet.
-Link any C library the functions use (`-lfoo`) on the last line. On macOS
-`-lm` is part of libSystem and may be omitted.
+`npl.h` is in the source checkout's `runtime/` and is not installed yet. On
+macOS `-lm` is part of libSystem and may be omitted.
 
-The complete example, built and run by `tools/check_full_compiler.sh`, is
-`src/compiler/tests/c-extension/` (`main.npl`, `clamp.c`,
-`expected.out`).
+The complete example is `src/compiler/tests/c-extension/` (`main.npl`,
+`clamp.c`, `expected.out`). `tools/check_full_compiler.sh` links it by hand
+and `tools/check_driver.sh` through `-L`/`-l`.
 
 ## Diagnostics
 

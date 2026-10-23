@@ -74,7 +74,10 @@ nplc -S program.npl                  # assembly program.s (--emit=asm)
 nplc --emit=ssa program.npl          # QBE SSA on standard output
 nplc --emit=ssa program.npl -o p.ssa # QBE SSA to a file
 nplc --keep-temps program.npl        # keep and report intermediate files
+nplc program.npl -L lib -l clamp     # also link lib/libclamp (C functions, docs/ffi.md)
 ```
+
+`-lNAME`/`-l NAME` and `-LDIR`/`-L DIR` reach the executable link in command-line order, before the runtime archive; other kinds ignore them.
 
 `--emit-qbe` is an alias for `--emit=ssa`. `--emit=staticlib` and `--emit=dylib` are reserved and rejected; see "Deferred: Libraries And Binary Interop". An object file contains `main` and links with the runtime archive: `cc -o program program.o libnpl_runtime.a`.
 
