@@ -111,9 +111,8 @@ now U0 (unspecified value), E2a, E2b, E3 as listed there. U0 done (worklog
 (slowest loop 18.4 s). Remaining npli cost is native non-tail call
 allocation; a cheaper call convention is a separate compiler decision.
 P5 (FFI level A) done: P5a nplc -l/-L (14:20), P5b npli -l with
-runtime/ffi.c (15:10), Linux gate fixes (16:20). Linux gate: only the
-`strings` fixture's Guile surface fails (bookworm Guile 3.0.8 bug in
-multi-string string-for-each); handling not yet decided.
+runtime/ffi.c (15:10), Linux gate fixes (16:20), Guile 3.0.8 defect
+marker (16:50). macOS and Linux gates all PASS.
 Next: P6 (FFI level B); first decide the stub driver and the pointer
 representation (docs/design-primitives.md, Open Questions).
 

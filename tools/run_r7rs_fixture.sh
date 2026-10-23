@@ -27,6 +27,22 @@ repl_input="$FIXTURE/$(get_meta repl)"
 # expected output is then established from R7RS and cross-checked by hand
 # (recorded in the fixture's behavior file); native and npli must match it.
 oracle=$(get_meta oracle || true)
+# guile-defect=VERSION ...: those Guile releases mishandle this fixture
+# (reason in guile-defect-reason). Only there is the Guile surface skipped,
+# as for oracle=none; any other release must still match.
+guile_defect=$(get_meta guile-defect || true)
+oracle_skip=""
+if [ "$oracle" = none ]; then
+    oracle_skip=oracle-unavailable
+elif [ -n "$guile_defect" ]; then
+    guile_version=$(guile -c '(display (version))' 2>/dev/null || true)
+    for version in $guile_defect; do
+        if [ "$version" = "$guile_version" ]; then
+            oracle_skip=oracle-known-defect
+            get_meta guile-defect-reason >/dev/null
+        fi
+    done
+fi
 if [ "$oracle" = none ]; then
     guile_source="$FIXTURE/$(get_meta native)"
 else
@@ -90,7 +106,7 @@ run_capture "$WORK/native.out" "$WORK/native.err" "$WORK/native.status" "$WORK/n
 
 # Guile is used only in its R7RS language mode and with auto-compilation off,
 # so compiler notices do not contaminate the compared stderr.
-if [ "$oracle" = none ]; then
+if [ -n "$oracle_skip" ]; then
     cp "$expected_out" "$WORK/guile.out"
     cp "$expected_err" "$WORK/guile.err"
     printf '%s\n' "$expected_status" > "$WORK/guile.status"
@@ -131,12 +147,12 @@ fi
 
 printf '%s\n' "fixture=$name surface=native status=PASS classification=matched-expected"
 printf '%s\n' "fixture=$name surface=repl status=PASS classification=matched-expected"
-if [ "$oracle" = none ]; then
-    printf '%s\n' "fixture=$name surface=guile status=SKIP classification=oracle-unavailable"
+if [ -n "$oracle_skip" ]; then
+    printf '%s\n' "fixture=$name surface=guile status=SKIP classification=$oracle_skip"
 else
     printf '%s\n' "fixture=$name surface=guile status=PASS classification=matched-expected"
 fi
-if [ "$oracle" = none ]; then
+if [ -n "$oracle_skip" ]; then
     printf '%s\n' "fixture=$name surfaces=native,repl status=PASS classification=identical-observable-result"
 else
     printf '%s\n' "fixture=$name surfaces=native,repl,guile status=PASS classification=identical-observable-result"
