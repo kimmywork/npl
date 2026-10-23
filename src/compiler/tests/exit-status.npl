@@ -1,0 +1,16 @@
+; Exit status mapping (R7RS 6.14), selected by the first argument.
+; tools/check_full_compiler.sh checks each status.
+(import (scheme base) (scheme process-context))
+
+(define (main)
+  (let ((mode (car (cdr (command-line)))))
+    (cond
+      ((string=? mode "none") (exit))
+      ((string=? mode "true") (exit #t))
+      ((string=? mode "false") (exit #f))
+      ((string=? mode "seven") (exit 7))
+      ((string=? mode "symbol") (exit 'other))
+      ((string=? mode "emergency") (emergency-exit))
+      ((string=? mode "emergency-false") (emergency-exit #f))
+      ((string=? mode "value") (exit (car (list exit))))
+      (else (exit 9)))))

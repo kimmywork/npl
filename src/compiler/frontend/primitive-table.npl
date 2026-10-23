@@ -159,7 +159,7 @@
     ("textual-port?" fixed 1 0)
     ("binary-port?" fixed 1 0)
     ; process and files
-    ("exit" special 1 0 "")
+    ("exit" special 0 1 "")
     ("program-arguments" fixed 0 0)
     ("command-line" fixed 0 0)
     ("set-command-line!" fixed 1 0)

@@ -99,9 +99,9 @@
                     (func-line ld)
                     (bool-from-raw raw)))))))))))
 
+; (exit) is (exit #t); npl_exit maps the object to a status (R7RS 6.14).
 (define (progn-exit args env)
-  (check-arity args 1 1)
-  (let ((v (emit-expr (car args) env)))
+  (let ((v (if (= (check-arity args 0 1) 0) "6" (emit-expr (car args) env))))
     (func-line (string-append "call $npl_exit(l " v ")"))
     "2"))
 

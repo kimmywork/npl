@@ -270,8 +270,12 @@ NplVal npl_executable_path(void)
     return npl_c_text_internal(resolved, strlen(resolved));
 }
 
+/* R7RS 6.14: #t (and no argument, which the compiler passes as #t) is
+ * success, #f failure, an exact integer its low byte; anything else fails. */
 void npl_exit(NplVal code) {
-    int64_t v = (int64_t)(code >> 2);          /* untag fixnum */
+    int status = 1;
+    if (code == npl_true()) status = 0;
+    else if (npl_is_fixnum(code)) status = (int)(npl_fixnum_value(code) & 255);
     fflush(stdout);
-    _Exit((int)(v & 255));
+    _Exit(status);
 }

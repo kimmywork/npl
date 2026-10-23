@@ -122,6 +122,18 @@ run_suite error-objects "PASS error-objects 6"
 run_suite primitive-errors "PASS primitive-errors 37"
 run_suite runtime-errors "PASS runtime-errors 14"
 run_suite c-primitives "PASS c-primitives 11"
+# exit maps #t (and no argument) to 0, #f and non-integers to 1.
+emit "$WORK/compiler" "$TESTS/exit-status.npl" "$WORK/exit-status.ssa"
+build_ssa "$WORK/exit-status.ssa" "$WORK/exit-status"
+for case in none:0 true:0 false:1 seven:7 symbol:1 emergency:0 \
+            emergency-false:1 value:1; do
+    set +e
+    "$WORK/exit-status" "${case%%:*}"
+    status=$?
+    set -e
+    [ "$status" -eq "${case#*:}" ] || {
+        echo "exit-status ${case%%:*}: status $status" >&2; exit 1; }
+done
 # Declared C primitives are called directly, like table rows, and a symbol
 # used as a value gets one wrapper.
 grep -F 'call $npl_integer_string_p(' "$WORK/c-primitives.ssa" >/dev/null

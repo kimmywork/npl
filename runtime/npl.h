@@ -591,7 +591,7 @@ NplVal npl_byte_ready_p(NplVal port);     /* u8-ready? */
 NplVal npl_jiffies_per_second(void);
 NplVal npl_current_jiffy(void);
 NplVal npl_current_second(void);            /* absolute path or #f */
-void npl_exit(NplVal code);                   /* untagged fixnum, low byte */
+void npl_exit(NplVal code);                   /* R7RS exit status mapping */
 
 /* bootstrap lexer hooks — all take TAGGED values */
 NplVal npl_lex_class_w(NplVal cT, NplVal wantT);     /* PROPER bool */

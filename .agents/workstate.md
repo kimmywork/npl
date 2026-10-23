@@ -109,8 +109,8 @@ now U0 (unspecified value), E2a, E2b, E3 as listed there. U0 done (worklog
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 233,862 lines; SHA-256
-  `2a7a5820c4f54291eaffd18d66e423943e4a644e4f94513e3255d5110286e7be`
+- `bootstrap/current.ssa`: 233,972 lines; SHA-256
+  `0119989c566b113416cefbf4d09b0e324342463ed2b11949f346ab39a87ee828`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
