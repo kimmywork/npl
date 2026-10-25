@@ -106,21 +106,36 @@
 (define-syntax guard
   (syntax-rules (=> else)
     ((guard (condition clause ... (else result1 result2 ...)) body ...)
-     (call/cc
-       (lambda (return)
-         (with-exception-handler
-           (lambda (condition)
-             (return
-               (cond clause ... (#t result1 result2 ...))))
-           (lambda () body ...)))))
+     ((call/cc
+        (lambda (guard-k)
+          (with-exception-handler
+            (lambda (condition)
+              (guard-k
+                (lambda ()
+                  (cond clause ... (#t result1 result2 ...)))))
+            (lambda ()
+              (call-with-values
+                (lambda () body ...)
+                (lambda results
+                  (guard-k (lambda () (apply values results)))))))))))
     ((guard (condition clause ...) body ...)
-     (call/cc
-       (lambda (return)
-         (with-exception-handler
-           (lambda (condition)
-             (return
-               (cond clause ... (#t (raise condition)))))
-           (lambda () body ...)))))))
+     ((call/cc
+        (lambda (guard-k)
+          (with-exception-handler
+            (lambda (condition)
+              ((call/cc
+                 (lambda (handler-k)
+                   (guard-k
+                     (lambda ()
+                       (cond clause ...
+                             (#t (handler-k
+                                   (lambda ()
+                                     (raise-continuable condition)))))))))))
+            (lambda ()
+              (call-with-values
+                (lambda () body ...)
+                (lambda results
+                  (guard-k (lambda () (apply values results)))))))))))))
 
 (define-syntax make-parameter
   (syntax-rules ()

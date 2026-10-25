@@ -438,6 +438,7 @@ void npl_values_dispatch(NplVal consumer, NplVal continuation, NplVal value);
 NplVal npl_current_wind(void);
 NplVal npl_wind_push(NplVal before, NplVal after);
 NplVal npl_wind_pop(NplVal frame);
+NplVal npl_wind_exit_step(void);
 NplVal npl_current_handler(void);
 NplVal npl_handler_push(NplVal procedure);
 NplVal npl_handler_pop(NplVal frame);

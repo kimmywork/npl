@@ -1,4 +1,14 @@
+(import (scheme base) (scheme write) (scheme process-context))
+
 (include "framework.npl")
+
+; Order of dynamic-wind thunks and guard clauses, as a list of events.
+(define trace '())
+(define (note event) (set! trace (cons event trace)))
+(define (traced label thunk)
+  (dynamic-wind (lambda () (note (list 'before label)))
+                thunk
+                (lambda () (note (list 'after label)))))
 
 (define (main)
   (test-equal "guard catches condition"
@@ -40,4 +50,46 @@
                                  ((= condition 0) 0))
                           (raise 40)))))))
               42)
+  ; R7RS 4.2.7: clauses run in the dynamic environment of the guard, so
+  ; the body's after thunk runs first.
+  (test-identity "guard clause after unwinding"
+                 (lambda ()
+                   (set! trace '())
+                   (equal? (guard (condition (#t (note 'clause) (reverse trace)))
+                             (traced 'a (lambda () (raise 'boom))))
+                           '((before a) (after a) clause)))
+                 #t)
+  ; With no matching clause the raise continues in the dynamic environment
+  ; of the original raise: the body's extent is re-entered (the R7RS
+  ; reference implementation; Guile 3.0 skips the re-entry).
+  (test-identity "guard re-raise re-enters the raise"
+                 (lambda ()
+                   (set! trace '())
+                   (equal?
+                     (call/cc
+                       (lambda (return)
+                         (with-exception-handler
+                           (lambda (condition)
+                             (note (list 'outer condition))
+                             (return (reverse trace)))
+                           (lambda ()
+                             (guard (condition ((eq? condition 'other) 'no))
+                               (traced 'b (lambda () (raise 'boom))))))))
+                     '((before b) (after b) (before b) (outer boom))))
+                 #t)
+  (test-equal "guard re-raise stays continuable"
+              (lambda ()
+                (with-exception-handler
+                  (lambda (condition) 42)
+                  (lambda ()
+                    (guard (condition ((eq? condition 'other) 'no))
+                      (+ 1 (raise-continuable 'boom))))))
+              43)
+  (test-identity "guard body values"
+                 (lambda ()
+                   (equal? (call-with-values
+                             (lambda () (guard (condition (#t 0)) (values 1 2)))
+                             list)
+                           '(1 2)))
+                 #t)
   (finish-tests "guard"))

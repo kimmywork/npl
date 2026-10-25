@@ -98,7 +98,7 @@ run_suite multiple-values "PASS multiple-values 13"
 run_suite continuations "PASS continuations 7"
 run_suite dynamic-wind "PASS dynamic-wind 5"
 run_suite exceptions "PASS exceptions 6"
-run_suite guard "PASS guard 5"
+run_suite guard "PASS guard 9"
 run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
 run_suite libraries "PASS libraries 16"
@@ -134,6 +134,15 @@ for case in none:0 true:0 false:1 seven:7 symbol:1 emergency:0 \
     [ "$status" -eq "${case#*:}" ] || {
         echo "exit-status ${case%%:*}: status $status" >&2; exit 1; }
 done
+set +e
+"$WORK/exit-status" wind > "$WORK/exit-wind.out"
+wind_status=$?
+"$WORK/exit-status" emergency-wind > "$WORK/exit-emergency.out"
+emergency_status=$?
+set -e
+[ "$wind_status" -eq 3 ] && [ "$emergency_status" -eq 4 ]
+printf 'inner\nouter\n' | cmp - "$WORK/exit-wind.out"
+[ ! -s "$WORK/exit-emergency.out" ]
 # Declared C primitives are called directly, like table rows, and a symbol
 # used as a value gets one wrapper.
 grep -F 'call $npl_integer_string_p(' "$WORK/c-primitives.ssa" >/dev/null

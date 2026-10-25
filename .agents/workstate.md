@@ -113,13 +113,19 @@ allocation; a cheaper call convention is a separate compiler decision.
 P5 (FFI level A) done: P5a nplc -l/-L (14:20), P5b npli -l with
 runtime/ffi.c (15:10), Linux gate fixes (16:20), Guile 3.0.8 defect
 marker (16:50). macOS and Linux gates all PASS.
+guard/exit dynamic extent fixed (worklog 2026-10-25), prerequisite for
+deterministic release. Next: P6 (FFI level B). Decided 2026-10-24/25:
+nplc builds stubs automatically, `nplc --emit=c-stubs` for npli; pointer
+is a new box type without finalizer (explicit release); nplc links the
+same stubs as npli; output parameters return as extra values;
+`with-resource` (dynamic-wind macro) ships with the P6 library.
 Next: P6 (FFI level B); first decide the stub driver and the pointer
 representation (docs/design-primitives.md, Open Questions).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 237,723 lines; SHA-256
-  `f3fd0abb4ebfec0755d844268587cb02d43e137180785e0e8841c7cd787c1862`
+- `bootstrap/current.ssa`: 237,729 lines; SHA-256
+  `668100f4cd7292ef170d565697b7d04cd749c56b43e8e346aa540fc97fec84a9`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded

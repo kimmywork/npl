@@ -182,6 +182,7 @@
     ("npl_current_wind" fixed 0 0)
     ("npl_wind_push" fixed 2 0)
     ("npl_wind_pop" fixed 1 0)
+    ("npl_wind_exit_step" fixed 0 0)
     ("npl_current_handler" fixed 0 0)
     ("npl_handler_push" fixed 1 0)
     ("npl_handler_pop" fixed 1 0)

@@ -562,6 +562,17 @@ NplVal npl_wind_pop(NplVal value)
     return npl_nil();
 }
 
+/* One step of exit (R7RS 6.14, lib/scheme/process-context.sld): leave the
+ * innermost dynamic-wind and return its after thunk, which then runs
+ * outside that extent; #f when none is in effect. */
+NplVal npl_wind_exit_step(void)
+{
+    if (npl_is_nil(g_current_wind)) return npl_false();
+    NplWindFrame *frame = require_wind_frame(g_current_wind, "exit");
+    g_current_wind = frame->parent;
+    return frame->after;
+}
+
 static uint32_t wind_depth(NplVal value)
 {
     uint32_t depth = 0;

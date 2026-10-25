@@ -1,0 +1,6 @@
+(clause-order ((before a) (after a) clause))
+(continuable 43)
+(values (1 2))
+(error-message "failed" ((before c) (after c)))
+inner
+outer
