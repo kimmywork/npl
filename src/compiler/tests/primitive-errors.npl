@@ -95,3 +95,4 @@
                      (delete-file "/nonexistent/npl-primitive-errors")))
                  #t)
   (finish-tests "primitive-errors"))
+(main)

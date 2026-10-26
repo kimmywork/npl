@@ -1,3 +1,2 @@
 (import (scheme base) (scheme inexact) (scheme write))
 (include "behavior.scm")
-(define (main) 0)

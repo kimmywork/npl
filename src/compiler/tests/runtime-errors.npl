@@ -52,3 +52,4 @@
   ; The process survives every error above.
   (test-identity "still running" (lambda () 'alive) 'alive)
   (finish-tests "runtime-errors"))
+(main)

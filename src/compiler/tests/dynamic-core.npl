@@ -40,3 +40,4 @@
   (test-equal "only false is false"
               (lambda () (truth-result)) 42)
   (finish-tests "dynamic-core"))
+(main)

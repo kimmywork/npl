@@ -202,3 +202,4 @@ Options:
 (define (main)
   (set-eval-standard-root! (npli-default-stdlib))
   (exit (npli-main (cdr (command-line)) '() #t)))
+(main)

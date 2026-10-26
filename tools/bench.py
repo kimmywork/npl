@@ -69,7 +69,7 @@ def prepare(name, body, work):
         with open(path, "w") as out:
             out.write(text)
         return path
-    native = write(name + ".npl", IMPORTS + body + "\n(define (main) (bench-main) 0)\n")
+    native = write(name + ".npl", IMPORTS + body + "\n(bench-main)\n")
     script = write(name + ".scm", IMPORTS + body + "\n(bench-main)\n")
     racket = write(name + ".rkt", RACKET_HEADER + body + "\n(bench-main)\n")
     exe = os.path.join(work, name)

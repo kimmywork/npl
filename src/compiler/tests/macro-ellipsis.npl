@@ -78,3 +78,4 @@
   (test-identity "escaped ellipsis"
                  (lambda () (ellipsis-symbol)) '...)
   (finish-tests "macro-ellipsis"))
+(main)

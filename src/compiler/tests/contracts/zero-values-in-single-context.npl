@@ -1,2 +1,3 @@
 (define (main)
   (+ (values) 42))
+(main)

@@ -77,3 +77,4 @@
               (lambda () (force (delay-force-chain 1000000)))
               42)
   (finish-tests "promises"))
+(main)

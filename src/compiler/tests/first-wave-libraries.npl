@@ -46,3 +46,4 @@
     (test-equal "case-lambda dotted clause"
                 (lambda () (dispatch 10 11 21)) 42))
   (finish-tests "first-wave-libraries"))
+(main)

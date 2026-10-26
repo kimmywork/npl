@@ -96,3 +96,4 @@
                     (+ (car received) (car (cdr received))))))
               42)
   (finish-tests "multiple-values"))
+(main)

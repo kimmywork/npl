@@ -18,6 +18,7 @@
   "frontend/library-definitions.npl"
   "backend/primitives.npl"
   "frontend/control.npl"
+  "frontend/control-program.npl"
   "backend/state.npl"
   "backend/data.npl"
   "backend/numeric.npl"

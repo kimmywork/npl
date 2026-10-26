@@ -139,8 +139,6 @@ npli -l ./libclamp.dylib main.scm
 - A declaration binds its name when evaluated, so the function must be
   loaded by then. `%c-call` and `%c-procedure` also work in `eval`.
 - npli calls functions of at most 8 arguments.
-- `npli` defines `main` as an ordinary procedure: a program written for
-  `nplc` calls `(main)` itself when run under npli.
 
 The complete example is `src/compiler/tests/c-extension/` (`main.npl`,
 `clamp.c`, `expected.out`). `tools/check_full_compiler.sh` links it by hand,

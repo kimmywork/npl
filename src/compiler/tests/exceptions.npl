@@ -74,3 +74,4 @@
                   (lambda (left right) (+ left right))))
               42)
   (finish-tests "exceptions"))
+(main)

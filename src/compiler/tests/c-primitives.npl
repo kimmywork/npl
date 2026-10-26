@@ -34,3 +34,4 @@
                      (number-text 'a)))
                  'caught)
   (finish-tests "c-primitives"))
+(main)

@@ -4,3 +4,4 @@
       before
       (lambda () 42)
       (lambda () 0))))
+(main)

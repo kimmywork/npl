@@ -6,8 +6,6 @@
 ; closures whose bodies are already in CPS.
 
 (define CONTROL-NEXT-NAME (cell 0))
-(define CONTROL-MAIN-SOURCE "main")
-(define CONTROL-MAIN-TARGET "_npl_control_main")
 
 (define (control-fresh-name prefix)
   (cell-set! CONTROL-NEXT-NAME (+ 1 (cell-get CONTROL-NEXT-NAME)))
@@ -73,11 +71,9 @@
             (control-transform-simple-list (cdr expressions)))))
 
 (define (control-transform-symbol expression)
-  (if (string=? (cdr expression) CONTROL-MAIN-SOURCE)
-      (control-symbol CONTROL-MAIN-TARGET)
-      (if (control-transfer-name? (cdr expression))
-          (control-transform-lambda (control-transfer-procedure (cdr expression)))
-          expression)))
+  (if (control-transfer-name? (cdr expression))
+      (control-transform-lambda (control-transfer-procedure (cdr expression)))
+      expression))
 
 ;; Control-transfer operators are CPS special forms, not runtime
 ;; primitives. Used as values (for example (map values xs) or
@@ -217,13 +213,6 @@
         continuation
         (cons (car application) arguments)))))
 
-(define (control-call-head head)
-  (if (if (sym-atom? head)
-          (string=? (cdr head) CONTROL-MAIN-SOURCE)
-          #f)
-      (control-symbol CONTROL-MAIN-TARGET)
-      head))
-
 ;; A procedure value that a control form applies in CPS (with an extra
 ;; continuation argument). A primitive name there means the primitive's
 ;; closure, not an inline primitive call, so it is wrapped in a lambda that
@@ -241,7 +230,7 @@
   (control-evaluate-list
     arguments ()
     (lambda (values)
-      (cons (control-call-head head)
+      (cons head
             (control-append-one values continuation)))))
 
 (define (control-values-call values)
@@ -672,128 +661,3 @@
      (control-cps-letrec expression continuation #t))
     (else
      (fatal "control conversion: unsupported core form"))))
-
-(define (control-function-form? form)
-  (if (pair-shape? form)
-      (if (number? (car form)) (= (car form) 211) #f)
-      #f))
-
-(define (control-variable-form? form)
-  (if (pair-shape? form)
-      (if (number? (car form)) (= (car form) 200) #f)
-      #f))
-
-(define (control-function-name form)
-  (cdr (car (car (cdr form)))))
-
-(define (control-transform-function form target-name prefix)
-  (let ((continuation-name (control-fresh-name "_npl_return_")))
-    (let ((signature (car (cdr form))))
-      (let ((body (car (cdr (cdr form)))))
-        (cons 211
-          (cons
-            (cons (control-symbol target-name)
-                  (control-add-continuation-formal
-                    (cdr signature)
-                    (control-symbol continuation-name)))
-            (cons
-              (cons
-                (control-cps-body
-                  (append-list prefix body)
-                  (control-symbol continuation-name))
-                ())
-              ())))))))
-
-(define (control-global-assignment form)
-  (control-assignment
-    (car (cdr form))
-    (car (cdr (cdr form)))))
-
-(define (control-static-global-initializer? initializer)
-  (if (number? initializer)
-      #t
-      (if (null? initializer)
-          #t
-          (if (pair-shape? initializer)
-              (if (number? (car initializer))
-                  (= (car initializer) 101)
-                  #f)
-              #f))))
-
-(define (control-transform-global form)
-  (let ((initializer (car (cdr (cdr form)))))
-    (if (control-static-global-initializer? initializer)
-        (cons 200
-          (cons (car (cdr form))
-                (cons (control-transform-simple initializer) ())))
-        (cons 200
-          (cons (car (cdr form)) (cons () ()))))))
-
-(define (control-runtime-global-inits forms)
-  (if (null? forms)
-      ()
-      (let ((form (car forms)))
-        (if (if (control-variable-form? form)
-                (not (control-static-global-initializer?
-                       (car (cdr (cdr form)))))
-                #f)
-            (cons (control-global-assignment form)
-                  (control-runtime-global-inits (cdr forms)))
-            (control-runtime-global-inits (cdr forms))))))
-
-(define (control-transform-non-main forms initializers)
-  (if (null? forms)
-      ()
-      (let ((form (car forms)))
-        (if (control-function-form? form)
-            (if (string=? (control-function-name form) CONTROL-MAIN-SOURCE)
-                (control-transform-non-main (cdr forms) initializers)
-                (cons
-                  (control-transform-function
-                    form (control-function-name form) ())
-                  (control-transform-non-main
-                    (cdr forms) initializers)))
-            (if (control-variable-form? form)
-                (cons (control-transform-global form)
-                      (control-transform-non-main
-                        (cdr forms) initializers))
-                (fatal "control conversion: top level must be definitions"))))))
-
-(define (control-find-main forms)
-  (if (null? forms)
-      ()
-      (let ((form (car forms)))
-        (if (if (control-function-form? form)
-                (string=? (control-function-name form) CONTROL-MAIN-SOURCE)
-                #f)
-            form
-            (control-find-main (cdr forms))))))
-
-(define (control-main-wrapper)
-  (let ((result-name (control-fresh-name "_npl_halt_value_")))
-    (cons 211
-      (cons
-        (cons (control-symbol CONTROL-MAIN-SOURCE) ())
-        (cons
-          (cons
-            (cons (control-symbol CONTROL-MAIN-TARGET)
-              (cons
-                (cons 212
-                  (cons (cons (control-symbol result-name) ())
-                    (cons (cons (control-symbol result-name) ()) ())))
-                ()))
-            ())
-          ())))))
-
-(define (control-program forms)
-  (cell-set! CONTROL-NEXT-NAME 0)
-  (let ((main-form (control-find-main forms)))
-    (if (null? main-form)
-        (fatal "control conversion: program needs main"))
-    (let ((initializers (control-runtime-global-inits forms)))
-      (append-list
-        (control-transform-non-main forms initializers)
-        (cons
-          (control-transform-function
-            main-form CONTROL-MAIN-TARGET initializers)
-          (cons (control-main-wrapper) ()))))))

@@ -1,1 +1,2 @@
 (define (main) (vector-set! #(1) 0 2))
+(main)

@@ -38,3 +38,4 @@
                      (lambda () (eq? (read-char input) #\e)) #t)
       (close-port input)))
   (finish-tests "process"))
+(main)

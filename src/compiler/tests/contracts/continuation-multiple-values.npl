@@ -3,3 +3,4 @@
      (call/cc
        (lambda (continuation)
          (continuation 20 22)))))
+(main)

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Adapt chibi's r7rs-tests.scm to an nplc program.
 
-nplc programs are definitions plus (define (main) ...): each top-level
-expression becomes (define _tN (top-level-form (lambda () expr))), which
-runs in order like a top-level command and reports a raised error as the
+Each top-level expression becomes (top-level-form (lambda () expr)), which
+runs it in order like a top-level command and reports a raised error as the
 REPL does, without stopping the run. Definitions, syntax definitions, and
 uses of the suite's definition-producing macros stay as written. The one
 top-level begin that mixes a definition-producing macro with a test keeps
@@ -94,7 +93,7 @@ def main():
     forms = top_level_forms(src)
     macros = set(re.findall(r"^\(define-syntax\s+([^\s()]+)", "\n".join(forms),
                             re.M)) - TEST_MACROS
-    out, count = [], 0
+    out = []
     for form in forms:
         head = form[1:].split(None, 1)[0].rstrip(")") if form.startswith("(") else ""
         if head == "begin" and "(test " in form:
@@ -105,15 +104,14 @@ def main():
                       "define-values") or head in macros:
             out.append(form)
         else:
-            count += 1
-            out.append("(define _t%d (top-level-form (lambda () %s)))" % (count, form))
+            out.append("(top-level-form (lambda () %s))" % form)
     out.insert(1, """(define (top-level-form thunk)
   (guard (e (#t (display "error: " (current-error-port))
                (display (if (error-object? e) (error-object-message e) e)
                         (current-error-port))
                (newline (current-error-port))))
     (thunk)))""")
-    out.append("(define (main) (test-exit) 0)")
+    out.append("(test-exit)")
     open(sys.argv[2], "w").write("\n".join(out) + "\n")
 
 

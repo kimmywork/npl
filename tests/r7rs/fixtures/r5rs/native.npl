@@ -1,3 +1,2 @@
 (import (scheme r5rs))
 (include "behavior.scm")
-(define (main) 0)

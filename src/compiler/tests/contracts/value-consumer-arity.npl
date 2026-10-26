@@ -2,3 +2,4 @@
   (call-with-values
     (lambda () (values 20 22))
     (lambda (only) only)))
+(main)

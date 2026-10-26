@@ -77,6 +77,8 @@ nplc --keep-temps program.npl        # keep and report intermediate files
 nplc program.npl -L lib -l clamp     # also link lib/libclamp (C functions, docs/ffi.md)
 ```
 
+A program is its top-level forms, run in order as in `npli` (R7RS 5.1); `main` is an ordinary name. A program that reaches its end exits with status 0, and `(exit n)` ends it earlier with status `n`. `nplc` generates the C `main` (`src/compiler/frontend/control-program.npl`). Programs for the frozen stage0 `nplc0` still use `(define (main) ...)`.
+
 `-lNAME`/`-l NAME` and `-LDIR`/`-L DIR` reach the executable link in command-line order, before the runtime archive; other kinds ignore them.
 
 `--emit-qbe` is an alias for `--emit=ssa`. `--emit=staticlib` and `--emit=dylib` are reserved and rejected; see "Deferred: Libraries And Binary Interop". An object file contains `main` and links with the runtime archive: `cc -o program program.o libnpl_runtime.a`.

@@ -1,2 +1,3 @@
 (define (main)
   (raise 42))
+(main)

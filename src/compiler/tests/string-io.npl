@@ -49,3 +49,4 @@
     (test-identity "read datum string eof"
                    (lambda () (eof-object? (read input))) #t))
   (finish-tests "string-io"))
+(main)

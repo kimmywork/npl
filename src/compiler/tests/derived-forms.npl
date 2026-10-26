@@ -100,3 +100,4 @@
                   (+ (+ (or #f value) loop) 2)))
               42)
   (finish-tests "derived-forms"))
+(main)

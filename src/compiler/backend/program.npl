@@ -70,15 +70,16 @@
 
 (define (emit-function nm params body)
   (func-line
-    (string-append "function l $" (sanitize nm 0 "")
+    (string-append "function l $" (function-symbol nm)
                    "(l %npl_env, l %npl_argc, l %npl_argv) {"))
   (func-line "@start")
   (emit-tail-body body (bind-generic-params params 0 ()))
   (func-line "}"))
 
+; The entry nplc generates (CONTROL-ENTRY-NAME, frontend/control-program.npl)
+; is the C main. Emitted programs follow the same runtime ABI as stage0
+; output: store args, run global initializers, then the entry body.
 (define (emit-main params body)
-  ; emitted programs follow the same runtime ABI as stage0 output:
-  ; store args, run global initializers, then the user body
   (func-line "export function l $main(l %argc, l %argv) {")
   (func-line "@start")
   (func-line "call $npl_runtime_init()")
@@ -95,7 +96,7 @@
   (cell-set! ASSIGNED-NAMES (collect-assigned f ()))
   (if (fun-def? f)
       ; sig = ((100 . nm) . params); body-list = (car (cdr (cdr f)))
-      (if (string=? (defined-name f) "main")
+      (if (string=? (defined-name f) CONTROL-ENTRY-NAME)
           (emit-main (cdr (car (cdr f))) (car (cdr (cdr f))))
           (emit-function (defined-name f)
                          (cdr (car (cdr f)))

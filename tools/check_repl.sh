@@ -128,7 +128,7 @@ case "$(uname -s)" in
 esac
 "${CC:-cc}" -std=c99 -Wall -Werror -I "$ROOT/runtime" "${shared[@]}" \
     -o "$library" "$EXTENSION/clamp.c"
-{ cat "$EXTENSION/main.npl"; printf '(main)\n'; } > "$WORK/c-extension.scm"
+cp "$EXTENSION/main.npl" "$WORK/c-extension.scm"
 "$ROOT/build/bin/npli" -l "$library" "$WORK/c-extension.scm" \
     > "$WORK/c-extension.out"
 cmp "$EXTENSION/expected.out" "$WORK/c-extension.out"
@@ -147,7 +147,6 @@ printf '(10 0 3)' | cmp - "$WORK/c-environments.out"
 {
     sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'
 /^(include "framework.npl")$/d' "$TESTS/c-primitives.npl"
-    printf '(main)\n'
 } > "$WORK/c-primitives.scm"
 (cd "$TESTS" && "$ROOT/build/bin/npli" "$WORK/c-primitives.scm") \
     > "$WORK/c-primitives.out"
@@ -162,8 +161,7 @@ for contract in "nested:define-c-primitive is valid at top level only" \
                 "type:unknown C primitive type: pear" \
                 "conflict:C primitive declaration conflicts with registered npl_car" \
                 "symbol:invalid C symbol: npl-f"; do
-    { cat "$TESTS/contracts/c-primitive-${contract%%:*}.npl"; printf '(main)\n'; } \
-        > "$WORK/contract.scm"
+    cp "$TESTS/contracts/c-primitive-${contract%%:*}.npl" "$WORK/contract.scm"
     reject_npli "$WORK/contract.scm"
     [ "$rejected_status" -eq 70 ]
     grep -F "error: ${contract#*:}" "$WORK/rejected.err" >/dev/null
@@ -176,11 +174,10 @@ reject_npli -l "$WORK/missing-library" "$WORK/c-extension.scm"
 grep -F "npli: cannot load $WORK/missing-library" "$WORK/rejected.err" >/dev/null
 
 # Primitive error objects agree with native (src/compiler/tests, same file).
-# Inline framework.npl in place of its include line, then call main.
+# Inline framework.npl in place of its include line.
 {
     sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'
 /^(include "framework.npl")$/d' "$TESTS/primitive-errors.npl"
-    printf '(main)\n'
 } > "$WORK/primitive-errors.scm"
 "$ROOT/build/bin/npli" "$WORK/primitive-errors.scm" > "$WORK/primitive-errors-suite.out"
 grep -Fx 'PASS primitive-errors 37' "$WORK/primitive-errors-suite.out" >/dev/null
@@ -204,7 +201,6 @@ printf '(42 42)' | cmp - "$WORK/edited-library.out"
 {
     sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'
 /^(include "framework.npl")$/d' "$TESTS/runtime-errors.npl"
-    printf '(main)\n'
 } > "$WORK/runtime-errors.scm"
 "$ROOT/build/bin/npli" "$WORK/runtime-errors.scm" > "$WORK/runtime-errors-suite.out"
 grep -Fx 'PASS runtime-errors 14' "$WORK/runtime-errors-suite.out" >/dev/null

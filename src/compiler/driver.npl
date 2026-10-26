@@ -329,5 +329,4 @@ Options:
         0)
       (driver-build config)))
 
-(define (main)
-  (exit (driver-run (driver-parse! (driver-config) (program-arguments)))))
+(exit (driver-run (driver-parse! (driver-config) (program-arguments))))

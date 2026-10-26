@@ -102,3 +102,4 @@
   (test-equal "macro-generated syntax definition"
               (lambda () (sequence 1 2 42)) 42)
   (finish-tests "macro-scopes"))
+(main)

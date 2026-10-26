@@ -85,3 +85,4 @@
   (test-equal "string constant pattern"
               (lambda () (string-pattern "ok")) 42)
   (finish-tests "macros-basic"))
+(main)

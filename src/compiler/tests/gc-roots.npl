@@ -35,3 +35,4 @@
     (bump!) (churn 100000) (bump!)
     (test-equal "assigned fixnum global" (lambda () COUNTER) 2))
   (finish-tests "gc-roots"))
+(main)

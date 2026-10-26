@@ -92,3 +92,4 @@
   (test-equal "quoted numeric tag tail"
               (lambda () (second '(100 101 102))) 101)
   (finish-tests "reader-datum"))
+(main)

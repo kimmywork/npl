@@ -34,3 +34,4 @@
     (write (evaluate (read (open-input-string "(differential-results)"))))
     (newline)
     0))
+(main)

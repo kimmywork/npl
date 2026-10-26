@@ -1,2 +1,3 @@
 (define (main)
   (read-char (open-input-bytevector (bytevector 65))))
+(main)

@@ -2,3 +2,4 @@
   (with-exception-handler
     1
     (lambda () 42)))
+(main)

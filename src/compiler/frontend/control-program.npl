@@ -1,0 +1,129 @@
+; Top level of a program (R7RS 5.1): its forms run in source order, as in
+; npli. Procedure definitions become top-level functions and constant
+; variable definitions static data; every other variable definition and
+; every expression runs, in order, in one program procedure. The entry
+; procedure, emitted as the C main (backend/program.npl), calls it with a
+; halting continuation, so a program that reaches its end exits with status
+; 0 and (exit) ends it earlier. main is an ordinary name.
+;
+; Split from control.npl, which converts expressions and bodies.
+
+(define CONTROL-PROGRAM-TARGET "_npl_program")
+(define CONTROL-ENTRY-NAME "_npl_entry")
+
+(define (control-function-form? form)
+  (if (pair-shape? form)
+      (if (number? (car form)) (= (car form) 211) #f)
+      #f))
+
+(define (control-variable-form? form)
+  (if (pair-shape? form)
+      (if (number? (car form)) (= (car form) 200) #f)
+      #f))
+
+(define (control-function-name form)
+  (cdr (car (car (cdr form)))))
+
+(define (control-transform-function form target-name prefix)
+  (let ((continuation-name (control-fresh-name "_npl_return_")))
+    (let ((signature (car (cdr form))))
+      (let ((body (car (cdr (cdr form)))))
+        (cons 211
+          (cons
+            (cons (control-symbol target-name)
+                  (control-add-continuation-formal
+                    (cdr signature)
+                    (control-symbol continuation-name)))
+            (cons
+              (cons
+                (control-cps-body
+                  (append-list prefix body)
+                  (control-symbol continuation-name))
+                ())
+              ())))))))
+
+(define (control-global-assignment form)
+  (control-assignment
+    (car (cdr form))
+    (car (cdr (cdr form)))))
+
+(define (control-static-global-initializer? initializer)
+  (if (number? initializer)
+      #t
+      (if (null? initializer)
+          #t
+          (if (pair-shape? initializer)
+              (if (number? (car initializer))
+                  (= (car initializer) 101)
+                  #f)
+              #f))))
+
+(define (control-transform-global form)
+  (let ((initializer (car (cdr (cdr form)))))
+    (if (control-static-global-initializer? initializer)
+        (cons 200
+          (cons (car (cdr form))
+                (cons (control-transform-simple initializer) ())))
+        (cons 200
+          (cons (car (cdr form)) (cons () ()))))))
+
+; Converted definitions, in source order.
+(define (control-program-definitions forms)
+  (cond
+    ((null? forms) ())
+    ((control-function-form? (car forms))
+     (cons (control-transform-function
+             (car forms) (control-function-name (car forms)) ())
+           (control-program-definitions (cdr forms))))
+    ((control-variable-form? (car forms))
+     (cons (control-transform-global (car forms))
+           (control-program-definitions (cdr forms))))
+    (else (control-program-definitions (cdr forms)))))
+
+(define (control-program-variable-step form rest)
+  (if (control-static-global-initializer? (car (cdr (cdr form))))
+      rest
+      (cons (control-global-assignment form) rest)))
+
+; What runs, in source order: runtime variable initializers as assignments,
+; and expressions.
+(define (control-program-steps forms)
+  (cond
+    ((null? forms) ())
+    ((control-function-form? (car forms))
+     (control-program-steps (cdr forms)))
+    ((control-variable-form? (car forms))
+     (control-program-variable-step
+       (car forms) (control-program-steps (cdr forms))))
+    (else (cons (car forms) (control-program-steps (cdr forms))))))
+
+(define (control-program-procedure steps)
+  (control-transform-function
+    (cons 211
+      (cons (cons (control-symbol CONTROL-PROGRAM-TARGET) ())
+            (cons steps ())))
+    CONTROL-PROGRAM-TARGET ()))
+
+; (define (_npl_entry) (_npl_program (lambda (value) 0))): not converted,
+; the backend emits it as main, whose result is the exit status.
+(define (control-entry)
+  (let ((value-name (control-fresh-name "_npl_halt_value_")))
+    (cons 211
+      (cons
+        (cons (control-symbol CONTROL-ENTRY-NAME) ())
+        (cons
+          (cons
+            (cons (control-symbol CONTROL-PROGRAM-TARGET)
+              (cons
+                (cons 212
+                  (cons (cons (control-symbol value-name) ())
+                    (cons (cons 0 ()) ())))
+                ()))
+            ())
+          ())))))
+
+(define (control-program forms)
+  (cell-set! CONTROL-NEXT-NAME 0)
+  (let ((definitions (control-program-definitions forms)))
+    (let ((program (control-program-procedure (control-program-steps forms))))
+      (append-list definitions (cons program (cons (control-entry) ()))))))

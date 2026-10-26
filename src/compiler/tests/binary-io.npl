@@ -52,3 +52,4 @@
                     (lambda () (bytevector-u8-ref bytes 2)) 255))
       (close-port input)))
   (finish-tests "binary-io"))
+(main)

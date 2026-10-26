@@ -32,3 +32,4 @@
                    (null? (error-object-irritants (caught (lambda () (error "m"))))))
                  #t)
   (finish-tests "error-objects"))
+(main)

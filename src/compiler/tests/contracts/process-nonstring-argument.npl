@@ -1,3 +1,4 @@
 (define (main)
   (run-process
     (cons "/usr/bin/true" (cons 42 '())) #f))
+(main)

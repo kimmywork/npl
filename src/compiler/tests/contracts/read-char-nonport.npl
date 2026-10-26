@@ -1,2 +1,3 @@
 (define (main)
   (read-char 42))
+(main)

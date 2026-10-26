@@ -10,19 +10,18 @@
                     (lambda () (display "inner") (newline))))
     (lambda () (display "outer") (newline))))
 
-(define (main)
-  (let ((mode (car (cdr (command-line)))))
-    (cond
-      ((string=? mode "none") (exit))
-      ((string=? mode "true") (exit #t))
-      ((string=? mode "false") (exit #f))
-      ((string=? mode "seven") (exit 7))
-      ((string=? mode "symbol") (exit 'other))
-      ((string=? mode "emergency") (emergency-exit))
-      ((string=? mode "emergency-false") (emergency-exit #f))
-      ((string=? mode "value") (exit (car (list exit))))
-      ; exit runs the outstanding after thunks, innermost first (R7RS
-      ; 6.14); emergency-exit runs none. Checked on standard output.
-      ((string=? mode "wind") (wound (lambda () (exit 3))))
-      ((string=? mode "emergency-wind") (wound (lambda () (emergency-exit 4))))
-      (else (exit 9)))))
+(let ((mode (car (cdr (command-line)))))
+  (cond
+    ((string=? mode "none") (exit))
+    ((string=? mode "true") (exit #t))
+    ((string=? mode "false") (exit #f))
+    ((string=? mode "seven") (exit 7))
+    ((string=? mode "symbol") (exit 'other))
+    ((string=? mode "emergency") (emergency-exit))
+    ((string=? mode "emergency-false") (emergency-exit #f))
+    ((string=? mode "value") (exit (car (list exit))))
+    ; exit runs the outstanding after thunks, innermost first (R7RS
+    ; 6.14); emergency-exit runs none. Checked on standard output.
+    ((string=? mode "wind") (wound (lambda () (exit 3))))
+    ((string=? mode "emergency-wind") (wound (lambda () (emergency-exit 4))))
+    (else (exit 9))))

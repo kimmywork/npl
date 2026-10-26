@@ -2,3 +2,4 @@
   (let ((port (open-output-bytevector)))
     (close-port port)
     (write-u8 1 port)))
+(main)

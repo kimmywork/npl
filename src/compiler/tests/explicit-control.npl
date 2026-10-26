@@ -21,3 +21,4 @@
                              1 1 1 1 1 1 1 1 1 23)))
               42)
   (finish-tests "explicit-control"))
+(main)

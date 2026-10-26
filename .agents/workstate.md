@@ -119,13 +119,15 @@ nplc builds stubs automatically, `nplc --emit=c-stubs` for npli; pointer
 is a new box type without finalizer (explicit release); nplc links the
 same stubs as npli; output parameters return as extra values;
 `with-resource` (dynamic-wind macro) ships with the P6 library.
+nplc runs the program's top level in order and generates the C main;
+`main` is an ordinary name (worklog 2026-10-26). Next: P6a pointer type.
 Next: P6 (FFI level B); first decide the stub driver and the pointer
 representation (docs/design-primitives.md, Open Questions).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 237,729 lines; SHA-256
-  `668100f4cd7292ef170d565697b7d04cd749c56b43e8e346aa540fc97fec84a9`
+- `bootstrap/current.ssa`: 236,984 lines; SHA-256
+  `7aa6762f93fb42181f8d2b8d8becd6b53c9610f557252550030d39e8f1baac4e`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded

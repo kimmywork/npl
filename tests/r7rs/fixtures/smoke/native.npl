@@ -1,6 +1,4 @@
 (import (scheme base) (scheme write) (scheme process-context))
 
-(define (main)
-  (display (+ 20 22))
-  (newline)
-  0)
+(display (+ 20 22))
+(newline)

@@ -7,3 +7,4 @@
   (write (differential-results))
   (newline)
   0)
+(main)

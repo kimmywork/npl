@@ -87,3 +87,4 @@
                           (outer 42)))))))
               42)
   (finish-tests "continuations"))
+(main)

@@ -1,3 +1,4 @@
 (define (main)
   (let ((port (open-binary-output-file "/tmp/npl-port-byte.data")))
     (write-u8 256 port)))
+(main)

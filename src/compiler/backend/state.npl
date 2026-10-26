@@ -51,9 +51,14 @@
 (define (append-list left right)
   (if (null? left) right (cons (car left) (append-list (cdr left) right))))
 
-; registry stores the BARE sanitized name; callers prepend '$' themselves
+; QBE symbol of a top-level procedure. The prefix keeps program names off C
+; symbols (main, which nplc generates, and libc's free, read, ...); sanitize
+; escapes every _, so no sanitized name starts with _npl_.
+(define (function-symbol nm) (string-append "_npl_fn_" (sanitize nm 0 "")))
+
+; registry stores the BARE symbol; callers prepend '$' themselves
 (define (register-func nm arity)
-  (cell-set! FUNCS (cons (cons nm (sanitize nm 0 ""))
+  (cell-set! FUNCS (cons (cons nm (function-symbol nm))
                          (cell-get FUNCS)))
   (cell-set! FUNC-ARITIES (cons (cons nm arity)
                                 (cell-get FUNC-ARITIES))))
