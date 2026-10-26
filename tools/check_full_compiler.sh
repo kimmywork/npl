@@ -165,6 +165,14 @@ cc -std=c99 -Wall -Wextra -Werror -I "$ROOT/runtime" -c -o "$WORK/pointers.o" \
 cc -o "$WORK/pointers" "$WORK/pointers.s" "$WORK/pointers.o" "$RUNTIME" -lm
 "$WORK/pointers" > "$WORK/pointers.out"
 cmp "$EXTENSION/pointers.out" "$WORK/pointers.out"
+# A C function returning several values (result type values).
+emit "$WORK/compiler" "$EXTENSION/values.npl" "$WORK/values.ssa"
+"$QBE" -o "$WORK/values.s" "$WORK/values.ssa"
+cc -std=c99 -Wall -Wextra -Werror -I "$ROOT/runtime" -c -o "$WORK/values.o" \
+    "$EXTENSION/values.c"
+cc -o "$WORK/values" "$WORK/values.s" "$WORK/values.o" "$RUNTIME" -lm
+"$WORK/values" > "$WORK/values.out"
+cmp "$EXTENSION/values.out" "$WORK/values.out"
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
@@ -246,6 +254,9 @@ reject_compile contracts/c-primitive-type.npl \
     c-primitive-type "unknown C primitive type: pear"
 reject_compile contracts/c-primitive-conflict.npl \
     c-primitive-conflict "C primitive declaration conflicts with registered npl_car"
+reject_compile contracts/c-primitive-values-conflict.npl \
+    c-primitive-values-conflict \
+    "C primitive declaration conflicts with registered npl_car"
 reject_compile contracts/c-primitive-symbol.npl \
     c-primitive-symbol "invalid C symbol: npl-f"
 

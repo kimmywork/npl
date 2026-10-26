@@ -25,6 +25,10 @@
   '("any" "pair" "fixnum" "index" "integer" "number" "real" "char" "string"
     "symbol" "vector" "bytevector" "procedure" "port" "boolean"))
 
+; Result only: the function may return several values, so a call used where
+; one value is required checks for one (frontend/control.npl).
+(define C-PRIMITIVE-MULTIPLE-RESULT "values")
+
 ; #f, or (hook row-name symbol count) -> #f when bound, else a message.
 (define C-PRIMITIVE-HOOK (cell #f))
 
@@ -35,6 +39,13 @@
       (datum-symbol-name type)
       (fatal (string-append "unknown C primitive type: "
                             (datum-symbol-name type)))))
+
+(define (c-primitive-result-type-name type)
+  (if (datum-symbol? type)
+      (if (string=? (datum-symbol-name type) C-PRIMITIVE-MULTIPLE-RESULT)
+          C-PRIMITIVE-MULTIPLE-RESULT
+          (c-primitive-type-name type))
+      (c-primitive-type-name type)))
 
 ; Datum lists are pairs; a datum symbol is a pair too, so exclude it.
 (define (c-primitive-list-pair? value)
@@ -95,11 +106,19 @@
       (= (primitive-row-required row) count)
       #f))
 
-(define (c-primitive-existing-name row symbol count)
-  (if (c-primitive-row-accepts? row count)
-      (primitive-row-name row)
-      (fatal (string-append
-               "C primitive declaration conflicts with registered " symbol))))
+(define (c-primitive-conflict symbol)
+  (fatal (string-append
+           "C primitive declaration conflicts with registered " symbol)))
+
+; A registered symbol is reused only with the same operand count and the
+; same answer to whether it returns several values.
+(define (c-primitive-existing-name row symbol count result)
+  (cond
+    ((not (c-primitive-row-accepts? row count)) (c-primitive-conflict symbol))
+    ((eq? (primitive-row-multiple-values? row)
+          (string=? result C-PRIMITIVE-MULTIPLE-RESULT))
+     (primitive-row-name row))
+    (else (c-primitive-conflict symbol))))
 
 (define (c-primitive-new-name symbol count types result)
   (let ((name (string-append "_npl_cprim_" symbol)))
@@ -117,7 +136,7 @@
 (define (c-primitive-row-name symbol types result)
   (let ((row (c-primitive-registered-row symbol)))
     (if row
-        (c-primitive-existing-name row symbol (raw-list-count types 0))
+        (c-primitive-existing-name row symbol (raw-list-count types 0) result)
         (c-primitive-new-name symbol (raw-list-count types 0) types result))))
 
 (define (c-primitive-resolved name problem)
@@ -188,7 +207,7 @@
                                   (datum-symbol-name name))))
         (let ((types (c-primitive-type-names
                        (c-primitive-parameter-types (cdr signature))))
-              (result (c-primitive-type-name (car (cdr (cdr form)))))
+              (result (c-primitive-result-type-name (car (cdr (cdr form)))))
               (symbol (c-primitive-declared-symbol form count name)))
           (add-value-binding name
             (register-c-primitive! symbol types result) value-env))))))

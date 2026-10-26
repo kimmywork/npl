@@ -122,16 +122,16 @@ same stubs as npli; output parameters return as extra values;
 nplc runs the program's top level in order and generates the C main;
 `main` is an ordinary name (worklog 2026-10-26). P6a done: BOX_POINTER,
 (npl ffi) with with-resource, installed include/npl/npl.h. Next: P6b
-`define-c-function` and C stub generation (`nplc --emit=c-stubs`); check
-first whether a primitive returning multiple values works on the
-compiler's value path (needed for pointer-out results).
+`define-c-function` and C stub generation (`nplc --emit=c-stubs`).
+Multiple-value results checked and fixed first: result type `values`
+(worklog 2026-10-26); pointer-out functions use it.
 Next: P6 (FFI level B); first decide the stub driver and the pointer
 representation (docs/design-primitives.md, Open Questions).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 237,008 lines; SHA-256
-  `77aba81a73fd163ed74d8df04e2e0026f6e50a5eb0d3d8e6e44be126576978a5`
+- `bootstrap/current.ssa`: 237,405 lines; SHA-256
+  `a48df49e7dc4c9b69cbdc0316db0df4ed87f74b7114011bf61e1317c6f666db7`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded

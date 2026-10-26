@@ -30,6 +30,12 @@ NPL. See "Limitations" and the plan in
   `fixnum`, `index`, `integer`, `number`, `real`, `char`, `string`, `symbol`,
   `vector`, `bytevector`, `procedure`, `port`, `boolean`. They are recorded
   for later use and not checked; the C function validates its arguments.
+- The result type `values` declares a function that may return several
+  values (`npl_make_values(count, array)`). Such a call is received by
+  `call-with-values` or `let-values`; used where one value is required, it
+  raises "value context: expected 1 value", as in npli. Other result types
+  must return exactly one value. Example: `values.npl` and `values.c` in
+  `src/compiler/tests/c-extension/`.
 - The declaration is valid at top level only (program body or library
   `begin`) and must precede uses of its name. The name must not already be
   bound in that scope.
@@ -194,7 +200,7 @@ form is evaluated:
 | `unknown C primitive type: T` | type outside the set above |
 | `invalid C symbol: S` | symbol is not a C identifier |
 | `define-c-primitive: already bound: N` | name already defined or imported in that scope |
-| `C primitive declaration conflicts with registered S` | symbol is a built-in or earlier declaration with another operand count or kind |
+| `C primitive declaration conflicts with registered S` | symbol is a built-in or earlier declaration with another operand count, kind, or `values` result |
 | `%c-call: argument count differs from its types` | type list and arguments differ in length |
 
 A symbol with no definition is reported by the `nplc` linker as an undefined

@@ -1,0 +1,3 @@
+; A declaration reusing a registered C symbol must agree on values.
+(define-c-primitive (first (p pair)) values "npl_car")
+(first '(1))

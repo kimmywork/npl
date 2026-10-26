@@ -36,6 +36,17 @@
       (control-primitive-name? (cdr head))
       #f))
 
+; A call of a declared C primitive whose result is values is not simple: it
+; sends its result to a continuation, which checks for one value where one
+; is required, as npli does.
+(define (control-single-value-row? row)
+  (if row (not (primitive-row-multiple-values? row)) #t))
+
+(define (control-single-value-primitive-head? head)
+  (if (control-primitive-head? head)
+      (control-single-value-row? (primitive-row (cdr head)))
+      #f))
+
 (define (control-simple-list? expressions)
   (if (null? expressions)
       #t
@@ -49,7 +60,7 @@
     ((null? expression) #t)
     ((not (pair-shape? expression)) #f)
     ((not (number? (car expression)))
-     (if (control-primitive-head? (car expression))
+     (if (control-single-value-primitive-head? (car expression))
          (control-simple-list? (cdr expression))
          #f))
     ((= (car expression) 212) #t)

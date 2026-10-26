@@ -272,6 +272,14 @@
 ;; %c-procedure (c-primitives.npl); same layout plus argument and result types.
 (define DECLARED-PRIMITIVE-ROWS (cell ()))
 
+; A declared row whose result type is values: its C function may return
+; several values (npl_make_values). Table rows return one value.
+(define (primitive-row-multiple-values? row)
+  (let ((types (cdr (cdr (cdr (cdr (cdr row)))))))
+    (if (null? types)
+        #f
+        (string=? (car (cdr types)) "values"))))
+
 (define (primitive-row name)
   (let ((row (primitive-row-in name PRIMITIVE-TABLE)))
     (if row row (primitive-row-in name (cell-get DECLARED-PRIMITIVE-ROWS)))))

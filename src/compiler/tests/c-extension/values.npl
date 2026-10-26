@@ -1,0 +1,22 @@
+; The values result type: a C function returning several values. Run by
+; nplc (check_full_compiler.sh) and npli -l (check_repl.sh); expected
+; output in values.out.
+(import (scheme base) (scheme write))
+
+(define-c-primitive (divmod (a fixnum) (b fixnum)) values "demo_divmod")
+
+(define (show label value) (write (list label value)) (newline))
+(define (message thunk)
+  (guard (e ((error-object? e) (error-object-message e))) (thunk)))
+
+(show 'call-with-values
+      (call-with-values (lambda () (divmod 17 5)) list))
+(show 'let-values (let-values (((q r) (divmod 9 4))) (list q r)))
+; In tail position the values reach the consumer unchanged.
+(define (split n) (divmod n 2))
+(show 'tail (call-with-values (lambda () (split 7)) list))
+(show 'procedure-value (call-with-values (lambda () (apply divmod '(8 3))) list))
+; Where one value is required, several are an error, under nplc as in npli.
+(show 'operand (message (lambda () (+ 1 (divmod 7 2)))))
+(show 'list-element (message (lambda () (list (divmod 7 2)))))
+(show 'argument-error (message (lambda () (divmod 1 0))))

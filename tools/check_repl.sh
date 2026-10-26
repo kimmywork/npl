@@ -134,6 +134,11 @@ cp "$EXTENSION/main.npl" "$WORK/c-extension.scm"
 "$ROOT/build/bin/npli" -l "$WORK/libdemopointers.${library##*.}" \
     "$EXTENSION/pointers.npl" > "$WORK/pointers.out"
 cmp "$EXTENSION/pointers.out" "$WORK/pointers.out"
+"${CC:-cc}" -std=c99 -Wall -Werror -I "$ROOT/runtime" "${shared[@]}" \
+    -o "$WORK/libdemovalues.${library##*.}" "$EXTENSION/values.c"
+"$ROOT/build/bin/npli" -l "$WORK/libdemovalues.${library##*.}" \
+    "$EXTENSION/values.npl" > "$WORK/values.out"
+cmp "$EXTENSION/values.out" "$WORK/values.out"
 "$ROOT/build/bin/npli" -l "$library" "$WORK/c-extension.scm" \
     > "$WORK/c-extension.out"
 cmp "$EXTENSION/expected.out" "$WORK/c-extension.out"
