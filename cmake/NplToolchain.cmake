@@ -6,6 +6,7 @@
 #   <prefix>/lib/npl/libnpl_runtime.a
 #   <prefix>/share/npl/lib/...        standard and (npl ...) libraries
 #   <prefix>/share/npl/src/compiler/  frontend sources included by (npl frontend)
+#   <prefix>/include/npl/npl.h        runtime ABI for C functions (docs/ffi.md)
 #
 # nplc and npli have no build-time paths compiled in except npli's REPL-STDLIB
 # fallback, which install overrides by locating share/npl/lib first.
@@ -33,13 +34,14 @@ set(NPL_TREE_LINKS
   ${CMAKE_BINARY_DIR}/libexec/npl/qbe
   ${CMAKE_BINARY_DIR}/lib/npl/libnpl_runtime.a
   ${CMAKE_BINARY_DIR}/share/npl/lib
-  ${CMAKE_BINARY_DIR}/share/npl/src)
+  ${CMAKE_BINARY_DIR}/share/npl/src
+  ${CMAKE_BINARY_DIR}/include/npl/npl.h)
 add_custom_command(
   OUTPUT ${NPL_TREE_LINKS}
   DEPENDS qbe_build npl_runtime
   COMMAND ${CMAKE_COMMAND} -E make_directory
           ${CMAKE_BINARY_DIR}/libexec/npl ${CMAKE_BINARY_DIR}/lib/npl
-          ${CMAKE_BINARY_DIR}/share/npl
+          ${CMAKE_BINARY_DIR}/share/npl ${CMAKE_BINARY_DIR}/include/npl
   COMMAND ${CMAKE_COMMAND} -E create_symlink ${QBE_BIN}
           ${CMAKE_BINARY_DIR}/libexec/npl/qbe
   COMMAND ${CMAKE_COMMAND} -E create_symlink ${NPL_RUNTIME_ARCHIVE}
@@ -48,6 +50,8 @@ add_custom_command(
           ${CMAKE_BINARY_DIR}/share/npl/lib
   COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_SOURCE_DIR}/src
           ${CMAKE_BINARY_DIR}/share/npl/src
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_SOURCE_DIR}/runtime/npl.h
+          ${CMAKE_BINARY_DIR}/include/npl/npl.h
   COMMENT "build tree: install-layout links"
   VERBATIM)
 add_custom_target(npl_tree_layout ALL DEPENDS ${NPL_TREE_LINKS})
@@ -71,6 +75,8 @@ add_custom_target(npli ALL DEPENDS ${NPLI_BIN})
 install(PROGRAMS ${NPLC_BIN} ${NPLI_BIN} DESTINATION bin)
 install(PROGRAMS ${QBE_BIN} DESTINATION libexec/npl)
 install(FILES ${NPL_RUNTIME_ARCHIVE} DESTINATION lib/npl)
+# The runtime ABI for C functions called from NPL (docs/ffi.md).
+install(FILES ${CMAKE_SOURCE_DIR}/runtime/npl.h DESTINATION include/npl)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/lib/ DESTINATION share/npl/lib)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/src/compiler/ DESTINATION share/npl/src/compiler
         PATTERN tests EXCLUDE)

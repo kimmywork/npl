@@ -120,14 +120,18 @@ is a new box type without finalizer (explicit release); nplc links the
 same stubs as npli; output parameters return as extra values;
 `with-resource` (dynamic-wind macro) ships with the P6 library.
 nplc runs the program's top level in order and generates the C main;
-`main` is an ordinary name (worklog 2026-10-26). Next: P6a pointer type.
+`main` is an ordinary name (worklog 2026-10-26). P6a done: BOX_POINTER,
+(npl ffi) with with-resource, installed include/npl/npl.h. Next: P6b
+`define-c-function` and C stub generation (`nplc --emit=c-stubs`); check
+first whether a primitive returning multiple values works on the
+compiler's value path (needed for pointer-out results).
 Next: P6 (FFI level B); first decide the stub driver and the pointer
 representation (docs/design-primitives.md, Open Questions).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 236,984 lines; SHA-256
-  `7aa6762f93fb42181f8d2b8d8becd6b53c9610f557252550030d39e8f1baac4e`
+- `bootstrap/current.ssa`: 237,008 lines; SHA-256
+  `77aba81a73fd163ed74d8df04e2e0026f6e50a5eb0d3d8e6e44be126576978a5`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded

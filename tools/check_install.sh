@@ -15,7 +15,7 @@ cmake --install "$ROOT/build" --prefix "$PREFIX" >/dev/null
 
 for path in bin/nplc bin/npli libexec/npl/qbe lib/npl/libnpl_runtime.a \
             share/npl/lib/scheme/base.sld share/npl/lib/npl/frontend.sld \
-            share/npl/src/compiler/main.npl; do
+            share/npl/src/compiler/main.npl include/npl/npl.h; do
     [ -e "$PREFIX/$path" ]
 done
 [ ! -e "$PREFIX/share/npl/src/compiler/tests" ]
@@ -35,6 +35,9 @@ clean "$PREFIX/bin/nplc" hello.npl
 clean "$PREFIX/bin/nplc" -c hello.npl
 clean cc -o linked hello.o "$PREFIX/lib/npl/libnpl_runtime.a" -lm
 [ "$(./linked)" = "hello from nplc" ]
+# C functions for NPL build against the installed runtime header.
+clean cc -std=c99 -Wall -Werror -I "$PREFIX/include/npl" -c \
+    -o clamp.o "$ROOT/src/compiler/tests/c-extension/clamp.c"
 [ "$(clean "$PREFIX/bin/npli" script.scm x)" = '(#\A ("x"))' ]
 [ "$(printf '(+ 40 2)\n' | clean "$PREFIX/bin/npli" --no-prompt)" = "42" ]
 

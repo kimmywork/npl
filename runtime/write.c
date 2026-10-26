@@ -464,6 +464,14 @@ static void print_datum(NplPrinter *printer, NplVal value)
         case BOX_PROMISE: output_text(port, "#<promise>"); break;
         case BOX_PORT: output_text(port, "#<port>"); break;
         case BOX_EOF: output_text(port, "#<eof>"); break;
+        case BOX_POINTER: {
+            char text[40];
+            snprintf(text, sizeof text, "#<pointer 0x%llx>",
+                     (unsigned long long)(uintptr_t)
+                         ((NplPointer *)header)->address);
+            output_text(port, text);
+            break;
+        }
         default: output_text(port, "#<unknown>"); break;
         }
     } else {

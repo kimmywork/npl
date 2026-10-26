@@ -175,6 +175,11 @@
     ; of them need no symbol lookup
     ("npl_ffi_load_library" fixed 1 0)
     ("npl_ffi_procedure" fixed 2 0)
+    ; C pointers (runtime/ffi.c), exported by (npl ffi)
+    ("pointer?" fixed 1 0)
+    ("pointer-null?" fixed 1 0)
+    ("null-pointer" fixed 0 0)
+    ("pointer->integer" fixed 1 0)
     ; control mechanisms used by control conversion and (scheme base)
     ("npl_expect_one" fixed 1 0)
     ("npl_make_values" count 0 -1)

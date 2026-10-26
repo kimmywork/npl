@@ -1,0 +1,62 @@
+; (npl ffi) pointers and with-resource over pointers.c. Run by nplc
+; (check_full_compiler.sh) and npli -l (check_repl.sh); expected output in
+; pointers.out.
+(import (scheme base) (scheme write) (scheme process-context) (npl ffi))
+
+(define-c-primitive (demo-open (n fixnum)) any "demo_open")
+(define-c-primitive (demo-value (resource any)) fixnum "demo_value")
+(define-c-primitive (demo-close (resource any)) any "demo_close")
+(define-c-primitive (demo-open-count) fixnum "demo_open_count")
+
+(define (show label value) (write (list label value)) (newline))
+
+(define p (demo-open 7))
+(show 'pointer (list (pointer? p) (pointer? 7) (pointer-null? p)
+                     (pointer-null? (null-pointer))))
+(show 'eqv (list (eqv? (null-pointer) (null-pointer)) (eqv? p p)
+                 (eqv? p (null-pointer)) (equal? (list p) (list p))))
+(show 'integer (list (exact-integer? (pointer->integer p))
+                     (pointer->integer (null-pointer))))
+(show 'write (let ((port (open-output-string)))
+               (write (null-pointer) port)
+               (get-output-string port)))
+(show 'value (demo-value p))
+(demo-close p)
+(show 'type-error
+      (guard (e ((error-object? e) (error-object-message e)))
+        (pointer-null? 1)))
+
+; with-resource releases once on normal return, on a caught raise, and on
+; an escape; re-entering the body does not release again.
+(show 'normal (list (with-resource (r (demo-open 1) demo-close)
+                      (demo-value r))
+                    (demo-open-count)))
+(show 'raise (list (guard (e ((symbol? e) e))
+                     (with-resource (r (demo-open 2) demo-close)
+                       (raise 'failed)))
+                   (demo-open-count)))
+(show 'escape (list (call/cc
+                      (lambda (k)
+                        (with-resource (r (demo-open 3) demo-close)
+                          (k (demo-value r)))))
+                    (demo-open-count)))
+; Re-entry stays within one procedure, so npli and nplc continue alike, and
+; the body does not touch r after its release.
+(define (reentry)
+  (let ((again #f) (entries 0) (value #f))
+    (set! value
+      (call/cc
+        (lambda (k)
+          (with-resource (r (demo-open 5) demo-close)
+            (call/cc (lambda (resume) (set! again resume)))
+            (set! entries (+ entries 1))
+            (k (if (= entries 1) (demo-value r) 'reentered))))))
+    (if (< entries 2) (again #f))
+    (list value entries (demo-open-count))))
+(show 'reentry (reentry))
+; exit runs the release (R7RS 6.14).
+(define (release-and-report r)
+  (demo-close r)
+  (show 'exit-released (demo-open-count)))
+(with-resource (r (demo-open 4) release-and-report)
+  (exit 0))

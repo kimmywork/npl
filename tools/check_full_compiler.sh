@@ -157,6 +157,14 @@ cc -std=c99 -Wall -Werror -I "$ROOT/runtime" -c -o "$WORK/clamp.o" \
 cc -o "$WORK/c-extension" "$WORK/c-extension.s" "$WORK/clamp.o" "$RUNTIME" -lm
 "$WORK/c-extension" > "$WORK/c-extension.out"
 cmp "$EXTENSION/expected.out" "$WORK/c-extension.out"
+# (npl ffi) pointers and with-resource over a counted C resource.
+emit "$WORK/compiler" "$EXTENSION/pointers.npl" "$WORK/pointers.ssa"
+"$QBE" -o "$WORK/pointers.s" "$WORK/pointers.ssa"
+cc -std=c99 -Wall -Wextra -Werror -I "$ROOT/runtime" -c -o "$WORK/pointers.o" \
+    "$EXTENSION/pointers.c"
+cc -o "$WORK/pointers" "$WORK/pointers.s" "$WORK/pointers.o" "$RUNTIME" -lm
+"$WORK/pointers" > "$WORK/pointers.out"
+cmp "$EXTENSION/pointers.out" "$WORK/pointers.out"
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then

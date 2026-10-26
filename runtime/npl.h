@@ -56,6 +56,7 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_COMPLEX 21
 #define BOX_RECORD 22   /* NplVector layout: data[0] = type, data[1..] = fields */
 #define BOX_STRING_DATA 23  /* out-of-line wide string characters (string.c) */
+#define BOX_POINTER 24  /* C address (ffi.c); holds no references */
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -241,6 +242,13 @@ typedef struct {
     uint32_t capacity;
     uint32_t limbs[];
 } NplBigint;
+
+/* A C address from a foreign call. The collector never follows or frees
+ * it; whatever it points to is released by the C library's own calls. */
+typedef struct {
+    NplHeader header;
+    void *address;
+} NplPointer;
 
 /* Reduced exact fraction; denominator > 1 and numerator is nonzero. */
 typedef struct {
@@ -647,6 +655,17 @@ int npl_gc_root_count_internal(void);
 void npl_gc_restore_root_count_internal(int count);
 /* Catchable primitive errors (error.c, trampoline.c). */
 int npl_raise_from_primitive(NplVal object);
+/* C pointers (ffi.c, docs/ffi.md): boxed addresses compared by address. */
+NplVal npl_pointer(void *address);
+int npl_is_pointer(NplVal value);
+void *npl_pointer_address(NplVal value, const char *who);
+NplVal npl_pointer_p(NplVal value);
+NplVal npl_pointer_null_p(NplVal value);
+NplVal npl_null_pointer(void);
+NplVal npl_pointer_to_integer(NplVal value);
+NplVal npl_ffi_load_library(NplVal path);
+NplVal npl_ffi_procedure(NplVal symbol, NplVal count);
+
 void npl_primitive_error(const char *who, const char *message,
                          NplVal irritant);
 void npl_report_error_object(NplVal object);

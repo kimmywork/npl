@@ -61,7 +61,8 @@ NplVal demo_clamp(NplVal x, NplVal lo, NplVal hi)
 }
 ```
 
-Rules, all from `runtime/npl.h`:
+Rules, all from `npl.h` (installed as `PREFIX/include/npl/npl.h`; in a
+checkout, `runtime/npl.h`):
 
 - **Signature.** `NplVal f(NplVal, ...)` with exactly the declared number of
   arguments, returning one `NplVal`. Return `npl_nil()` when there is no
@@ -86,6 +87,10 @@ Rules, all from `runtime/npl.h`:
     `npl_gc_write_barrier(object, value)`, as the runtime's own mutators do.
     Without it a minor collection can free the stored value. Running the
     program with `NPL_GC_VERIFY=1` checks for missing barriers.
+- **C pointers.** `npl_pointer(address)` boxes a C address as an NPL
+  pointer value and `npl_pointer_address(value, who)` returns it, raising
+  "who: expected a pointer" for any other value. The collector never
+  follows or frees the address; see "Pointers And Release".
 - **Synchronous only.** The function must return normally or raise through
   `npl_primitive_error`. It must not call NPL procedures, capture
   continuations, or `longjmp` itself.
@@ -112,8 +117,8 @@ nplc -c main.npl                                   # main.o
 cc -o main main.o clamp.o PREFIX/lib/npl/libnpl_runtime.a -lm
 ```
 
-`npl.h` is in the source checkout's `runtime/` and is not installed yet. On
-macOS `-lm` is part of libSystem and may be omitted.
+Use `-I PREFIX/include/npl` for an installed toolchain, or the checkout's
+`runtime/`. On macOS `-lm` is part of libSystem and may be omitted.
 
 ### Running Under npli
 
@@ -145,6 +150,39 @@ The complete example is `src/compiler/tests/c-extension/` (`main.npl`,
 `tools/check_driver.sh` through `-L`/`-l`, and `tools/check_repl.sh` runs it
 under `npli -l`.
 
+## Pointers And Release
+
+`(npl ffi)` exports pointer operations and `with-resource`:
+
+| Procedure | Result |
+|---|---|
+| `(pointer? x)` | `#t` for a pointer value |
+| `(pointer-null? p)` | `#t` for the null address |
+| `(null-pointer)` | a pointer to address 0 |
+| `(pointer->integer p)` | the address as an exact integer |
+
+`eqv?` and `equal?` compare pointers by address; `write` shows
+`#<pointer 0x...>`. There is no finalizer: the collector frees the pointer
+box, never what it points to. Release a C resource by calling the C
+library's own function, deterministically with `with-resource`:
+
+```scheme
+(import (scheme base) (npl ffi))
+(define-c-primitive (db-open (path string)) any "demo_db_open")
+(define-c-primitive (db-close (db any)) any "demo_db_close")
+
+(with-resource (db (db-open "x.db") db-close)
+  (query db))
+```
+
+`(with-resource (name init release) body ...)` binds `name` to `init`, runs
+`body`, and calls `(release name)` exactly once when control leaves `body`:
+normal return, a raise caught outside it, an escape through a
+continuation, or `exit` (R7RS 6.14; `emergency-exit` runs nothing).
+Re-entering `body` through a continuation does not acquire or release the
+resource again, so a body re-entered after its release must not use it.
+`src/compiler/tests/c-extension/pointers.npl` covers each case.
+
 ## Diagnostics
 
 Errors from `nplc` at compile time, and from `npli` (status 70) when the
@@ -173,9 +211,9 @@ symbol. Under `npli`:
 - **npli** calls at most 8 arguments, and the declaration must be evaluated
   after its library is loaded (see "Running Under npli").
 - **Values only.** Arguments and results are `NplVal`. Calling an existing
-  C library with C types (`int`, `double`, `char *`, pointers) needs a
-  small `NplVal` wrapper like the one above. Typed C declarations with
-  generated wrappers are planned as P6.
+  C library with C types (`int`, `double`, `char *`) needs a small `NplVal`
+  wrapper like the one above, using `npl_pointer` for C pointers. Typed C
+  declarations with generated wrappers are planned as P6b.
 - **Fixed arity.** No optional or rest parameters.
 - **Types are unchecked.** A declared type documents intent. A later step
   may use the cheap ones (`pair`, `fixnum`, `char`, `index`) for inline

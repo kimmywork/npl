@@ -129,6 +129,11 @@ esac
 "${CC:-cc}" -std=c99 -Wall -Werror -I "$ROOT/runtime" "${shared[@]}" \
     -o "$library" "$EXTENSION/clamp.c"
 cp "$EXTENSION/main.npl" "$WORK/c-extension.scm"
+"${CC:-cc}" -std=c99 -Wall -Werror -I "$ROOT/runtime" "${shared[@]}" \
+    -o "$WORK/libdemopointers.${library##*.}" "$EXTENSION/pointers.c"
+"$ROOT/build/bin/npli" -l "$WORK/libdemopointers.${library##*.}" \
+    "$EXTENSION/pointers.npl" > "$WORK/pointers.out"
+cmp "$EXTENSION/pointers.out" "$WORK/pointers.out"
 "$ROOT/build/bin/npli" -l "$library" "$WORK/c-extension.scm" \
     > "$WORK/c-extension.out"
 cmp "$EXTENSION/expected.out" "$WORK/c-extension.out"

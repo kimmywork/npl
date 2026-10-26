@@ -14,10 +14,60 @@
 
 #include "port.h"
 #include <dlfcn.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define FFI_MAX_ARGUMENTS 8
+
+/* ---- C pointers ---- */
+
+NplVal npl_pointer(void *address)
+{
+    NplPointer *pointer = (NplPointer *)npl_alloc_object(sizeof(NplPointer));
+    pointer->header.tag = BOX_POINTER;
+    pointer->header.flags = 0;
+    pointer->address = address;
+    return (NplVal)(uintptr_t)pointer | TAG_PTR;
+}
+
+int npl_is_pointer(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_POINTER;
+}
+
+void *npl_pointer_address(NplVal value, const char *who)
+{
+    if (!npl_is_pointer(value))
+        npl_primitive_error(who, "expected a pointer", value);
+    return ((NplPointer *)npl_header(value))->address;
+}
+
+NplVal npl_pointer_p(NplVal value)
+{
+    return npl_is_pointer(value) ? npl_true() : npl_false();
+}
+
+NplVal npl_pointer_null_p(NplVal value)
+{
+    return npl_pointer_address(value, "pointer-null?") ? npl_false()
+                                                       : npl_true();
+}
+
+NplVal npl_null_pointer(void)
+{
+    return npl_pointer(NULL);
+}
+
+/* The address as an exact integer, for display and hashing. */
+NplVal npl_pointer_to_integer(NplVal value)
+{
+    uintptr_t address =
+        (uintptr_t)npl_pointer_address(value, "pointer->integer");
+    char text[24];
+    snprintf(text, sizeof text, "%llu", (unsigned long long)address);
+    return npl_integer_from_string(npl_string(text, (uint32_t)strlen(text)));
+}
 
 /* (ffi-load-library path): #t, or the loader's message as a string. */
 NplVal npl_ffi_load_library(NplVal path_value)

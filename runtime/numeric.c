@@ -711,6 +711,10 @@ NplVal npl_eqv(NplVal left, NplVal right)
         return npl_inexact_eqv(left, right);
     if (npl_number_p(left) == npl_true() && npl_number_p(right) == npl_true())
         return npl_number_compare(left, right) == 0 ? npl_true() : npl_false();
+    /* Two pointer boxes are the same pointer when their addresses are. */
+    if (npl_is_pointer(left) && npl_is_pointer(right))
+        return npl_pointer_address(left, "eqv?") ==
+               npl_pointer_address(right, "eqv?") ? npl_true() : npl_false();
     return left == right ? npl_true() : npl_false();
 }
 

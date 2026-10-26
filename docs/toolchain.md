@@ -53,6 +53,7 @@ PREFIX/libexec/npl/qbe
 PREFIX/lib/npl/libnpl_runtime.a
 PREFIX/share/npl/lib/            (scheme ...) and (npl ...) libraries
 PREFIX/share/npl/src/compiler/   frontend sources included by (npl frontend)
+PREFIX/include/npl/npl.h         runtime ABI for C functions (docs/ffi.md)
 ```
 
 `nplc` resolves each tool and library at run time: an explicit option first, then an environment variable, then this layout relative to its own executable. Nothing host-specific is compiled into the canonical SSA; emitting from a different working directory or from an installed `nplc` gives byte-identical output (`tools/check_install.sh`).
