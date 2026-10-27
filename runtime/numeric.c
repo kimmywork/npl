@@ -559,19 +559,22 @@ NplVal npl_number_zero_p(NplVal value)
     return npl_number_compare(value, npl_fixnum(0)) == 0 ? npl_true() : npl_false();
 }
 
+/* Fixnums are tested first: the common case must not pay for the complex,
+ * inexact, and rational tests. An overflowing fixnum result falls through to
+ * the bignum path. */
 NplVal npl_number_add(NplVal left, NplVal right)
 {
+    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
+        int64_t sum = npl_fixnum_value(left) + npl_fixnum_value(right);
+        if (sum >= -(INT64_C(1) << 61) && sum < (INT64_C(1) << 61))
+            return npl_fixnum(sum);
+    }
     if (npl_is_complex(left) || npl_is_complex(right))
         return npl_complex_arithmetic(left, right, '+');
     if (npl_is_inexact(left) || npl_is_inexact(right))
         return npl_inexact_arithmetic(left, right, '+');
     if (is_rational_box(left) || is_rational_box(right))
         return rational_arithmetic(left, right, '+');
-    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
-        int64_t sum = npl_fixnum_value(left) + npl_fixnum_value(right);
-        if (sum >= -(INT64_C(1) << 61) && sum < (INT64_C(1) << 61))
-            return npl_fixnum(sum);
-    }
     NplIntegerView a;
     NplIntegerView b;
     integer_view(&a, left, "+");
@@ -587,17 +590,17 @@ NplVal npl_number_add(NplVal left, NplVal right)
 
 NplVal npl_number_sub(NplVal left, NplVal right)
 {
+    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
+        int64_t difference = npl_fixnum_value(left) - npl_fixnum_value(right);
+        if (difference >= -(INT64_C(1) << 61) && difference < (INT64_C(1) << 61))
+            return npl_fixnum(difference);
+    }
     if (npl_is_complex(left) || npl_is_complex(right))
         return npl_complex_arithmetic(left, right, '-');
     if (npl_is_inexact(left) || npl_is_inexact(right))
         return npl_inexact_arithmetic(left, right, '-');
     if (is_rational_box(left) || is_rational_box(right))
         return rational_arithmetic(left, right, '-');
-    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
-        int64_t difference = npl_fixnum_value(left) - npl_fixnum_value(right);
-        if (difference >= -(INT64_C(1) << 61) && difference < (INT64_C(1) << 61))
-            return npl_fixnum(difference);
-    }
     NplIntegerView a;
     NplIntegerView b;
     integer_view(&a, left, "-");
@@ -670,6 +673,10 @@ NplVal npl_number_mul(NplVal left, NplVal right)
 
 int32_t npl_number_compare(NplVal left, NplVal right)
 {
+    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
+        int64_t x = npl_fixnum_value(left), y = npl_fixnum_value(right);
+        return x < y ? -1 : (x > y ? 1 : 0);
+    }
     if (npl_is_complex(left) || npl_is_complex(right))
         numeric_error("number comparison", "complex number is unordered",
                       npl_is_complex(left) ? left : right);
@@ -688,10 +695,6 @@ int32_t npl_number_compare(NplVal left, NplVal right)
         npl_gc_unroot(&right);
         npl_gc_unroot(&left);
         return result;
-    }
-    if (npl_is_fixnum(left) && npl_is_fixnum(right)) {
-        int64_t x = npl_fixnum_value(left), y = npl_fixnum_value(right);
-        return x < y ? -1 : (x > y ? 1 : 0);
     }
     NplIntegerView a;
     NplIntegerView b;

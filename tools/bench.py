@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """P1 performance baseline: NPL native, npli, Guile, and Racket.
 
-Usage: python3 tools/bench.py [--runs N] [--timeout SECONDS] [workload ...]
+Usage: python3 tools/bench.py [--runs N] [--timeout SECONDS]
+                              [--repeat N | --scaled] [workload ...]
 
 Each bench/workloads/<name>.scm defines (bench-main) using R7RS-small only.
 The runner wraps it per implementation, compiles where the implementation
@@ -10,6 +11,10 @@ implementation prints the same output, then times N runs. Compile time is
 reported separately from run time. Times are the median and the min-max
 range of wall-clock and child CPU (user+sys) seconds; CPU time is less
 sensitive to host load. A run that exceeds the timeout is reported as such.
+
+Each run includes process startup. --repeat N calls (bench-main) N times per
+run so startup is amortized; --scaled uses the per-workload counts of SCALED,
+which bring every workload to a few seconds of native CPU (P7 bench).
 """
 
 import argparse
@@ -41,6 +46,9 @@ RACKET_HEADER = (
     "(define (string-upcase s)\n"
     "  (list->string (map char-upcase (string->list s))))\n"
 )
+# Per-workload (bench-main) repeat counts for --scaled.
+SCALED = {"callcc": 10, "closures": 3, "fact": 10, "fib": 20, "lists": 10,
+          "loop": 10, "strings": 20, "tak": 50, "vectors": 50}
 
 
 def timed(command, timeout, cwd):
@@ -62,16 +70,17 @@ def timed(command, timeout, cwd):
     return wall, cpu, result.stdout
 
 
-def prepare(name, body, work):
+def prepare(name, body, work, repeat):
     """Write per-implementation sources; return {impl: (compile, run)}."""
+    main = "\n(bench-main)" * repeat + "\n"
     def write(file, text):
         path = os.path.join(work, file)
         with open(path, "w") as out:
             out.write(text)
         return path
-    native = write(name + ".npl", IMPORTS + body + "\n(bench-main)\n")
-    script = write(name + ".scm", IMPORTS + body + "\n(bench-main)\n")
-    racket = write(name + ".rkt", RACKET_HEADER + body + "\n(bench-main)\n")
+    native = write(name + ".npl", IMPORTS + body + main)
+    script = write(name + ".scm", IMPORTS + body + main)
+    racket = write(name + ".rkt", RACKET_HEADER + body + main)
     exe = os.path.join(work, name)
     return {
         "native": ([NPLC, native, "-o", exe], [exe]),
@@ -97,8 +106,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--timeout", type=float, default=120.0)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--repeat", type=int, default=1,
+                       help="call (bench-main) N times per run")
+    group.add_argument("--scaled", action="store_true",
+                       help="per-workload repeat counts (SCALED)")
     parser.add_argument("workloads", nargs="*")
     args = parser.parse_args()
+    if args.repeat < 1:
+        parser.error("--repeat must be at least 1")
     names = args.workloads or sorted(
         f[:-4] for f in os.listdir(WORKLOADS) if f.endswith(".scm"))
     print("host load: %s" % os.getloadavg()[0])
@@ -107,8 +123,11 @@ def main():
         for name in names:
             with open(os.path.join(WORKLOADS, name + ".scm")) as source:
                 body = source.read()
+            repeat = SCALED.get(name, 1) if args.scaled else args.repeat
+            if repeat > 1:
+                print("%-9s repeat %d" % (name, repeat))
             outputs = {}
-            for impl, (compile_cmd, run_cmd) in prepare(name, body, work).items():
+            for impl, (compile_cmd, run_cmd) in prepare(name, body, work, repeat).items():
                 compile_text = "-"
                 if compile_cmd:
                     compiled = timed(compile_cmd, args.timeout * 5, work)

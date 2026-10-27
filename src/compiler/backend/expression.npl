@@ -293,13 +293,14 @@
   (let ((count (count-up args 0)))
     (check-arity args 2 count)
     ; Evaluate every operand once before testing any adjacent pair.
-    (emit-compare-chain opn (eval-args-fixed args env count ()))))
+    (emit-compare-chain opn (eval-args-fixed args env count ()) #t)))
 
-(define (emit-compare-chain opn ops)
-  (let ((first (emit-compare-pair opn (car ops) (car (cdr ops)))))
+; checked as in emit-fixnum-arith (numeric.npl).
+(define (emit-compare-chain opn ops checked)
+  (let ((first (emit-compare-pair opn (car ops) (car (cdr ops)) checked)))
     (if (null? (cdr (cdr ops)))
         first
-        (let ((rest (emit-compare-chain opn (cdr ops))))
+        (let ((rest (emit-compare-chain opn (cdr ops) checked)))
           ; Tagged booleans are 6 and 10: OR is false if either is false.
           (let ((combined (new-tmp)))
             (func-line (string-append combined " =l or " first ", " rest))
@@ -307,20 +308,42 @@
               (func-line (string-append raw " =w ceql " combined ", 6"))
               (bool-from-raw raw)))))))
 
-(define (emit-compare-pair opn va vb)
-  (let ((order (new-tmp)))
-    (func-line (string-append order " =w call $npl_number_compare(l "
-                             va ", l " vb ")"))
-    (let ((raw (new-tmp)))
-      (func-line
-        (string-append raw " =w "
-          (cond ((string=? opn "<") "csltw")
-                ((string=? opn ">") "csgtw")
-                ((string=? opn "=") "ceqw")
-                ((string=? opn "<=") "cslew")
-                (else "csgew"))
-          " " order ", 0"))
-      (bool-from-raw raw))))
+; QBE comparison for opn; kind is "l" for tagged fixnums (tagging preserves
+; order) or "w" for the npl_number_compare result against 0.
+(define (compare-instruction opn kind)
+  (string-append
+    (cond ((string=? opn "<") "cslt")
+          ((string=? opn ">") "csgt")
+          ((string=? opn "=") "ceq")
+          ((string=? opn "<=") "csle")
+          (else "csge"))
+    kind))
+
+(define (emit-compare-pair opn va vb checked)
+  (if checked
+      (bool-from-raw (emit-checked-compare opn va vb))
+      (bool-from-raw (emit-fixnum-compare opn va vb))))
+
+(define (emit-fixnum-compare opn va vb)
+  (let ((raw (new-tmp)))
+    (func-line (string-append raw " =w " (compare-instruction opn "l")
+                              " " va ", " vb))
+    raw))
+
+(define (emit-checked-compare opn va vb)
+  (let ((raw (new-tmp)) (slow (new-label)) (merge (new-label)))
+    (emit-fixnum-pair-branch va vb slow)
+    (func-line (string-append raw " =w " (compare-instruction opn "l")
+                              " " va ", " vb))
+    (func-line (string-append "jmp " merge))
+    (func-line slow)
+    (let ((order (new-tmp)))
+      (func-line (string-append order " =w call $npl_number_compare(l "
+                                va ", l " vb ")"))
+      (func-line (string-append raw " =w " (compare-instruction opn "w")
+                                " " order ", 0")))
+    (func-line merge)
+    raw))
 
 (define (is-cmp? nm)
   (cond ((string=? nm "<") #t)

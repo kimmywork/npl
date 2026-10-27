@@ -132,15 +132,18 @@ research, not yet scheduled.
 P7 bench done (worklog 2026-10-27): native 9.5x Guile on loop/fib/tak,
 32x vectors; costs are generic arithmetic dispatch, the tail trampoline,
 and per-call environment allocation, not type checks. Order decided:
-O1, O2, then the O3 design (no O3 code before acceptance). Next: O1, per
-[handoff-performance](handoff-performance.md).
+O1, O2, then the O3 design (no O3 code before acceptance), per
+[handoff-performance](handoff-performance.md). O1 done (worklog
+2026-10-27): inline fixnum add/sub/compare with overflow fallback; scaled
+CPU loop 7.41 -> 1.27 s, fib 3.77 -> 2.85, tak 2.46 -> 2.05 (Guile 0.78,
+0.40, 0.27). Next: O2 (direct self tail calls).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 245,438 lines; SHA-256
-  `b7d4c17ee0b775ddbe2e2dd8fd8820221428745bc7a50b0f6de733e53dd8aba5`
-  (macOS strict relay, 2026-10-22).
-- `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
+- `bootstrap/current.ssa`: 261,881 lines; SHA-256
+  `830a2bbe6046bf5c6ce7d2aa6bb70cbf889a7e3ddae07e1b4b5deb3ab305a299`
+  (macOS strict relay, 2026-10-27, O1).
+- `tools/run_tests.sh` (with relay): all PASS, macOS ~11-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.
 - Permanent `bootstrap/bootstrap.ssa` and `bootstrap/compiler/` unchanged.

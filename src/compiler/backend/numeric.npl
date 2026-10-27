@@ -84,11 +84,106 @@
     (if (string=? name "-") (check-arity args 1 count))
     (let ((ops (eval-args-fixed args env count ())))
       (cond
-        ((string=? name "+") (emit-integer-fold "npl_number_add" ops "0"))
+        ((string=? name "+") (emit-fixnum-sum ops #t))
         ((string=? name "*") (emit-integer-fold "npl_number_mul" ops "4"))
         ((null? (cdr ops))
-         (call-with-ops "npl_number_sub" (cons "0" ops)))
-        (else (emit-integer-fold "npl_number_sub" (cdr ops) (car ops)))))))
+         (emit-fixnum-arith "npl_number_sub" "sub" "0" (car ops) #t))
+        (else
+         (emit-fixnum-fold "npl_number_sub" "sub" (car ops) (cdr ops) #t))))))
+
+; ---------------- inline fixnum operations ----------------
+;
+; A fixnum is its value shifted left by 2 with tag 0 (runtime/npl.h), so two
+; tagged fixnums add, subtract, and compare as signed 64-bit integers, and the
+; fixnum range overflows exactly when the tagged operation overflows. Every
+; other case calls the generic runtime function. `checked` says whether the
+; operands still need the tag test; the alias fast path has already done it.
+
+; Continue at a new block when both operands have the fixnum tag (the OR of
+; two tag-0 values has low bits 0), otherwise jump to slow. A literal operand
+; is an immediate (fixnum, boolean, character, ...) and is tested too; QBE
+; folds the constant.
+(define (emit-fixnum-pair-branch va vb slow)
+  (let ((both (new-tmp)) (fast (new-label)))
+    (func-line (string-append both " =l or " va ", " vb))
+    (let ((low (new-tmp)))
+      (func-line (string-append low " =w and " both ", 3"))
+      (func-line (string-append "jnz " low ", " slow ", " fast))
+      (func-line fast))))
+
+(define (emit-fixnum-guard checked va vb slow)
+  (if checked (emit-fixnum-pair-branch va vb slow) #f))
+
+(define (emit-xor va vb)
+  (let ((x (new-tmp)))
+    (func-line (string-append x " =l xor " va ", " vb))
+    x))
+
+; 1 when the sign bit of (left & right) is set.
+(define (emit-sign-flag left right)
+  (let ((both (new-tmp)))
+    (func-line (string-append both " =l and " left ", " right))
+    (let ((flag (new-tmp)))
+      (func-line (string-append flag " =w csltl " both ", 0"))
+      flag)))
+
+; s = a + b overflows iff ((s ^ a) & (s ^ b)) < 0;
+; s = a - b overflows iff ((a ^ b) & (a ^ s)) < 0.
+(define (emit-overflow-flag opcode va vb value)
+  (if (string=? opcode "add")
+      (emit-sign-flag (emit-xor value va) (emit-xor value vb))
+      (emit-sign-flag (emit-xor va vb) (emit-xor va value))))
+
+; A temporary may hold a static box address plus its tag (a literal such as
+; 1/2). The guard keeps it off the fast path at run time, but QBE propagates
+; constants into the dead fast path and folds an address plus a constant into
+; a relocation addend, which Mach-O arm64 rejects when negative. Either
+; operand may become the constant only after propagation, so every temporary
+; is masked: `and x, -4` is the identity on a fixnum and QBE never folds an
+; address through it. Decimal operands are fixnums and need no mask.
+(define (fixnum-operand op)
+  (if (= (string-byte-ref op 0) 37)
+      (let ((masked (new-tmp)))
+        (func-line (string-append masked " =l and " op ", -4"))
+        masked)
+      op))
+
+; opcode is the QBE "add" or "sub"; fn the runtime function for the same
+; operation, called on overflow and for non-fixnum operands.
+(define (emit-fixnum-arith fn opcode va vb checked)
+  (let ((result (new-tmp)) (slow (new-label)) (merge (new-label)))
+    (emit-fixnum-guard checked va vb slow)
+    (let ((value (new-tmp)) (ok (new-label))
+          (a (fixnum-operand va)) (b (fixnum-operand vb)))
+      (func-line (string-append value " =l " opcode " " a ", " b))
+      (func-line (string-append "jnz " (emit-overflow-flag opcode a b value)
+                                ", " slow ", " ok))
+      (func-line ok)
+      (func-line (string-append result " =l copy " value))
+      (func-line (string-append "jmp " merge))
+      (func-line slow)
+      (func-line (string-append result " =l call $" fn "(l " va ", l " vb ")"))
+      (func-line merge)
+      result)))
+
+; Left fold. An intermediate result may be a bignum, so every step after the
+; first tests its tags again.
+(define (emit-fixnum-fold fn opcode result operands checked)
+  (if (null? operands)
+      result
+      (emit-fixnum-fold fn opcode
+        (emit-fixnum-arith fn opcode result (car operands) checked)
+        (cdr operands) #t)))
+
+; (+) is 0 and (+ x) is x. An unchecked operand is a fixnum already; a
+; checked one goes through the runtime, which rejects a non-number.
+(define (emit-fixnum-sum ops checked)
+  (cond
+    ((null? ops) "0")
+    ((null? (cdr ops))
+     (if checked (call-with-ops "npl_number_add" (cons "0" ops)) (car ops)))
+    (else
+     (emit-fixnum-fold "npl_number_add" "add" (car ops) (cdr ops) checked))))
 
 ; ---------------- public numeric alias fast paths ----------------
 ;
@@ -148,13 +243,13 @@
 
 (define (emit-numeric-alias-inline primitive ops)
   (cond
-    ((string=? primitive "+") (emit-integer-fold "npl_number_add" ops "0"))
+    ((string=? primitive "+") (emit-fixnum-sum ops #f))
     ((string=? primitive "*") (emit-integer-fold "npl_number_mul" ops "4"))
     ((string=? primitive "-")
      (if (null? (cdr ops))
-         (call-with-ops "npl_number_sub" (cons "0" ops))
-         (emit-integer-fold "npl_number_sub" (cdr ops) (car ops))))
-    (else (emit-compare-chain primitive ops))))
+         (emit-fixnum-arith "npl_number_sub" "sub" "0" (car ops) #f)
+         (emit-fixnum-fold "npl_number_sub" "sub" (car ops) (cdr ops) #f)))
+    (else (emit-compare-chain primitive ops #f))))
 
 ; A call to a public numeric alias takes the fixnum fast path when the operand
 ; count is one the inline operation supports. Below that count the call goes
