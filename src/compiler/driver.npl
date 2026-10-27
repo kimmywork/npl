@@ -15,6 +15,7 @@ Output kinds (default exe):
   --emit=obj, -c    object file
   --emit=exe        executable
   --emit-qbe        same as --emit=ssa
+  --emit=c-stubs    C stubs for define-c-function (standard output unless -o)
   --emit=staticlib, --emit=dylib are reserved and not yet supported
 
 Options:
@@ -24,6 +25,7 @@ Options:
   --qbe PATH        QBE executable          (env NPL_QBE)
   --cc PATH         C compiler and linker   (env NPL_CC, then CC)
   --runtime PATH    runtime archive         (env NPL_RUNTIME)
+                    npl.h for C stubs: env NPL_INCLUDE, else the layout
   -l NAME, -lNAME   link library NAME into the executable
   -L DIR, -LDIR     search DIR for -l libraries
   -h, --help        show this help
@@ -40,8 +42,11 @@ Options:
 (define DRIVER-KEEP 7)
 ; Linker arguments (-lNAME, -LDIR), most recent first.
 (define DRIVER-LINK 8)
+; Internal (--c-stubs-file PATH): the SSA child run also writes the
+; define-c-function stubs there, so a build expands the program once.
+(define DRIVER-STUBS 9)
 
-(define (driver-config) (vector "exe" #f #f #f #f #f #f #f ()))
+(define (driver-config) (vector "exe" #f #f #f #f #f #f #f () #f))
 (define (driver-get config slot) (vector-ref config slot))
 (define (driver-set! config slot value) (vector-set! config slot value))
 
@@ -59,13 +64,23 @@ Options:
       #f
       (string=? prefix (substring text 0 (string-length prefix)))))
 
+(define DRIVER-KINDS '("exe" "obj" "asm" "ssa" "c-stubs"))
+(define DRIVER-RESERVED-KINDS '("staticlib" "dylib"))
+
+; Single predicate tests: control conversion copies an if's continuation
+; into both branches, so compound tests and non-tail ifs would duplicate
+; the rest of each procedure (frontend/c-primitives.npl).
+(define (driver-listed? text items)
+  (cond
+    ((null? items) #f)
+    ((string=? text (car items)) #t)
+    (else (driver-listed? text (cdr items)))))
+
 (define (driver-set-kind! config kind)
   (cond
-    ((if (string=? kind "exe") #t
-         (if (string=? kind "obj") #t
-             (if (string=? kind "asm") #t (string=? kind "ssa"))))
+    ((driver-listed? kind DRIVER-KINDS)
      (driver-set! config DRIVER-KIND kind))
-    ((if (string=? kind "staticlib") #t (string=? kind "dylib"))
+    ((driver-listed? kind DRIVER-RESERVED-KINDS)
      (driver-error
        (string-append "--emit=" kind
                       " is not yet supported (see docs/toolchain.md)")))
@@ -128,6 +143,9 @@ Options:
           ((string=? argument "--runtime")
            (driver-set! config DRIVER-RUNTIME (driver-value argument rest))
            (driver-parse! config (cdr rest)))
+          ((string=? argument "--c-stubs-file")
+           (driver-set! config DRIVER-STUBS (driver-value argument rest))
+           (driver-parse! config (cdr rest)))
           ((driver-link-option? argument)
            (driver-parse! config (driver-add-link! config argument rest)))
           ((if (driver-prefix? "-" argument)
@@ -176,6 +194,18 @@ Options:
   (let ((cc (driver-resolve config DRIVER-CC "NPL_CC" #f)))
     (if cc cc (let ((fallback (driver-environment "CC")))
                 (if fallback fallback "cc")))))
+
+; Directory of npl.h for compiling define-c-function stubs: NPL_INCLUDE,
+; then the install layout (the build tree mirrors it).
+(define (driver-include config)
+  (let ((environment (driver-environment "NPL_INCLUDE")))
+    (if environment
+        environment
+        (let ((layout (driver-layout "include/npl/npl.h")))
+          (if layout
+              (path-dir layout)
+              (driver-error
+                "npl.h not found; set NPL_INCLUDE to its directory"))))))
 
 (define (driver-runtime config)
   (let ((runtime (driver-resolve config DRIVER-RUNTIME "NPL_RUNTIME"
@@ -235,20 +265,42 @@ Options:
                 (begin (write-char value port) (loop))))))
       #f))
 
-(define (driver-emit-ssa config ssa)
+(define (driver-emit-ssa config ssa stubs)
   (let ((status
           (run-process
             (cons (driver-self)
               (cons "--emit=ssa"
                 (cons "--stdlib-root"
                   (cons (driver-stdlib config)
-                    (cons (driver-get config DRIVER-SOURCE) ())))))
+                    (cons "--c-stubs-file"
+                      (cons stubs
+                        (cons (driver-get config DRIVER-SOURCE) ())))))))
             ssa)))
     (if (= status 0)
         0
         (begin
           (driver-relay-file ssa (current-error-port))
           (driver-stage-failure "compile" status)))))
+
+(define (driver-compile-stubs config stubs object)
+  (let ((status
+          (run-process
+            (cons (driver-cc config)
+              (cons "-std=c99"
+                (cons (string-append "-I" (driver-include config))
+                  (cons "-c" (cons "-o" (cons object (cons stubs ())))))))
+            #f)))
+    (if (= status 0) 0 (driver-stage-failure "cc (c stubs)" status))))
+
+; The stub object to link, () when the program declares no C functions
+; (the SSA run wrote no stub file), or a failure status.
+(define (driver-stub-objects config directory)
+  (let ((stubs (string-append directory "/stubs.c"))
+        (object (string-append directory "/stubs.o")))
+    (if (file-exists? stubs)
+        (let ((compiled (driver-compile-stubs config stubs object)))
+          (if (= compiled 0) (cons object ()) compiled))
+        ())))
 
 (define (driver-assemble config ssa assembly)
   (let ((status
@@ -266,23 +318,31 @@ Options:
             #f)))
     (if (= status 0) 0 (driver-stage-failure "cc" status))))
 
-; User libraries precede the runtime archive: they may call into it.
-(define (driver-link config assembly executable)
+; User libraries precede the runtime archive: they may call into it. The
+; stub object, if any, precedes the user libraries whose functions it calls.
+(define (driver-link-objects config assembly stubs executable)
   (let ((runtime (driver-runtime config)))
     (let ((status
             (run-process
               (cons (driver-cc config)
                 (cons "-o" (cons executable
                   (cons assembly
-                    (rev-into (driver-get config DRIVER-LINK)
-                              (cons runtime (cons "-lm" ())))))))
+                    (append stubs
+                      (rev-into (driver-get config DRIVER-LINK)
+                                (cons runtime (cons "-lm" ()))))))))
               #f)))
       (if (= status 0) 0 (driver-stage-failure "link" status)))))
 
-(define (driver-final-stage config kind assembly output)
+(define (driver-link config directory assembly executable)
+  (let ((stubs (driver-stub-objects config directory)))
+    (if (number? stubs)
+        stubs
+        (driver-link-objects config assembly stubs executable))))
+
+(define (driver-final-stage config directory kind assembly output)
   (cond
     ((string=? kind "obj") (driver-object config assembly output))
-    ((string=? kind "exe") (driver-link config assembly output))
+    ((string=? kind "exe") (driver-link config directory assembly output))
     (else 0)))
 
 (define (driver-pipeline config directory output)
@@ -293,13 +353,15 @@ Options:
           (assembly (if (string=? kind "asm")
                         output
                         (string-append directory "/source.s"))))
-      (let ((emitted (driver-emit-ssa config ssa)))
+      (let ((emitted (driver-emit-ssa config ssa
+                                      (string-append directory "/stubs.c"))))
         (if (if (= emitted 0) (string=? kind "ssa") #t)
             emitted
             (let ((assembled (driver-assemble config ssa assembly)))
               (if (if (= assembled 0) (string=? kind "asm") #t)
                   assembled
-                  (driver-final-stage config kind assembly output))))))))
+                  (driver-final-stage config directory kind assembly
+                                      output))))))))
 
 (define (driver-cleanup config directory)
   (if (driver-get config DRIVER-KEEP)
@@ -307,6 +369,8 @@ Options:
       (begin
         (driver-delete-if-present (string-append directory "/source.ssa"))
         (driver-delete-if-present (string-append directory "/source.s"))
+        (driver-delete-if-present (string-append directory "/stubs.c"))
+        (driver-delete-if-present (string-append directory "/stubs.o"))
         (delete-directory directory))))
 
 (define (driver-build config)
@@ -317,16 +381,42 @@ Options:
       (if (not (= status 0)) (driver-delete-if-present output))
       status)))
 
+; Expansion runs before the output is opened, so a compile error leaves no
+; partial file.
+(define (driver-c-stubs config)
+  (library-set-standard-root! (driver-stdlib config))
+  (expand-for-c-stubs (driver-get config DRIVER-SOURCE))
+  (if (driver-get config DRIVER-OUTPUT)
+      (let ((port (open-output-file (driver-get config DRIVER-OUTPUT))))
+        (write-c-stubs port)
+        (close-port port))
+      (write-c-stubs (current-output-port)))
+  0)
+
+(define (driver-ssa-to-stdout? config)
+  (if (string=? (driver-get config DRIVER-KIND) "ssa")
+      (not (driver-get config DRIVER-OUTPUT))
+      #f))
+
+; The SSA child run of a build also writes the stubs (--c-stubs-file).
+(define (driver-write-requested-stubs config)
+  (if (driver-get config DRIVER-STUBS)
+      (begin (write-c-stubs-file (driver-get config DRIVER-STUBS)) 0)
+      0))
+
+(define (driver-emit-ssa-in-process config)
+  (library-set-standard-root! (driver-stdlib config))
+  (emit-program (driver-get config DRIVER-SOURCE))
+  (driver-write-requested-stubs config))
+
 (define (driver-run config)
-  (if (not (driver-get config DRIVER-SOURCE))
-      (begin (display DRIVER-USAGE (current-error-port)) (exit 2)))
-  (if (if (string=? (driver-get config DRIVER-KIND) "ssa")
-          (not (driver-get config DRIVER-OUTPUT))
-          #f)
-      (begin
-        (library-set-standard-root! (driver-stdlib config))
-        (emit-program (driver-get config DRIVER-SOURCE))
-        0)
-      (driver-build config)))
+  (cond
+    ((not (driver-get config DRIVER-SOURCE))
+     (display DRIVER-USAGE (current-error-port))
+     2)
+    ((string=? (driver-get config DRIVER-KIND) "c-stubs")
+     (driver-c-stubs config))
+    ((driver-ssa-to-stdout? config) (driver-emit-ssa-in-process config))
+    (else (driver-build config))))
 
 (exit (driver-run (driver-parse! (driver-config) (program-arguments))))

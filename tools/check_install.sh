@@ -35,9 +35,15 @@ clean "$PREFIX/bin/nplc" hello.npl
 clean "$PREFIX/bin/nplc" -c hello.npl
 clean cc -o linked hello.o "$PREFIX/lib/npl/libnpl_runtime.a" -lm
 [ "$(./linked)" = "hello from nplc" ]
-# C functions for NPL build against the installed runtime header.
+# C functions for NPL build against the installed runtime header, and the
+# installed nplc finds it for define-c-function stubs.
 clean cc -std=c99 -Wall -Werror -I "$PREFIX/include/npl" -c \
     -o clamp.o "$ROOT/src/compiler/tests/c-extension/clamp.c"
+cp "$ROOT/src/compiler/tests/c-extension/typed.npl" typed.npl
+clean cc -std=c99 -c -o typed.o "$ROOT/src/compiler/tests/c-extension/typed.c"
+clean ar rcs libdemotyped.a typed.o
+clean "$PREFIX/bin/nplc" typed.npl -L . -l demotyped
+./typed | cmp "$ROOT/src/compiler/tests/c-extension/typed.out" -
 [ "$(clean "$PREFIX/bin/npli" script.scm x)" = '(#\A ("x"))' ]
 [ "$(printf '(+ 40 2)\n' | clean "$PREFIX/bin/npli" --no-prompt)" = "42" ]
 

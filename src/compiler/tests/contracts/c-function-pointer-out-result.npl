@@ -1,0 +1,3 @@
+; pointer-out is an argument type only.
+(define-c-function f "demo_f" (int) -> pointer-out)
+(f 1)

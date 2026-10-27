@@ -255,7 +255,12 @@ result, checks inside).
    over a source-level library declaration) and `runtime/ffi.c`. User
    guide: [ffi](ffi.md).
 6. Level B foreign calls: pointer type, typed `define-c-function`,
-   generated per-library stubs (npli) and direct calls (nplc).
+   generated per-library stubs (npli) and direct calls (nplc). Done
+   2026-10-27 with the user's choices: a pointer box without finalizer
+   (`with-resource` for release), `pointer-out` results as extra values,
+   one stub file per program that nplc compiles and links itself and npli
+   loads from `nplc --emit=c-stubs`; nplc calls the same stubs instead of
+   emitting the C calls in SSA.
 7. Optional: inline checks for `pair`, `fixnum`, `char`, and `index`
    arguments, gated on bench evidence. Renames of runtime exceptions to the
    naming rule fit any step after 2.
@@ -273,8 +278,9 @@ Recorded 2026-10-19.
 
 ## Open Questions
 
-- **Stub generation driver:** a separate `nplc --emit=c-stubs` mode, or a
-  library build step that a later package tool owns? This affects only
-  increment 6.
-- **Pointer values:** Level B needs an opaque C pointer type (with optional
-  finalization) in the runtime. Its representation is not designed yet.
+Resolved 2026-10-24/25 with the user and done in increment 6:
+
+- **Stub generation driver:** `nplc --emit=c-stubs`; an executable build
+  generates and links the stubs itself. A package tool may wrap this later.
+- **Pointer values:** `BOX_POINTER` (`runtime/ffi.c`), no finalizer;
+  release is explicit, deterministic with `with-resource` (`(npl ffi)`).

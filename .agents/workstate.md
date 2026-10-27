@@ -121,17 +121,19 @@ same stubs as npli; output parameters return as extra values;
 `with-resource` (dynamic-wind macro) ships with the P6 library.
 nplc runs the program's top level in order and generates the C main;
 `main` is an ordinary name (worklog 2026-10-26). P6a done: BOX_POINTER,
-(npl ffi) with with-resource, installed include/npl/npl.h. Next: P6b
-`define-c-function` and C stub generation (`nplc --emit=c-stubs`).
-Multiple-value results checked and fixed first: result type `values`
-(worklog 2026-10-26); pointer-out functions use it.
+(npl ffi) with with-resource, installed include/npl/npl.h. Result type
+`values` (worklog 2026-10-26). P6b done (worklog 2026-10-27):
+define-c-function with generated C stubs, built by nplc itself and by
+`nplc --emit=c-stubs` for npli. Next: P7 (optional inline type checks,
+gated on bench evidence); docs/research/gui is the user's GUI library
+research, not yet scheduled.
 Next: P6 (FFI level B); first decide the stub driver and the pointer
 representation (docs/design-primitives.md, Open Questions).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 237,405 lines; SHA-256
-  `a48df49e7dc4c9b69cbdc0316db0df4ed87f74b7114011bf61e1317c6f666db7`
+- `bootstrap/current.ssa`: 245,438 lines; SHA-256
+  `b7d4c17ee0b775ddbe2e2dd8fd8820221428745bc7a50b0f6de733e53dd8aba5`
   (macOS strict relay, 2026-10-22).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded

@@ -70,11 +70,25 @@
             procedure)
   #f)
 
+(define (eval-c-stub-symbol? symbol)
+  (if (< (string-length symbol) 8)
+      #f
+      (string=? (substring symbol 0 8) "npl_cfn_")))
+
+; define-c-function calls a generated stub (src/compiler/frontend/
+; c-functions.npl), which the user builds with nplc --emit=c-stubs.
+(define (eval-missing-c-symbol symbol)
+  (if (eval-c-stub-symbol? symbol)
+      (string-append "C stub not found: " symbol
+                     " (build stubs with nplc --emit=c-stubs and load them"
+                     " with npli -l PATH)")
+      (string-append "C function not found: " symbol
+                     " (load its library with npli -l PATH)")))
+
 (define (eval-c-procedure-problem symbol procedure name)
   (if procedure
       (eval-bind-c-procedure! name procedure)
-      (string-append "C function not found: " symbol
-                     " (load its library with npli -l PATH)")))
+      (eval-missing-c-symbol symbol)))
 
 ; Returns #f once name is bound, else the reason it cannot be.
 (define (eval-bind-c-primitive! name symbol count)

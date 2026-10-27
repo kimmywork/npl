@@ -139,6 +139,16 @@ cmp "$EXTENSION/pointers.out" "$WORK/pointers.out"
 "$ROOT/build/bin/npli" -l "$WORK/libdemovalues.${library##*.}" \
     "$EXTENSION/values.npl" > "$WORK/values.out"
 cmp "$EXTENSION/values.out" "$WORK/values.out"
+# define-c-function under npli: stubs from nplc --emit=c-stubs, built into a
+# shared library with the C functions they call.
+"$ROOT/build/bin/nplc" --emit=c-stubs "$EXTENSION/typed.npl" \
+    > "$WORK/typed-stubs.c"
+"${CC:-cc}" -std=c99 -Wall -Werror -I "$ROOT/runtime" "${shared[@]}" \
+    -o "$WORK/libdemotyped.${library##*.}" "$WORK/typed-stubs.c" \
+    "$EXTENSION/typed.c"
+"$ROOT/build/bin/npli" -l "$WORK/libdemotyped.${library##*.}" \
+    "$EXTENSION/typed.npl" > "$WORK/typed.out"
+cmp "$EXTENSION/typed.out" "$WORK/typed.out"
 "$ROOT/build/bin/npli" -l "$library" "$WORK/c-extension.scm" \
     > "$WORK/c-extension.out"
 cmp "$EXTENSION/expected.out" "$WORK/c-extension.out"
@@ -176,6 +186,18 @@ for contract in "nested:define-c-primitive is valid at top level only" \
     [ "$rejected_status" -eq 70 ]
     grep -F "error: ${contract#*:}" "$WORK/rejected.err" >/dev/null
 done
+for contract in "nested:define-c-function is valid at top level only" \
+                "type:unknown C function type: float" \
+                "void-argument:void is valid only as a define-c-function result" \
+                "pointer-out-result:pointer-out is valid only as a define-c-function argument" \
+                "arrow:malformed define-c-function"; do
+    reject_npli "$TESTS/contracts/c-function-${contract%%:*}.npl"
+    [ "$rejected_status" -eq 70 ]
+    grep -F "error: ${contract#*:}" "$WORK/rejected.err" >/dev/null
+done
+reject_npli "$EXTENSION/typed.npl"
+[ "$rejected_status" -eq 70 ]
+grep -F 'error: C stub not found: npl_cfn_demo_add' "$WORK/rejected.err" >/dev/null
 reject_npli "$WORK/c-extension.scm"
 [ "$rejected_status" -eq 70 ]
 grep -F 'error: C function not found: demo_clamp' "$WORK/rejected.err" >/dev/null

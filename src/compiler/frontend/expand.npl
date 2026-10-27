@@ -193,6 +193,8 @@
     ((string=? name "%library-definitions") (expand-library-definitions form))
     ((string=? name "define-c-primitive")
      (fatal "define-c-primitive is valid at top level only"))
+    ((string=? name "define-c-function")
+     (fatal "define-c-function is valid at top level only"))
     ((string=? name "define-syntax")
      (fatal "define-syntax is not valid in expression position"))
     ((string=? name "syntax-rules")

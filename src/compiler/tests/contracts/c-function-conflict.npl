@@ -1,0 +1,4 @@
+; One C symbol has one signature.
+(define-c-function f "demo_f" (int) -> int)
+(define-c-function g "demo_f" (long) -> int)
+(f 1)

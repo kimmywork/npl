@@ -1,0 +1,54 @@
+; define-c-function over plain C functions (typed.c) and libc. nplc builds
+; and links the stubs itself (check_full_compiler.sh, check_driver.sh);
+; npli loads them from nplc --emit=c-stubs (check_repl.sh). Expected
+; output in typed.out.
+(import (scheme base) (scheme write) (npl ffi))
+
+(define-c-function add "demo_add" (int int) -> int)
+(define-c-function scale "demo_scale" (double long) -> double)
+(define-c-function count-char "demo_count" (string int) -> size_t)
+(define-c-function c-even? "demo_even" (int64) -> bool)
+(define-c-function greeting "demo_greeting" (bool) -> string)
+(define-c-function box-make "demo_box_make" (int64 pointer-out) -> int)
+(define-c-function box-value "demo_box_value" (pointer) -> int64)
+(define-c-function box-free "demo_box_free" (pointer) -> void)
+(define-c-function freed "demo_freed" () -> int)
+(define-c-function split "demo_split" (int64 pointer-out pointer-out) -> void)
+(define-c-function c-strlen "strlen" (string) -> size_t)
+(define-c-function c-abs "abs" (int) -> int)
+
+(define (show label value) (write (list label value)) (newline))
+(define (message thunk)
+  (guard (e ((error-object? e)
+             (cons (error-object-message e) (error-object-irritants e))))
+    (thunk)))
+
+(show 'integers (list (add 40 2) (add -5 3) (c-abs -7)))
+(show 'double (list (scale 1.5 4) (scale 2 3)))
+(show 'string (list (count-char "banana" (char->integer #\a))
+                    (c-strlen "") (c-strlen "λx")))
+(show 'bool (list (c-even? 10) (c-even? 7) (c-even? 4611686018427387904)))
+(show 'string-result (list (greeting #t) (greeting #f)))
+(show 'pointer-out
+      (call-with-values (lambda () (box-make 99))
+        (lambda (status box)
+          (let ((value (box-value box)))
+            (box-free box)
+            (list status (pointer? box) value (freed))))))
+(show 'pointer-out-status
+      (call-with-values (lambda () (box-make -1)) (lambda (status box) status)))
+(show 'two-outputs
+      (call-with-values (lambda () (split 772))
+        (lambda (low high) (list (pointer->integer low) (pointer->integer high)))))
+(show 'with-resource
+      (let-values (((status box) (box-make 5)))
+        (list (with-resource (b box box-free) (box-value b)) (freed))))
+(show 'value-use (map add '(1 2) '(10 20)))
+(show 'void (eq? (box-free (null-pointer)) (if #f #f)))
+; Argument errors are raised before the C function runs.
+(show 'range (message (lambda () (add 4294967296 1))))
+(show 'type (message (lambda () (add "1" 2))))
+(show 'real (message (lambda () (scale 'x 1))))
+(show 'nul (message (lambda () (c-strlen (string #\a (integer->char 0))))))
+(show 'pointer-type (message (lambda () (box-value 7))))
+(show 'string-type (message (lambda () (count-char -1 0))))

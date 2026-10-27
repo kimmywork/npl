@@ -13,6 +13,7 @@
   "frontend/primitive-table.npl"
   "frontend/library-primitives.npl"
   "frontend/c-primitives.npl"
+  "frontend/c-functions.npl"
   "frontend/numeric-aliases.npl"
   "frontend/library.npl"
   "frontend/library-definitions.npl"
@@ -27,5 +28,6 @@
   "backend/primitive-values.npl"
   "backend/tail.npl"
   "backend/bindings.npl"
+  "backend/c-stubs.npl"
   "backend/program.npl"
   "driver.npl")

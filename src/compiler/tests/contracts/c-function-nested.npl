@@ -1,0 +1,5 @@
+; define-c-function is a top-level declaration only.
+(define (f)
+  (define-c-function g "demo_add" (int int) -> int)
+  (g 1 2))
+(f)

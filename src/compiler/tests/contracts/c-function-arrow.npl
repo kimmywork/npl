@@ -1,0 +1,3 @@
+; The result type follows ->.
+(define-c-function f "demo_f" (int) int)
+(f 1)

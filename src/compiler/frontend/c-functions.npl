@@ -1,0 +1,163 @@
+; Typed C functions (docs/ffi.md "Typed C Functions"):
+;   (define-c-function name "c_symbol" (type ...) -> result)
+; binds name to a procedure calling the C function c_symbol, declared with
+; plain C types. A generated stub npl_cfn_<c_symbol> (backend/c-stubs.npl,
+; nplc --emit=c-stubs) converts the arguments, calls, and boxes the
+; results. The stub is registered as a C primitive (c-primitives.npl), so
+; calls, value uses, imports, and npli's symbol lookup work as for
+; define-c-primitive. nplc compiles and links the stubs of an executable
+; itself; npli loads them, built into a shared library, with npli -l.
+;
+; A pointer-out argument takes no NPL argument: the stub passes the address
+; of a local pointer and returns that pointer after the C result. With more
+; than one result the procedure returns several values (result type
+; values).
+;
+; Tests are single predicate calls, as in c-primitives.npl.
+
+(define C-FUNCTION-ARGUMENT-TYPES
+  '("int" "long" "int64" "size_t" "double" "bool" "string" "pointer"
+    "pointer-out"))
+
+(define C-FUNCTION-RESULT-TYPES
+  '("int" "long" "int64" "size_t" "double" "bool" "string" "pointer" "void"))
+
+; Entries (stub-symbol c-symbol name argument-types result-type), most
+; recent first, one per C symbol; read by backend/c-stubs.npl.
+(define DECLARED-C-FUNCTIONS (cell ()))
+
+(define (c-function-entry-stub entry) (car entry))
+(define (c-function-entry-symbol entry) (car (cdr entry)))
+(define (c-function-entry-name entry) (car (cdr (cdr entry))))
+(define (c-function-entry-arguments entry) (car (cdr (cdr (cdr entry)))))
+(define (c-function-entry-result entry) (car (cdr (cdr (cdr (cdr entry))))))
+
+(define (c-function-stub-symbol symbol) (string-append "npl_cfn_" symbol))
+
+(define (c-function-type-name type allowed misplaced message)
+  (cond
+    ((not (datum-symbol? type)) (fatal "C function type must be an identifier"))
+    ((primitive-name-listed? (datum-symbol-name type) allowed)
+     (datum-symbol-name type))
+    ((string=? (datum-symbol-name type) misplaced) (fatal message))
+    (else (fatal (string-append "unknown C function type: "
+                                (datum-symbol-name type))))))
+
+(define (c-function-argument-types types)
+  (cond
+    ((null? types) ())
+    ((c-primitive-list-pair? types)
+     (cons (c-function-type-name
+             (car types) C-FUNCTION-ARGUMENT-TYPES "void"
+             "void is valid only as a define-c-function result")
+           (c-function-argument-types (cdr types))))
+    (else (fatal "define-c-function argument types must be a list"))))
+
+(define (c-function-result-type type)
+  (c-function-type-name
+    type C-FUNCTION-RESULT-TYPES "pointer-out"
+    "pointer-out is valid only as a define-c-function argument"))
+
+; One NPL argument per type except pointer-out.
+(define (c-function-input-types types)
+  (cond
+    ((null? types) ())
+    ((string=? (car types) "pointer-out") (c-function-input-types (cdr types)))
+    (else (cons "any" (c-function-input-types (cdr types))))))
+
+(define (c-function-result-count result)
+  (if (string=? result "void") 0 1))
+
+(define (c-function-output-count types count)
+  (cond
+    ((null? types) count)
+    ((string=? (car types) "pointer-out")
+     (c-function-output-count (cdr types) (+ count 1)))
+    (else (c-function-output-count (cdr types) count))))
+
+; The C result unless void, then each pointer-out argument.
+(define (c-function-results arguments result)
+  (c-function-output-count arguments (c-function-result-count result)))
+
+(define (c-function-strings=? left right)
+  (cond
+    ((null? left) (null? right))
+    ((null? right) #f)
+    ((string=? (car left) (car right))
+     (c-function-strings=? (cdr left) (cdr right)))
+    (else #f)))
+
+(define (c-function-entry-for symbol entries)
+  (cond
+    ((null? entries) #f)
+    ((string=? symbol (c-function-entry-symbol (car entries))) (car entries))
+    (else (c-function-entry-for symbol (cdr entries)))))
+
+(define (c-function-same? entry arguments result)
+  (if (string=? result (c-function-entry-result entry))
+      (c-function-strings=? arguments (c-function-entry-arguments entry))
+      #f))
+
+; One stub per C symbol: a later declaration must have the same signature.
+(define (c-function-record! symbol name arguments result)
+  (let ((entry (c-function-entry-for symbol (cell-get DECLARED-C-FUNCTIONS))))
+    (cond
+      ((not entry)
+       (cell-set! DECLARED-C-FUNCTIONS
+         (cons (cons (c-function-stub-symbol symbol)
+                 (cons symbol (cons name (cons arguments (cons result ())))))
+               (cell-get DECLARED-C-FUNCTIONS))))
+      ((c-function-same? entry arguments result) #t)
+      (else (fatal (string-append
+                     "conflicting define-c-function declarations of "
+                     symbol))))))
+
+; Top-level form (define-c-function ...) not shadowed by a binding.
+(define (c-function-declaration? form value-env macro-env)
+  (if (raw-form? form "define-c-function")
+      (head-is-core? form "define-c-function" value-env macro-env)
+      #f))
+
+(define (c-function-arrow? value)
+  (if (datum-symbol? value) (string=? (datum-symbol-name value) "->") #f))
+
+(define (c-function-part form index)
+  (if (= index 0) (car form) (c-function-part (cdr form) (- index 1))))
+
+(define (c-function-problem form value-env)
+  (cond
+    ((not (= (raw-list-count (cdr form) 0) 5))
+     "malformed define-c-function: expected (define-c-function name \"c-symbol\" (type ...) -> result)")
+    ((not (datum-symbol? (c-function-part form 1)))
+     "define-c-function needs a procedure name")
+    ((not (c-function-arrow? (c-function-part form 4)))
+     "define-c-function needs -> before the result type")
+    ((> (string-length
+          (lookup-value-binding (c-function-part form 1) value-env)) 0)
+     (string-append "define-c-function: already bound: "
+                    (datum-symbol-name (c-function-part form 1))))
+    (else #f)))
+
+(define (c-function-primitive-result arguments result)
+  (if (> (c-function-results arguments result) 1) "values" "any"))
+
+(define (declare-checked-c-function name symbol arguments result value-env)
+  (c-function-record! symbol (datum-symbol-name name) arguments result)
+  (add-value-binding name
+    (register-c-primitive!
+      (c-function-stub-symbol symbol)
+      (c-function-input-types arguments)
+      (c-function-primitive-result arguments result))
+    value-env))
+
+; Top-level declaration: returns value-env with name bound to the stub.
+(define (declare-c-function form value-env)
+  (let ((problem (c-function-problem form value-env)))
+    (if problem
+        (fatal problem)
+        (declare-checked-c-function
+          (c-function-part form 1)
+          (c-primitive-symbol (c-function-part form 2))
+          (c-function-argument-types (c-function-part form 3))
+          (c-function-result-type (c-function-part form 5))
+          value-env))))

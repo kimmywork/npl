@@ -1,0 +1,305 @@
+; C stubs for define-c-function (frontend/c-functions.npl): one C99 file
+; with an NplVal function per declared C symbol. Each stub checks and
+; converts every argument first (a failed check raises before anything is
+; allocated), copies string arguments, calls, boxes the results, and only
+; then frees the copies, since a result may point into one. The
+; conversions are runtime/ffi.c's npl_ffi_* functions.
+;
+; Each C function is declared with the C types below. A function whose real
+; prototype differs only in qualifiers (char * for const char *) still
+; links; compilers may warn about the redeclaration of a known library
+; function.
+;
+; Every if here is in tail position or in a helper's tail: control
+; conversion copies an if's continuation into both branches (see
+; frontend/c-primitives.npl), so an if used for effect or as an operand
+; would emit the rest of the procedure twice.
+
+(define (c-stub-c-type type)
+  (cond
+    ((string=? type "int64") "int64_t")
+    ((string=? type "string") "const char *")
+    ((string=? type "pointer") "void *")
+    ((string=? type "pointer-out") "void **")
+    (else type)))
+
+; Octal escapes keep the literal valid for any byte of an NPL name.
+(define (c-stub-octal byte)
+  (string-append "\\"
+    (number->string (npl_number_quotient byte 64))
+    (number->string (npl_number_remainder (npl_number_quotient byte 8) 8))
+    (number->string (npl_number_remainder byte 8))))
+
+(define (c-stub-literal-byte byte)
+  (cond
+    ((= byte 34) "\\\"")
+    ((= byte 92) "\\\\")
+    ((< byte 32) (c-stub-octal byte))
+    ((> byte 126) (c-stub-octal byte))
+    (else (int->string byte))))
+
+(define (c-stub-literal-from text index out)
+  (if (= index (string-length text))
+      (string-append out "\"")
+      (c-stub-literal-from
+        text (+ index 1)
+        (string-append out (c-stub-literal-byte (string-byte-ref text index))))))
+
+(define (c-stub-literal text) (c-stub-literal-from text 0 "\""))
+
+(define (c-stub-line port text)
+  (display text port)
+  (newline port))
+
+(define (c-stub-join items separator)
+  (cond
+    ((null? items) "")
+    ((null? (cdr items)) (car items))
+    (else (string-append (car items) separator
+                         (c-stub-join (cdr items) separator)))))
+
+(define (c-stub-index prefix index)
+  (string-append prefix (number->string index)))
+
+(define (c-stub-c-types types)
+  (if (pair? types)
+      (cons (c-stub-c-type (car types)) (c-stub-c-types (cdr types)))
+      ()))
+
+(define (c-stub-prototype entry)
+  (let ((types (c-function-entry-arguments entry)))
+    (string-append
+      (c-stub-c-type (c-function-entry-result entry)) " "
+      (c-function-entry-symbol entry) "("
+      (if (null? types) "void" (c-stub-join (c-stub-c-types types) ", "))
+      ");")))
+
+; NplVal parameters a0, a1, ... for the arguments that are not pointer-out.
+(define (c-stub-parameters count index)
+  (if (= index count)
+      ()
+      (cons (c-stub-index "NplVal a" index)
+            (c-stub-parameters count (+ index 1)))))
+
+(define (c-stub-header entry)
+  (let ((count (raw-list-count
+                 (c-function-input-types (c-function-entry-arguments entry))
+                 0)))
+    (string-append
+      "NplVal " (c-function-entry-stub entry) "("
+      (if (= count 0) "void" (c-stub-join (c-stub-parameters count 0) ", "))
+      ")")))
+
+(define (c-stub-integer type c-name argument range who)
+  (string-append "    " type " " c-name " = (" type ")npl_ffi_to_int64("
+                 argument ", " range ", " who ");"))
+
+; Checks and conversions: (line ...) for one argument.
+(define (c-stub-convert type c-name argument who)
+  (cond
+    ((string=? type "int")
+     (c-stub-integer "int" c-name argument "INT_MIN, INT_MAX, \"int\"" who))
+    ((string=? type "long")
+     (c-stub-integer "long" c-name argument "LONG_MIN, LONG_MAX, \"long\"" who))
+    ((string=? type "int64")
+     (c-stub-integer "int64_t" c-name argument
+                     "INT64_MIN, INT64_MAX, \"int64\"" who))
+    ((string=? type "size_t")
+     (string-append "    size_t " c-name " = (size_t)npl_ffi_to_uint64("
+                    argument ", SIZE_MAX, \"size_t\", " who ");"))
+    ((string=? type "double")
+     (string-append "    double " c-name " = npl_ffi_to_double(" argument
+                    ", " who ");"))
+    ((string=? type "bool")
+     (string-append "    bool " c-name " = npl_ffi_to_bool(" argument
+                    ") != 0;"))
+    ((string=? type "pointer")
+     (string-append "    void *" c-name " = npl_ffi_to_pointer(" argument
+                    ", " who ");"))
+    ((string=? type "string")
+     (string-append "    npl_ffi_check_string(" argument ", " who ");"))
+    (else (string-append "    void *" c-name " = NULL;"))))
+
+; The NPL argument index after an argument of type (pointer-out has none).
+(define (c-stub-next-input type input)
+  (if (string=? type "pointer-out") input (+ input 1)))
+
+; Walks the argument types: index counts C arguments, input counts NPL
+; arguments.
+(define (c-stub-conversions port types index input who)
+  (if (pair? types)
+      (begin
+        (c-stub-line port
+          (c-stub-convert (car types) (c-stub-index "c" index)
+                          (c-stub-index "a" input) who))
+        (c-stub-conversions
+          port (cdr types) (+ index 1)
+          (c-stub-next-input (car types) input) who))
+      #t))
+
+(define (c-stub-copy port type index input)
+  (if (string=? type "string")
+      (c-stub-line port
+        (string-append "    char *s" (number->string index)
+                       " = npl_ffi_copy_string(a" (number->string input)
+                       ");"))
+      #t))
+
+(define (c-stub-copies port types index input)
+  (if (pair? types)
+      (begin
+        (c-stub-copy port (car types) index input)
+        (c-stub-copies port (cdr types) (+ index 1)
+                       (c-stub-next-input (car types) input)))
+      #t))
+
+(define (c-stub-call-argument type index)
+  (cond
+    ((string=? type "string") (c-stub-index "s" index))
+    ((string=? type "pointer-out") (string-append "&" (c-stub-index "c" index)))
+    (else (c-stub-index "c" index))))
+
+(define (c-stub-call-arguments types index)
+  (if (pair? types)
+      (cons (c-stub-call-argument (car types) index)
+            (c-stub-call-arguments (cdr types) (+ index 1)))
+      ()))
+
+(define (c-stub-call entry)
+  (string-append
+    (c-function-entry-symbol entry) "("
+    (c-stub-join (c-stub-call-arguments (c-function-entry-arguments entry) 0)
+                 ", ")
+    ")"))
+
+(define (c-stub-box type value)
+  (cond
+    ((string=? type "size_t")
+     (string-append "npl_ffi_from_uint64((uint64_t)" value ")"))
+    ((string=? type "double") (string-append "npl_ffi_from_double(" value ")"))
+    ((string=? type "bool") (string-append "npl_ffi_from_bool(" value ")"))
+    ((string=? type "string") (string-append "npl_ffi_from_string(" value ")"))
+    ((string=? type "pointer") (string-append "npl_ffi_from_pointer(" value ")"))
+    (else (string-append "npl_ffi_from_int64((int64_t)" value ")"))))
+
+(define (c-stub-store port slot value)
+  (c-stub-line port
+    (string-append "    v[" (number->string slot) "] = " value ";")))
+
+; The pointer-out results, after the C result in slot first.
+(define (c-stub-outputs port types index slot)
+  (if (pair? types)
+      (if (string=? (car types) "pointer-out")
+          (begin
+            (c-stub-store port slot
+              (string-append "npl_ffi_from_pointer(" (c-stub-index "c" index)
+                             ")"))
+            (c-stub-outputs port (cdr types) (+ index 1) (+ slot 1)))
+          (c-stub-outputs port (cdr types) (+ index 1) slot))
+      #t))
+
+(define (c-stub-free port type index)
+  (if (string=? type "string")
+      (c-stub-line port
+        (string-append "    npl_ffi_free(s" (number->string index) ");"))
+      #t))
+
+(define (c-stub-frees port types index)
+  (if (pair? types)
+      (begin
+        (c-stub-free port (car types) index)
+        (c-stub-frees port (cdr types) (+ index 1)))
+      #t))
+
+(define (c-stub-return port count)
+  (cond
+    ((= count 0) (c-stub-line port "    return npl_ffi_unspecified();"))
+    ((= count 1) (c-stub-line port "    return v[0];"))
+    (else (c-stub-line port
+            (string-append "    return npl_ffi_values(" (number->string count)
+                           ", v);")))))
+
+(define (c-stub-slots port count)
+  (if (> count 0)
+      (c-stub-line port
+        (string-append "    NplVal v[" (number->string count) "];"))
+      #t))
+
+(define (c-stub-void-call port entry)
+  (c-stub-line port (string-append "    " (c-stub-call entry) ";"))
+  (c-stub-outputs port (c-function-entry-arguments entry) 0 0))
+
+(define (c-stub-valued-call port entry result)
+  (c-stub-line port
+    (string-append "    " (c-stub-c-type result) " r = "
+                   (c-stub-call entry) ";"))
+  (c-stub-store port 0 (c-stub-box result "r"))
+  (c-stub-outputs port (c-function-entry-arguments entry) 0 1))
+
+(define (c-stub-call-and-box port entry)
+  (let ((result (c-function-entry-result entry)))
+    (if (string=? result "void")
+        (c-stub-void-call port entry)
+        (c-stub-valued-call port entry result))))
+
+(define (c-stub-results port entry count)
+  (c-stub-slots port count)
+  (c-stub-call-and-box port entry))
+
+(define (c-stub-function port entry)
+  (let ((types (c-function-entry-arguments entry))
+        (who (c-stub-literal (c-function-entry-name entry)))
+        (count (c-function-results (c-function-entry-arguments entry)
+                                   (c-function-entry-result entry))))
+    (newline port)
+    (c-stub-line port (string-append "/* " (c-function-entry-name entry)
+                                     " */"))
+    (c-stub-line port (c-stub-prototype entry))
+    (c-stub-line port (c-stub-header entry))
+    (c-stub-line port "{")
+    (c-stub-conversions port types 0 0 who)
+    (c-stub-copies port types 0 0)
+    (c-stub-results port entry count)
+    (c-stub-frees port types 0)
+    (c-stub-return port count)
+    (c-stub-line port "}")))
+
+(define (c-stub-functions port entries)
+  (if (pair? entries)
+      (begin
+        (c-stub-function port (car entries))
+        (c-stub-functions port (cdr entries)))
+      #t))
+
+; The stub file for the declarations made by this compilation, in source
+; order; nothing when there are none.
+(define (write-c-stubs port)
+  (let ((entries (rev (cell-get DECLARED-C-FUNCTIONS))))
+    (if (pair? entries)
+        (begin
+          (c-stub-line port
+            "/* C stubs for define-c-function, generated by nplc --emit=c-stubs.")
+          (c-stub-line port
+            " * Build with -I PREFIX/include/npl (docs/ffi.md). Do not edit. */")
+          (c-stub-line port "#include \"npl.h\"")
+          (c-stub-line port "#include <limits.h>")
+          (c-stub-line port "#include <stdbool.h>")
+          (c-stub-line port "#include <stddef.h>")
+          (c-stub-line port "#include <stdint.h>")
+          (c-stub-functions port entries))
+        #t)))
+
+; The SSA run of a build writes the stub file only when there are stubs.
+(define (write-c-stubs-file path)
+  (if (pair? (cell-get DECLARED-C-FUNCTIONS))
+      (let ((port (open-output-file path)))
+        (write-c-stubs port)
+        (close-port port))
+      #t))
+
+; nplc --emit=c-stubs: expand the program and its libraries, which records
+; their define-c-function declarations.
+(define (expand-for-c-stubs path)
+  (expand-source-program
+    (expand-includes (parse-source-file path) (path-dir path) (cons path ()))
+    (path-dir path)))

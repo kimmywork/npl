@@ -14,6 +14,7 @@
 
 #include "port.h"
 #include <dlfcn.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,6 +68,181 @@ NplVal npl_pointer_to_integer(NplVal value)
     char text[24];
     snprintf(text, sizeof text, "%llu", (unsigned long long)address);
     return npl_integer_from_string(npl_string(text, (uint32_t)strlen(text)));
+}
+
+/* ---- C type conversions for generated stubs ----
+ * nplc --emit=c-stubs (src/compiler/frontend/c-functions.npl) chooses the
+ * conversion and the C range for each declared type; these check and
+ * convert. Integers outside the fixnum range go through their decimal
+ * text, which is rare and keeps the bignum representation private. */
+
+/* Fixnums hold 62-bit signed values. */
+#define FFI_FIXNUM_LIMIT (INT64_C(1) << 61)
+
+static void ffi_integer_error(const char *who, const char *ctype,
+                              NplVal value)
+{
+    char message[96];
+    snprintf(message, sizeof message,
+             "expected an exact integer that fits C %s", ctype);
+    npl_primitive_error(who, message, value);
+}
+
+/* The decimal text of an exact integer, NUL-terminated, or 0 when it is
+ * too long for any 64-bit value. */
+static int ffi_integer_text(NplVal value, char *text, size_t size)
+{
+    NplVal string = npl_number_to_string(value);
+    size_t length;
+    int owned;
+    const char *bytes =
+        npl_string_utf8((const NplString *)npl_header(string), &length, &owned);
+    int fits = length < size;
+    if (fits) {
+        memcpy(text, bytes, length);
+        text[length] = '\0';
+    }
+    if (owned) free((void *)bytes);
+    return fits;
+}
+
+int64_t npl_ffi_to_int64(NplVal value, int64_t minimum, int64_t maximum,
+                         const char *ctype, const char *who)
+{
+    int64_t result = 0;
+    if (npl_is_fixnum(value)) {
+        result = npl_fixnum_value(value);
+    } else if (npl_integer_p(value) == npl_true()) {
+        char text[24];
+        if (!ffi_integer_text(value, text, sizeof text))
+            ffi_integer_error(who, ctype, value);
+        errno = 0;
+        long long parsed = strtoll(text, NULL, 10);
+        if (errno == ERANGE) ffi_integer_error(who, ctype, value);
+        result = (int64_t)parsed;
+    } else {
+        ffi_integer_error(who, ctype, value);
+    }
+    if (result < minimum || result > maximum)
+        ffi_integer_error(who, ctype, value);
+    return result;
+}
+
+uint64_t npl_ffi_to_uint64(NplVal value, uint64_t maximum, const char *ctype,
+                           const char *who)
+{
+    uint64_t result = 0;
+    if (npl_is_fixnum(value)) {
+        if (npl_fixnum_value(value) < 0) ffi_integer_error(who, ctype, value);
+        result = (uint64_t)npl_fixnum_value(value);
+    } else if (npl_integer_p(value) == npl_true()) {
+        char text[24];
+        if (!ffi_integer_text(value, text, sizeof text) || text[0] == '-')
+            ffi_integer_error(who, ctype, value);
+        errno = 0;
+        unsigned long long parsed = strtoull(text, NULL, 10);
+        if (errno == ERANGE) ffi_integer_error(who, ctype, value);
+        result = (uint64_t)parsed;
+    } else {
+        ffi_integer_error(who, ctype, value);
+    }
+    if (result > maximum) ffi_integer_error(who, ctype, value);
+    return result;
+}
+
+double npl_ffi_to_double(NplVal value, const char *who)
+{
+    if (npl_number_p(value) != npl_true() || npl_is_complex(value))
+        npl_primitive_error(who, "expected a real number", value);
+    return npl_real_double(value);
+}
+
+/* Scheme truth: only #f is false. */
+int npl_ffi_to_bool(NplVal value)
+{
+    return value != npl_false();
+}
+
+void *npl_ffi_to_pointer(NplVal value, const char *who)
+{
+    return npl_pointer_address(value, who);
+}
+
+/* A C string argument: a string whose UTF-8 has no NUL byte. */
+void npl_ffi_check_string(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING)
+        npl_primitive_error(who, "expected a string", value);
+    size_t length;
+    int owned;
+    const char *bytes =
+        npl_string_utf8((const NplString *)npl_header(value), &length, &owned);
+    int has_nul = memchr(bytes, '\0', length) != NULL;
+    if (owned) free((void *)bytes);
+    if (has_nul)
+        npl_primitive_error(who, "string contains a null character", value);
+}
+
+/* A malloc'd UTF-8 copy of a checked string; the stub frees it after the
+ * call and after boxing results, which may point into it. */
+char *npl_ffi_copy_string(NplVal value)
+{
+    return npl_c_string_internal((const NplString *)npl_header(value));
+}
+
+void npl_ffi_free(void *memory)
+{
+    free(memory);
+}
+
+NplVal npl_ffi_from_int64(int64_t value)
+{
+    if (value > -FFI_FIXNUM_LIMIT && value < FFI_FIXNUM_LIMIT)
+        return npl_fixnum(value);
+    char text[24];
+    snprintf(text, sizeof text, "%lld", (long long)value);
+    return npl_integer_from_string(npl_string(text, (uint32_t)strlen(text)));
+}
+
+NplVal npl_ffi_from_uint64(uint64_t value)
+{
+    if (value < (uint64_t)FFI_FIXNUM_LIMIT) return npl_fixnum((int64_t)value);
+    char text[24];
+    snprintf(text, sizeof text, "%llu", (unsigned long long)value);
+    return npl_integer_from_string(npl_string(text, (uint32_t)strlen(text)));
+}
+
+NplVal npl_ffi_from_double(double value)
+{
+    return npl_float(value);
+}
+
+NplVal npl_ffi_from_bool(int value)
+{
+    return value ? npl_true() : npl_false();
+}
+
+/* A copy of a NUL-terminated UTF-8 result; NULL is #f. */
+NplVal npl_ffi_from_string(const char *text)
+{
+    if (!text) return npl_false();
+    return npl_string_from_utf8((const uint8_t *)text, strlen(text),
+                                BOX_STRING);
+}
+
+NplVal npl_ffi_from_pointer(void *address)
+{
+    return npl_pointer(address);
+}
+
+NplVal npl_ffi_unspecified(void)
+{
+    return npl_unspecified();
+}
+
+NplVal npl_ffi_values(int64_t count, NplVal *values)
+{
+    return npl_make_values(count, values);
 }
 
 /* (ffi-load-library path): #t, or the loader's message as a string. */

@@ -6,10 +6,14 @@ function an ordinary NPL procedure, with no compiler change and no seed
 relay. Under `nplc` calls compile to a direct C call, as for built-in
 primitives; `npli` looks the function up when the declaration is evaluated.
 
+An existing C library with plain C types (`int`, `double`, `const char *`,
+pointers) is declared with `define-c-function` instead; see "Typed C
+Functions".
+
 Supported by `nplc` since 2026-10-22 (P2b); `nplc -l`/`-L` and `npli -l`
-since 2026-10-23. Not yet supported: C types and pointers, callbacks into
-NPL. See "Limitations" and the plan in
-[design-primitives](design-primitives.md).
+since 2026-10-23; pointers and `define-c-function` since 2026-10-27. Not yet
+supported: callbacks into NPL, structs, arrays. See "Limitations" and the
+plan in [design-primitives](design-primitives.md).
 
 ## Declaring A Function
 
@@ -156,6 +160,73 @@ The complete example is `src/compiler/tests/c-extension/` (`main.npl`,
 `tools/check_driver.sh` through `-L`/`-l`, and `tools/check_repl.sh` runs it
 under `npli -l`.
 
+## Typed C Functions
+
+```scheme
+(define-c-function name "c_symbol" (type ...) -> result)
+```
+
+`name` becomes a procedure calling the C function `c_symbol`, declared with
+plain C types; the C code needs no `npl.h`. Like `define-c-primitive`, the
+declaration is top level only, and `name` can be called, passed as a value,
+and exported.
+
+| Type | C type | NPL argument | NPL result |
+|---|---|---|---|
+| `int`, `long`, `int64` | `int`, `long`, `int64_t` | exact integer in range | exact integer |
+| `size_t` | `size_t` | non-negative exact integer in range | exact integer |
+| `double` | `double` | real number | flonum |
+| `bool` | `bool` | any value; only `#f` is false | `#t` or `#f` |
+| `string` | `const char *` | string without a null character, passed as a UTF-8 copy | a copy of the text; `NULL` is `#f` |
+| `pointer` | `void *` | pointer value | pointer value |
+| `pointer-out` | `void **` | none: the stub passes a local slot | the slot's pointer, after the result |
+| `void` | `void` (result only) | | the unspecified value |
+
+A function with `pointer-out` arguments, or with a `void` result and two or
+more of them, returns several values: the C result unless `void`, then each
+output in order.
+
+```scheme
+(define-c-function sqlite-open "sqlite3_open" (string pointer-out) -> int)
+(define-c-function sqlite-close "sqlite3_close" (pointer) -> int)
+
+(let-values (((status db) (sqlite-open "x.db")))
+  (with-resource (db db sqlite-close)
+    ...))
+```
+
+Each argument is checked before the C function runs; a bad one raises an
+error object such as `add: expected an exact integer that fits C int`.
+String copies are freed after the call, so a C function must not keep a
+`const char *` argument. A `string` result is copied; ownership of the C
+memory stays with the library.
+
+### Building With Stubs
+
+A generated C stub, `npl_cfn_<c_symbol>`, converts the arguments, calls the
+function, and boxes the results; one file holds the stubs of a program and
+the libraries it imports.
+
+- `nplc` builds an executable's stubs itself: it generates them, compiles
+  them with `-I PREFIX/include/npl` (or `NPL_INCLUDE`), and links them
+  before the `-l` libraries. Only the C library is named on the command
+  line: `nplc main.npl -l sqlite3`.
+- `npli` loads them from a shared library built from
+  `nplc --emit=c-stubs`:
+
+```bash
+nplc --emit=c-stubs main.scm -o stubs.c
+cc -std=c99 -I PREFIX/include/npl -shared -fPIC -o libstubs.so stubs.c -lsqlite3
+npli -l ./libstubs.so main.scm
+```
+
+On macOS use `-dynamiclib -undefined dynamic_lookup` instead of `-shared
+-fPIC`. Rebuild the stub library after changing a declaration. A program
+without `define-c-function` has an empty stub file.
+
+The example built by the gate is `src/compiler/tests/c-extension/typed.npl`
+with the plain C functions in `typed.c` and libc's `strlen` and `abs`.
+
 ## Pointers And Release
 
 `(npl ffi)` exports pointer operations and `with-resource`:
@@ -203,12 +274,24 @@ form is evaluated:
 | `C primitive declaration conflicts with registered S` | symbol is a built-in or earlier declaration with another operand count, kind, or `values` result |
 | `%c-call: argument count differs from its types` | type list and arguments differ in length |
 
+`define-c-function` adds:
+
+| Message | Cause |
+|---|---|
+| `define-c-function is valid at top level only` | declaration inside a body or expression |
+| `malformed define-c-function: ...` | wrong shape, or no `->` before the result |
+| `unknown C function type: T` | type outside the table above |
+| `void is valid only as a define-c-function result` | `void` argument |
+| `pointer-out is valid only as a define-c-function argument` | `pointer-out` result |
+| `conflicting define-c-function declarations of S` | one C symbol declared with two signatures |
+
 A symbol with no definition is reported by the `nplc` linker as an undefined
 symbol. Under `npli`:
 
 | Message | Cause |
 |---|---|
 | `C function not found: S (load its library with npli -l PATH)` | no loaded code defines `S` |
+| `C stub not found: npl_cfn_S (build stubs with nplc --emit=c-stubs ...)` | a `define-c-function` whose stub library is not loaded |
 | `npli calls C functions of at most 8 arguments: S` | more than 8 parameters |
 | `npli: cannot load PATH: ...` (status 66) | `dlopen` failed; the loader's reason follows |
 
@@ -216,10 +299,10 @@ symbol. Under `npli`:
 
 - **npli** calls at most 8 arguments, and the declaration must be evaluated
   after its library is loaded (see "Running Under npli").
-- **Values only.** Arguments and results are `NplVal`. Calling an existing
-  C library with C types (`int`, `double`, `char *`) needs a small `NplVal`
-  wrapper like the one above, using `npl_pointer` for C pointers. Typed C
-  declarations with generated wrappers are planned as P6b.
+- **`define-c-function` types** are the table in "Typed C Functions": no
+  structs, arrays, `float`, or unsigned types other than `size_t`, no
+  callbacks into NPL, and no variadic C functions (`printf`). Write an
+  `NplVal` wrapper with `define-c-primitive` for anything else.
 - **Fixed arity.** No optional or rest parameters.
 - **Types are unchecked.** A declared type documents intent. A later step
   may use the cheap ones (`pair`, `fixnum`, `char`, `index`) for inline

@@ -1,0 +1,3 @@
+; Argument and result types come from a fixed set.
+(define-c-function f "demo_f" (float) -> int)
+(f 1)

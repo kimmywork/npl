@@ -74,6 +74,7 @@ nplc -c program.npl                  # object program.o   (--emit=obj)
 nplc -S program.npl                  # assembly program.s (--emit=asm)
 nplc --emit=ssa program.npl          # QBE SSA on standard output
 nplc --emit=ssa program.npl -o p.ssa # QBE SSA to a file
+nplc --emit=c-stubs program.npl      # define-c-function C stubs, for npli (docs/ffi.md)
 nplc --keep-temps program.npl        # keep and report intermediate files
 nplc program.npl -L lib -l clamp     # also link lib/libclamp (C functions, docs/ffi.md)
 ```

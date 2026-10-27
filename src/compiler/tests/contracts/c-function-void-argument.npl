@@ -1,0 +1,3 @@
+; void is a result type only.
+(define-c-function f "demo_f" (void) -> int)
+(f)

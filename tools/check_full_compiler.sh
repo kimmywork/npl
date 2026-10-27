@@ -173,6 +173,22 @@ cc -std=c99 -Wall -Wextra -Werror -I "$ROOT/runtime" -c -o "$WORK/values.o" \
 cc -o "$WORK/values" "$WORK/values.s" "$WORK/values.o" "$RUNTIME" -lm
 "$WORK/values" > "$WORK/values.out"
 cmp "$EXTENSION/values.out" "$WORK/values.out"
+# define-c-function: stubs from --emit=c-stubs, linked with plain C code.
+"$WORK/compiler" --emit=c-stubs --stdlib-root "$ROOT/lib" "$EXTENSION/typed.npl" \
+    > "$WORK/typed-stubs.c"
+cc -std=c99 -Wall -Wextra -Wpedantic -Werror -I "$ROOT/runtime" -c \
+    -o "$WORK/typed-stubs.o" "$WORK/typed-stubs.c"
+cc -std=c99 -Wall -Wextra -Werror -c -o "$WORK/typed.o" "$EXTENSION/typed.c"
+emit "$WORK/compiler" "$EXTENSION/typed.npl" "$WORK/typed.ssa"
+"$QBE" -o "$WORK/typed.s" "$WORK/typed.ssa"
+cc -o "$WORK/typed" "$WORK/typed.s" "$WORK/typed-stubs.o" "$WORK/typed.o" \
+    "$RUNTIME" -lm
+"$WORK/typed" > "$WORK/typed.out"
+cmp "$EXTENSION/typed.out" "$WORK/typed.out"
+# A program without define-c-function has empty stubs.
+"$WORK/compiler" --emit=c-stubs --stdlib-root "$ROOT/lib" "$EXTENSION/main.npl" \
+    > "$WORK/no-stubs.c"
+[ ! -s "$WORK/no-stubs.c" ]
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
@@ -257,6 +273,19 @@ reject_compile contracts/c-primitive-conflict.npl \
 reject_compile contracts/c-primitive-values-conflict.npl \
     c-primitive-values-conflict \
     "C primitive declaration conflicts with registered npl_car"
+reject_compile contracts/c-function-nested.npl \
+    c-function-nested "define-c-function is valid at top level only"
+reject_compile contracts/c-function-type.npl \
+    c-function-type "unknown C function type: float"
+reject_compile contracts/c-function-void-argument.npl \
+    c-function-void-argument "void is valid only as a define-c-function result"
+reject_compile contracts/c-function-pointer-out-result.npl \
+    c-function-pointer-out-result \
+    "pointer-out is valid only as a define-c-function argument"
+reject_compile contracts/c-function-arrow.npl \
+    c-function-arrow "malformed define-c-function"
+reject_compile contracts/c-function-conflict.npl \
+    c-function-conflict "conflicting define-c-function declarations of demo_f"
 reject_compile contracts/c-primitive-symbol.npl \
     c-primitive-symbol "invalid C symbol: npl-f"
 

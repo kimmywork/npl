@@ -65,6 +65,31 @@ TMPDIR="$WORK/tmp" "$NPLC" "-L$WORK/c lib" -ldemoclamp "$EXTENSION/main.npl" \
 cmp "$EXTENSION/expected.out" "$WORK/extension.out"
 empty_tmp
 
+# define-c-function: an executable build generates, compiles, and links the
+# C stubs itself; --emit=c-stubs writes them for npli.
+cc -std=c99 -Wall -Werror -c -o "$WORK/typed.o" "$EXTENSION/typed.c"
+ar rcs "$WORK/c lib/libdemotyped.a" "$WORK/typed.o"
+TMPDIR="$WORK/tmp" "$NPLC" "$EXTENSION/typed.npl" -L "$WORK/c lib" \
+    -l demotyped -o "$WORK/typed"
+"$WORK/typed" > "$WORK/typed.out"
+cmp "$EXTENSION/typed.out" "$WORK/typed.out"
+empty_tmp
+TMPDIR="$WORK/tmp" "$NPLC" --emit=c-stubs "$EXTENSION/typed.npl" \
+    -o "$WORK/typed-stubs.c"
+"$NPLC" --emit=c-stubs "$EXTENSION/typed.npl" | cmp - "$WORK/typed-stubs.c"
+grep -F 'NplVal npl_cfn_demo_add(NplVal a0, NplVal a1)' "$WORK/typed-stubs.c" \
+    >/dev/null
+# A failed stub compilation names its stage and leaves nothing behind.
+set +e
+TMPDIR="$WORK/tmp" "$NPLC" --cc "$WORK/missing-cc" "$EXTENSION/typed.npl" \
+    -o "$WORK/typed-failed" > /dev/null 2> "$WORK/stubs.err"
+stubs_status=$?
+set -e
+[ "$stubs_status" -ne 0 ]
+grep -F 'nplc: cc (c stubs) failed' "$WORK/stubs.err" >/dev/null
+[ ! -e "$WORK/typed-failed" ]
+empty_tmp
+
 # Runs from outside the repository.
 (cd /tmp && TMPDIR="$WORK/tmp" "$NPLC" "$SOURCE" -o "$WORK/outside")
 "$WORK/outside" > "$WORK/outside.out"
