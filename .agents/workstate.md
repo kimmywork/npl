@@ -136,13 +136,16 @@ O1, O2, then the O3 design (no O3 code before acceptance), per
 [handoff-performance](handoff-performance.md). O1 done (worklog
 2026-10-27): inline fixnum add/sub/compare with overflow fallback; scaled
 CPU loop 7.41 -> 1.27 s, fib 3.77 -> 2.85, tak 2.46 -> 2.05 (Guile 0.78,
-0.40, 0.27). Next: O2 (direct self tail calls).
+0.40, 0.27). O2 done (worklog 2026-10-27): self tail calls are jumps;
+loop 1.26 -> 0.33 s (Guile 0.79), fib/tak ~3% (bound by non-tail calls).
+Next: O3 design `docs/design-calls.md`, awaiting user review; no O3 code
+before acceptance.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 261,881 lines; SHA-256
-  `830a2bbe6046bf5c6ce7d2aa6bb70cbf889a7e3ddae07e1b4b5deb3ab305a299`
-  (macOS strict relay, 2026-10-27, O1).
+- `bootstrap/current.ssa`: 264,732 lines; SHA-256
+  `2cfd62c89a700b072d377c967a0f5aa8aeecb4041b0437d3d5d1d54d1cdf2547`
+  (macOS strict relay, 2026-10-27, O2).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~11-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

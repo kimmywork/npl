@@ -224,8 +224,7 @@
   (if (null? ops)
       "0"
       (let ((base (new-tmp)))
-        (func-line (string-append base " =l alloc8 "
-                                  (number->string (* (count-up ops 0) 8))))
+        (emit-alloc8 base (number->string (* (count-up ops 0) 8)))
         (store-argv ops base 0)
         base)))
 

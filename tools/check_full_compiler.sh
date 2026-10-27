@@ -148,6 +148,26 @@ printf 'inner\nouter\n' | cmp - "$WORK/exit-wind.out"
 grep -F 'call $npl_integer_string_p(' "$WORK/c-primitives.ssa" >/dev/null
 [ "$(grep -c 'function l $_npl_prim_npl_integer_string_p(' \
       "$WORK/c-primitives.ssa")" -eq 1 ]
+# A tail call from a top-level procedure to itself with its own arity is a
+# jump (backend/tail.npl emit-self-jump), not a trampoline request; a call
+# with another arity keeps the request and reports the arity error.
+SELF="$ROOT/tests/r7rs/fixtures/self-tail-calls"
+emit "$WORK/compiler" "$SELF/native.npl" "$WORK/self-tail-calls.ssa"
+self_function() {
+    awk -v f="function l \$_npl_fn_$1(" \
+        'index($0, f) == 1 {p=1} p {print} p && /^}/ {exit}' \
+        "$WORK/self-tail-calls.ssa"
+}
+for name in count_2ddown swap_2dloop rotate collect str_2dloop; do
+    self_function "$name" | grep -q '^jmp '
+    # set -e ignores a negated pipeline, so fail explicitly.
+    if self_function "$name" | grep -qF "npl_tail_request(l \$_npl_fn_$name,"
+    then
+        echo "self tail call not a jump: $name" >&2
+        exit 1
+    fi
+done
+self_function bad | grep -qF 'npl_tail_request(l $_npl_fn_bad,'
 # docs/ffi.md example: user C functions linked next to the runtime.
 EXTENSION="$TESTS/c-extension"
 emit "$WORK/compiler" "$EXTENSION/main.npl" "$WORK/c-extension.ssa"

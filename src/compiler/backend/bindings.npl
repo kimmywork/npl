@@ -5,7 +5,7 @@
     (let ((c (car (cdr (cdr e)))))
       (let ((a (car (cdr (cdr (cdr e))))))
         (let ((slot (new-tmp)))
-          (func-line (string-append slot " =l alloc8 8"))
+          (emit-alloc8 slot "8")
           (let ((lt (new-label)))
             (let ((lf (new-label)))
               (let ((ld (new-label)))

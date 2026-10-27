@@ -221,9 +221,13 @@
                 (string-append "_lambda_"
                                (number->string (cell-get LAMBDA-N)))))
           (let ((saved-mode (cell-get CURBUF)))
-            (let ((saved-local (cell-get LOCAL-BUF)))
+            (let ((saved-local (cell-get LOCAL-BUF))
+                  (saved-self (cell-get SELF-FUNCTION)))
               (cell-set! LOCAL-BUF ())
               (cell-set! CURBUF "X")
+              ; A lambda is its own C function: a call to the enclosing
+              ; top-level function from it is never a direct self jump.
+              (cell-set! SELF-FUNCTION #f)
               (func-line
                 (string-append "function l $" name
                                "(l %npl_env, l %npl_argc, l %npl_argv) {"))
@@ -236,6 +240,7 @@
               (cell-set! DATA-BUF ())
               (print-lines (rev (cell-get LOCAL-BUF)))
               (cell-set! LOCAL-BUF saved-local)
+              (cell-set! SELF-FUNCTION saved-self)
               (cell-set! CURBUF saved-mode)
               (let ((environment (emit-capture-environment captures)))
                 (let ((closure (new-tmp)))

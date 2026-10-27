@@ -17,33 +17,95 @@
     (let ((args (cdr e)))
       (let ((count (count-up args 0)))
         (let ((ops (eval-args-fixed args env count ())))
-          (let ((argv (argv-op ops)))
-            (if (sym-atom? head)
-                (let ((closure (env-read env (cdr head))))
-                  (if (> (string-length closure) 0)
-                      (begin
-                        (func-line
-                          (string-append
-                            "call $npl_tail_request_closure(l " closure
-                            ", l " (number->string count) ", l " argv ")")))
-                      (if (> (string-length (lookup-func (cdr head))) 0)
-                          (if (> (string-length
-                                   (numeric-alias-primitive-name
-                                     (cdr head))) 0)
-                              (emit-numeric-alias-tail (cdr head) ops argv)
-                              (emit-tail-request-function (cdr head)
-                                (number->string count) argv))
-                          (let ((closure (symbol-value (cdr head) env)))
-                            (func-line
-                              (string-append
-                                "call $npl_tail_request_closure(l " closure
-                                ", l " (number->string count)
-                                ", l " argv ")"))))))
-                (let ((closure (emit-expr head env)))
-                  (func-line
-                    (string-append "call $npl_tail_request_closure(l " closure
-                      ", l " (number->string count) ", l " argv ")"))))
-            (func-line "ret 2")))))))
+          (if (self-tail-call? head count env)
+              (emit-self-jump ops)
+              (emit-tail-request-ops head ops count env)))))))
+
+(define (emit-tail-request-ops head ops count env)
+  (let ((argv (argv-op ops)))
+    (if (sym-atom? head)
+        (let ((closure (env-read env (cdr head))))
+          (if (> (string-length closure) 0)
+              (begin
+                (func-line
+                  (string-append
+                    "call $npl_tail_request_closure(l " closure
+                    ", l " (number->string count) ", l " argv ")")))
+              (if (> (string-length (lookup-func (cdr head))) 0)
+                  (if (> (string-length
+                           (numeric-alias-primitive-name
+                             (cdr head))) 0)
+                      (emit-numeric-alias-tail (cdr head) ops argv)
+                      (emit-tail-request-function (cdr head)
+                        (number->string count) argv))
+                  (let ((closure (symbol-value (cdr head) env)))
+                    (func-line
+                      (string-append
+                        "call $npl_tail_request_closure(l " closure
+                        ", l " (number->string count)
+                        ", l " argv ")"))))))
+        (let ((closure (emit-expr head env)))
+          (func-line
+            (string-append "call $npl_tail_request_closure(l " closure
+              ", l " (number->string count) ", l " argv ")"))))
+    (func-line "ret 2")))
+
+; ---------------- direct self tail calls ----------------
+;
+; A tail call from an eligible top-level function (program.npl
+; self-loop-eligible?) to itself, by its unshadowed name and with its fixed
+; arity, assigns the parameters and jumps to the body instead of returning to
+; the trampoline. QBE accepts the reassigned temporaries and builds SSA.
+; Numeric aliases keep their inline fast path.
+
+(define (self-name self) (car self))
+(define (self-arity self) (car (cdr self)))
+(define (self-params self) (car (cdr (cdr self))))
+(define (self-label-cell self) (car (cdr (cdr (cdr self)))))
+
+(define (self-tail-call? head count env)
+  (let ((self (cell-get SELF-FUNCTION)))
+    (if (not self)
+        #f
+        (if (not (sym-atom? head))
+            #f
+            (if (not (string=? (cdr head) (self-name self)))
+                #f
+                (if (env-entry env (cdr head))
+                    #f
+                    (if (= count (self-arity self))
+                        (= (string-length (numeric-alias-primitive-name
+                                            (cdr head))) 0)
+                        #f)))))))
+
+; The loop label is made at the first jump, so a function without one is
+; emitted exactly as before.
+(define (self-loop-label self)
+  (let ((label (self-label-cell self)))
+    (if (cell-get label)
+        (cell-get label)
+        (begin (cell-set! label (new-label)) (cell-get label)))))
+
+(define (copy-op op)
+  (let ((copy (new-tmp)))
+    (func-line (string-append copy " =l copy " op))
+    copy))
+
+(define (assign-params params ops)
+  (if (null? params)
+      0
+      (begin
+        (func-line (string-append (car params) " =l copy " (car ops)))
+        (assign-params (cdr params) (cdr ops)))))
+
+; The caller evaluated every argument. Copy them first so an argument that
+; reads a parameter (a swap) sees its old value, then assign and jump. This
+; jmp is the only back edge a self call creates: a safepoint poll for a
+; later preemptive scheduler or stop-the-world collector belongs here.
+(define (emit-self-jump ops)
+  (let ((self (cell-get SELF-FUNCTION)))
+    (assign-params (self-params self) (map-cons copy-op ops))
+    (func-line (string-append "jmp " (self-loop-label self)))))
 
 (define (emit-tail-if e env)
   (let ((true-label (new-label)))

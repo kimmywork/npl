@@ -68,13 +68,82 @@
 
 
 
-(define (emit-function nm params body)
+(define (emit-function-header nm)
   (func-line
     (string-append "function l $" (function-symbol nm)
                    "(l %npl_env, l %npl_argc, l %npl_argv) {"))
-  (func-line "@start")
-  (emit-tail-body body (bind-generic-params params 0 ()))
-  (func-line "}"))
+  (func-line "@start"))
+
+(define (emit-function nm params body)
+  (if (self-loop-eligible? nm params)
+      (emit-self-loop-function nm params body)
+      (begin
+        (emit-function-header nm)
+        (emit-tail-body body (bind-generic-params params 0 ()))
+        (func-line "}"))))
+
+; A function may turn a tail call to itself into a jump (tail.npl
+; emit-self-jump) when its parameters are fixed and neither they nor its name
+; are assigned: each parameter is then one temporary, with no cell to renew
+; per iteration.
+(define (self-loop-eligible? nm params)
+  (if (variadic-parameters? params)
+      #f
+      (if (assigned-name? nm (cell-get ASSIGNED-NAMES))
+          #f
+          (not (params-assigned? params)))))
+
+(define (params-assigned? params)
+  (if (null? params)
+      #f
+      (if (assigned-name? (cdr (car params)) (cell-get ASSIGNED-NAMES))
+          #t
+          (params-assigned? (cdr params)))))
+
+(define (param-ops params env)
+  (if (null? params)
+      ()
+      (cons (env-entry-op (env-entry env (cdr (car params))))
+            (param-ops (cdr params) env))))
+
+; The body is emitted into an empty FUNC-BUF so its lines can be placed
+; after the prologue (header and argument loads) once it is known whether a
+; self jump occurred.
+(define (emit-self-loop-function nm params body)
+  (let ((before (cell-get FUNC-BUF)))
+    (cell-set! FUNC-BUF ())
+    (emit-function-header nm)
+    (let ((env (bind-generic-params params 0 ())))
+      (let ((prologue (cell-get FUNC-BUF)) (label (cell #f)))
+        (cell-set! FUNC-BUF ())
+        (cell-set! SELF-FUNCTION
+          (cons nm (cons (count-up params 0)
+                         (cons (param-ops params env) (cons label ())))))
+        (emit-tail-body body env)
+        (cell-set! SELF-FUNCTION #f)
+        (cell-set! FUNC-BUF
+          (self-loop-lines (cell-get FUNC-BUF) (cell-get label)
+                           (append-list prologue before)))
+        (func-line "}")))))
+
+(define (untag-line line) (if (pair? line) (cdr line) line))
+
+; Lines of a newest-first buffer, in the same order: the alloc lines
+; (emit-alloc8) when allocs is #t, the others when it is #f.
+(define (body-lines lines allocs)
+  (if (null? lines)
+      ()
+      (if (eq? (pair? (car lines)) allocs)
+          (cons (untag-line (car lines)) (body-lines (cdr lines) allocs))
+          (body-lines (cdr lines) allocs))))
+
+; With a self jump the allocs move to @start, which falls through to the
+; loop label; without one the body is kept as emitted.
+(define (self-loop-lines body label entry)
+  (if label
+      (append-list (body-lines body #f)
+        (cons label (append-list (body-lines body #t) entry)))
+      (append-list (map-cons untag-line body) entry)))
 
 ; The entry nplc generates (CONTROL-ENTRY-NAME, frontend/control-program.npl)
 ; is the C main. Emitted programs follow the same runtime ABI as stage0
