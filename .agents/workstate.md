@@ -138,8 +138,8 @@ O1, O2, then the O3 design (no O3 code before acceptance), per
 CPU loop 7.41 -> 1.27 s, fib 3.77 -> 2.85, tak 2.46 -> 2.05 (Guile 0.78,
 0.40, 0.27). O2 done (worklog 2026-10-27): self tail calls are jumps;
 loop 1.26 -> 0.33 s (Guile 0.79), fib/tak ~3% (bound by non-tail calls).
-Next: O3 design `docs/design-calls.md`, awaiting user review; no O3 code
-before acceptance.
+O3 design drafted: [design-calls](../docs/design-calls.md), awaiting user
+review and decisions D1-D4; no O3 code before acceptance.
 
 ## Accepted Seed
 
@@ -152,6 +152,11 @@ before acceptance.
 - Permanent `bootstrap/bootstrap.ssa` and `bootstrap/compiler/` unchanged.
 
 ## Open Items
+
+- GC stack scan gap (worklog 2026-10-27 O3): a collection inside a nested
+  trampoline (`npl_call_sync`) does not scan the caller's C frame; a
+  value-position expression with many fresh objects and a bignum operand
+  loses them at small nursery sizes. Fix proposed as design-calls C0 (D1).
 
 - `(sqrt -1.0-0.0i)` branch convention needs a user decision.
 - npli does not reject mutation of vector literals.
