@@ -92,7 +92,9 @@ rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
   fixed-arity trampolines); C extension test on macOS and Linux.
 - P6 FFI level B (opaque pointer, `define-c-function`, generated stubs);
   stub driver and pointer representation decided first.
-- P7 optional inline type checks, gated on bench evidence.
+- P7 (revised 2026-10-27) replaced by O1 inline fixnum arithmetic, O2
+  direct self tail calls, O3 call-convention design for user review; see
+  [handoff-performance](handoff-performance.md).
 
 G1 done (worklog 2026-10-20 13:40). G2 done (17:30). G3 done (worklog
 2026-10-21 08:00): defaults 1 MiB nursery and 128 MiB full threshold;
@@ -127,8 +129,11 @@ define-c-function with generated C stubs, built by nplc itself and by
 `nplc --emit=c-stubs` for npli. Next: P7 (optional inline type checks,
 gated on bench evidence); docs/research/gui is the user's GUI library
 research, not yet scheduled.
-Next: P6 (FFI level B); first decide the stub driver and the pointer
-representation (docs/design-primitives.md, Open Questions).
+P7 bench done (worklog 2026-10-27): native 9.5x Guile on loop/fib/tak,
+32x vectors; costs are generic arithmetic dispatch, the tail trampoline,
+and per-call environment allocation, not type checks. Order decided:
+O1, O2, then the O3 design (no O3 code before acceptance). Next: O1, per
+[handoff-performance](handoff-performance.md).
 
 ## Accepted Seed
 
@@ -143,8 +148,6 @@ representation (docs/design-primitives.md, Open Questions).
 ## Open Items
 
 - `(sqrt -1.0-0.0i)` branch convention needs a user decision.
-- `guard` clauses run before dynamic-wind after thunks are unwound (R7RS
-  4.2.7 evaluates them in guard's dynamic environment).
 - npli does not reject mutation of vector literals.
 - Evaluator built-in numeric primitives used without imports still report
   plain evaluator errors (`+: expected numbers`).
