@@ -168,6 +168,37 @@ for name in count_2ddown swap_2dloop rotate collect str_2dloop; do
     fi
 done
 self_function bad | grep -qF 'npl_tail_request(l $_npl_fn_bad,'
+# A named loop whose name is assigned once jumps back to the start of its
+# body (backend/bindings.npl self-loop-binding?); a reassigned name, a call
+# from a nested lambda, and a call with another arity keep the trampoline.
+# The loop is the first lambda its top-level function creates.
+LOOPS="$ROOT/tests/r7rs/fixtures/named-loops"
+emit "$WORK/compiler" "$LOOPS/native.npl" "$WORK/named-loops.ssa"
+loop_lambda() {
+    awk -v f="function l \$_npl_fn_$1(" \
+        'index($0, f) == 1 {p=1} p {print} p && /^}/ {exit}' \
+        "$WORK/named-loops.ssa" |
+        grep -o 'npl_make_flat_closure(l \$_lambda_[0-9]*' | head -1 |
+        sed 's/.*\$//'
+}
+loops_back() {
+    awk -v f="function l \$$(loop_lambda "$1")(" \
+        'index($0, f) == 1 {p=1} p {print} p && /^}/ {exit}' \
+        "$WORK/named-loops.ssa" | awk '
+        /^@start/ {s = 1; next}
+        s && /^@L/ && first == "" {first = $0}
+        /^jmp / {target[$2] = 1}
+        END {exit !(first != "" && (first in target))}'
+}
+for name in sum_2dto spin swap thunks; do
+    loops_back "$name" || { echo "named loop not a jump: $name" >&2; exit 1; }
+done
+for name in reassigned via_2dlambda bad_2darity; do
+    if loops_back "$name"; then
+        echo "named loop jumped where it must not: $name" >&2
+        exit 1
+    fi
+done
 # Lambdas are flat closures: one npl_make_flat_closure per creation and
 # inline capture loads, no separate environment object (design-calls C1b).
 CAPTURES="$ROOT/tests/r7rs/fixtures/closure-captures"

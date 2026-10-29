@@ -147,16 +147,18 @@ fib 2.77 -> 1.94 s, tak 2.06 -> 1.55 s, callcc -15%. C1b done (worklog
 2026-10-29): flat closures, inline capture loads, `npl_make_environment`
 and `npl_environment_ref` removed; fib 2.01 -> 1.27 s, tak 1.60 -> 1.02,
 vectors 4.41 -> 2.84, callcc 4.41 -> 2.78. C1c dropped by the user
-after measurement (seed +33%, no gain; worklog 2026-10-29). Next: O2b
-(named-let and letrec loops as jumps), then a C2 design addendum
-(direct calls to known functions) for user review, no C2 code before
-acceptance.
+after measurement (seed +33%, no gain; worklog 2026-10-29). O2b done
+(worklog 2026-10-29): named-let and letrec loops whose name is assigned
+once are jumps; no bench change, because a `begin` in a loop body still
+becomes a continuation closure. Next: O2b-2 (simple first expression of a
+sequence stays in place), then a C2 design addendum (direct calls to
+known functions) for user review, no C2 code before acceptance.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 262,127 lines; SHA-256
-  `17a829cfa1a5443cf0c02e977021c9f67c641bf0a62e1a594386973f5ad18450`
-  (macOS strict relay, 2026-10-29, C1b).
+- `bootstrap/current.ssa`: 264,110 lines; SHA-256
+  `6c481477b11260e7789f6ad5ed965479fd1808e3c3e8693d1ab9091a217c88d1`
+  (macOS strict relay, 2026-10-29, O2b).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

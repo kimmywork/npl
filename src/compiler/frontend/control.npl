@@ -595,22 +595,39 @@
             ())
           ())))))
 
+; A simple init (a lambda, literal, or primitive application) cannot
+; capture a continuation, so it is assigned directly instead of being passed
+; to a continuation closure; the assignment then stays in the same function
+; as the letrec, where backend/bindings.npl can recognize a named loop.
 (define (control-cps-letrec-sequential bindings body continuation)
   (if (null? bindings)
       (control-cps-body body continuation)
-      (let ((value-name (control-fresh-name "_npl_init_")))
-        (control-cps-expression
-          (cdr (car bindings))
-          (control-continuation
-            value-name
-            (cons 216
+      (if (control-simple? (cdr (car bindings)))
+          (cons 216
+            (cons
+              (control-assignment
+                (car (car bindings))
+                (control-transform-simple (cdr (car bindings))))
               (cons
-                (control-assignment
-                  (car (car bindings)) (control-symbol value-name))
-                (cons
-                  (control-cps-letrec-sequential
-                    (cdr bindings) body continuation)
-                  ()))))))))
+                (control-cps-letrec-sequential
+                  (cdr bindings) body continuation)
+                ())))
+          (control-cps-letrec-init bindings body continuation))))
+
+(define (control-cps-letrec-init bindings body continuation)
+  (let ((value-name (control-fresh-name "_npl_init_")))
+    (control-cps-expression
+      (cdr (car bindings))
+      (control-continuation
+        value-name
+        (cons 216
+          (cons
+            (control-assignment
+              (car (car bindings)) (control-symbol value-name))
+            (cons
+              (control-cps-letrec-sequential
+                (cdr bindings) body continuation)
+              ())))))))
 
 (define (control-cps-letrec expression continuation sequential)
   (let ((bindings (car (cdr expression))))

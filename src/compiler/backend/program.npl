@@ -87,11 +87,14 @@
 ; are assigned: each parameter is then one temporary, with no cell to renew
 ; per iteration.
 (define (self-loop-eligible? nm params)
+  (if (assigned-name? nm (cell-get ASSIGNED-NAMES))
+      #f
+      (self-loop-eligible-params? params)))
+
+(define (self-loop-eligible-params? params)
   (if (variadic-parameters? params)
       #f
-      (if (assigned-name? nm (cell-get ASSIGNED-NAMES))
-          #f
-          (not (params-assigned? params)))))
+      (not (params-assigned? params))))
 
 (define (params-assigned? params)
   (if (null? params)
@@ -114,17 +117,24 @@
     (cell-set! FUNC-BUF ())
     (emit-function-header nm)
     (let ((env (bind-generic-params params 0 ())))
-      (let ((prologue (cell-get FUNC-BUF)) (label (cell #f)))
-        (cell-set! FUNC-BUF ())
-        (cell-set! SELF-FUNCTION
-          (cons nm (cons (count-up params 0)
-                         (cons (param-ops params env) (cons label ())))))
-        (emit-tail-body body env)
-        (cell-set! SELF-FUNCTION #f)
-        (cell-set! FUNC-BUF
-          (self-loop-lines (cell-get FUNC-BUF) (cell-get label)
-                           (append-list prologue before)))
-        (func-line "}")))))
+      (cell-set! FUNC-BUF (append-list (cell-get FUNC-BUF) before))
+      (emit-self-loop-body nm params #f body env)
+      (func-line "}"))))
+
+; Emit the body of a function that may jump to itself. The current buffer
+; already holds its prologue (header, capture and argument loads); the loop
+; label goes after it, so captures and the closure are loaded once.
+(define (emit-self-loop-body name params entry body env)
+  (let ((prologue (current-buffer)) (label (cell #f)))
+    (set-current-buffer! ())
+    (cell-set! SELF-FUNCTION
+      (cons name
+        (cons (count-up params 0)
+          (cons (param-ops params env) (cons label (cons entry ()))))))
+    (emit-tail-body body env)
+    (cell-set! SELF-FUNCTION #f)
+    (set-current-buffer!
+      (self-loop-lines (current-buffer) (cell-get label) prologue))))
 
 (define (untag-line line) (if (pair? line) (cdr line) line))
 
@@ -163,6 +173,7 @@
 
 (define (emit-top-level f)
   (cell-set! ASSIGNED-NAMES (collect-assigned f ()))
+  (cell-set! LOCAL-LOOP-CELLS ())
   (if (fun-def? f)
       ; sig = ((100 . nm) . params); body-list = (car (cdr (cdr f)))
       (if (string=? (defined-name f) CONTROL-ENTRY-NAME)

@@ -40,9 +40,26 @@
 ; primitives referenced as values; their closure wrappers are emitted once
 (define PRIMITIVE-VALUES (cell ()))
 ; Direct self tail calls (tail.npl emit-self-jump): while the body of an
-; eligible top-level function is emitted, (name arity parameter-ops
-; label-cell); #f otherwise. Lambda bodies clear it (emit-lambda).
+; eligible function is emitted, (name arity parameter-ops label-cell entry);
+; #f otherwise. entry is #f for a top-level function (its name must be
+; lexically unbound at the call) and the lambda's captured binding of its
+; letrec name for a named loop (the call must see that binding).
 (define SELF-FUNCTION (cell #f))
+; Bindings of control-converted letrecs (all placeholders, assigned only by
+; set!) allocated in the C function being emitted (bindings.npl).
+(define LOCAL-LOOP-CELLS (cell ()))
+
+; The buffer of the C function being emitted: a lambda's ("X") or a
+; top-level function's.
+(define (current-buffer)
+  (if (string=? (cell-get CURBUF) "X")
+      (cell-get LOCAL-BUF)
+      (cell-get FUNC-BUF)))
+
+(define (set-current-buffer! lines)
+  (if (string=? (cell-get CURBUF) "X")
+      (cell-set! LOCAL-BUF lines)
+      (cell-set! FUNC-BUF lines)))
 
 (define (func-line ln)
   (cond ((string=? (cell-get CURBUF) "I")
@@ -58,8 +75,8 @@
 ; iteration.
 (define (emit-alloc8 slot bytes)
   (let ((line (string-append slot " =l alloc8 " bytes)))
-    (if (if (cell-get SELF-FUNCTION) (string=? (cell-get CURBUF) "F") #f)
-        (cell-set! FUNC-BUF (cons (cons #t line) (cell-get FUNC-BUF)))
+    (if (if (cell-get SELF-FUNCTION) (not (string=? (cell-get CURBUF) "I")) #f)
+        (set-current-buffer! (cons (cons #t line) (current-buffer)))
         (func-line line))))
 
 (define (append-list left right)

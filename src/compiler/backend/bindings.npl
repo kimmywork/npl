@@ -28,7 +28,7 @@
 
 (define (emit-set e env)
   (let ((name (cdr (car (cdr e)))))
-    (let ((value (emit-expr (car (cdr (cdr e))) env)))
+    (let ((value (emit-set-value name (car (cdr (cdr e))) env)))
       (let ((local (env-lookup env name)))
         (if (> (string-length local) 0)
             (write-cell-op local value)
@@ -71,11 +71,58 @@
             (env-bind env (cdr (car binding)) value))))))
 
 (define (allocate-bindings binds env)
+  (allocate-binding-cells binds env (placeholder-bindings? binds)))
+
+; A control-converted letrec has only placeholder bindings (no init): each
+; cell is written only by set! (frontend control-cps-letrec).
+(define (placeholder-bindings? binds)
+  (if (null? binds)
+      #t
+      (if (null? (cdr (car binds))) (placeholder-bindings? (cdr binds)) #f)))
+
+(define (allocate-binding-cells binds env loop-cells)
   (if (null? binds)
       env
-      (allocate-bindings
-        (cdr binds)
-        (env-extend env (cdr (car (car binds))) (make-cell-op "2")))))
+      (let ((extended
+              (env-extend env (cdr (car (car binds))) (make-cell-op "2"))))
+        (register-loop-cell! loop-cells (car extended))
+        (allocate-binding-cells (cdr binds) extended loop-cells))))
+
+(define (register-loop-cell! loop-cells entry)
+  (if loop-cells
+      (cell-set! LOCAL-LOOP-CELLS (cons entry (cell-get LOCAL-LOOP-CELLS)))
+      0))
+
+(define (entry-member? entry entries)
+  (if (null? entries)
+      #f
+      (if (eq? entry (car entries)) #t (entry-member? entry (cdr entries)))))
+
+(define (name-hit nm other) (if (string=? nm other) 1 0))
+
+(define (name-count nm names count)
+  (if (null? names)
+      count
+      (name-count nm (cdr names) (+ count (name-hit nm (car names))))))
+
+; (set! name (lambda ...)) names a loop when name is a loop cell allocated
+; in this C function and this is its only assignment: the cell then holds
+; this lambda's closure whenever the lambda runs (a re-run of this set! in
+; the same activation makes a closure with the same captures), so a tail
+; call through name may jump to the lambda's body.
+(define (self-loop-binding? name value env)
+  (if (if (pair-shape? value) (number? (car value)) #f)
+      (if (= (car value) 212)
+          (if (entry-member? (env-entry env name) (cell-get LOCAL-LOOP-CELLS))
+              (= (name-count name (cell-get ASSIGNED-NAMES) 0) 1)
+              #f)
+          #f)
+      #f))
+
+(define (emit-set-value name value env)
+  (if (self-loop-binding? name value env)
+      (emit-named-lambda value env name)
+      (emit-expr value env)))
 
 (define (write-bindings binds values env)
   (if (null? binds)

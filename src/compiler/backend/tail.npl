@@ -53,15 +53,22 @@
 ; ---------------- direct self tail calls ----------------
 ;
 ; A tail call from an eligible top-level function (program.npl
-; self-loop-eligible?) to itself, by its unshadowed name and with its fixed
-; arity, assigns the parameters and jumps to the body instead of returning to
-; the trampoline. QBE accepts the reassigned temporaries and builds SSA.
-; Numeric aliases keep their inline fast path.
+; self-loop-eligible?) or named loop (bindings.npl self-loop-binding?) to
+; itself, by its unshadowed name and with its fixed arity, assigns the
+; parameters and jumps to the body instead of returning to the trampoline.
+; QBE accepts the reassigned temporaries and builds SSA. Numeric aliases keep
+; their inline fast path.
 
 (define (self-name self) (car self))
 (define (self-arity self) (car (cdr self)))
 (define (self-params self) (car (cdr (cdr self))))
 (define (self-label-cell self) (car (cdr (cdr (cdr self)))))
+(define (self-entry self) (car (cdr (cdr (cdr (cdr self))))))
+
+; The call names the function being emitted: a top-level function's name is
+; not lexically bound there; a named loop's name is its captured binding.
+(define (self-binding? self entry)
+  (if (self-entry self) (eq? entry (self-entry self)) (not entry)))
 
 (define (self-tail-call? head count env)
   (let ((self (cell-get SELF-FUNCTION)))
@@ -71,7 +78,7 @@
             #f
             (if (not (string=? (cdr head) (self-name self)))
                 #f
-                (if (env-entry env (cdr head))
+                (if (not (self-binding? self (env-entry env (cdr head))))
                     #f
                     (if (= count (self-arity self))
                         (= (string-length (numeric-alias-primitive-name

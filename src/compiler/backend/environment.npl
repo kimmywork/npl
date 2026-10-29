@@ -218,7 +218,25 @@
                        ", l " argv ")"))
       closure)))
 
-(define (emit-lambda e env)
+(define (emit-lambda e env) (emit-named-lambda e env #f))
+
+; A named loop's lambda (self-name, from bindings.npl) may jump to itself
+; when its parameters are fixed and unassigned and it captures its name.
+(define (self-lambda-entry self-name params capture-env)
+  (if (not self-name)
+      #f
+      (if (self-loop-eligible-params? params)
+          (env-entry capture-env self-name)
+          #f)))
+
+(define (emit-lambda-body self-name params body capture-env)
+  (let ((body-env (bind-generic-params params 0 capture-env))
+        (entry (self-lambda-entry self-name params capture-env)))
+    (if entry
+        (emit-self-loop-body self-name params entry body body-env)
+        (emit-tail-body body body-env))))
+
+(define (emit-named-lambda e env self-name)
   (let ((params (car (cdr e))))
     (let ((body (car (cdr (cdr e)))))
       (let ((captures (lambda-captures env body)))
@@ -228,8 +246,10 @@
                                (number->string (cell-get LAMBDA-N)))))
           (let ((saved-mode (cell-get CURBUF)))
             (let ((saved-local (cell-get LOCAL-BUF))
-                  (saved-self (cell-get SELF-FUNCTION)))
+                  (saved-self (cell-get SELF-FUNCTION))
+                  (saved-cells (cell-get LOCAL-LOOP-CELLS)))
               (cell-set! LOCAL-BUF ())
+              (cell-set! LOCAL-LOOP-CELLS ())
               (cell-set! CURBUF "X")
               ; A lambda is its own C function: a call to the enclosing
               ; top-level function from it is never a direct self jump.
@@ -238,14 +258,14 @@
                 (string-append "function l $" name
                                "(l %npl_env, l %npl_argc, l %npl_argv) {"))
               (func-line "@start")
-              (let ((capture-env (bind-captures captures 0 ())))
-                (emit-tail-body body
-                  (bind-generic-params params 0 capture-env)))
+              (emit-lambda-body self-name params body
+                                (bind-captures captures 0 ()))
               (func-line "}")
               (print-lines (rev (cell-get DATA-BUF)))
               (cell-set! DATA-BUF ())
               (print-lines (rev (cell-get LOCAL-BUF)))
               (cell-set! LOCAL-BUF saved-local)
+              (cell-set! LOCAL-LOOP-CELLS saved-cells)
               (cell-set! SELF-FUNCTION saved-self)
               (cell-set! CURBUF saved-mode)
               (emit-flat-closure name params captures))))))))
