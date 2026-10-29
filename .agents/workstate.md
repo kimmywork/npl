@@ -142,13 +142,15 @@ O3 design [design-calls](../docs/design-calls.md) accepted 2026-10-27
 with the recommended D1-D4. Order: C0 (GC stack scan fix), C1a, C1b, C1c,
 then stop for the C2 decision on measurements. C0 done (worklog
 2026-10-29): the GC stack scan reaches the caller of a nested trampoline.
-Next: C1a (continuation parameter without a `set!` cell).
+C1a done (worklog 2026-10-29): continuations rebind with `let`, no cell;
+fib 2.77 -> 1.94 s, tak 2.06 -> 1.55 s, callcc -15%. Next: C1b (flat
+closures with inline capture loads); concrete plan for the user first.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 264,732 lines; SHA-256
-  `2cfd62c89a700b072d377c967a0f5aa8aeecb4041b0437d3d5d1d54d1cdf2547`
-  (macOS strict relay, 2026-10-27, O2).
+- `bootstrap/current.ssa`: 245,580 lines; SHA-256
+  `86e83b7b0c9bfa90cb335b0f6d793e2d54518d55af6c7c8e4771e14e78526bc7`
+  (macOS strict relay, 2026-10-29, C1a).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

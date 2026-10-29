@@ -147,18 +147,20 @@
         (cons (cons (control-symbol parameter) ())
               (cons (cons body ()) ()))))
 
+; A single-value continuation checks its argument and rebinds it with a let
+; that shadows the parameter. Assigning the parameter instead would make it
+; a set! target, which the backend gives a heap cell on every call
+; (backend/environment.npl env-bind).
 (define (control-continuation parameter body)
   (control-raw-continuation
     parameter
-    (cons 216
+    (cons 214
       (cons
-        (cons 217
-          (cons (control-symbol parameter)
-            (cons
-              (cons (control-symbol "npl_expect_one")
-                    (cons (control-symbol parameter) ()))
-              ())))
-        (cons body ())))))
+        (cons (cons (control-symbol parameter)
+                    (cons (control-symbol "npl_expect_one")
+                          (cons (control-symbol parameter) ())))
+              ())
+        (cons (cons body ()) ())))))
 
 (define (control-send continuation value)
   (cons continuation (cons value ())))
