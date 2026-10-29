@@ -211,6 +211,20 @@ cmp "$EXTENSION/typed.out" "$WORK/typed.out"
 [ ! -s "$WORK/no-stubs.c" ]
 # 1 MiB threshold forces many collections through globals and closures.
 GC_THRESHOLD=1048576 run_suite gc-roots "PASS gc-roots 5"
+# Collections inside a nested trampoline at nursery sizes that failed when
+# a trampoline narrowed the stack scan to its own frame (512 B-2 KiB). The
+# verify run uses a 16 KiB nursery and every 100th collection: each check
+# scans the whole heap, and at 1 KiB with NPL_GC_VERIFY=1 the run takes
+# hours.
+run_suite gc-nested-scan "PASS gc-nested-scan 1"
+for nursery in 256 512 1024 2048 4096 16384; do
+    NPL_GC_NURSERY_BYTES=$nursery "$WORK/gc-nested-scan" \
+        > "$WORK/gc-nested-scan.out" 2>&1
+    printf 'PASS gc-nested-scan 1\n' | cmp - "$WORK/gc-nested-scan.out"
+done
+NPL_GC_NURSERY_BYTES=16384 NPL_GC_VERIFY=100 "$WORK/gc-nested-scan" \
+    > "$WORK/gc-nested-scan.out" 2>&1
+printf 'PASS gc-nested-scan 1\n' | cmp - "$WORK/gc-nested-scan.out"
 if grep -F 'call $npl_call_cc' "$WORK/continuations.ssa" >/dev/null; then
     echo "full compiler continuations used escape-only runtime path" >&2
     exit 1

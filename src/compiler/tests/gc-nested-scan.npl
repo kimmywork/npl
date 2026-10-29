@@ -1,0 +1,62 @@
+; A collection inside a nested trampoline must scan the caller's C frame.
+; string-append, vector, cons, and the (scheme base) + alias are value-
+; position operations, so each step keeps its fresh strings as temporaries
+; of one C frame while the bignum (+ big i) runs the library procedure
+; through npl_call_sync and its nested trampoline. Run with small
+; NPL_GC_NURSERY_BYTES (tools/check_full_compiler.sh).
+(import (scheme base) (scheme write) (scheme process-context))
+
+(include "framework.npl")
+
+(define big 100000000000000000000000000000)
+(define letters "abcdefghijklmnopqrstuvwx")
+
+(define (step s i)
+  (cons (vector
+          (string-append s "a")
+          (string-append s "b")
+          (string-append s "c")
+          (string-append s "d")
+          (string-append s "e")
+          (string-append s "f")
+          (string-append s "g")
+          (string-append s "h")
+          (string-append s "i")
+          (string-append s "j")
+          (string-append s "k")
+          (string-append s "l")
+          (string-append s "m")
+          (string-append s "n")
+          (string-append s "o")
+          (string-append s "p")
+          (string-append s "q")
+          (string-append s "r")
+          (string-append s "s")
+          (string-append s "t")
+          (string-append s "u")
+          (string-append s "v")
+          (string-append s "w")
+          (string-append s "x"))
+        (+ big i)))
+
+(define (intact? v k)
+  (if (= k 24)
+      #t
+      (if (char=? (string-ref (vector-ref v k) 3) (string-ref letters k))
+          (intact? v (+ k 1))
+          #f)))
+
+(define (run i bad)
+  (if (= i 20000)
+      bad
+      (let ((p (step "xyz" i)))
+        (run (+ i 1)
+             (if (if (intact? (car p) 0) (= (cdr p) (+ big i)) #f)
+                 bad
+                 (+ bad 1))))))
+
+(define (main)
+  (test-equal "caller frame survives nested collections"
+              (lambda () (run 0 0)) 0)
+  (finish-tests "gc-nested-scan"))
+(main)

@@ -167,8 +167,18 @@ void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
 NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
                       int64_t argc, NplVal *argv)
 {
+    /* The stack scan must reach every compiled frame, including the caller
+     * of a nested trampoline (npl_call_sync), whose temporaries may be live
+     * only in its C frame. So a trampoline only extends the scanned range
+     * toward older frames (the stack grows down): it moves the bottom when
+     * none is set or when it runs below the current one, as a host program
+     * may first enter NPL from a frame older than npl_runtime_init's. */
     uintptr_t stack_boundary = 0;
-    uintptr_t saved_stack_bottom = npl_gc_swap_stack_bottom((uintptr_t)(void *)&stack_boundary);
+    uintptr_t here = (uintptr_t)(void *)&stack_boundary;
+    uintptr_t saved_stack_bottom = npl_gc_stack_bottom_internal();
+    uintptr_t stack_bottom =
+        saved_stack_bottom > here ? saved_stack_bottom : here;
+    (void)npl_gc_swap_stack_bottom(stack_bottom);
     NplTailContext context;
     context.previous = g_tail_context;
     context.function = function;
@@ -189,7 +199,7 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
     }
     g_tail_context = &context;
     context.root_count = npl_gc_root_count_internal();
-    context.stack_bottom = (uintptr_t)(void *)&stack_boundary;
+    context.stack_bottom = stack_bottom;
     context.escape_depth = g_escape_depth;
 
     NplVal result = npl_nil();

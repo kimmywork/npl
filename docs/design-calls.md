@@ -1,6 +1,7 @@
 # Design: Call Convention and Environments (O3)
 
-Status: draft for user review, 2026-10-27. No O3 code before acceptance.
+Status: accepted 2026-10-27 with the recommended option for D1-D4 (see
+"Decisions").
 Follows O1 (inline fixnum arithmetic) and O2 (direct self tail calls);
 see [handoff-performance](../.agents/handoff-performance.md).
 
@@ -247,7 +248,9 @@ in the worklog.
 
 ## Decisions
 
-For the user:
+Accepted by the user 2026-10-27: D1 C0 now as a standalone fix, D2 C1
+first and C2 decided on measurements, D3 thread-local pointer, D4
+primitive-table rows.
 
 - **D1** C0 timing: fix the GC scan gap now as a standalone bug fix before
   any O3 work (recommended; it affects existing programs), or as the first
