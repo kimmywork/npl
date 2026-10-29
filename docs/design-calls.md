@@ -240,11 +240,18 @@ in the worklog.
    `typed`, npli `-l`); `NPL_GC_VERIFY` full suite; chibi suite unchanged
    (1207 passed native and npli). Expected: fib/tak another 25-40%;
    vectors and closures gain.
-4. **C1c inline cell and pair access.** Acceptance: SSA has no `npl_car`
-   for cells; barrier verify mode; seed relay. Expected: small, mostly
-   vectors and `set!`-heavy code.
-5. **C2 decision.** With C1 numbers, the user decides whether to design
-   direct calls (C2) in an addendum.
+4. **C1c inline cell and pair access.** Dropped 2026-10-29 by the user
+   after measurement: inline `car`/`cdr` with a pair tag check, inline
+   cell reads, young-cell stores with an old-holder barrier fallback, and
+   an inline `npl_expect_one` tag check grew the seed 262,127 -> 349,017
+   lines (+33%), with no measurable gain (interleaved A/B, 3 rounds: fib
+   1.23 -> 1.24 s, tak 0.99 -> 0.96, vectors 2.81 -> 2.71, callcc 2.76 ->
+   2.70, loop and closures unchanged). The runtime calls are cheap next to
+   allocation and the trampoline. Inline field access returns with the NPL
+   runtime rewrite (D4).
+5. **C2 decision.** Decided 2026-10-29: first O2b (named-let and
+   `letrec` loops as jumps, the remaining tail-call cost in vectors,
+   lists, and strings), then a C2 design addendum for review.
 
 ## Decisions
 

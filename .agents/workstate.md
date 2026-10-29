@@ -146,8 +146,11 @@ C1a done (worklog 2026-10-29): continuations rebind with `let`, no cell;
 fib 2.77 -> 1.94 s, tak 2.06 -> 1.55 s, callcc -15%. C1b done (worklog
 2026-10-29): flat closures, inline capture loads, `npl_make_environment`
 and `npl_environment_ref` removed; fib 2.01 -> 1.27 s, tak 1.60 -> 1.02,
-vectors 4.41 -> 2.84, callcc 4.41 -> 2.78. Next: C1c (inline cell and
-pair access), then stop for the C2 decision.
+vectors 4.41 -> 2.84, callcc 4.41 -> 2.78. C1c dropped by the user
+after measurement (seed +33%, no gain; worklog 2026-10-29). Next: O2b
+(named-let and letrec loops as jumps), then a C2 design addendum
+(direct calls to known functions) for user review, no C2 code before
+acceptance.
 
 ## Accepted Seed
 
