@@ -143,14 +143,17 @@ with the recommended D1-D4. Order: C0 (GC stack scan fix), C1a, C1b, C1c,
 then stop for the C2 decision on measurements. C0 done (worklog
 2026-10-29): the GC stack scan reaches the caller of a nested trampoline.
 C1a done (worklog 2026-10-29): continuations rebind with `let`, no cell;
-fib 2.77 -> 1.94 s, tak 2.06 -> 1.55 s, callcc -15%. Next: C1b (flat
-closures with inline capture loads); concrete plan for the user first.
+fib 2.77 -> 1.94 s, tak 2.06 -> 1.55 s, callcc -15%. C1b done (worklog
+2026-10-29): flat closures, inline capture loads, `npl_make_environment`
+and `npl_environment_ref` removed; fib 2.01 -> 1.27 s, tak 1.60 -> 1.02,
+vectors 4.41 -> 2.84, callcc 4.41 -> 2.78. Next: C1c (inline cell and
+pair access), then stop for the C2 decision.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 245,580 lines; SHA-256
-  `86e83b7b0c9bfa90cb335b0f6d793e2d54518d55af6c7c8e4771e14e78526bc7`
-  (macOS strict relay, 2026-10-29, C1a).
+- `bootstrap/current.ssa`: 262,127 lines; SHA-256
+  `17a829cfa1a5443cf0c02e977021c9f67c641bf0a62e1a594386973f5ad18450`
+  (macOS strict relay, 2026-10-29, C1b).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

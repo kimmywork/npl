@@ -82,6 +82,8 @@ void npl_gc_visit_children_internal(NplHeader *header,
         case BOX_CLOSURE: {
             NplClosure *closure = (NplClosure *)header;
             visit(closure->environment);
+            for (int64_t i = 0; i < closure->capture_count; i++)
+                visit(closure->captures[i]);
             break;
         }
         case BOX_VALUES: {

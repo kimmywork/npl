@@ -216,11 +216,17 @@ typedef struct {
     NplHeader header;
 } NplEof;
 
+/* A compiled lambda's captured values are stored in the closure itself
+ * (npl_make_flat_closure); its environment is then the closure, so compiled
+ * code reads capture i at a fixed offset. Runtime and FFI closures have no
+ * captures and an arbitrary environment value. */
 typedef struct {
     NplHeader header;
     NplGenericFunction function;
     NplVal environment;
     int64_t arity;
+    int64_t capture_count;
+    NplVal captures[];
 } NplClosure;
 
 /* ---- Float ---- */
@@ -471,12 +477,12 @@ void npl_set_car(NplVal pair, NplVal val);
 void npl_set_cdr(NplVal pair, NplVal val);
 
 /* Generic NPL call ABI used by closures and the tail trampoline. */
-NplVal npl_make_environment(int64_t argc, NplVal *argv);
-NplVal npl_environment_ref(NplVal environment, int64_t index);
 NplVal npl_rest_arguments(int64_t argc, NplVal *argv, int64_t fixed,
                           int64_t trailing);
 NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
                         int64_t arity);
+NplVal npl_make_flat_closure(NplGenericFunction function, int64_t arity,
+                             int64_t count, NplVal *captures);
 int32_t npl_guard_integer(NplVal value);
 int32_t npl_guard_bool(NplVal value);
 double npl_guard_float(NplVal value);

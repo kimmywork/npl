@@ -297,37 +297,6 @@ NplVal npl_append(NplVal left, NplVal right)
     return head;
 }
 
-NplVal npl_make_environment(int64_t argc, NplVal *argv)
-{
-    if (argc < 0 || (uint64_t)argc > UINT32_MAX) {
-        fprintf(stderr, "npl_make_environment: unsupported size %lld\n",
-                (long long)argc);
-        exit(1);
-    }
-    NplVector *environment = (NplVector *)npl_alloc_object(
-        sizeof(NplVector) + (size_t)argc * sizeof(NplVal));
-    environment->header.tag = BOX_VECTOR;
-    environment->header.flags = 0;
-    environment->length = (uint32_t)argc;
-    environment->capacity = (uint32_t)argc;
-    for (int64_t i = 0; i < argc; i++) environment->data[i] = argv[i];
-    return (NplVal)(uintptr_t)environment | TAG_PTR;
-}
-
-NplVal npl_environment_ref(NplVal value, int64_t index)
-{
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_VECTOR) {
-        fprintf(stderr, "npl_environment_ref: not an environment\n");
-        exit(1);
-    }
-    NplVector *environment = (NplVector *)npl_header(value);
-    if (index < 0 || (uint64_t)index >= environment->length) {
-        fprintf(stderr, "npl_environment_ref: index out of range\n");
-        exit(1);
-    }
-    return environment->data[index];
-}
-
 NplVal npl_rest_arguments(int64_t argc, NplVal *argv, int64_t fixed,
                           int64_t trailing)
 {
@@ -352,7 +321,32 @@ NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
     closure->function = function;
     closure->environment = environment;
     closure->arity = arity;
+    closure->capture_count = 0;
     return (NplVal)(uintptr_t)closure | TAG_PTR;
+}
+
+/* One object for a compiled lambda and the values it captures. The
+ * environment is the closure itself, so the trampoline hands compiled code
+ * the closure as %npl_env and keeps it rooted while the code runs. */
+NplVal npl_make_flat_closure(NplGenericFunction function, int64_t arity,
+                             int64_t count, NplVal *captures)
+{
+    if (count < 0 || (uint64_t)count > UINT32_MAX) {
+        fprintf(stderr, "npl_make_flat_closure: unsupported size %lld\n",
+                (long long)count);
+        exit(1);
+    }
+    NplClosure *closure = (NplClosure *)npl_alloc_object(
+        sizeof(NplClosure) + (size_t)count * sizeof(NplVal));
+    closure->header.tag = BOX_CLOSURE;
+    closure->header.flags = 0;
+    closure->function = function;
+    closure->arity = arity;
+    closure->capture_count = count;
+    for (int64_t i = 0; i < count; i++) closure->captures[i] = captures[i];
+    NplVal value = (NplVal)(uintptr_t)closure | TAG_PTR;
+    closure->environment = value;
+    return value;
 }
 
 int32_t npl_guard_integer(NplVal value)

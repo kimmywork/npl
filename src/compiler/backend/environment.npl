@@ -183,14 +183,19 @@
               (cdr params) (+ index 1)
               (env-bind env (cdr (car params)) value))))))
 
+; A lambda's environment is its flat closure (runtime npl_make_flat_closure):
+; capture i is the word at byte 40 + 8i of NplClosure, and %npl_env carries
+; pointer tag 1. Only this lambda's creation site builds closures for its
+; function, so the layout needs no check.
+(define (capture-offset index) (number->string (+ 39 (* index 8))))
+
 (define (bind-captures captures index env)
   (if (null? captures)
       env
-      (let ((binding (new-tmp)))
+      (let ((address (new-tmp)) (binding (new-tmp)))
         (func-line
-          (string-append binding
-                         " =l call $npl_environment_ref(l %npl_env, l "
-                         (number->string index) ")"))
+          (string-append address " =l add %npl_env, " (capture-offset index)))
+        (func-line (string-append binding " =l loadl " address))
         ; A captured cell stays shared; a captured value is copied.
         (bind-captures
           (cdr captures) (+ index 1)
@@ -203,14 +208,15 @@
       ()
       (cons (env-entry-op (car captures)) (capture-ops (cdr captures)))))
 
-(define (emit-capture-environment captures)
+(define (emit-flat-closure name params captures)
   (let ((ops (capture-ops captures)))
-    (let ((argv (argv-op ops)))
-      (let ((environment (new-tmp)))
-        (func-line
-          (string-append environment " =l call $npl_make_environment(l "
-                         (number->string (count-up ops 0)) ", l " argv ")"))
-        environment))))
+    (let ((argv (argv-op ops)) (closure (new-tmp)))
+      (func-line
+        (string-append closure " =l call $npl_make_flat_closure(l $" name
+                       ", l " (number->string (parameter-arity params))
+                       ", l " (number->string (count-up ops 0))
+                       ", l " argv ")"))
+      closure)))
 
 (define (emit-lambda e env)
   (let ((params (car (cdr e))))
@@ -242,11 +248,4 @@
               (cell-set! LOCAL-BUF saved-local)
               (cell-set! SELF-FUNCTION saved-self)
               (cell-set! CURBUF saved-mode)
-              (let ((environment (emit-capture-environment captures)))
-                (let ((closure (new-tmp)))
-                  (func-line
-                    (string-append closure
-                      " =l call $npl_make_closure(l $" name ", l "
-                      environment ", l "
-                      (number->string (parameter-arity params)) ")"))
-                  closure)))))))))
+              (emit-flat-closure name params captures))))))))

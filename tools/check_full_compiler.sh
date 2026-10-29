@@ -168,6 +168,16 @@ for name in count_2ddown swap_2dloop rotate collect str_2dloop; do
     fi
 done
 self_function bad | grep -qF 'npl_tail_request(l $_npl_fn_bad,'
+# Lambdas are flat closures: one npl_make_flat_closure per creation and
+# inline capture loads, no separate environment object (design-calls C1b).
+CAPTURES="$ROOT/tests/r7rs/fixtures/closure-captures"
+emit "$WORK/compiler" "$CAPTURES/native.npl" "$WORK/closure-captures.ssa"
+grep -qF 'call $npl_make_flat_closure(' "$WORK/closure-captures.ssa"
+if grep -qE 'npl_make_environment|npl_environment_ref' \
+        "$WORK/closure-captures.ssa"; then
+    echo "closure environment built outside the flat closure" >&2
+    exit 1
+fi
 # docs/ffi.md example: user C functions linked next to the runtime.
 EXTENSION="$TESTS/c-extension"
 emit "$WORK/compiler" "$EXTENSION/main.npl" "$WORK/c-extension.ssa"
