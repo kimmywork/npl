@@ -17,6 +17,18 @@
                        (if (= j n) (reverse row) (inner (+ j 1) (cons (* i j) row))))
                      rows)))))
 
+;; A loop body that starts with a primitive call (O2b-2): the call runs in
+;; place and the loop call stays in the loop.
+(define squares (make-vector 5 0))
+(define (fill n)
+  (let loop ((i 0))
+    (if (= i n)
+        (vector->list squares)
+        (begin (vector-set! squares i (* i i)) (loop (+ i 1))))))
+(define (emit-all n)
+  (let loop ((i 0))
+    (if (< i n) (begin (write i) (write-char #\space) (loop (+ i 1))) (newline))))
+
 ;; Arguments read the old values (swap), left to right with side effects.
 (define (swap n) (let loop ((k n) (a 'x) (b 'y)) (if (= k 0) (list a b) (loop (- k 1) b a))))
 (define trace '())
@@ -77,6 +89,8 @@
 (show (list (sum-to 100) (count-evens '(1 2 3 4 6)) (grid 3)))
 (show (list (swap 3) (swap 4) (ordered 4)))
 (show (thunks 4))
+(show (fill 5))
+(emit-all 4)
 (show (spin 3000000))
 (show (list (reassigned) (escaped) (via-lambda 100000) (shadowed)))
 (show (guard (e ((error-object? e) 'arity-error)) (bad-arity)))

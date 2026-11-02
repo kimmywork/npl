@@ -150,15 +150,17 @@ vectors 4.41 -> 2.84, callcc 4.41 -> 2.78. C1c dropped by the user
 after measurement (seed +33%, no gain; worklog 2026-10-29). O2b done
 (worklog 2026-10-29): named-let and letrec loops whose name is assigned
 once are jumps; no bench change, because a `begin` in a loop body still
-becomes a continuation closure. Next: O2b-2 (simple first expression of a
-sequence stays in place), then a C2 design addendum (direct calls to
-known functions) for user review, no C2 code before acceptance.
+became a continuation closure. O2b-2 done (worklog 2026-11-02): simple
+non-final sequence expressions stay in place; vectors 2.83 -> 0.50 s,
+strings 4.01 -> 3.51 s. Next: C2 design addendum (direct calls to known
+functions) in docs/design-calls.md for user review; no C2 code before
+acceptance.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 264,110 lines; SHA-256
-  `6c481477b11260e7789f6ad5ed965479fd1808e3c3e8693d1ab9091a217c88d1`
-  (macOS strict relay, 2026-10-29, O2b).
+- `bootstrap/current.ssa`: 263,187 lines; SHA-256
+  `a14aa55a4e3202c8abf0f87deb45ace17a1a8a7726a1dc51cf5f1247f555967d`
+  (macOS strict relay, 2026-11-02, O2b-2).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

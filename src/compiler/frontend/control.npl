@@ -507,18 +507,31 @@
                 (control-symbol test-name)
                 expression continuation)))))))
 
+; A simple non-final expression (a primitive application, literal, or
+; lambda) cannot capture a continuation, so it is evaluated in place, as an
+; operand is, and the sequence continues in the same function. A loop body
+; such as (begin (vector-set! ...) (loop ...)) then keeps the loop call in
+; the loop lambda (backend/bindings.npl self-loop-binding?).
 (define (control-cps-sequence expressions continuation)
   (if (null? expressions)
       (control-send continuation ())
       (if (null? (cdr expressions))
           (control-cps-expression (car expressions) continuation)
-          (let ((ignored (control-fresh-name "_npl_ignored_")))
-            (control-cps-expression
-              (car expressions)
-              (control-raw-continuation
-                ignored
-                (control-cps-sequence
-                  (cdr expressions) continuation)))))))
+          (if (control-simple? (car expressions))
+              (cons 216
+                (cons (control-transform-simple (car expressions))
+                  (cons
+                    (control-cps-sequence (cdr expressions) continuation)
+                    ())))
+              (control-cps-sequence-step expressions continuation)))))
+
+(define (control-cps-sequence-step expressions continuation)
+  (let ((ignored (control-fresh-name "_npl_ignored_")))
+    (control-cps-expression
+      (car expressions)
+      (control-raw-continuation
+        ignored
+        (control-cps-sequence (cdr expressions) continuation)))))
 
 (define (control-set-and-continue expression value continuation)
   (cons 216

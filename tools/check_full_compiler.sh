@@ -190,7 +190,7 @@ loops_back() {
         /^jmp / {target[$2] = 1}
         END {exit !(first != "" && (first in target))}'
 }
-for name in sum_2dto spin swap thunks; do
+for name in sum_2dto spin swap thunks fill emit_2dall; do
     loops_back "$name" || { echo "named loop not a jump: $name" >&2; exit 1; }
 done
 for name in reassigned via_2dlambda bad_2darity; do
