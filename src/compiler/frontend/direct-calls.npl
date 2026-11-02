@@ -1,0 +1,325 @@
+; Direct-call analysis (docs/design-calls.md, addendum C2a): which top-level
+; functions could get a direct entry that returns its value. Report only:
+; emission does not change. It runs on the lowered core forms, before
+; control conversion, when NPL_DIRECT_REPORT is set, and writes one line per
+; top-level function to the error port.
+;
+; A function is direct-safe when its parameters are fixed and its body uses
+; only literals, variables, if, let forms, begin, set!, lambda creation,
+; single-value primitives, public numeric aliases, and calls to direct-safe
+; functions with their arity, and it is in no cycle of tail calls with
+; another function. The set is the greatest fixed point.
+
+; Entry: #(name arity reason calls tails mark). arity -1: variadic. reason
+; #f: direct-safe so far, otherwise why not. calls and tails: callee
+; entries of non-tail and tail calls. mark: last tail-cycle search stamp.
+(define (direct-entry name arity) (vector name arity #f () () 0))
+(define (direct-name entry) (vector-ref entry 0))
+(define (direct-arity entry) (vector-ref entry 1))
+(define (direct-reason entry) (vector-ref entry 2))
+(define (direct-calls entry) (vector-ref entry 3))
+(define (direct-tails entry) (vector-ref entry 4))
+(define (direct-mark entry) (vector-ref entry 5))
+(define (direct-safe? entry) (not (direct-reason entry)))
+
+(define (direct-unsafe! entry reason)
+  (if (direct-reason entry) 0 (vector-set! entry 2 reason)))
+
+; (name . entry) for every top-level function of the program, in source
+; order.
+(define DIRECT-FUNCTIONS (cell ()))
+(define DIRECT-STAMP (cell 0))
+
+(define (direct-lookup name entries)
+  (if (null? entries)
+      #f
+      (if (string=? name (car (car entries)))
+          (cdr (car entries))
+          (direct-lookup name (cdr entries)))))
+
+(define (direct-length xs count)
+  (if (pair-shape? xs) (direct-length (cdr xs) (+ count 1)) count))
+
+(define (direct-prefix? prefix text)
+  (if (< (string-length text) (string-length prefix))
+      #f
+      (string=? prefix (substring text 0 (string-length prefix)))))
+
+(define (direct-tag-in? tag tags)
+  (if (null? tags)
+      #f
+      (if (= tag (car tags)) #t (direct-tag-in? tag (cdr tags)))))
+
+; ---------------- entries ----------------
+
+(define (direct-form-entry form)
+  (let ((name (control-function-name form))
+        (params (cdr (car (cdr form)))))
+    (cons name
+          (direct-entry name
+            (if (control-proper-formals? params)
+                (direct-length params 0)
+                -1)))))
+
+(define (direct-function-entries forms)
+  (if (null? forms)
+      ()
+      (if (control-function-form? (car forms))
+          (cons (direct-form-entry (car forms))
+                (direct-function-entries (cdr forms)))
+          (direct-function-entries (cdr forms)))))
+
+; ---------------- body walk ----------------
+
+(define (direct-walk-functions forms)
+  (if (null? forms)
+      0
+      (begin
+        (if (control-function-form? (car forms))
+            (direct-walk-function (car forms))
+            0)
+        (direct-walk-functions (cdr forms)))))
+
+(define (direct-walk-function form)
+  (let ((entry (direct-lookup (control-function-name form)
+                              (cell-get DIRECT-FUNCTIONS))))
+    (if (< (direct-arity entry) 0)
+        (direct-unsafe! entry "variadic")
+        (direct-walk (core-body-expression (car (cdr (cdr form)))) #t entry))))
+
+(define (direct-walk expression tail entry)
+  (if (pair-shape? expression)
+      (if (number? (car expression))
+          (direct-walk-form (car expression) expression tail entry)
+          (direct-walk-application expression tail entry))
+      0))
+
+(define (direct-walk-each expressions tail entry)
+  (if (pair-shape? expressions)
+      (begin
+        (direct-walk (car expressions) tail entry)
+        (direct-walk-each (cdr expressions) tail entry))
+      0))
+
+; Literals, variable references, and lambda creation (its body runs in its
+; own function).
+(define DIRECT-LEAF-TAGS '(100 101 102 103 104 108 109 110 204 212))
+(define DIRECT-BINDING-TAGS '(214 220 221 222))
+
+(define (direct-walk-form tag expression tail entry)
+  (cond
+    ((direct-tag-in? tag DIRECT-LEAF-TAGS) 0)
+    ((= tag 213) (direct-walk-if expression tail entry))
+    ((= tag 216) (direct-walk-sequence (cdr expression) tail entry))
+    ((= tag 217) (direct-walk (car (cdr (cdr expression))) #f entry))
+    ((direct-tag-in? tag DIRECT-BINDING-TAGS)
+     (direct-walk-binding expression tail entry))
+    (else (direct-unsafe! entry "form"))))
+
+(define (direct-walk-if expression tail entry)
+  (direct-walk (car (cdr expression)) #f entry)
+  (direct-walk-each (cdr (cdr expression)) tail entry))
+
+(define (direct-walk-sequence expressions tail entry)
+  (if (null? expressions)
+      0
+      (if (null? (cdr expressions))
+          (direct-walk (car expressions) tail entry)
+          (begin
+            (direct-walk (car expressions) #f entry)
+            (direct-walk-sequence (cdr expressions) tail entry)))))
+
+; (tag ((name . init) ...) body): inits in value position, body in place.
+(define (direct-walk-binding expression tail entry)
+  (direct-walk-inits (car (cdr expression)) entry)
+  (direct-walk (core-body-expression (car (cdr (cdr expression)))) tail entry))
+
+(define (direct-walk-inits bindings entry)
+  (if (pair-shape? bindings)
+      (begin
+        (if (pair-shape? (car bindings))
+            (direct-walk (cdr (car bindings)) #f entry)
+            0)
+        (direct-walk-inits (cdr bindings) entry))
+      0))
+
+(define (direct-walk-application expression tail entry)
+  (direct-walk-each (cdr expression) #f entry)
+  (direct-walk-head (car expression) (direct-length (cdr expression) 0)
+                    tail entry))
+
+; A named let expands to ((letrec ((name lambda)) name) init ...): its loop
+; is a local procedure, reported separately because C2b could treat it as
+; part of the function (O2b loop) rather than as an unknown call.
+(define (direct-named-let-head? head)
+  (if (pair-shape? head)
+      (if (number? (car head)) (= (car head) 221) #f)
+      #f))
+
+(define (direct-walk-head head argc tail entry)
+  (cond
+    ((sym-atom? head) (direct-classify-call (cdr head) argc tail entry))
+    ((direct-named-let-head? head) (direct-unsafe! entry "named-let"))
+    (else (direct-unsafe! entry "computed-call"))))
+
+; Control-transfer operators and apply take continuations. A primitive runs
+; no NPL code; one with a values result sends it to a continuation. A
+; lexical binding (renamed _npl_h_ by expansion) or a global variable holds
+; an unknown procedure.
+(define (direct-classify-call name argc tail entry)
+  (cond
+    ((control-transfer-name? name) (direct-unsafe! entry "control"))
+    ((string=? name "apply") (direct-unsafe! entry "control"))
+    ((primitive-row name) (direct-primitive-call (primitive-row name) entry))
+    ((> (string-length (numeric-alias-primitive-name name)) 0) 0)
+    (else
+     (direct-function-call
+       name (direct-lookup name (cell-get DIRECT-FUNCTIONS)) argc tail
+       entry))))
+
+(define (direct-primitive-call row entry)
+  (if (control-single-value-row? row)
+      0
+      (direct-unsafe! entry "values-primitive")))
+
+(define (direct-function-call name callee argc tail entry)
+  (if callee
+      (direct-record-call callee argc tail entry)
+      (direct-unsafe! entry
+        (if (direct-prefix? "_npl_h_" name) "local-call" "global-call"))))
+
+; A variadic callee is recorded and removes the caller in the fixed point.
+(define (direct-record-call callee argc tail entry)
+  (cond
+    ((if (< (direct-arity callee) 0) #f (not (= argc (direct-arity callee))))
+     (direct-unsafe! entry "arity"))
+    (tail (vector-set! entry 4 (cons callee (direct-tails entry))))
+    (else (vector-set! entry 3 (cons callee (direct-calls entry))))))
+
+; ---------------- fixed point ----------------
+
+(define (direct-first-unsafe callees)
+  (if (null? callees)
+      #f
+      (if (direct-safe? (car callees))
+          (direct-first-unsafe (cdr callees))
+          (car callees))))
+
+(define (direct-unsafe-callee entry)
+  (let ((callee (direct-first-unsafe (direct-calls entry))))
+    (if callee callee (direct-first-unsafe (direct-tails entry)))))
+
+(define (direct-callee-reason callee)
+  (if (direct-prefix? "_npl_lib_" (direct-name callee))
+      "library-call"
+      "calls-unsafe"))
+
+(define (direct-prune-with entry callee changed)
+  (if callee
+      (begin (vector-set! entry 2 (direct-callee-reason callee)) #t)
+      changed))
+
+(define (direct-prune-entry entry changed)
+  (if (direct-safe? entry)
+      (direct-prune-with entry (direct-unsafe-callee entry) changed)
+      changed))
+
+(define (direct-prune-pass entries changed)
+  (if (null? entries)
+      changed
+      (direct-prune-pass (cdr entries)
+                         (direct-prune-entry (cdr (car entries)) changed))))
+
+(define (direct-prune entries)
+  (if (direct-prune-pass entries #f) (direct-prune entries) 0))
+
+; A direct tail call to another function is a C call followed by ret, so a
+; cycle of tail calls through another function would grow the C stack
+; without bound. A self tail call is a jump (backend/tail.npl).
+(define (direct-reach-one? target node stamp)
+  (cond
+    ((eq? node target) #t)
+    ((not (direct-safe? node)) #f)
+    ((= (direct-mark node) stamp) #f)
+    (else
+     (begin
+       (vector-set! node 5 stamp)
+       (direct-reach-any? target (direct-tails node) stamp)))))
+
+(define (direct-reach-any? target callees stamp)
+  (if (null? callees)
+      #f
+      (if (direct-reach-one? target (car callees) stamp)
+          #t
+          (direct-reach-any? target (cdr callees) stamp))))
+
+; The target's own tail calls, except self calls, lead back to it.
+(define (direct-reaches-others? target callees stamp)
+  (if (null? callees)
+      #f
+      (if (eq? (car callees) target)
+          (direct-reaches-others? target (cdr callees) stamp)
+          (if (direct-reach-one? target (car callees) stamp)
+              #t
+              (direct-reaches-others? target (cdr callees) stamp)))))
+
+(define (direct-next-stamp)
+  (cell-set! DIRECT-STAMP (+ 1 (cell-get DIRECT-STAMP)))
+  (cell-get DIRECT-STAMP))
+
+(define (direct-cycle-entry entry changed)
+  (if (direct-safe? entry)
+      (if (direct-reaches-others? entry (direct-tails entry)
+                                  (direct-next-stamp))
+          (begin (vector-set! entry 2 "tail-cycle") #t)
+          changed)
+      changed))
+
+(define (direct-cycle-pass entries changed)
+  (if (null? entries)
+      changed
+      (direct-cycle-pass (cdr entries)
+                         (direct-cycle-entry (cdr (car entries)) changed))))
+
+(define (direct-settle entries)
+  (direct-prune entries)
+  (if (direct-cycle-pass entries #f) (direct-settle entries) 0))
+
+; ---------------- report ----------------
+
+(define (direct-count-safe entries count)
+  (if (null? entries)
+      count
+      (direct-count-safe (cdr entries)
+        (if (direct-safe? (cdr (car entries))) (+ count 1) count))))
+
+(define (direct-report-entry entry port)
+  (display "direct-calls: " port)
+  (display (if (direct-safe? entry) "safe" (direct-reason entry)) port)
+  (display " " port)
+  (display (direct-name entry) port)
+  (newline port))
+
+(define (direct-report-entries entries port)
+  (if (null? entries)
+      0
+      (begin
+        (direct-report-entry (cdr (car entries)) port)
+        (direct-report-entries (cdr entries) port))))
+
+(define (direct-report entries port)
+  (direct-report-entries entries port)
+  (display "direct-calls: total " port)
+  (display (direct-length entries 0) port)
+  (display " safe " port)
+  (display (direct-count-safe entries 0) port)
+  (newline port))
+
+(define (direct-calls-report forms)
+  (if (get-environment-variable "NPL_DIRECT_REPORT")
+      (begin
+        (cell-set! DIRECT-FUNCTIONS (direct-function-entries forms))
+        (direct-walk-functions forms)
+        (direct-settle (cell-get DIRECT-FUNCTIONS))
+        (direct-report (cell-get DIRECT-FUNCTIONS) (current-error-port)))
+      0))

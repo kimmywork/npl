@@ -20,6 +20,7 @@
   "backend/primitives.npl"
   "frontend/control.npl"
   "frontend/control-program.npl"
+  "frontend/direct-calls.npl"
   "backend/state.npl"
   "backend/data.npl"
   "backend/numeric.npl"

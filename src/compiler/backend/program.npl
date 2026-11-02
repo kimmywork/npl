@@ -248,13 +248,14 @@
           (expand-includes (parse-source-file path)
                            (path-dir path)
                            (cons path ()))))
-    (let ((forms
-            (control-program
-              (lower-program
-                (expand-source-program raw-forms (path-dir path))))))
-      (pass-register-functions forms)
-      (emit-all-forms forms)
-      (dump-and-print))))
+    (let ((lowered
+            (lower-program
+              (expand-source-program raw-forms (path-dir path)))))
+      (direct-calls-report lowered)
+      (let ((forms (control-program lowered)))
+        (pass-register-functions forms)
+        (emit-all-forms forms)
+        (dump-and-print)))))
 
 (define (emit-all-forms forms)
   (if (null? forms)

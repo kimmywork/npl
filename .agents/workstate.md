@@ -152,15 +152,18 @@ after measurement (seed +33%, no gain; worklog 2026-10-29). O2b done
 once are jumps; no bench change, because a `begin` in a loop body still
 became a continuation closure. O2b-2 done (worklog 2026-11-02): simple
 non-final sequence expressions stay in place; vectors 2.83 -> 0.50 s,
-strings 4.01 -> 3.51 s. C2 design addendum drafted in
-[design-calls](../docs/design-calls.md) (2026-11-02), awaiting user review
-and decisions E1-E3; no C2 code before acceptance.
+strings 4.01 -> 3.51 s. C2 addendum in
+[design-calls](../docs/design-calls.md) accepted 2026-11-02 (E1-E3 as
+recommended). C2a done (worklog 2026-11-02): `NPL_DIRECT_REPORT` analysis,
+no SSA change; fib/tak/loop safe; compiler 545/898 safe, C2b seed growth
+estimate +6.2%. Next: user go/no-go on C2b (direct entries and call
+sites); no C2b code before it.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 263,187 lines; SHA-256
-  `a14aa55a4e3202c8abf0f87deb45ace17a1a8a7726a1dc51cf5f1247f555967d`
-  (macOS strict relay, 2026-11-02, O2b-2).
+- `bootstrap/current.ssa`: 268,092 lines; SHA-256
+  `76ad21fb14a28c9181cc78d087b2a61907af558555c05a8694ba408103bb9d67`
+  (macOS strict relay, 2026-11-02, C2a).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

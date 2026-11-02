@@ -199,6 +199,16 @@ for name in reassigned via_2dlambda bad_2darity; do
         exit 1
     fi
 done
+# Direct-call report (frontend/direct-calls.npl, C2a): the verdict for each
+# program function, and the report must not change the emitted SSA.
+DIRECT="$TESTS/direct-calls"
+NPL_DIRECT_REPORT=1 "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
+    "$DIRECT/probe.npl" > "$WORK/direct-report.ssa" \
+    2> "$WORK/direct-report.txt"
+grep -v '_npl_lib_\|total' "$WORK/direct-report.txt" |
+    cmp - "$DIRECT/expected.txt"
+emit "$WORK/compiler" "$DIRECT/probe.npl" "$WORK/direct-plain.ssa"
+cmp "$WORK/direct-report.ssa" "$WORK/direct-plain.ssa"
 # Lambdas are flat closures: one npl_make_flat_closure per creation and
 # inline capture loads, no separate environment object (design-calls C1b).
 CAPTURES="$ROOT/tests/r7rs/fixtures/closure-captures"

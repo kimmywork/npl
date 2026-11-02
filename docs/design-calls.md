@@ -272,9 +272,10 @@ primitive-table rows.
   later as a private `(npl raw)` library (recommended), or compiler-only
   intrinsics.
 
-## Addendum: C2 Direct Calls (draft for review, 2026-11-02)
+## Addendum: C2 Direct Calls (accepted 2026-11-02)
 
-No C2 code before the user accepts this addendum and its decisions E1-E3.
+Accepted by the user 2026-11-02 with the recommended E1-E3: C2a (analysis
+and numbers, no SSA change) first, then a go/no-go before code generation.
 
 ### State after C1 and O2
 
