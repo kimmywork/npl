@@ -251,7 +251,9 @@ in the worklog.
    runtime rewrite (D4).
 5. **C2 decision.** Decided 2026-10-29: first O2b (named-let and
    `letrec` loops as jumps, the remaining tail-call cost in vectors,
-   lists, and strings), then a C2 design addendum for review.
+   lists, and strings), then a C2 design addendum for review. O2b and
+   O2b-2 done (vectors 2.83 -> 0.50 s). Addendum below, draft for review
+   2026-11-02.
 
 ## Decisions
 
@@ -269,3 +271,133 @@ primitive-table rows.
 - **D4** Raw operations: primitive-table rows with an inline kind, exposed
   later as a private `(npl raw)` library (recommended), or compiler-only
   intrinsics.
+
+## Addendum: C2 Direct Calls (draft for review, 2026-11-02)
+
+No C2 code before the user accepts this addendum and its decisions E1-E3.
+
+### State after C1 and O2
+
+Interleaved A/B, CPU seconds, startup amortized, `b0ceb56`. Guile from the
+P7 run (2026-10-27, a different host load, so ratios are approximate):
+
+| workload | native | Guile | ratio |
+|---|---:|---:|---:|
+| loop | 0.34 | 0.79 | 0.4x |
+| fib | 1.26 | 0.40 | 3.2x |
+| tak | 0.99 | 0.27 | 3.7x |
+| vectors | 0.50 | 0.22 | 2.3x |
+| strings | 3.51 | 1.02 | 3.4x |
+| lists | 4.95 | 2.04 | 2.4x |
+| closures | 2.04 | 1.67 | 1.2x |
+| callcc | 2.84 | 7.13 | 0.4x |
+
+fib and tak are now bound by the non-tail call itself. Per fib node: two
+continuation closures (one per non-tail call), about 7 runtime calls
+(`npl_make_flat_closure` x2, `npl_expect_one` x2, one `npl_tail_request`,
+two `npl_tail_request_closure`), and about 3 trampoline round trips.
+
+### Design
+
+**Direct-safe functions.** A top-level function is direct-safe when it
+has fixed parameters, its name is not assigned (top-level function names
+cannot be today: `set!: unbound`), and its body, after expansion and before
+control conversion, contains only:
+
+- literals, variable references, `if`, `let`, `let*`, `begin`, `lambda`
+  (creating a closure is safe; calling an unknown one is not);
+- applications of registered intrinsics that never run NPL code, which
+  excludes `apply` and every row reaching `npl_force`, `npl_values_dispatch`,
+  `npl_parameter_dispatch`, `npl_raise`, or `npl_wind_transfer`
+  (`runtime/control.c`); declared C primitives with a `values` result;
+- calls to public numeric aliases (their slow path already runs through
+  `npl_call_sync`, which forwards a raise);
+- calls to direct-safe functions with matching arity.
+
+Not allowed (v1): calls to closures, globals holding procedures, library
+procedures other than numeric aliases (this excludes `error`, `raise`, and
+the library `exit`, which runs `dynamic-wind` after thunks), `call/cc`,
+`dynamic-wind`, `with-exception-handler`, `parameterize`, `guard`,
+`set!` of a captured variable inside a nested lambda the function calls,
+and a tail call to another function in the same strongly connected
+component of tail calls (mutual tail recursion must stay in constant C
+stack; a self tail call is the O2 jump). The set is the greatest fixed
+point: start with every candidate, remove violators, repeat.
+
+The analysis runs in the frontend (`src/compiler/frontend/control.npl`
+area), because control conversion is where it changes the output.
+
+**Direct entry.** Each direct-safe function also gets
+`function l $_npl_dfn_<name>(l a0, l a1, ...)`, which returns the value.
+Its body is emitted in value position: a non-tail call to a direct-safe
+function is a C call, a tail self call is the O2 jump, a tail call to
+another direct-safe function is a C call followed by `ret` (bounded by the
+SCC rule). The CPS entry `$_npl_fn_<name>` is kept for closures, `apply`,
+npli, and the stack fallback below.
+
+**Call sites.** `control-simple?` accepts an application whose head is a
+direct-safe function with simple operands, so control conversion no longer
+splits there: `(+ (fib (- n 1)) (fib (- n 2)))` stays one expression, and
+the backend emits `call $_npl_dfn_fib`. This applies in CPS code too, so a
+CPS caller of fib makes no continuation for the call.
+
+**Deep recursion (constraint 3).** The direct entry compares the address
+of a stack slot with `npl_stack_limit`; below it, the call runs the CPS
+entry through `npl_call_sync` (a nested trampoline whose continuations are
+on the heap), so `(len (build 1000000 '()))` still works. The runtime sets
+the limit at init from `getrlimit(RLIMIT_STACK)` with a margin for C
+primitives that recurse on the C stack (`write`, `equal?`, bignum
+printing); 8 MiB today. This compare is the one place a later safepoint
+poll and the thread-local limit (D3) go.
+
+**Errors.** A primitive error longjmps to the innermost trampoline and
+discards direct frames, which is correct for a non-continuable raise. A
+numeric alias slow path raises through `npl_call_sync`, as today.
+
+**GC.** Direct frames hold values in registers and the C stack. The
+conservative scan covers them since C0 (the scan reaches the outermost
+bottom). No new heap objects; fixnum-only direct code allocates nothing.
+
+**npli.** Unchanged: npli does not use control conversion, and evaluated
+procedures call compiled library procedures through closures (CPS entry).
+Direct entries are an internal compiler optimization.
+
+### Expected effect
+
+fib and tak lose both continuation closures and every trampoline round
+trip per node; each node becomes one C call. Estimate (to be measured):
+2-4x on fib and tak. lists, strings, closures, callcc are mostly unaffected
+(their hot calls go through closures, `map`, ports, or `call/cc`). Seed:
+grows by the direct bodies of eligible compiler functions; measured in C2a
+before any code generation change.
+
+### Increments
+
+6. **C2a analysis and numbers.** Frontend computes the direct-safe set; an
+   internal flag prints it. No SSA change. Acceptance: a test listing the
+   set for fib, tak, `len`, mutual tail recursion (excluded), call/cc,
+   closures, `apply`, `error`, `dynamic-wind`, `parameterize` (excluded),
+   a numeric alias user (included); the count of eligible functions in the
+   compiler and the 9 workloads, with an estimate of seed growth. Then a
+   go/no-go with the user.
+7. **C2b direct entries and call sites.** Acceptance: shared fixture
+   (native, npli, Guile) with 1,000,000-deep non-tail recursion through a
+   direct function, a primitive error inside a direct call caught by a
+   `guard` in the caller, bignum slow paths, `call/cc` escaping around a
+   direct call, a closure created in a direct function and called later,
+   small-nursery GC inside direct recursion; SSA check that fib calls
+   `$_npl_dfn_fib`; two-step seed transition and relay; macOS and Linux
+   gates; `NPL_GC_VERIFY=100` suite; chibi unchanged; A/B on all workloads.
+8. **C2c (optional) `error` and `raise` in direct functions** through the
+   primitive-error unwinding path, if C2b shows many hot functions are
+   excluded only by error checks.
+
+### Decisions (for the user)
+
+- **E1** Scope v1: exclude functions that call `error`/`raise`
+  (recommended; C2c later if numbers justify it), or include them now.
+- **E2** Stack limit: from `getrlimit` at init with a margin (recommended),
+  or a fixed constant.
+- **E3** Order: C2a analysis and numbers first, then a go/no-go before any
+  code generation change (recommended), or C2a and C2b together.
+

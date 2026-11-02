@@ -152,9 +152,9 @@ after measurement (seed +33%, no gain; worklog 2026-10-29). O2b done
 once are jumps; no bench change, because a `begin` in a loop body still
 became a continuation closure. O2b-2 done (worklog 2026-11-02): simple
 non-final sequence expressions stay in place; vectors 2.83 -> 0.50 s,
-strings 4.01 -> 3.51 s. Next: C2 design addendum (direct calls to known
-functions) in docs/design-calls.md for user review; no C2 code before
-acceptance.
+strings 4.01 -> 3.51 s. C2 design addendum drafted in
+[design-calls](../docs/design-calls.md) (2026-11-02), awaiting user review
+and decisions E1-E3; no C2 code before acceptance.
 
 ## Accepted Seed
 
