@@ -1,6 +1,14 @@
 ; Tail-position analysis and trampoline request emission.
 
+; In a direct entry only a self jump leaves value position.
 (define (tail-call-application? e env)
+  (if (cell-get DIRECT-ENTRY)
+      (if (pair-shape? (car e))
+          (self-tail-call? (car e) (count-up (cdr e) 0) env)
+          #f)
+      (generic-tail-call-application? e env)))
+
+(define (generic-tail-call-application? e env)
   (if (not (pair-shape? (car e)))
       #f
       (let ((head (car e)))

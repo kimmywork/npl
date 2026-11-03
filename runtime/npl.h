@@ -505,6 +505,10 @@ void npl_tail_request(NplGenericFunction function, NplVal environment,
  * continuation, which the call supplies (trampoline.c). */
 NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
                      int64_t argc, NplVal *argv);
+/* Direct entries of compiled functions fall back to npl_call_sync below
+ * this stack address (stack.c). */
+extern uintptr_t npl_stack_limit;
+void npl_stack_init_internal(uintptr_t base);
 
 /* Garbage collection */
 void npl_gc_collect(void);

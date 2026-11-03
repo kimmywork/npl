@@ -418,6 +418,7 @@ void npl_runtime_init(void)
     if (g_runtime_initialized) return;
     g_runtime_initialized = 1;
     g_stack_bottom = (uintptr_t)(void *)&marker + sizeof(marker);
+    npl_stack_init_internal(g_stack_bottom);
     /* NPL_GC_THRESHOLD_BYTES: minimum heap size for a full collection;
      * NPL_GC_NURSERY_BYTES: young bytes per minor collection, 0 = none. */
     g_min_threshold = env_bytes("NPL_GC_THRESHOLD_BYTES",

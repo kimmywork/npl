@@ -209,6 +209,30 @@ grep -v '_npl_lib_\|total' "$WORK/direct-report.txt" |
     cmp - "$DIRECT/expected.txt"
 emit "$WORK/compiler" "$DIRECT/probe.npl" "$WORK/direct-plain.ssa"
 cmp "$WORK/direct-report.ssa" "$WORK/direct-plain.ssa"
+# Direct entries (design-calls C2b): a direct-safe function has a direct
+# entry that calls itself directly and checks the stack limit; its CPS entry
+# (the fallback) makes no direct call. Deep recursion and a collection at a
+# small nursery inside it still work.
+DCALLS="$ROOT/tests/r7rs/fixtures/direct-calls"
+emit "$WORK/compiler" "$DCALLS/native.npl" "$WORK/direct-calls.ssa"
+direct_function() {
+    awk -v f="function l \$$1(" \
+        'index($0, f) == 1 {p=1} p {print} p && /^}/ {exit}' \
+        "$WORK/direct-calls.ssa"
+}
+direct_function _npl_dfn_fib | grep -qF 'call $_npl_dfn_fib(l '
+direct_function _npl_dfn_fib | grep -qF 'loadl $npl_stack_limit'
+if direct_function _npl_fn_fib | grep -qF '$_npl_dfn_'; then
+    echo "CPS entry of fib calls a direct entry" >&2
+    exit 1
+fi
+if direct_function _npl_dfn_my_2deven_3f | grep -q .; then
+    echo "mutual tail recursion got a direct entry" >&2
+    exit 1
+fi
+build_ssa "$WORK/direct-calls.ssa" "$WORK/direct-calls"
+NPL_GC_NURSERY_BYTES=65536 "$WORK/direct-calls" > "$WORK/direct-calls.out"
+cmp "$DCALLS/expected.out" "$WORK/direct-calls.out"
 # Lambdas are flat closures: one npl_make_flat_closure per creation and
 # inline capture loads, no separate environment object (design-calls C1b).
 CAPTURES="$ROOT/tests/r7rs/fixtures/closure-captures"

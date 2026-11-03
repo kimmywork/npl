@@ -156,14 +156,17 @@ strings 4.01 -> 3.51 s. C2 addendum in
 [design-calls](../docs/design-calls.md) accepted 2026-11-02 (E1-E3 as
 recommended). C2a done (worklog 2026-11-02): `NPL_DIRECT_REPORT` analysis,
 no SSA change; fib/tak/loop safe; compiler 545/898 safe, C2b seed growth
-estimate +6.2%. Next: user go/no-go on C2b (direct entries and call
-sites); no C2b code before it.
+estimate +6.2%. C2b done (worklog 2026-11-03): direct entries
+`$_npl_dfn_<name>` with a stack-limit fallback (`runtime/stack.c`, at most
+256 KiB of direct frames); fib 1.23 -> 0.12 s, tak 0.97 -> 0.11 (both now
+below Guile), fact +10% and loop +6% (follow-ups), seed -8.6%. Next: user
+decision on C2c (`error`/`raise` in direct functions) or other work.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 268,092 lines; SHA-256
-  `76ad21fb14a28c9181cc78d087b2a61907af558555c05a8694ba408103bb9d67`
-  (macOS strict relay, 2026-11-02, C2a).
+- `bootstrap/current.ssa`: 245,094 lines; SHA-256
+  `060bc375a0c6966052cc5d61f562bef2e85863b144288c30d6024f5138b23829`
+  (macOS strict relay, 2026-11-03, C2b).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

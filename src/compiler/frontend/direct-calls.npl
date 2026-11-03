@@ -1,25 +1,28 @@
-; Direct-call analysis (docs/design-calls.md, addendum C2a): which top-level
-; functions could get a direct entry that returns its value. Report only:
-; emission does not change. It runs on the lowered core forms, before
-; control conversion, when NPL_DIRECT_REPORT is set, and writes one line per
+; Direct calls (docs/design-calls.md, addendum C2): which top-level functions
+; get a direct entry that returns its value, and the frontend side of using
+; it. The analysis runs on the lowered core forms, before control
+; conversion; with NPL_DIRECT_REPORT set it also writes one line per
 ; top-level function to the error port.
 ;
 ; A function is direct-safe when its parameters are fixed and its body uses
 ; only literals, variables, if, let forms, begin, set!, lambda creation,
 ; single-value primitives, public numeric aliases, and calls to direct-safe
 ; functions with their arity, and it is in no cycle of tail calls with
-; another function. The set is the greatest fixed point.
+; another function; a self tail call is a jump unless a parameter is
+; assigned. The set is the greatest fixed point.
 
-; Entry: #(name arity reason calls tails mark). arity -1: variadic. reason
-; #f: direct-safe so far, otherwise why not. calls and tails: callee
+; Entry: #(name arity reason calls tails mark assigned). arity -1: variadic.
+; reason #f: direct-safe so far, otherwise why not. calls and tails: callee
 ; entries of non-tail and tail calls. mark: last tail-cycle search stamp.
-(define (direct-entry name arity) (vector name arity #f () () 0))
+; assigned: a parameter is a set! target, so a self tail call is no jump.
+(define (direct-entry name arity) (vector name arity #f () () 0 #f))
 (define (direct-name entry) (vector-ref entry 0))
 (define (direct-arity entry) (vector-ref entry 1))
 (define (direct-reason entry) (vector-ref entry 2))
 (define (direct-calls entry) (vector-ref entry 3))
 (define (direct-tails entry) (vector-ref entry 4))
 (define (direct-mark entry) (vector-ref entry 5))
+(define (direct-assigned? entry) (vector-ref entry 6))
 (define (direct-safe? entry) (not (direct-reason entry)))
 
 (define (direct-unsafe! entry reason)
@@ -29,6 +32,10 @@
 ; order.
 (define DIRECT-FUNCTIONS (cell ()))
 (define DIRECT-STAMP (cell 0))
+; The same pairs in DIRECT-BUCKET-COUNT buckets (direct-find); #f before
+; the analysis has run, so no call is direct.
+(define DIRECT-TABLE (cell #f))
+(define DIRECT-BUCKET-COUNT 509)
 
 (define (direct-lookup name entries)
   (if (null? entries)
@@ -36,6 +43,35 @@
       (if (string=? name (car (car entries)))
           (cdr (car entries))
           (direct-lookup name (cdr entries)))))
+
+; Length and three bytes: one remainder per lookup. control-simple? asks
+; for every application head.
+(define (direct-hash name)
+  (let ((length (string-length name)))
+    (if (= length 0)
+        0
+        (npl_number_remainder
+          (+ (* length 7)
+             (+ (string-byte-ref name 0)
+                (+ (* 3 (string-byte-ref name (- length 1)))
+                   (string-byte-ref name (quotient-by-two length)))))
+          DIRECT-BUCKET-COUNT))))
+
+(define (quotient-by-two n) (npl_number_quotient n 2))
+
+(define (direct-empty-buckets count acc)
+  (if (= count 0) acc (direct-empty-buckets (- count 1) (cons () acc))))
+
+(define (direct-fill-table! table entries)
+  (if (null? entries)
+      table
+      (let ((index (direct-hash (car (car entries)))))
+        (vector-set! table index (cons (car entries) (vector-ref table index)))
+        (direct-fill-table! table (cdr entries)))))
+
+(define (direct-find name)
+  (let ((table (cell-get DIRECT-TABLE)))
+    (if table (direct-lookup name (vector-ref table (direct-hash name))) #f)))
 
 (define (direct-length xs count)
   (if (pair-shape? xs) (direct-length (cdr xs) (+ count 1)) count))
@@ -80,12 +116,23 @@
             0)
         (direct-walk-functions (cdr forms)))))
 
+(define (direct-params-assigned? params names)
+  (if (pair-shape? params)
+      (if (assigned-name? (cdr (car params)) names)
+          #t
+          (direct-params-assigned? (cdr params) names))
+      #f))
+
 (define (direct-walk-function form)
-  (let ((entry (direct-lookup (control-function-name form)
-                              (cell-get DIRECT-FUNCTIONS))))
+  (let ((entry (direct-find (control-function-name form))))
     (if (< (direct-arity entry) 0)
         (direct-unsafe! entry "variadic")
-        (direct-walk (core-body-expression (car (cdr (cdr form)))) #t entry))))
+        (begin
+          (vector-set! entry 6
+            (direct-params-assigned? (cdr (car (cdr form)))
+                                     (collect-assigned form ())))
+          (direct-walk (core-body-expression (car (cdr (cdr form)))) #t
+                       entry)))))
 
 (define (direct-walk expression tail entry)
   (if (pair-shape? expression)
@@ -173,9 +220,7 @@
     ((primitive-row name) (direct-primitive-call (primitive-row name) entry))
     ((> (string-length (numeric-alias-primitive-name name)) 0) 0)
     (else
-     (direct-function-call
-       name (direct-lookup name (cell-get DIRECT-FUNCTIONS)) argc tail
-       entry))))
+     (direct-function-call name (direct-find name) argc tail entry))))
 
 (define (direct-primitive-call row entry)
   (if (control-single-value-row? row)
@@ -193,6 +238,8 @@
   (cond
     ((if (< (direct-arity callee) 0) #f (not (= argc (direct-arity callee))))
      (direct-unsafe! entry "arity"))
+    ((if tail (if (eq? callee entry) (direct-assigned? entry) #f) #f)
+     (direct-unsafe! entry "tail-cycle"))
     (tail (vector-set! entry 4 (cons callee (direct-tails entry))))
     (else (vector-set! entry 3 (cons callee (direct-calls entry))))))
 
@@ -315,11 +362,125 @@
   (display (direct-count-safe entries 0) port)
   (newline port))
 
-(define (direct-calls-report forms)
+; Analyze a program's lowered forms; emit-program runs it before control
+; conversion.
+(define (direct-calls-analyze! forms)
+  (cell-set! DIRECT-FUNCTIONS (direct-function-entries forms))
+  (cell-set! DIRECT-TABLE
+    (direct-fill-table!
+      (list->vector (direct-empty-buckets DIRECT-BUCKET-COUNT ()))
+      (cell-get DIRECT-FUNCTIONS)))
+  (direct-walk-functions forms)
+  (direct-settle (cell-get DIRECT-FUNCTIONS))
   (if (get-environment-variable "NPL_DIRECT_REPORT")
-      (begin
-        (cell-set! DIRECT-FUNCTIONS (direct-function-entries forms))
-        (direct-walk-functions forms)
-        (direct-settle (cell-get DIRECT-FUNCTIONS))
-        (direct-report (cell-get DIRECT-FUNCTIONS) (current-error-port)))
+      (direct-report (cell-get DIRECT-FUNCTIONS) (current-error-port))
       0))
+
+; ---------------- using direct entries ----------------
+
+; The direct entry of name for a call with argc operands, or #f. A public
+; numeric alias keeps its inline fast path (backend/numeric.npl).
+(define (direct-target name argc)
+  (let ((entry (direct-find name)))
+    (if (if entry (direct-safe? entry) #f)
+        (if (= argc (direct-arity entry))
+            (= (string-length (numeric-alias-primitive-name name)) 0)
+            #f)
+        #f)))
+
+(define (direct-safe-name? name)
+  (let ((entry (direct-find name)))
+    (if entry (direct-safe? entry) #f)))
+
+; Control conversion treats a call to a direct entry as it treats a
+; primitive (control-simple?, control-cps-application), except while it
+; converts the CPS entry of a direct-safe function: that entry is the
+; stack-limit fallback, so it must stay entirely in CPS.
+(define CONTROL-DIRECT-CALLS (cell #t))
+
+; A call that runs to completion and returns one value: a single-value
+; primitive or a direct call (control.npl control-simple?).
+(define (control-synchronous-call? expression)
+  (if (control-single-value-primitive-head? (car expression))
+      #t
+      (control-direct-call? expression)))
+
+; control-cps-application sends the value of these to its continuation.
+(define (control-primitive-or-direct? application)
+  (if (control-primitive-head? (car application))
+      #t
+      (control-direct-call? application)))
+
+(define (control-direct-call? expression)
+  (if (cell-get CONTROL-DIRECT-CALLS)
+      (if (sym-atom? (car expression))
+          (if (direct-target (cdr (car expression))
+                             (direct-length (cdr expression) 0))
+              #t
+              #f)
+          #f)
+      #f))
+
+; The direct entry's body: the lowered body with every lambda converted to
+; CPS (it is a closure called through the trampoline); every other form
+; stays in direct style for the backend (program.npl emit-direct-function).
+(define (control-direct-expression expression)
+  (cond
+    ((not (pair-shape? expression)) expression)
+    ((not (number? (car expression))) (control-direct-list expression))
+    ((= (car expression) 100) (control-transform-symbol expression))
+    ((= (car expression) 212) (control-transform-lambda expression))
+    ((direct-tag-in? (car expression) '(213 216))
+     (cons (car expression) (control-direct-list (cdr expression))))
+    ((= (car expression) 217)
+     (cons 217
+       (cons (car (cdr expression))
+         (cons (control-direct-expression (car (cdr (cdr expression)))) ()))))
+    ((direct-tag-in? (car expression) DIRECT-BINDING-TAGS)
+     (control-direct-binding-form expression))
+    (else expression)))
+
+(define (control-direct-list expressions)
+  (if (pair-shape? expressions)
+      (cons (control-direct-expression (car expressions))
+            (control-direct-list (cdr expressions)))
+      expressions))
+
+(define (control-direct-body body)
+  (cons (control-direct-expression (core-body-expression body)) ()))
+
+(define (control-direct-bindings bindings)
+  (if (pair-shape? bindings)
+      (cons (cons (car (car bindings))
+                  (control-direct-expression (cdr (car bindings))))
+            (control-direct-bindings (cdr bindings)))
+      bindings))
+
+(define (control-direct-binding-form expression)
+  (cons (car expression)
+    (cons (control-direct-bindings (car (cdr expression)))
+      (cons (control-direct-body (car (cdr (cdr expression)))) ()))))
+
+; (218 signature body): the direct entry of a direct-safe function, with
+; the signature of its definition (no continuation parameter).
+(define (control-direct-function form)
+  (cons 218
+    (cons (car (cdr form))
+      (cons (control-direct-body (car (cdr (cdr form)))) ()))))
+
+; The converted definitions of a top-level function (control-program.npl):
+; its CPS entry and, when it is direct-safe, its direct entry. The CPS entry
+; of a direct-safe function is the stack-limit fallback of the direct one
+; (backend/program.npl emit-direct-function), so it is converted without
+; direct calls: the fallback must not re-enter the C stack.
+(define (control-function-definitions form)
+  (let ((name (control-function-name form)))
+    (if (direct-safe-name? name)
+        (control-direct-definitions form name)
+        (cons (control-transform-function form name ()) ()))))
+
+(define (control-direct-definitions form name)
+  (cell-set! CONTROL-DIRECT-CALLS #f)
+  (let ((cps (control-transform-function form name ())))
+    (cell-set! CONTROL-DIRECT-CALLS #t)
+    (cons cps (cons (control-direct-function form) ()))))

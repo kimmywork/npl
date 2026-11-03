@@ -412,7 +412,9 @@
        (if (> (string-length (lookup-func nm)) 0)
            (if (> (string-length (numeric-alias-primitive-name nm)) 0)
                (emit-numeric-alias-call nm args env)
-               (user-call nm args env))
+               (if (direct-target nm (count-up args 0))
+                   (direct-call nm args env)
+                   (user-call nm args env)))
            (unknown-call nm)))
       ((string=? (primitive-row-kind row) "fixed")
        (checked-call (primitive-row-symbol row)
@@ -456,6 +458,12 @@
   (if (< arity 0)
       (>= count (- (- 0 arity) 1))
       (= count arity)))
+
+; A call of a direct-safe function's direct entry (program.npl
+; emit-direct-function); control conversion left it in value position.
+(define (direct-call nm args env)
+  (call-with-ops (direct-function-symbol nm)
+                 (eval-args-fixed args env (count-up args 0) ())))
 
 (define (user-call nm args env)
   (let ((argn (count-up args 0)))

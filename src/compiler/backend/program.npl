@@ -125,16 +125,27 @@
 ; already holds its prologue (header, capture and argument loads); the loop
 ; label goes after it, so captures and the closure are loaded once.
 (define (emit-self-loop-body name params entry body env)
+  (emit-hoisted-body name params entry body env () #f))
+
+; With name, the body may jump to itself (SELF-FUNCTION). guard: lines,
+; newest first, placed after the hoisted allocs and before the loop label
+; (a direct entry's stack check). hoist: move the allocs to @start even
+; without a self jump.
+(define (emit-hoisted-body name params entry body env guard hoist)
   (let ((prologue (current-buffer)) (label (cell #f)))
     (set-current-buffer! ())
-    (cell-set! SELF-FUNCTION
-      (cons name
-        (cons (count-up params 0)
-          (cons (param-ops params env) (cons label (cons entry ()))))))
+    (if name
+        (cell-set! SELF-FUNCTION
+          (cons name
+            (cons (count-up params 0)
+              (cons (param-ops params env)
+                (cons label (cons entry ()))))))
+        0)
     (emit-tail-body body env)
     (cell-set! SELF-FUNCTION #f)
     (set-current-buffer!
-      (self-loop-lines (current-buffer) (cell-get label) prologue))))
+      (self-loop-lines (current-buffer) (cell-get label) guard hoist
+                       prologue))))
 
 (define (untag-line line) (if (pair? line) (cdr line) line))
 
@@ -147,13 +158,81 @@
           (cons (untag-line (car lines)) (body-lines (cdr lines) allocs))
           (body-lines (cdr lines) allocs))))
 
-; With a self jump the allocs move to @start, which falls through to the
-; loop label; without one the body is kept as emitted.
-(define (self-loop-lines body label entry)
-  (if label
+; With a self jump (or hoist) the allocs move to @start, which falls through
+; the guard to the loop label; otherwise the body is kept as emitted.
+(define (self-loop-lines body label guard hoist entry)
+  (if (if label #t hoist)
       (append-list (body-lines body #f)
-        (cons label (append-list (body-lines body #t) entry)))
-      (append-list (map-cons untag-line body) entry)))
+        (append-list (if label (cons label guard) guard)
+          (append-list (body-lines body #t) entry)))
+      (append-list (map-cons untag-line body) (append-list guard entry))))
+
+; ---------------- direct entries ----------------
+;
+; The direct entry of a direct-safe function (frontend/direct-calls.npl,
+; form 218) takes its arguments as C parameters and returns its value. Its
+; body is in direct style: a tail call is a self jump or a value call
+; followed by ret (tail.npl tail-call-application?). Below npl_stack_limit
+; (runtime/stack.c) it runs the CPS entry through npl_call_sync instead,
+; whose continuations are on the heap, so deep recursion stays bounded on
+; the C stack.
+
+(define (direct-def? f)
+  (if (pair-shape? f) (= (car f) 218) #f))
+
+(define (direct-param-ops params index)
+  (if (null? params)
+      ()
+      (cons (string-append "%npl_p" (number->string index))
+            (direct-param-ops (cdr params) (+ index 1)))))
+
+(define (bind-direct-params params ops env)
+  (if (null? params)
+      env
+      (bind-direct-params (cdr params) (cdr ops)
+        (env-bind env (cdr (car params)) (copy-op (car ops))))))
+
+; The stack check, emitted into the current buffer. slot is the entry's
+; argument buffer in @start; its address is the stack position.
+(define (emit-direct-guard name ops slot)
+  (let ((limit (new-tmp)) (below (new-tmp)) (result (new-tmp))
+        (fallback (new-label)) (body (new-label)))
+    (func-line (string-append limit " =l loadl $npl_stack_limit"))
+    (func-line (string-append below " =w cultl " slot ", " limit))
+    (func-line (string-append "jnz " below ", " fallback ", " body))
+    (func-line fallback)
+    (store-argv ops slot 0)
+    (func-line
+      (string-append result " =l call $npl_call_sync(l $" (lookup-func name)
+                     ", l 2, l " (number->string (count-up ops 0))
+                     ", l " slot ")"))
+    (func-line (string-append "ret " result))
+    (func-line body)))
+
+(define (emit-direct-function name params body)
+  (let ((before (cell-get FUNC-BUF))
+        (ops (direct-param-ops params 0))
+        (slot (new-tmp)))
+    (cell-set! FUNC-BUF ())
+    (func-line
+      (string-append "function l $" (direct-function-symbol name) "("
+                     (if (null? ops) "" (args-join ops)) ") {"))
+    (func-line "@start")
+    (func-line
+      (string-append slot " =l alloc8 "
+        (number->string (* 8 (if (null? ops) 1 (count-up ops 0))))))
+    (let ((env (bind-direct-params params ops ())))
+      (let ((prologue (append-list (cell-get FUNC-BUF) before)))
+        (cell-set! FUNC-BUF ())
+        (emit-direct-guard name ops slot)
+        (let ((guard (cell-get FUNC-BUF)))
+          (cell-set! FUNC-BUF prologue)
+          (cell-set! DIRECT-ENTRY #t)
+          (emit-hoisted-body
+            (if (self-loop-eligible? name params) name #f)
+            params #f body env guard #t)
+          (cell-set! DIRECT-ENTRY #f)
+          (func-line "}"))))))
 
 ; The entry nplc generates (CONTROL-ENTRY-NAME, frontend/control-program.npl)
 ; is the C main. Emitted programs follow the same runtime ABI as stage0
@@ -181,9 +260,13 @@
           (emit-function (defined-name f)
                          (cdr (car (cdr f)))
                          (car (cdr (cdr f)))))
-      (if (var-def? f)
-          (variable-def f)
-          (fatal "top level must contain definitions"))))
+      (if (direct-def? f)
+          (emit-direct-function (defined-name f)
+                                (cdr (car (cdr f)))
+                                (car (cdr (cdr f))))
+          (if (var-def? f)
+              (variable-def f)
+              (fatal "top level must contain definitions")))))
 
 (define (flush-code-buffers)
   (print-lines (rev (cell-get DATA-BUF)))
@@ -251,7 +334,7 @@
     (let ((lowered
             (lower-program
               (expand-source-program raw-forms (path-dir path)))))
-      (direct-calls-report lowered)
+      (direct-calls-analyze! lowered)
       (let ((forms (control-program lowered)))
         (pass-register-functions forms)
         (emit-all-forms forms)

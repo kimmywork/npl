@@ -16,6 +16,7 @@ add_library(npl_runtime STATIC
   ${RUNTIME_SRC_DIR}/numeric.c
   ${RUNTIME_SRC_DIR}/port.c
   ${RUNTIME_SRC_DIR}/read.c
+  ${RUNTIME_SRC_DIR}/stack.c
   ${RUNTIME_SRC_DIR}/string.c
   ${RUNTIME_SRC_DIR}/symbol.c
   ${RUNTIME_SRC_DIR}/trampoline.c

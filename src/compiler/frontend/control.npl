@@ -60,7 +60,7 @@
     ((null? expression) #t)
     ((not (pair-shape? expression)) #f)
     ((not (number? (car expression)))
-     (if (control-single-value-primitive-head? (car expression))
+     (if (control-synchronous-call? expression)
          (control-simple-list? (cdr expression))
          #f))
     ((= (car expression) 212) #t)
@@ -459,7 +459,8 @@
                                     #f)
                                 (control-cps-call-with-values
                                   application continuation)
-                                (if (control-primitive-head? head)
+                                (if (control-primitive-or-direct?
+                                      application)
                                     (control-cps-primitive
                                       application continuation)
                                     (if (sym-atom? head)

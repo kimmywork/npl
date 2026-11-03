@@ -48,6 +48,10 @@
 ; Bindings of control-converted letrecs (all placeholders, assigned only by
 ; set!) allocated in the C function being emitted (bindings.npl).
 (define LOCAL-LOOP-CELLS (cell ()))
+; #t while the direct entry of a direct-safe function is emitted
+; (program.npl emit-direct-function): a tail call other than a self jump is
+; then a value call followed by ret (tail.npl tail-call-application?).
+(define DIRECT-ENTRY (cell #f))
 
 ; The buffer of the C function being emitted: a lambda's ("X") or a
 ; top-level function's.
@@ -69,13 +73,15 @@
         (else
          (cell-set! FUNC-BUF (cons ln (cell-get FUNC-BUF))))))
 
-; Stack slot of `bytes` bytes. While SELF-FUNCTION is set the line is tagged
-; so emit-self-loop-function can move it into @start: QBE gives an alloc
-; there a fixed frame slot, but one in a loop body grows the stack on every
-; iteration.
+; Stack slot of `bytes` bytes. While SELF-FUNCTION or DIRECT-ENTRY is set the
+; line is tagged so emit-hoisted-body can move it into @start: QBE gives an
+; alloc there a fixed frame slot, but one in a loop body grows the stack on
+; every iteration.
 (define (emit-alloc8 slot bytes)
   (let ((line (string-append slot " =l alloc8 " bytes)))
-    (if (if (cell-get SELF-FUNCTION) (not (string=? (cell-get CURBUF) "I")) #f)
+    (if (if (if (cell-get SELF-FUNCTION) #t (cell-get DIRECT-ENTRY))
+            (not (string=? (cell-get CURBUF) "I"))
+            #f)
         (set-current-buffer! (cons (cons #t line) (current-buffer)))
         (func-line line))))
 
@@ -86,6 +92,9 @@
 ; symbols (main, which nplc generates, and libc's free, read, ...); sanitize
 ; escapes every _, so no sanitized name starts with _npl_.
 (define (function-symbol nm) (string-append "_npl_fn_" (sanitize nm 0 "")))
+; Its direct entry (frontend/direct-calls.npl), when it is direct-safe.
+(define (direct-function-symbol nm)
+  (string-append "_npl_dfn_" (sanitize nm 0 "")))
 
 ; registry stores the BARE symbol; callers prepend '$' themselves
 (define (register-func nm arity)

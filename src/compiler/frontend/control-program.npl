@@ -72,9 +72,8 @@
   (cond
     ((null? forms) ())
     ((control-function-form? (car forms))
-     (cons (control-transform-function
-             (car forms) (control-function-name (car forms)) ())
-           (control-program-definitions (cdr forms))))
+     (let ((converted (control-function-definitions (car forms))))
+       (append-list converted (control-program-definitions (cdr forms)))))
     ((control-variable-form? (car forms))
      (cons (control-transform-global (car forms))
            (control-program-definitions (cdr forms))))
