@@ -159,14 +159,17 @@ no SSA change; fib/tak/loop safe; compiler 545/898 safe, C2b seed growth
 estimate +6.2%. C2b done (worklog 2026-11-03): direct entries
 `$_npl_dfn_<name>` with a stack-limit fallback (`runtime/stack.c`, at most
 256 KiB of direct frames); fib 1.23 -> 0.12 s, tak 0.97 -> 0.11 (both now
-below Guile), fact +10% and loop +6% (follow-ups), seed -8.6%. Next: user
-decision on C2c (`error`/`raise` in direct functions) or other work.
+below Guile), seed -8.6%. Follow-ups done (worklog 2026-11-03): fallback
+windows (`npl_direct_fallback`) and loop registers; loop back to C2a,
+fact +2% CPU / +7.8% instructions from scanning deep direct frames at every
+collection (GC change, not done). Next: C2c (`error`/`raise` and variadic
+direct entries; `raise` alone changes no verdict).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 245,094 lines; SHA-256
-  `060bc375a0c6966052cc5d61f562bef2e85863b144288c30d6024f5138b23829`
-  (macOS strict relay, 2026-11-03, C2b).
+- `bootstrap/current.ssa`: 245,711 lines; SHA-256
+  `7f4d4d764c3899dc9b0c6a9884bae114bef52509c1d26a48768e0c83ee0eb659`
+  (macOS strict relay, 2026-11-03, C2b follow-ups).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

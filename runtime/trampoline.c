@@ -22,6 +22,8 @@ typedef struct NplTailContext {
     int root_count;
     uintptr_t stack_bottom;
     int escape_depth;
+    /* npl_stack_limit (stack.c) when the trampoline started. */
+    uintptr_t stack_limit;
 } NplTailContext;
 
 static NplTailContext *g_tail_context = NULL;
@@ -201,11 +203,13 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
     context.root_count = npl_gc_root_count_internal();
     context.stack_bottom = stack_bottom;
     context.escape_depth = g_escape_depth;
+    context.stack_limit = npl_stack_limit;
 
     NplVal result = npl_nil();
     argv = context.arguments;
     if (setjmp(context.unwind) != 0) {
         /* A primitive error unwound to here: its handler call is pending. */
+        npl_stack_limit = context.stack_limit;
         function = context.function;
         environment = context.environment;
         argc = context.argc;
@@ -250,6 +254,7 @@ typedef struct {
     uint64_t id;
     NplVal value;
     NplTailContext *saved_tail_context;
+    uintptr_t saved_stack_limit;
 } NplEscapeFrame;
 
 static NplEscapeFrame g_escape_frames[NPL_MAX_ESCAPE_DEPTH];
@@ -287,6 +292,7 @@ NplVal npl_call_cc(NplVal procedure)
     NplEscapeFrame *frame = &g_escape_frames[index];
     frame->id = g_next_escape_id++;
     frame->saved_tail_context = g_tail_context;
+    frame->saved_stack_limit = npl_stack_limit;
 
     NplVal result;
     if (setjmp(frame->jump) == 0) {
@@ -296,6 +302,7 @@ NplVal npl_call_cc(NplVal procedure)
         result = npl_apply(procedure, 1, argv);
     } else {
         result = frame->value;
+        npl_stack_limit = frame->saved_stack_limit;
     }
 
     g_escape_depth = index;

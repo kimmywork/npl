@@ -125,12 +125,13 @@
 ; already holds its prologue (header, capture and argument loads); the loop
 ; label goes after it, so captures and the closure are loaded once.
 (define (emit-self-loop-body name params entry body env)
-  (emit-hoisted-body name params entry body env () #f))
+  (emit-hoisted-body name params entry body env (lambda (jumps) ()) #f))
 
-; With name, the body may jump to itself (SELF-FUNCTION). guard: lines,
-; newest first, placed after the hoisted allocs and before the loop label
-; (a direct entry's stack check). hoist: move the allocs to @start even
-; without a self jump.
+; With name, the body may jump to itself (SELF-FUNCTION). guard: a procedure
+; of whether the body made a self jump, returning lines, newest first,
+; placed after the hoisted allocs and before the loop label (a direct
+; entry's stack check and parameter copies). hoist: move the allocs to
+; @start even without a self jump.
 (define (emit-hoisted-body name params entry body env guard hoist)
   (let ((prologue (current-buffer)) (label (cell #f)))
     (set-current-buffer! ())
@@ -144,7 +145,8 @@
     (emit-tail-body body env)
     (cell-set! SELF-FUNCTION #f)
     (set-current-buffer!
-      (self-loop-lines (current-buffer) (cell-get label) guard hoist
+      (self-loop-lines (current-buffer) (cell-get label)
+                       (guard (if (cell-get label) #t #f)) hoist
                        prologue))))
 
 (define (untag-line line) (if (pair? line) (cdr line) line))
@@ -173,9 +175,9 @@
 ; form 218) takes its arguments as C parameters and returns its value. Its
 ; body is in direct style: a tail call is a self jump or a value call
 ; followed by ret (tail.npl tail-call-application?). Below npl_stack_limit
-; (runtime/stack.c) it runs the CPS entry through npl_call_sync instead,
-; whose continuations are on the heap, so deep recursion stays bounded on
-; the C stack.
+; (runtime/stack.c) it runs the CPS entry through npl_direct_fallback
+; instead, whose continuations are on the heap, so deep recursion stays
+; bounded on the C stack.
 
 (define (direct-def? f)
   (if (pair-shape? f) (= (car f) 218) #f))
@@ -186,11 +188,36 @@
       (cons (string-append "%npl_p" (number->string index))
             (direct-param-ops (cdr params) (+ index 1)))))
 
-(define (bind-direct-params params ops env)
+(define (direct-param-temps ops)
+  (if (null? ops) () (cons (new-tmp) (direct-param-temps (cdr ops)))))
+
+; A parameter that is a set! target gets its cell from the temporary at the
+; start of the body (env-bind), after the copies.
+(define (bind-direct-params params temps env)
   (if (null? params)
       env
-      (bind-direct-params (cdr params) (cdr ops)
-        (env-bind env (cdr (car params)) (copy-op (car ops))))))
+      (bind-direct-params (cdr params) (cdr temps)
+        (env-bind env (cdr (car params)) (car temps)))))
+
+; The copies of the parameters into their temporaries, newest first. With a
+; self jump the temporaries are the loop variables: combined with
+; npl_opaque_zero (runtime/stack.c), which QBE cannot see through, they get
+; their own registers. A plain copy lets QBE keep them in the argument
+; registers, which costs register moves around every call in the loop
+; (loop workload: +6% instructions); without a jump the extra or and load
+; cost instructions instead (fib: +16%).
+(define (direct-param-lines temps ops jumps)
+  (if jumps
+      (let ((zero (new-tmp)))
+        (cons-copies temps ops " =l or " (string-append ", " zero)
+          (cons (string-append zero " =l loadl $npl_opaque_zero") ())))
+      (cons-copies temps ops " =l copy " "" ())))
+
+(define (cons-copies temps ops middle suffix acc)
+  (if (null? temps)
+      acc
+      (cons-copies (cdr temps) (cdr ops) middle suffix
+        (cons (string-append (car temps) middle (car ops) suffix) acc))))
 
 ; The stack check, emitted into the current buffer. slot is the entry's
 ; argument buffer in @start; its address is the stack position.
@@ -203,7 +230,8 @@
     (func-line fallback)
     (store-argv ops slot 0)
     (func-line
-      (string-append result " =l call $npl_call_sync(l $" (lookup-func name)
+      (string-append result " =l call $npl_direct_fallback(l $"
+                     (lookup-func name)
                      ", l 2, l " (number->string (count-up ops 0))
                      ", l " slot ")"))
     (func-line (string-append "ret " result))
@@ -221,18 +249,32 @@
     (func-line
       (string-append slot " =l alloc8 "
         (number->string (* 8 (if (null? ops) 1 (count-up ops 0))))))
-    (let ((env (bind-direct-params params ops ())))
-      (let ((prologue (append-list (cell-get FUNC-BUF) before)))
-        (cell-set! FUNC-BUF ())
-        (emit-direct-guard name ops slot)
-        (let ((guard (cell-get FUNC-BUF)))
-          (cell-set! FUNC-BUF prologue)
-          (cell-set! DIRECT-ENTRY #t)
-          (emit-hoisted-body
-            (if (self-loop-eligible? name params) name #f)
-            params #f body env guard #t)
-          (cell-set! DIRECT-ENTRY #f)
-          (func-line "}"))))))
+    (let ((temps (direct-param-temps ops))
+          (prologue (append-list (cell-get FUNC-BUF) before)))
+      (cell-set! FUNC-BUF ())
+      (emit-direct-guard name ops slot)
+      (let ((guard (cell-get FUNC-BUF)))
+        (cell-set! FUNC-BUF prologue)
+        (cell-set! DIRECT-ENTRY #t)
+        (emit-direct-body name params body temps
+          (lambda (jumps)
+            (append-list (direct-param-lines temps ops jumps) guard)))
+        (cell-set! DIRECT-ENTRY #f)
+        (func-line "}")))))
+
+; The body buffer starts empty, so a cell made for an assigned parameter
+; comes after the copies and the stack check.
+(define (emit-direct-body name params body temps guard)
+  (let ((prologue (current-buffer)))
+    (set-current-buffer! ())
+    (let ((env (bind-direct-params params temps ())))
+      (let ((cells (current-buffer)))
+        (set-current-buffer! prologue)
+        (emit-hoisted-body
+          (if (self-loop-eligible? name params) name #f)
+          params #f body env
+          (lambda (jumps) (append-list cells (guard jumps)))
+          #t)))))
 
 ; The entry nplc generates (CONTROL-ENTRY-NAME, frontend/control-program.npl)
 ; is the C main. Emitted programs follow the same runtime ABI as stage0
