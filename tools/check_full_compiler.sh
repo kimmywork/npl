@@ -209,10 +209,11 @@ grep -v '_npl_lib_\|total' "$WORK/direct-report.txt" |
     cmp - "$DIRECT/expected.txt"
 emit "$WORK/compiler" "$DIRECT/probe.npl" "$WORK/direct-plain.ssa"
 cmp "$WORK/direct-report.ssa" "$WORK/direct-plain.ssa"
-# Direct entries (design-calls C2b): a direct-safe function has a direct
-# entry that calls itself directly and checks the stack limit; its CPS entry
-# (the fallback) makes no direct call. Deep recursion and a collection at a
-# small nursery inside it still work.
+# Direct entries (design-calls C2b, C2c): a direct-safe function has a
+# direct entry that calls itself directly and checks the stack limit; its
+# CPS entry (the fallback) does not call it. A variadic function has one;
+# raise in a direct body raises through npl_raise_direct. Deep recursion and
+# a collection at a small nursery inside it still work.
 DCALLS="$ROOT/tests/r7rs/fixtures/direct-calls"
 emit "$WORK/compiler" "$DCALLS/native.npl" "$WORK/direct-calls.ssa"
 direct_function() {
@@ -222,10 +223,15 @@ direct_function() {
 }
 direct_function _npl_dfn_fib | grep -qF 'call $_npl_dfn_fib(l '
 direct_function _npl_dfn_fib | grep -qF 'loadl $npl_stack_limit'
-if direct_function _npl_fn_fib | grep -qF '$_npl_dfn_'; then
-    echo "CPS entry of fib calls a direct entry" >&2
+# The CPS entry is the stack-limit fallback: it must not re-enter fib's
+# direct entry. Other direct entries (library procedures in numeric slow
+# paths) check the stack themselves.
+if direct_function _npl_fn_fib | grep -qF '$_npl_dfn_fib('; then
+    echo "CPS entry of fib calls fib's direct entry" >&2
     exit 1
 fi
+direct_function _npl_dfn_sum_2dall | grep -qF 'function l $_npl_dfn_sum_2dall(l %npl_p0, l %npl_p1)'
+direct_function _npl_dfn_checked_2dsqrt | grep -qF 'call $npl_raise_direct(l '
 if direct_function _npl_dfn_my_2deven_3f | grep -q .; then
     echo "mutual tail recursion got a direct entry" >&2
     exit 1

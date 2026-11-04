@@ -15,7 +15,8 @@
     "npl_wind_pop"
     "npl_current_handler"
     "npl_handler_push"
-    "npl_handler_pop"))
+    "npl_handler_pop"
+    "npl_raise_direct"))
 
 (define PRIMITIVE-CONTROL-SOURCE
 "(call-with-current-continuation call-with-values call/cc dynamic-wind raise raise-continuable values with-exception-handler)" )

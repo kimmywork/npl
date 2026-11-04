@@ -162,14 +162,16 @@ estimate +6.2%. C2b done (worklog 2026-11-03): direct entries
 below Guile), seed -8.6%. Follow-ups done (worklog 2026-11-03): fallback
 windows (`npl_direct_fallback`) and loop registers; loop back to C2a,
 fact +2% CPU / +7.8% instructions from scanning deep direct frames at every
-collection (GC change, not done). Next: C2c (`error`/`raise` and variadic
-direct entries; `raise` alone changes no verdict).
+collection (GC change, not done). C2c done (worklog 2026-11-03): `raise`
+and variadic direct entries; compiler 576/941 direct-safe; strings -24%,
+fact -7% (now below C2a), closures -4% against the previous commit. Next:
+user decision (open: incremental stack scan for deep direct frames).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 245,711 lines; SHA-256
-  `7f4d4d764c3899dc9b0c6a9884bae114bef52509c1d26a48768e0c83ee0eb659`
-  (macOS strict relay, 2026-11-03, C2b follow-ups).
+- `bootstrap/current.ssa`: 248,793 lines; SHA-256
+  `097c6662797c6366dd0a80753b8d2b25ef2bc151d8b3b8516f5f396912113ffb`
+  (macOS strict relay, 2026-11-03, C2c).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

@@ -207,10 +207,18 @@
           (func-line (string-append all " =w and " (car ops) ", " rest))
           all))))
 
-; Call a registered function in value position. npl_call_sync supplies the
-; continuation and forwards a raise to the caller's trampoline, so a handler
-; that escapes resumes on the right C frame (runtime/trampoline.c).
+; Call a registered function in value position: its direct entry when it
+; has one (frontend/direct-calls.npl; the entry checks the stack itself, so
+; this holds in a stack-limit fallback too), otherwise through npl_call_sync,
+; which supplies the continuation and forwards a raise to the caller's
+; trampoline, so a handler that escapes resumes on the right C frame
+; (runtime/trampoline.c).
 (define (emit-value-call nm ops)
+  (if (direct-entry-for nm (count-up ops 0))
+      (direct-call-ops nm ops)
+      (emit-sync-call nm ops)))
+
+(define (emit-sync-call nm ops)
   (let ((result (new-tmp)))
     (func-line
       (string-append result " =l call $npl_call_sync(l $" (lookup-func nm)

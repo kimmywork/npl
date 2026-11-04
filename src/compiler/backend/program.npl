@@ -182,6 +182,14 @@
 (define (direct-def? f)
   (if (pair-shape? f) (= (car f) 218) #f))
 
+; A variadic entry's formals are (230 fixed rest): its last C parameter is
+; the rest list.
+(define (direct-formals params)
+  (if (variadic-parameters? params)
+      (append-list (variadic-fixed-parameters params)
+                   (cons (variadic-rest-parameter params) ()))
+      params))
+
 (define (direct-param-ops params index)
   (if (null? params)
       ()
@@ -220,8 +228,9 @@
         (cons (string-append (car temps) middle (car ops) suffix) acc))))
 
 ; The stack check, emitted into the current buffer. slot is the entry's
-; argument buffer in @start; its address is the stack position.
-(define (emit-direct-guard name ops slot)
+; argument buffer in @start; its address is the stack position. A variadic
+; entry's fallback spreads the rest list (npl_direct_fallback_rest).
+(define (emit-direct-guard name ops slot rest)
   (let ((limit (new-tmp)) (below (new-tmp)) (result (new-tmp))
         (fallback (new-label)) (body (new-label)))
     (func-line (string-append limit " =l loadl $npl_stack_limit"))
@@ -230,14 +239,18 @@
     (func-line fallback)
     (store-argv ops slot 0)
     (func-line
-      (string-append result " =l call $npl_direct_fallback(l $"
-                     (lookup-func name)
-                     ", l 2, l " (number->string (count-up ops 0))
+      (string-append result " =l call $"
+                     (if rest "npl_direct_fallback_rest" "npl_direct_fallback")
+                     "(l $" (lookup-func name) ", l 2, l "
+                     (number->string
+                       (if rest (- (count-up ops 0) 1) (count-up ops 0)))
                      ", l " slot ")"))
     (func-line (string-append "ret " result))
     (func-line body)))
 
-(define (emit-direct-function name params body)
+(define (emit-direct-function name signature body)
+  (let ((params (direct-formals signature))
+        (rest (variadic-parameters? signature)))
   (let ((before (cell-get FUNC-BUF))
         (ops (direct-param-ops params 0))
         (slot (new-tmp)))
@@ -252,26 +265,28 @@
     (let ((temps (direct-param-temps ops))
           (prologue (append-list (cell-get FUNC-BUF) before)))
       (cell-set! FUNC-BUF ())
-      (emit-direct-guard name ops slot)
+      (emit-direct-guard name ops slot rest)
       (let ((guard (cell-get FUNC-BUF)))
         (cell-set! FUNC-BUF prologue)
         (cell-set! DIRECT-ENTRY #t)
-        (emit-direct-body name params body temps
+        (emit-direct-body name (if rest signature params) params body temps
           (lambda (jumps)
             (append-list (direct-param-lines temps ops jumps) guard)))
         (cell-set! DIRECT-ENTRY #f)
-        (func-line "}")))))
+        (func-line "}"))))))
 
 ; The body buffer starts empty, so a cell made for an assigned parameter
 ; comes after the copies and the stack check.
-(define (emit-direct-body name params body temps guard)
+; signature: the formals as written, so a variadic function makes no self
+; jump (self-loop-eligible?); params: one per C parameter.
+(define (emit-direct-body name signature params body temps guard)
   (let ((prologue (current-buffer)))
     (set-current-buffer! ())
     (let ((env (bind-direct-params params temps ())))
       (let ((cells (current-buffer)))
         (set-current-buffer! prologue)
         (emit-hoisted-body
-          (if (self-loop-eligible? name params) name #f)
+          (if (self-loop-eligible? name signature) name #f)
           params #f body env
           (lambda (jumps) (append-list cells (guard jumps)))
           #t)))))

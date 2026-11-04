@@ -4,18 +4,21 @@
 ; conversion; with NPL_DIRECT_REPORT set it also writes one line per
 ; top-level function to the error port.
 ;
-; A function is direct-safe when its parameters are fixed and its body uses
-; only literals, variables, if, let forms, begin, set!, lambda creation,
-; single-value primitives, public numeric aliases, and calls to direct-safe
-; functions with their arity, and it is in no cycle of tail calls with
-; another function; a self tail call is a jump unless a parameter is
-; assigned. The set is the greatest fixed point.
+; A function is direct-safe when its body uses only literals, variables,
+; if, let forms, begin, set!, lambda creation, single-value primitives,
+; public numeric aliases, raise with one operand (C2c), and calls to
+; direct-safe functions with an arity they accept, and it is in no cycle of
+; tail calls with another function; a self tail call is a jump unless a
+; parameter is assigned or the function is variadic. The set is the
+; greatest fixed point.
 
-; Entry: #(name arity reason calls tails mark assigned). arity -1: variadic.
-; reason #f: direct-safe so far, otherwise why not. calls and tails: callee
-; entries of non-tail and tail calls. mark: last tail-cycle search stamp.
-; assigned: a parameter is a set! target, so a self tail call is no jump.
-(define (direct-entry name arity) (vector name arity #f () () 0 #f))
+; Entry: #(name arity reason calls tails mark assigned rest). arity: the
+; number of fixed parameters; rest: a rest parameter follows them. reason
+; #f: direct-safe so far, otherwise why not. calls and tails: callee entries
+; of non-tail and tail calls. mark: last tail-cycle search stamp. assigned:
+; a parameter is a set! target, so a self tail call is no jump.
+(define (direct-entry name arity rest)
+  (vector name arity #f () () 0 #f rest))
 (define (direct-name entry) (vector-ref entry 0))
 (define (direct-arity entry) (vector-ref entry 1))
 (define (direct-reason entry) (vector-ref entry 2))
@@ -23,6 +26,7 @@
 (define (direct-tails entry) (vector-ref entry 4))
 (define (direct-mark entry) (vector-ref entry 5))
 (define (direct-assigned? entry) (vector-ref entry 6))
+(define (direct-rest? entry) (vector-ref entry 7))
 (define (direct-safe? entry) (not (direct-reason entry)))
 
 (define (direct-unsafe! entry reason)
@@ -93,9 +97,8 @@
         (params (cdr (car (cdr form)))))
     (cons name
           (direct-entry name
-            (if (control-proper-formals? params)
-                (direct-length params 0)
-                -1)))))
+            (direct-length (control-fixed-formals params) 0)
+            (not (control-proper-formals? params))))))
 
 (define (direct-function-entries forms)
   (if (null? forms)
@@ -125,14 +128,11 @@
 
 (define (direct-walk-function form)
   (let ((entry (direct-find (control-function-name form))))
-    (if (< (direct-arity entry) 0)
-        (direct-unsafe! entry "variadic")
-        (begin
-          (vector-set! entry 6
-            (direct-params-assigned? (cdr (car (cdr form)))
-                                     (collect-assigned form ())))
-          (direct-walk (core-body-expression (car (cdr (cdr form)))) #t
-                       entry)))))
+    (vector-set! entry 6
+      (direct-params-assigned?
+        (control-fixed-formals (cdr (car (cdr form))))
+        (collect-assigned form ())))
+    (direct-walk (core-body-expression (car (cdr (cdr form)))) #t entry)))
 
 (define (direct-walk expression tail entry)
   (if (pair-shape? expression)
@@ -215,6 +215,7 @@
 ; an unknown procedure.
 (define (direct-classify-call name argc tail entry)
   (cond
+    ((if (string=? name "raise") (= argc 1) #f) 0)
     ((control-transfer-name? name) (direct-unsafe! entry "control"))
     ((string=? name "apply") (direct-unsafe! entry "control"))
     ((primitive-row name) (direct-primitive-call (primitive-row name) entry))
@@ -233,12 +234,17 @@
       (direct-unsafe! entry
         (if (direct-prefix? "_npl_h_" name) "local-call" "global-call"))))
 
-; A variadic callee is recorded and removes the caller in the fixed point.
+; A self tail call of a variadic function or one with an assigned parameter
+; is no jump (backend program.npl self-loop-eligible?), so it would grow the
+; C stack.
 (define (direct-record-call callee argc tail entry)
   (cond
-    ((if (< (direct-arity callee) 0) #f (not (= argc (direct-arity callee))))
-     (direct-unsafe! entry "arity"))
-    ((if tail (if (eq? callee entry) (direct-assigned? entry) #f) #f)
+    ((not (direct-accepts? callee argc)) (direct-unsafe! entry "arity"))
+    ((if tail
+         (if (eq? callee entry)
+             (if (direct-assigned? entry) #t (direct-rest? entry))
+             #f)
+         #f)
      (direct-unsafe! entry "tail-cycle"))
     (tail (vector-set! entry 4 (cons callee (direct-tails entry))))
     (else (vector-set! entry 3 (cons callee (direct-calls entry))))))
@@ -378,15 +384,32 @@
 
 ; ---------------- using direct entries ----------------
 
-; The direct entry of name for a call with argc operands, or #f. A public
-; numeric alias keeps its inline fast path (backend/numeric.npl).
-(define (direct-target name argc)
+(define (direct-accepts? entry argc)
+  (if (direct-rest? entry)
+      (>= argc (direct-arity entry))
+      (= argc (direct-arity entry))))
+
+; The entry of a direct-safe name that a call with argc operands may use
+; directly, or #f.
+(define (direct-entry-for name argc)
   (let ((entry (direct-find name)))
     (if (if entry (direct-safe? entry) #f)
-        (if (= argc (direct-arity entry))
-            (= (string-length (numeric-alias-primitive-name name)) 0)
-            #f)
+        (if (direct-accepts? entry argc) entry #f)
         #f)))
+
+; Whether a call of name with argc operands is a direct call. A public
+; numeric alias keeps its inline fast path; its slow path may still call
+; the direct entry (backend/numeric.npl emit-value-call).
+(define (direct-target name argc)
+  (if (direct-entry-for name argc)
+      (= (string-length (numeric-alias-primitive-name name)) 0)
+      #f))
+
+; For a direct call of name with argc operands: how many operands go to the
+; rest list, or #f when the entry has no rest parameter.
+(define (direct-rest-count name argc)
+  (let ((entry (direct-find name)))
+    (if (direct-rest? entry) (- argc (direct-arity entry)) #f)))
 
 (define (direct-safe-name? name)
   (let ((entry (direct-find name)))
@@ -427,6 +450,9 @@
 (define (control-direct-expression expression)
   (cond
     ((not (pair-shape? expression)) expression)
+    ((control-raise-name? (car expression) "raise")
+     (cons (control-symbol "npl_raise_direct")
+           (control-direct-list (cdr expression))))
     ((not (number? (car expression))) (control-direct-list expression))
     ((= (car expression) 100) (control-transform-symbol expression))
     ((= (car expression) 212) (control-transform-lambda expression))
@@ -462,11 +488,20 @@
       (cons (control-direct-body (car (cdr (cdr expression)))) ()))))
 
 ; (218 signature body): the direct entry of a direct-safe function, with
-; the signature of its definition (no continuation parameter).
+; the signature of its definition (no continuation parameter). Variadic
+; formals become (230 fixed rest), as control conversion writes them.
 (define (control-direct-function form)
-  (cons 218
-    (cons (car (cdr form))
-      (cons (control-direct-body (car (cdr (cdr form)))) ()))))
+  (let ((signature (car (cdr form))))
+    (cons 218
+      (cons (cons (car signature) (control-direct-formals (cdr signature)))
+        (cons (control-direct-body (car (cdr (cdr form)))) ())))))
+
+(define (control-direct-formals formals)
+  (if (control-proper-formals? formals)
+      formals
+      (cons 230
+        (cons (control-fixed-formals formals)
+          (cons (control-rest-formal formals) ())))))
 
 ; The converted definitions of a top-level function (control-program.npl):
 ; its CPS entry and, when it is direct-safe, its direct entry. The CPS entry

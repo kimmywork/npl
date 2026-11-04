@@ -15,4 +15,7 @@ escaped
 11
 (55 56 57)
 (7 (2 3 4) 12 13)
+(4 (negative -4) (not a pair (5)) bottom 11)
+(handled bottom)
+(1 6 0 3 (a) (b 1 2) 10 4611686018427387905)
 (#f #t)

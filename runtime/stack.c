@@ -11,6 +11,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "npl.h"
+#include <stdlib.h>
 #include <sys/resource.h>
 
 /* 0 before npl_runtime_init: no entry falls back. */
@@ -72,5 +73,35 @@ NplVal npl_direct_fallback(NplGenericFunction function, NplVal environment,
     npl_stack_limit = window > g_stack_floor ? window : g_stack_floor;
     NplVal result = npl_call_sync(function, environment, argc, argv);
     npl_stack_limit = saved;
+    return result;
+}
+
+static int is_pair(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_PAIR;
+}
+
+NplVal npl_direct_fallback_rest(NplGenericFunction function,
+                                NplVal environment, int64_t fixed,
+                                NplVal *argv)
+{
+    /* The rest list keeps its elements alive while they are copied into
+     * the malloc'd buffer, which the collector does not scan; keep it on
+     * the scanned stack. */
+    volatile NplVal rest = argv[fixed];
+    int64_t count = fixed;
+    for (NplVal item = rest; is_pair(item); item = npl_pair_ptr(item)->cdr)
+        count++;
+    NplVal *arguments =
+        (NplVal *)malloc((size_t)(count > 0 ? count : 1) * sizeof(NplVal));
+    if (!arguments) npl_runtime_oom_internal();
+    int64_t index = 0;
+    for (; index < fixed; index++) arguments[index] = argv[index];
+    for (NplVal item = rest; is_pair(item); item = npl_pair_ptr(item)->cdr)
+        arguments[index++] = npl_pair_ptr(item)->car;
+    NplVal result =
+        npl_direct_fallback(function, environment, count, arguments);
+    free(arguments);
+    (void)rest;
     return result;
 }

@@ -83,6 +83,17 @@ static void raise_error_object(NplVal object)
     exit(1);
 }
 
+/* (raise object) in the direct entry of a compiled function (compiler
+ * frontend/direct-calls.npl): a non-continuable raise, delivered as a
+ * primitive error is, so the direct frames are discarded and the innermost
+ * trampoline calls the handler. Returns its argument only to give the
+ * call a value; it never returns. */
+NplVal npl_raise_direct(NplVal object)
+{
+    raise_error_object(object);
+    return object;
+}
+
 void npl_primitive_error(const char *who, const char *message,
                          NplVal irritant)
 {

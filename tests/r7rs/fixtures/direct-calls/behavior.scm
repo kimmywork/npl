@@ -20,6 +20,16 @@
 (define (my-even? n) (if (= n 0) #t (my-odd? (- n 1))))
 (define (my-odd? n) (if (= n 0) #f (my-even? (- n 1))))
 (define (first-of xs) (car xs))
+;; Direct raise and error (C2c), and variadic direct functions.
+(define (checked-sqrt n)
+  (if (< n 0) (raise (list 'negative n)) (exact-integer-sqrt-floor n 0)))
+(define (exact-integer-sqrt-floor n r)
+  (if (> (* (+ r 1) (+ r 1)) n) r (exact-integer-sqrt-floor n (+ r 1))))
+(define (must-be-pair x) (if (pair? x) x (error "not a pair" x)))
+(define (deep-raise n) (if (= n 0) (raise 'bottom) (+ 1 (deep-raise (- n 1)))))
+(define (sum-all first . rest) (+ first (sum-list rest)))
+(define (count-args . args) (len args))
+(define (tagged tag . items) (cons tag items))
 
 ;; Deep non-tail recursion: past the stack limit the call continues in CPS.
 (display (list (fib 20) (tak 18 12 6))) (newline)
@@ -54,5 +64,27 @@
 (define next (counter 10))
 (define first-tick (next))
 (display (list (add3 4) (map (adder 1) '(1 2 3)) (next) (next))) (newline)
+;; raise and error inside direct functions, shallow and deep, caught by
+;; guard; raise-continuable through a handler that returns.
+(display (list (checked-sqrt 17)
+               (guard (e ((pair? e) e)) (checked-sqrt -4))
+               (guard (e ((error-object? e)
+                          (list (error-object-message e)
+                                (error-object-irritants e))))
+                 (must-be-pair 5))
+               (guard (e ((symbol? e) e)) (deep-raise 1000000))
+               (with-exception-handler
+                 (lambda (e) 10)
+                 (lambda () (+ 1 (raise-continuable 'c)))))) (newline)
+(display (call/cc (lambda (k)
+                    (with-exception-handler
+                      (lambda (e) (k (list 'handled e)))
+                      (lambda () (+ 1 (deep-raise 10)))))))
+(newline)
+;; Variadic direct functions: no, one, and many rest arguments, and apply.
+(display (list (sum-all 1) (sum-all 1 2 3) (count-args) (count-args 1 2 3)
+               (tagged 'a) (tagged 'b 1 2) (apply sum-all 1 '(2 3 4))
+               (sum-all 4611686018427387903 1 1)))
+(newline)
 ;; Mutual tail recursion keeps constant stack (no direct entry).
 (display (list (my-even? 1000001) (my-odd? 1000001))) (newline)

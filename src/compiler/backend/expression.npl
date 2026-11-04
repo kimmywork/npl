@@ -460,10 +460,28 @@
       (= count arity)))
 
 ; A call of a direct-safe function's direct entry (program.npl
-; emit-direct-function); control conversion left it in value position.
+; emit-direct-function); control conversion left it in value position. A
+; variadic entry takes its rest arguments as one list.
 (define (direct-call nm args env)
-  (call-with-ops (direct-function-symbol nm)
-                 (eval-args-fixed args env (count-up args 0) ())))
+  (direct-call-ops nm
+    (eval-args-fixed args env (count-up args 0) ())))
+
+(define (direct-call-ops nm ops)
+  (let ((rest (direct-rest-count nm (count-up ops 0))))
+    (call-with-ops (direct-function-symbol nm)
+      (if rest (direct-rest-ops ops (- (count-up ops 0) rest)) ops))))
+
+; ops with every operand after the first fixed ones collected in a list.
+(define (direct-rest-ops ops fixed)
+  (if (= fixed 0)
+      (cons (direct-list-op ops) ())
+      (cons (car ops) (direct-rest-ops (cdr ops) (- fixed 1)))))
+
+(define (direct-list-op ops)
+  (if (null? ops)
+      "2"
+      (call-with-ops "npl_cons"
+        (cons (car ops) (cons (direct-list-op (cdr ops)) ())))))
 
 (define (user-call nm args env)
   (let ((argn (count-up args 0)))

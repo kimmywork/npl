@@ -402,3 +402,27 @@ before any code generation change.
 - **E3** Order: C2a analysis and numbers first, then a go/no-go before any
   code generation change (recommended), or C2a and C2b together.
 
+
+### As built (C2b, C2c; 2026-11-03)
+
+- **Stack windows.** Direct frames use at most 256 KiB
+  (`NPL_DIRECT_STACK_BYTES`, `runtime/stack.c`), because every collection
+  scans the whole C stack conservatively. Below the limit a direct entry
+  calls `npl_direct_fallback`, which runs the CPS entry on a nested
+  trampoline and opens a new window below its own frame, so direct calls
+  made from CPS code there run directly again instead of falling back one
+  by one. No window ends below a floor that keeps a quarter of the stack
+  free. Trampolines and call/cc frames restore the limit they saved.
+- **Loop registers.** A direct entry with a self jump combines each
+  parameter with `npl_opaque_zero`, which QBE cannot fold, so the loop
+  variables get their own registers.
+- **C2c.** `raise` with one operand is allowed: in a direct body it becomes
+  `npl_raise_direct`, a non-continuable raise delivered like a primitive
+  error (the direct frames are discarded and the innermost trampoline runs
+  the handler). `raise-continuable` stays excluded. Variadic functions get
+  direct entries whose last C parameter is the rest list (the call site
+  conses it; the fallback spreads it with `npl_direct_fallback_rest`). A
+  variadic self tail call is no jump, so it counts as a tail cycle. `error`
+  and the library argument checks become direct-safe through these two
+  rules; no special case for `error`. A numeric alias slow path calls the
+  library procedure's direct entry when it has one.

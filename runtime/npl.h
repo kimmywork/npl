@@ -511,6 +511,12 @@ extern uintptr_t npl_stack_limit;
 void npl_stack_init_internal(uintptr_t base);
 NplVal npl_direct_fallback(NplGenericFunction function, NplVal environment,
                            int64_t argc, NplVal *argv);
+/* The same for a variadic function: argv holds the fixed arguments and then
+ * the rest list, which is spread for the CPS entry. */
+NplVal npl_direct_fallback_rest(NplGenericFunction function,
+                                NplVal environment, int64_t fixed,
+                                NplVal *argv);
+NplVal npl_raise_direct(NplVal object);
 /* Always 0. Compiled direct entries with a self jump combine each parameter
  * with it, so QBE does not keep the loop variables in the argument
  * registers (backend/program.npl emit-direct-function). */
