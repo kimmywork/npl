@@ -164,8 +164,11 @@ windows (`npl_direct_fallback`) and loop registers; loop back to C2a,
 fact +2% CPU / +7.8% instructions from scanning deep direct frames at every
 collection (GC change, not done). C2c done (worklog 2026-11-03): `raise`
 and variadic direct entries; compiler 576/941 direct-safe; strings -24%,
-fact -7% (now below C2a), closures -4% against the previous commit. Next:
-user decision (open: incremental stack scan for deep direct frames).
+fact -7% (now below C2a), closures -4% against the previous commit.
+Against Guile/Racket (worklog 2026-11-03): ahead on fib, tak, loop; mixed
+on fact, vectors; behind on callcc (vs Racket), strings 3-4x, closures 4x,
+lists 5-9x. Perf is judged against Guile/Racket, not our own commits; GC
+fine-tuning (incremental stack scan) is deferred. Next: user decision.
 
 ## Accepted Seed
 
