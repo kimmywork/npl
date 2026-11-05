@@ -485,3 +485,101 @@ that raises under guard, call/cc in a mapped procedure (slow path), wrong
 arity and non-procedure errors, a captured variable assigned by the
 lambda, deep recursion from a direct lambda. Gates, GC verify, chibi.
 Bench: lists against Guile and Racket; no workload slower.
+
+## Addendum: C4 Conditional Direct Entries for npli (2026-11-05, for review)
+
+### Problem
+
+npli runs a program by building one native closure per syntax node,
+`(lambda (frame) ...)`, which calls its child nodes
+(`lib/npl/evaluator-compile.scm`). Every node call is a CPS call through
+the trampoline: `fib(25)` (242,785 calls) makes 13.7 million trampoline
+requests, about 56 per call, and `fib(30)` takes 1.09 s against 0.008 s
+native. Profile: allocation 22%, trampoline requests 34%, closure creation
+10%, minor GC 11%.
+
+C3 does not reach these nodes. A node's children are captured variables,
+and a call through a variable is an unknown call, so `direct-lambda?`
+rejects the node: of npli's 3,861 lambdas, 389 have a direct entry, and
+those are mostly leaves (local reference, constant).
+
+Baseline, CPU s, one `(bench-main)` per run; Guile interpreting the same
+source with `--no-auto-compile` is the fair comparison for npli:
+
+| workload | npli | Guile interpreter |
+|---|---:|---:|
+| fib | 1.12 | 0.35 |
+| tak | 0.51 | 0.18 |
+| loop | 8.46 | 2.41 |
+| lists | 2.94 | 0.69 |
+| vectors | 1.84 | 0.45 |
+| strings | 0.25 | 0.13 |
+| fact | 0.09 | 0.12 |
+| closures | 0.23 | 0.45 |
+| callcc | 1.50 | 1.52 |
+
+### Design
+
+**Conditional direct lambdas.** A lambda gets a direct entry when its body
+is direct-safe except for calls whose head is a captured variable that is
+never assigned. Each such call is a requirement `(variable . argc)`. In the
+direct body the call goes straight to the callee's direct entry, read from
+the closure's `direct` field.
+
+**Checked at creation.** The captured values are fixed once the closure is
+made (flat closures copy them, and an unassigned variable has no cell).
+When the closure is created, each requirement is tested with
+`npl_closure_direct`; the direct entry is stored only if every captured
+callee is a closure with a direct entry for that arity. Otherwise the
+field stays NULL and the closure runs in CPS as today. The evaluator
+builds a tree bottom-up, so a node becomes direct exactly when all its
+children are: constants, local references, fixed arithmetic, `if`, `let`,
+and sequences over such children.
+
+**Soundness.** A direct entry only ever calls direct entries, whose bodies
+are direct-safe by the C2 rules, so it never captures a continuation or
+raises continuably. Nodes that call a runtime value (application of a
+global or a computed procedure, `call/cc`, `dynamic-wind`) stay CPS. The C3
+call-site fast path is unchanged and still lets a CPS node call a direct
+child without a continuation closure.
+
+**Rejected.** A direct entry that calls an arbitrary closure through
+`npl_call_sync` when it has no direct entry: a continuation captured inside
+the nested trampoline and re-entered after it returns would resume in the
+wrong trampoline (constraint 1).
+
+### Alternative: fused evaluator nodes
+
+Keep the compiler as it is and give the evaluator larger nodes for common
+shapes, such as `if` whose test compares a local with a constant, or `+`
+and `-` of a local and a constant: one closure where today there are three
+or four. This only changes `lib/npl/evaluator-compile.scm` (npli is rebuilt;
+the seed and compiled programs are unchanged) and can be measured in a day.
+It helps npli only, and each shape is a separate case in the evaluator.
+
+Recommendation: the C4 prototype first, because it reuses the C2/C3
+machinery, also speeds up compiled programs that build closure trees, and
+its first increment is a measurement with a go/no-go. Fused nodes remain
+a cheap follow-up for the shapes C4 leaves in CPS (the `if` and calls of
+user procedures). `frontend/direct-calls.npl` is 572 lines, so C4's
+analysis goes into its own file.
+
+### Expected effect
+
+In `fib`, the test `(< n 2)`, the operand expressions `(- n 1)` and
+`(- n 2)`, and every leaf become direct. The `if`, the `+` over two
+calls, the two global applications, and the procedure wrapper stay CPS.
+Estimate: about a third of today's requests per call, roughly 2x on fib,
+tak, loop, and vectors (to be measured on a prototype first). Recursive
+user procedures do not become direct, so this does not close the gap to
+the Guile interpreter on its own.
+
+### Increments
+
+1. Prototype: the analysis and code generation for compiled programs,
+   with an SSA check on a two-level closure tree, and the fib and loop
+   counts under npli. Go/no-go on the measured numbers.
+2. Shared fixture: direct and non-direct children mixed in one tree, a
+   captured callee assigned later (no direct entry), arity mismatch,
+   errors in a direct node under guard, call/cc in a child; npli versions
+   of the existing evaluator tests; gates, chibi on npli and native.
