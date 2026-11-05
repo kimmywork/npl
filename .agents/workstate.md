@@ -175,9 +175,9 @@ the gap: 3.85 s vs Guile 0.70 / Racket 0.29 for its part).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 248,799 lines; SHA-256
-  `60f69649664cef384ae05702592911b8bd217f955646b074e1fae48608d40721`
-  (macOS strict relay, 2026-11-05, strings).
+- `bootstrap/current.ssa`: 213,025 lines; SHA-256
+  `2b261b9f0d98be5972e3322129cbed4fb4b9d81ffb85d0c042d76ecd5afd58cd`
+  (macOS strict relay, 2026-11-05, literal continuations as let).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

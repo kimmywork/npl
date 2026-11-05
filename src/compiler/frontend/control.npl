@@ -162,8 +162,28 @@
               ())
         (cons (cons body ()) ())))))
 
+; Sending a value to a continuation written as a one-parameter lambda (the
+; rest of the enclosing evaluation) binds it with a let instead: the lambda
+; would otherwise become a closure, built and called through the
+; trampoline once per evaluation (map: two closures per element).
 (define (control-send continuation value)
-  (cons continuation (cons value ())))
+  (if (control-inline-continuation? continuation)
+      (cons 214
+        (cons (cons (cons (car (car (cdr continuation))) value) ())
+          (cons (car (cdr (cdr continuation))) ())))
+      (cons continuation (cons value ()))))
+
+(define (control-inline-continuation? continuation)
+  (if (pair-shape? continuation)
+      (if (number? (car continuation))
+          (if (= (car continuation) 212)
+              (let ((formals (car (cdr continuation))))
+                (if (pair-shape? formals)
+                    (if (sym-atom? (car formals)) (null? (cdr formals)) #f)
+                    #f))
+              #f)
+          #f)
+      #f))
 
 (define (control-append-one values value)
   (if (null? values)
