@@ -23,30 +23,64 @@ static void numeric_error(const char *who, const char *message,
     npl_primitive_error(who, message, irritant);
 }
 
-static NplVal box_integer_limbs(int32_t sign, const uint32_t *limbs,
-                               uint32_t count)
+/* Trimmed limbs whose magnitude fits a fixnum: store it in *value. */
+static int small_integer(int32_t sign, const uint32_t *limbs, uint32_t count,
+                         NplVal *value)
 {
-    while (count != 0 && limbs[count - 1] == 0) count--;
-    if (count == 0) return npl_fixnum(0);
-    if (count <= 3 && (count < 3 || limbs[2] <= 2)) {
-        uint64_t magnitude = 0;
-        for (uint32_t i = count; i != 0; i--)
-            magnitude = magnitude * NPL_BIG_BASE + limbs[i - 1];
-        if ((sign > 0 && magnitude < NPL_FIXNUM_MAGNITUDE) ||
-            (sign < 0 && magnitude <= NPL_FIXNUM_MAGNITUDE)) {
-            int64_t value = (int64_t)magnitude;
-            return npl_fixnum(sign < 0 ? -value : value);
-        }
+    if (count == 0) {
+        *value = npl_fixnum(0);
+        return 1;
     }
+    if (count > 3 || (count == 3 && limbs[2] > 2)) return 0;
+    uint64_t magnitude = 0;
+    for (uint32_t i = count; i != 0; i--)
+        magnitude = magnitude * NPL_BIG_BASE + limbs[i - 1];
+    if ((sign > 0 && magnitude < NPL_FIXNUM_MAGNITUDE) ||
+        (sign < 0 && magnitude <= NPL_FIXNUM_MAGNITUDE)) {
+        int64_t integer = (int64_t)magnitude;
+        *value = npl_fixnum(sign < 0 ? -integer : integer);
+        return 1;
+    }
+    return 0;
+}
+
+/* A bignum of up to count limbs that arithmetic writes in place, then
+ * finish_integer trims. The allocation may collect, and a view's limbs
+ * point inside the operand's bignum, which the conservative stack scan
+ * does not count as a reference: callers keep the operand values in a
+ * volatile local until the result is finished. */
+static NplBigint *alloc_integer(uint64_t count)
+{
+    if (count > UINT32_MAX ||
+        count > (SIZE_MAX - sizeof(NplBigint)) / sizeof(uint32_t))
+        npl_runtime_oom_internal();
     NplBigint *number = (NplBigint *)npl_alloc_object(
         sizeof(NplBigint) + (size_t)count * sizeof(uint32_t));
     number->header.tag = BOX_BIGNUM;
     number->header.flags = 0;
+    number->capacity = (uint32_t)count;
+    return number;
+}
+
+static NplVal finish_integer(NplBigint *number, int32_t sign, uint32_t count)
+{
+    while (count != 0 && number->limbs[count - 1] == 0) count--;
     number->sign = sign < 0 ? -1 : 1;
     number->count = count;
-    number->capacity = count;
-    memcpy(number->limbs, limbs, (size_t)count * sizeof(uint32_t));
+    NplVal small;
+    if (small_integer(sign, number->limbs, count, &small)) return small;
     return (NplVal)(uintptr_t)number | TAG_PTR;
+}
+
+static NplVal box_integer_limbs(int32_t sign, const uint32_t *limbs,
+                               uint32_t count)
+{
+    while (count != 0 && limbs[count - 1] == 0) count--;
+    NplVal small;
+    if (small_integer(sign, limbs, count, &small)) return small;
+    NplBigint *number = alloc_integer(count);
+    memcpy(number->limbs, limbs, (size_t)count * sizeof(uint32_t));
+    return finish_integer(number, sign, count);
 }
 
 static void integer_view(NplIntegerView *view, NplVal value,
@@ -103,31 +137,53 @@ static NplVal integer_add_magnitudes(int32_t sign,
                                      const NplIntegerView *right,
                                      int subtract)
 {
-    uint32_t count = left->count > right->count ? left->count : right->count;
-    uint64_t capacity = (uint64_t)count + 1;
-    if (capacity > UINT32_MAX || capacity > SIZE_MAX / sizeof(uint32_t))
-        npl_runtime_oom_internal();
-    uint32_t *limbs = (uint32_t *)calloc((size_t)capacity, sizeof(uint32_t));
-    if (!limbs) npl_runtime_oom_internal();
-    uint64_t carry = 0;
-    for (uint32_t index = 0; index < count; index++) {
-        int64_t a = index < left->count ? left->limbs[index] : 0;
-        int64_t b = index < right->count ? right->limbs[index] : 0;
-        int64_t result = subtract ? a - b - (int64_t)carry
-                                  : a + b + (int64_t)carry;
+    /* Locals: the result may alias the views as far as the C compiler
+     * knows, which would reload them on every store. */
+    const uint32_t *left_limbs = left->limbs;
+    const uint32_t *right_limbs = right->limbs;
+    uint32_t left_count = left->count;
+    uint32_t right_count = right->count;
+    /* A subtraction's left magnitude is the larger; an addition puts the
+     * longer operand on the left. */
+    if (!subtract && left_count < right_count) {
+        const uint32_t *limbs = left_limbs;
+        left_limbs = right_limbs;
+        right_limbs = limbs;
+        left_count = right->count;
+        right_count = left->count;
+    }
+    NplBigint *number = alloc_integer((uint64_t)left_count + 1);
+    uint32_t *limbs = number->limbs;
+    uint32_t index = 0;
+    int64_t carry = 0;
+    for (; index < right_count; index++) {
+        int64_t result = subtract
+            ? (int64_t)left_limbs[index] - right_limbs[index] - carry
+            : (int64_t)left_limbs[index] + right_limbs[index] + carry;
         if (subtract) {
-            if (result < 0) { result += NPL_BIG_BASE; carry = 1; }
-            else carry = 0;
+            carry = result < 0;
+            if (carry) result += NPL_BIG_BASE;
         } else {
             carry = result >= NPL_BIG_BASE;
             if (carry) result -= NPL_BIG_BASE;
         }
         limbs[index] = (uint32_t)result;
     }
+    /* The longer operand's remaining limbs: propagate the carry, then copy
+     * (adding a small number to a large one is mostly the copy). */
+    for (; index < left_count && carry != 0; index++) {
+        int64_t result = subtract ? (int64_t)left_limbs[index] - 1
+                                  : (int64_t)left_limbs[index] + 1;
+        carry = subtract ? result < 0 : result >= NPL_BIG_BASE;
+        if (carry) result += subtract ? NPL_BIG_BASE : -(int64_t)NPL_BIG_BASE;
+        limbs[index] = (uint32_t)result;
+    }
+    if (index < left_count)
+        memcpy(limbs + index, left_limbs + index,
+               (size_t)(left_count - index) * sizeof(uint32_t));
+    uint32_t count = left_count;
     if (!subtract && carry) limbs[count++] = (uint32_t)carry;
-    NplVal result = box_integer_limbs(sign, limbs, count);
-    free(limbs);
-    return result;
+    return finish_integer(number, sign, count);
 }
 
 /* Numeric syntax is ASCII, so the parsers below read narrow string bytes
@@ -575,6 +631,8 @@ NplVal npl_number_add(NplVal left, NplVal right)
         return npl_inexact_arithmetic(left, right, '+');
     if (is_rational_box(left) || is_rational_box(right))
         return rational_arithmetic(left, right, '+');
+    volatile NplVal operands[2] = { left, right };
+    (void)operands;
     NplIntegerView a;
     NplIntegerView b;
     integer_view(&a, left, "+");
@@ -601,6 +659,8 @@ NplVal npl_number_sub(NplVal left, NplVal right)
         return npl_inexact_arithmetic(left, right, '-');
     if (is_rational_box(left) || is_rational_box(right))
         return rational_arithmetic(left, right, '-');
+    volatile NplVal operands[2] = { left, right };
+    (void)operands;
     NplIntegerView a;
     NplIntegerView b;
     integer_view(&a, left, "-");
@@ -639,36 +699,43 @@ NplVal npl_number_mul(NplVal left, NplVal right)
             ? NPL_FIXNUM_MAGNITUDE : NPL_FIXNUM_MAGNITUDE - 1;
         if (ay == 0 || ax <= limit / ay) return npl_fixnum(x * y);
     }
+    volatile NplVal operands[2] = { left, right };
+    (void)operands;
     NplIntegerView a;
     NplIntegerView b;
     integer_view(&a, left, "*");
     integer_view(&b, right, "*");
     if (a.sign == 0 || b.sign == 0) return npl_fixnum(0);
-    uint64_t capacity = (uint64_t)a.count + b.count + 1;
-    if (capacity > UINT32_MAX || capacity > SIZE_MAX / sizeof(uint32_t))
-        npl_runtime_oom_internal();
-    uint32_t count = (uint32_t)capacity - 1;
-    uint32_t *limbs = (uint32_t *)calloc((size_t)capacity, sizeof(uint32_t));
-    if (!limbs) npl_runtime_oom_internal();
-    for (uint32_t i = 0; i < a.count; i++) {
+    /* (* x) folds from 1 (lib/scheme/integer.scm multiply-integers). */
+    if (a.sign > 0 && a.count == 1 && a.limbs[0] == 1) return right;
+    if (b.sign > 0 && b.count == 1 && b.limbs[0] == 1) return left;
+    /* Rows over the shorter operand: a small multiplier is one pass. Row i
+     * leaves limb i + inner count zero until its carry, and every partial
+     * product with carry fits below BASE squared, so the carry is one limb. */
+    const NplIntegerView *outer = a.count <= b.count ? &a : &b;
+    const NplIntegerView *inner = a.count <= b.count ? &b : &a;
+    uint64_t count = (uint64_t)a.count + b.count;
+    NplBigint *number = alloc_integer(count);
+    /* Locals: the result may alias the views as far as the C compiler
+     * knows, which would reload them on every store. */
+    uint32_t *limbs = number->limbs;
+    const uint32_t *outer_limbs = outer->limbs;
+    const uint32_t *inner_limbs = inner->limbs;
+    uint32_t outer_count = outer->count;
+    uint32_t inner_count = inner->count;
+    for (uint32_t i = 0; i < outer_count; i++) {
+        uint64_t multiplier = outer_limbs[i];
         uint64_t carry = 0;
-        for (uint32_t j = 0; j < b.count; j++) {
-            uint64_t current = (uint64_t)a.limbs[i] * b.limbs[j] +
-                               limbs[i + j] + carry;
-            limbs[i + j] = (uint32_t)(current % NPL_BIG_BASE);
+        uint32_t *row = limbs + i;
+        for (uint32_t j = 0; j < inner_count; j++) {
+            uint64_t current = multiplier * inner_limbs[j] + row[j] + carry;
+            row[j] = (uint32_t)(current % NPL_BIG_BASE);
             carry = current / NPL_BIG_BASE;
         }
-        uint32_t index = i + b.count;
-        while (carry != 0) {
-            uint64_t current = (uint64_t)limbs[index] + carry;
-            limbs[index++] = (uint32_t)(current % NPL_BIG_BASE);
-            carry = current / NPL_BIG_BASE;
-        }
+        row[inner_count] = (uint32_t)carry;
     }
-    NplVal result = box_integer_limbs(a.sign == b.sign ? 1 : -1,
-                                      limbs, count);
-    free(limbs);
-    return result;
+    return finish_integer(number, a.sign == b.sign ? 1 : -1,
+                          (uint32_t)count);
 }
 
 int32_t npl_number_compare(NplVal left, NplVal right)
