@@ -432,6 +432,38 @@ NplVal npl_cdr(NplVal v) {
     return npl_pair_ptr(v)->cdr;
 }
 
+/* (npl_freeze_literal value): mark a constant the evaluator built from a
+ * quoted datum or literal as immutable, as compiled code's static data is
+ * (NPL_FLAG_LITERAL): its pairs, strings, vectors, and bytevectors,
+ * recursively. Symbols and numbers are left alone. Returns value. Cycles
+ * (datum labels) stop at an already-marked object. */
+NplVal npl_freeze_literal(NplVal value)
+{
+    NplVal item = value;
+    while (npl_is_ptr(item)) {
+        NplHeader *header = npl_header(item);
+        if (header->flags & NPL_FLAG_LITERAL) break;
+        if (header->tag == BOX_STRING || header->tag == BOX_BYTEVECTOR) {
+            header->flags |= NPL_FLAG_LITERAL;
+            break;
+        }
+        if (header->tag == BOX_VECTOR) {
+            header->flags |= NPL_FLAG_LITERAL;
+            NplVector *vector = (NplVector *)header;
+            for (uint32_t i = 0; i < vector->length; i++)
+                npl_freeze_literal(vector->data[i]);
+            break;
+        }
+        if (header->tag != BOX_PAIR) break;
+        /* A list's spine is followed in this loop, its elements by
+         * recursion. */
+        header->flags |= NPL_FLAG_LITERAL;
+        npl_freeze_literal(npl_pair_ptr(item)->car);
+        item = npl_pair_ptr(item)->cdr;
+    }
+    return value;
+}
+
 void npl_set_car(NplVal pair, NplVal val) {
     if (!npl_is_ptr(pair)) return;
     NplPair *p = npl_pair_ptr(pair);

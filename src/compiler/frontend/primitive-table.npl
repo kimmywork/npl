@@ -194,6 +194,8 @@
     ("npl_handler_pop" fixed 1 0)
     ; raise in a direct entry (direct-calls.npl, runtime/error.c)
     ("npl_raise_direct" fixed 1 0)
+    ; evaluator constants (lib/npl/evaluator-compile.scm, runtime/value.c)
+    ("npl_freeze_literal" fixed 1 0)
     ("npl_make_parameter" fixed 2 0)
     ("npl_parameter_converter" fixed 1 0)
     ("npl_parameters_enter" fixed 3 0)

@@ -536,19 +536,24 @@
 
 (define (eval-constant value) (lambda (frame) value))
 
+; A literal or quoted datum is immutable (R7RS 3.4), as compiled code's
+; static data is: mutating it raises "cannot mutate a literal". A string
+; literal is copied first: its text belongs to the frontend.
+(define (eval-literal value) (eval-constant (npl_freeze_literal value)))
+
 (define (eval-compile-tagged tag form scope environment)
   (cond
-    ((= tag 101) (eval-constant (cdr form)))
+    ((= tag 101) (eval-literal (string-copy (cdr form))))
     ((= tag 102) (eval-constant (integer->char (cdr form))))
     ((= tag 103)
-     (eval-constant
+     (eval-literal
        (list->vector (frontend-datum->runtime (car (cdr form))))))
     ((= tag 104)
-     (eval-constant (frontend-bytevector-items->runtime (car (cdr form)))))
+     (eval-literal (frontend-bytevector-items->runtime (car (cdr form)))))
     ((= tag 108) (eval-constant #t))
     ((= tag 109) (eval-constant #f))
     ((= tag 110) (eval-constant EVAL-UNSPECIFIED))
-    ((= tag 204) (eval-constant (frontend-datum->runtime (car (cdr form)))))
+    ((= tag 204) (eval-literal (frontend-datum->runtime (car (cdr form)))))
     ((= tag 200) (eval-compile-define form scope environment))
     ((= tag 211) (eval-compile-define-function form scope environment))
     ((= tag 212) (eval-compile-lambda form scope environment))

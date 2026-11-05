@@ -7,5 +7,6 @@
           (scheme read)
           (scheme file)
           (scheme write)
+          (only (npl primitive) npl_freeze_literal)
           (npl frontend))
   (include "evaluator-compile.scm" "evaluator-session.scm"))

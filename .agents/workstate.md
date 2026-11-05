@@ -178,11 +178,11 @@ allocation/GC, deferred with GC tuning. Next: user decision.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 238,627 lines; SHA-256
-  `bc859f4739043e813c0896dd6f454e5d87bb02ddbd68ef94e8273a450de317f3`
-  (macOS strict relay, 2026-11-05, C3). The closure layout changed with
-  it (capture i at byte 48 + 8i): a seed from before C3 must be linked
-  with a runtime from before C3.
+- `bootstrap/current.ssa`: 238,633 lines; SHA-256
+  `00cf05db05cd507aa779fa8f62aafb20ee5584d8825dcbb78335cfa718a23e19`
+  (macOS strict relay, 2026-11-05, npli literals). The closure layout
+  changed with C3 (capture i at byte 48 + 8i): a seed from before C3 must
+  be linked with a runtime from before C3.
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.
@@ -191,9 +191,6 @@ allocation/GC, deferred with GC tuning. Next: user decision.
 ## Open Items
 
 - `(sqrt -1.0-0.0i)` branch convention needs a user decision.
-- npli does not reject mutation of vector literals.
-- Evaluator built-in numeric primitives used without imports still report
-  plain evaluator errors (`+: expected numbers`).
 - Guile 3.0 oracle gaps (covered by native suite `error-objects` instead):
   failed `open-input-file` is not `file-error?`; absent irritants are #f.
 

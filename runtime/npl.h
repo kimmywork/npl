@@ -520,6 +520,8 @@ NplVal npl_box_integer_limbs_internal(int32_t sign, const uint32_t *limbs,
 /* The direct entry of a closure called with argc arguments (the
  * continuation included), or 0 (value.c). */
 NplVal npl_closure_direct(NplVal value, int64_t argc);
+/* Mark an evaluator constant immutable, deeply (value.c). */
+NplVal npl_freeze_literal(NplVal value);
 NplVal npl_direct_fallback(NplGenericFunction function, NplVal environment,
                            int64_t argc, NplVal *argv);
 /* The same for a variadic function: argv holds the fixed arguments and then

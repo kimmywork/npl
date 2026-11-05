@@ -268,7 +268,12 @@
         ((null? datum) ())
         ((datum-symbol? datum)
          (frontend-runtime-symbol (datum-symbol-name datum)))
-        ((datum-string? datum) (datum-string-text datum))
+        ; A copy: the evaluator marks constants immutable
+        ; (evaluator-compile.scm eval-literal), and the datum's text belongs
+        ; to the frontend.
+        ((datum-string? datum)
+         (let ((text (datum-string-text datum)))
+           (substring text 0 (string-length text))))
         ((datum-char? datum) (integer->char (datum-char-code datum)))
         ((datum-vector? datum)
          (list->vector

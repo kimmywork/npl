@@ -1,0 +1,9 @@
+name=literal-mutation
+native=native.npl
+repl=repl.in
+repl-body=behavior.scm
+guile=guile.scm
+oracle=none
+expected-out=expected.out
+expected-err=expected.err
+expected-status=0

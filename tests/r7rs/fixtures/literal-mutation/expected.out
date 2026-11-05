@@ -1,0 +1,3 @@
+(string-set!: cannot mutate a literal vector-set!: cannot mutate a literal set-car!: cannot mutate a literal set-cdr!: cannot mutate a literal)
+(string-set!: cannot mutate a literal vector-set!: cannot mutate a literal vector-set!: cannot mutate a literal bytevector-u8-set!: cannot mutate a literal string-fill!: cannot mutate a literal)
+(mutated mutated mutated mutated mutated)
