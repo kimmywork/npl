@@ -3,10 +3,10 @@
 ; current-port parameters.
 
 (define (input-port-argument optional)
-  (if (pair? optional) (car optional) (current-input-port)))
+  (if (pair? optional) (car optional) (raw-current-input-port)))
 
 (define (output-port-argument optional)
-  (if (pair? optional) (car optional) (current-output-port)))
+  (if (pair? optional) (car optional) (raw-current-output-port)))
 
 (define (read-line . port)
   (let ((in (input-port-argument port)))
@@ -37,11 +37,14 @@
   (let ((out (output-port-argument optional))
         (bounds (checked-range "write-string" (string-length string)
                                (if (pair? optional) (cdr optional) '()))))
-    (let loop ((index (car bounds)))
-      (if (raw-less index (cdr bounds))
-          (begin
-            (write-char (string-ref string index) out)
-            (loop (raw-add index 1)))))))
+    ; One port write for the whole range (display prints a string's
+    ; characters as they are).
+    (display (if (if (raw-equal (car bounds) 0)
+                     (raw-equal (cdr bounds) (string-length string))
+                     #f)
+                 string
+                 (substring string (car bounds) (cdr bounds)))
+             out)))
 
 (define (char-ready? . port) (npl_port_ready_p (input-port-argument port)))
 (define (u8-ready? . port) (npl_byte_ready_p (input-port-argument port)))

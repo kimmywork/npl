@@ -21,7 +21,7 @@
                 string=? string<? string>? string<=? string>=?)
           (only (npl primitive)
                 npl_char_property npl_char_digit_value npl_char_case
-                npl_char_full_case))
+                npl_char_full_case npl_string_full_case))
   (begin
     ; Properties and mappings are Unicode table lookups (runtime/unicode.c,
     ; tables from tools/gen_unicode.py); R7RS 6.6 names the properties.
@@ -49,19 +49,13 @@
       (char-ci-chain char>=? a b rest))
 
     ; Full string case mappings (R7RS 6.7): each character's full mapping,
-    ; in order. string-downcase applies the Final_Sigma rule (Unicode 3.13):
+    ; in order (npl_string_full_case, runtime/unicode.c, for upcase and
+    ; foldcase). string-downcase applies the Final_Sigma rule (Unicode 3.13):
     ; capital sigma becomes final sigma when a Cased character precedes it
     ; and none follows (Case_Ignorable characters skipped). Guile and Racket
     ; both apply it.
-    (define (full-case string kind)
-      (let loop ((characters (string->list string)) (output '()))
-        (if (null? characters)
-            (list->string (reverse output))
-            (loop (cdr characters)
-                  (append (reverse (npl_char_full_case (car characters) kind))
-                          output)))))
-    (define (string-upcase s) (full-case s 0))
-    (define (string-foldcase s) (full-case s 2))
+    (define (string-upcase s) (npl_string_full_case s 0))
+    (define (string-foldcase s) (npl_string_full_case s 2))
 
     (define sigma (integer->char #x3A3))
     (define final-sigma (integer->char #x3C2))

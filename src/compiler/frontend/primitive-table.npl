@@ -131,6 +131,7 @@
     ("npl_char_digit_value" fixed 1 0)
     ("npl_char_case" fixed 2 0)
     ("npl_char_full_case" fixed 2 0)
+    ("npl_string_full_case" fixed 2 0)
     ; (scheme time)
     ("npl_jiffies_per_second" fixed 0 0)
     ("npl_current_jiffy" fixed 0 0)

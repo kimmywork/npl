@@ -168,13 +168,16 @@ fact -7% (now below C2a), closures -4% against the previous commit.
 Against Guile/Racket (worklog 2026-11-03): ahead on fib, tak, loop; mixed
 on fact, vectors; behind on callcc (vs Racket), strings 3-4x, closures 4x,
 lists 5-9x. Perf is judged against Guile/Racket, not our own commits; GC
-fine-tuning (incremental stack scan) is deferred. Next: user decision.
+fine-tuning (incremental stack scan) is deferred. 2026-11-05: closures
+(bignum in place) and strings (write-string, string case in C) are now
+level with Guile/Racket (worklog 2026-11-05). In progress: lists (map is
+the gap: 3.85 s vs Guile 0.70 / Racket 0.29 for its part).
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 248,793 lines; SHA-256
-  `097c6662797c6366dd0a80753b8d2b25ef2bc151d8b3b8516f5f396912113ffb`
-  (macOS strict relay, 2026-11-03, C2c).
+- `bootstrap/current.ssa`: 248,799 lines; SHA-256
+  `60f69649664cef384ae05702592911b8bd217f955646b074e1fae48608d40721`
+  (macOS strict relay, 2026-11-05, strings).
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

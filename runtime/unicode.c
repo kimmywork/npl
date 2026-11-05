@@ -138,6 +138,53 @@ NplVal npl_char_full_case(NplVal character, NplVal kind)
     return result;
 }
 
+/* (npl_string_full_case string kind): every character's full mapping, in
+ * order (string-upcase, string-foldcase; string-downcase adds Final_Sigma
+ * in lib/scheme/char.sld). */
+NplVal npl_string_full_case(NplVal string, NplVal kind)
+{
+    if (!npl_is_ptr(string) || npl_header(string)->tag != BOX_STRING)
+        npl_primitive_error("string case", "expected a string", string);
+    const uint32_t (*table)[5];
+    size_t table_count;
+    const uint32_t (*simple)[2];
+    size_t simple_count;
+    switch (npl_is_fixnum(kind) ? npl_fixnum_value(kind) : -1) {
+    case 0: table = npl_full_upper; table_count = COUNT(npl_full_upper);
+            simple = npl_simple_upper; simple_count = COUNT(npl_simple_upper);
+            break;
+    case 1: table = npl_full_lower; table_count = COUNT(npl_full_lower);
+            simple = npl_simple_lower; simple_count = COUNT(npl_simple_lower);
+            break;
+    case 2: table = npl_full_fold; table_count = COUNT(npl_full_fold);
+            simple = npl_simple_fold; simple_count = COUNT(npl_simple_fold);
+            break;
+    default:
+        npl_primitive_error("string case", "invalid mapping", kind);
+        return npl_nil();
+    }
+    const NplString *text = (const NplString *)npl_header(string);
+    uint32_t count = npl_string_char_count_internal(text);
+    uint32_t *chars = (uint32_t *)malloc(((size_t)count * 3 + 1) *
+                                         sizeof(uint32_t));
+    if (!chars) npl_runtime_oom_internal();
+    uint32_t used = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t code = npl_string_char_at_internal(text, i);
+        const uint32_t *row = full_lookup(table, table_count, code);
+        if (row) {
+            for (uint32_t k = 0; k < row[1]; k++) chars[used++] = row[2 + k];
+        } else {
+            uint32_t target = code;
+            map_lookup(simple, simple_count, code, &target);
+            chars[used++] = target;
+        }
+    }
+    NplVal result = npl_string_from_chars_internal(chars, used, BOX_STRING);
+    free(chars);
+    return result;
+}
+
 /* #!fold-case (R7RS 2.1): an identifier read under the directive is
  * string-foldcase'd (full folding). */
 NplVal npl_symbol_fold_internal(NplVal symbol)
