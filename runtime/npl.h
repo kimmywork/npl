@@ -513,6 +513,10 @@ NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
  * npl_direct_fallback below this stack address (stack.c). */
 extern uintptr_t npl_stack_limit;
 void npl_stack_init_internal(uintptr_t base);
+/* An exact integer from base-10^9 limbs, least significant first; a
+ * fixnum when it fits (numeric.c; number_read.c builds integers with it). */
+NplVal npl_box_integer_limbs_internal(int32_t sign, const uint32_t *limbs,
+                                      uint32_t count);
 /* The direct entry of a closure called with argc arguments (the
  * continuation included), or 0 (value.c). */
 NplVal npl_closure_direct(NplVal value, int64_t argc);

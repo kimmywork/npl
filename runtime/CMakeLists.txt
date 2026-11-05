@@ -13,6 +13,7 @@ add_library(npl_runtime STATIC
   ${RUNTIME_SRC_DIR}/inexact.c
   ${RUNTIME_SRC_DIR}/io.c
   ${RUNTIME_SRC_DIR}/lexer.c
+  ${RUNTIME_SRC_DIR}/number_read.c
   ${RUNTIME_SRC_DIR}/numeric.c
   ${RUNTIME_SRC_DIR}/port.c
   ${RUNTIME_SRC_DIR}/read.c
