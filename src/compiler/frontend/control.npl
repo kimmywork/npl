@@ -259,12 +259,17 @@
               (cons (cons (cons value (cons argument ())) ()) ())))))
       value))
 
+; A call of a closure value with a literal continuation is marked for the
+; backend's direct-entry fast path (direct-calls.npl
+; control-closure-call-site?).
 (define (control-cps-known-call head arguments continuation)
   (control-evaluate-list
     arguments ()
     (lambda (values)
-      (cons head
-            (control-append-one values continuation)))))
+      (if (control-closure-call-site? head continuation)
+          (cons 223 (cons head (cons values (cons continuation ()))))
+          (cons head
+                (control-append-one values continuation))))))
 
 (define (control-values-call values)
   (cons (control-symbol "npl_make_values") values))
@@ -681,7 +686,15 @@
 (define (control-cps-body body continuation)
   (control-cps-expression (core-body-expression body) continuation))
 
+; A lambda whose body is direct-safe also gets a direct entry
+; (direct-calls.npl control-direct-lambda).
 (define (control-transform-lambda expression)
+  (let ((cps (control-cps-lambda expression)))
+    (if (direct-lambda? expression)
+        (control-direct-lambda cps expression)
+        cps)))
+
+(define (control-cps-lambda expression)
   (let ((continuation-name (control-fresh-name "_npl_return_")))
     (cons 212
       (cons

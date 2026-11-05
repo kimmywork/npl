@@ -185,6 +185,7 @@
     ((102 103 104) (walk-boxed e))
     ((204) (walk-datum (car (cdr e))))
     ((212) (emit-lambda e env))
+    ((219) (emit-direct-lambda e env))
     ((213) (emit-if e env))
     ((214) (emit-let e env))
     ((216) (emit-body (cdr e) env))

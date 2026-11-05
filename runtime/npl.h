@@ -218,14 +218,18 @@ typedef struct {
 
 /* A compiled lambda's captured values are stored in the closure itself
  * (npl_make_flat_closure); its environment is then the closure, so compiled
- * code reads capture i at a fixed offset. Runtime and FFI closures have no
- * captures and an arbitrary environment value. */
+ * code reads capture i at a fixed offset (byte 48 + 8i). Runtime and FFI
+ * closures have no captures and an arbitrary environment value. direct:
+ * the lambda's direct entry (docs/design-calls.md C3), which takes the
+ * closure's arguments without the continuation and returns the value;
+ * NULL for every other closure. The collector does not visit it. */
 typedef struct {
     NplHeader header;
     NplGenericFunction function;
     NplVal environment;
     int64_t arity;
     int64_t capture_count;
+    NplGenericFunction direct;
     NplVal captures[];
 } NplClosure;
 
@@ -509,6 +513,9 @@ NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
  * npl_direct_fallback below this stack address (stack.c). */
 extern uintptr_t npl_stack_limit;
 void npl_stack_init_internal(uintptr_t base);
+/* The direct entry of a closure called with argc arguments (the
+ * continuation included), or 0 (value.c). */
+NplVal npl_closure_direct(NplVal value, int64_t argc);
 NplVal npl_direct_fallback(NplGenericFunction function, NplVal environment,
                            int64_t argc, NplVal *argv);
 /* The same for a variadic function: argv holds the fixed arguments and then

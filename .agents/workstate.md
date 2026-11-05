@@ -170,14 +170,19 @@ on fact, vectors; behind on callcc (vs Racket), strings 3-4x, closures 4x,
 lists 5-9x. Perf is judged against Guile/Racket, not our own commits; GC
 fine-tuning (incremental stack scan) is deferred. 2026-11-05: closures
 (bignum in place) and strings (write-string, string case in C) are now
-level with Guile/Racket (worklog 2026-11-05). In progress: lists (map is
-the gap: 3.85 s vs Guile 0.70 / Racket 0.29 for its part).
+level with Guile/Racket (worklog 2026-11-05). C3 done (direct entries for
+lambdas, design-calls addendum C3): lists 5.00 -> 1.94 s (Guile 0.97,
+Racket 0.57), callcc 3.56 -> 1.93 (Guile 2.24). Remaining gaps: lists and
+vectors (2x Guile) and callcc (4x Racket); the lists remainder is
+allocation/GC, deferred with GC tuning. Next: user decision.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 213,025 lines; SHA-256
-  `2b261b9f0d98be5972e3322129cbed4fb4b9d81ffb85d0c042d76ecd5afd58cd`
-  (macOS strict relay, 2026-11-05, literal continuations as let).
+- `bootstrap/current.ssa`: 238,627 lines; SHA-256
+  `bc859f4739043e813c0896dd6f454e5d87bb02ddbd68ef94e8273a450de317f3`
+  (macOS strict relay, 2026-11-05, C3). The closure layout changed with
+  it (capture i at byte 48 + 8i): a seed from before C3 must be linked
+  with a runtime from before C3.
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

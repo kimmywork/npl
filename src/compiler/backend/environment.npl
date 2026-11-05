@@ -68,6 +68,13 @@
             ((101 102 103 104 108 109 110 204) acc)
             ((200) (core-names (car (cdr (cdr e))) refs acc))
             ((211 212) (core-names-list (car (cdr (cdr e))) refs acc))
+            ; (219 cps-lambda params body): the CPS lambda's names.
+            ((219) (core-names (car (cdr e)) refs acc))
+            ; (223 head arguments continuation): a closure call site.
+            ((223)
+             (core-names (car (cdr e)) refs
+               (core-names-list (car (cdr (cdr e))) refs
+                 (core-names (car (cdr (cdr (cdr e)))) refs acc))))
             ((214 220 221 222)
              (core-names-list
                (car (cdr (cdr e))) refs
@@ -184,10 +191,12 @@
               (env-bind env (cdr (car params)) value))))))
 
 ; A lambda's environment is its flat closure (runtime npl_make_flat_closure):
-; capture i is the word at byte 40 + 8i of NplClosure, and %npl_env carries
+; capture i is the word at byte 48 + 8i of NplClosure, and %npl_env carries
 ; pointer tag 1. Only this lambda's creation site builds closures for its
 ; function, so the layout needs no check.
-(define (capture-offset index) (number->string (+ 39 (* index 8))))
+(define (capture-offset index) (number->string (+ 47 (* index 8))))
+; NplClosure.direct, as an offset from the tagged closure pointer.
+(define CLOSURE-DIRECT-OFFSET "39")
 
 (define (bind-captures captures index env)
   (if (null? captures)
@@ -220,6 +229,24 @@
 
 (define (emit-lambda e env) (emit-named-lambda e env #f))
 
+; (219 cps-lambda params direct-body) (frontend direct-calls.npl): the CPS
+; lambda's closure, with the direct entry stored in it.
+(define (emit-direct-lambda e env)
+  ; The CPS lambda takes the next number; lambdas nested in it come after.
+  ; The direct entry loads the same captures, in the same order.
+  (let ((name (lambda-symbol (+ 1 (cell-get LAMBDA-N)))))
+    (let ((closure (emit-lambda (car (cdr e)) env)))
+      (emit-lambda-direct-entry name (car (cdr (cdr e)))
+        (car (cdr (cdr (cdr e))))
+        (lambda-captures env (car (cdr (cdr (car (cdr e)))))))
+      (let ((slot (new-tmp)))
+        (func-line (string-append slot " =l add " closure ", "
+                                  CLOSURE-DIRECT-OFFSET))
+        (func-line (string-append "storel $" name "_d, " slot)))
+      closure)))
+
+(define (lambda-symbol n) (string-append "_lambda_" (number->string n)))
+
 ; A named loop's lambda (self-name, from bindings.npl) may jump to itself
 ; when its parameters are fixed and unassigned and it captures its name.
 (define (self-lambda-entry self-name params capture-env)
@@ -241,9 +268,7 @@
     (let ((body (car (cdr (cdr e)))))
       (let ((captures (lambda-captures env body)))
         (cell-set! LAMBDA-N (+ 1 (cell-get LAMBDA-N)))
-        (let ((name
-                (string-append "_lambda_"
-                               (number->string (cell-get LAMBDA-N)))))
+        (let ((name (lambda-symbol (cell-get LAMBDA-N))))
           (let ((saved-mode (cell-get CURBUF)))
             (let ((saved-local (cell-get LOCAL-BUF))
                   (saved-self (cell-get SELF-FUNCTION))

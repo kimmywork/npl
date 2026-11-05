@@ -231,6 +231,10 @@
 ; argument buffer in @start; its address is the stack position. A variadic
 ; entry's fallback spreads the rest list (npl_direct_fallback_rest).
 (define (emit-direct-guard name ops slot rest)
+  (emit-stack-guard (string-append "$" (lookup-func name)) "2" ops slot rest))
+
+; function and environment: the CPS entry the fallback runs.
+(define (emit-stack-guard function environment ops slot rest)
   (let ((limit (new-tmp)) (below (new-tmp)) (result (new-tmp))
         (fallback (new-label)) (body (new-label)))
     (func-line (string-append limit " =l loadl $npl_stack_limit"))
@@ -241,7 +245,7 @@
     (func-line
       (string-append result " =l call $"
                      (if rest "npl_direct_fallback_rest" "npl_direct_fallback")
-                     "(l $" (lookup-func name) ", l 2, l "
+                     "(l " function ", l " environment ", l "
                      (number->string
                        (if rest (- (count-up ops 0) 1) (count-up ops 0)))
                      ", l " slot ")"))
@@ -404,3 +408,59 @@
         (emit-top-level (car forms))
         (flush-code-buffers)
         (emit-all-forms (cdr forms)))))
+
+; ---------------- direct entries of lambdas (design-calls C3) ----------------
+;
+; $<name>_d(l %npl_env, l %npl_p0, ...): the direct entry of a lambda whose
+; body is direct-safe. %npl_env is the closure, as for its CPS function
+; $<name>, which is the stack-limit fallback. The body is emitted as a
+; function's direct entry is, with the captures loaded first; it never
+; jumps to itself (a lambda's self call goes through a captured variable).
+(define (emit-lambda-direct-entry name params body captures)
+  (let ((saved-mode (cell-get CURBUF)) (saved-local (cell-get LOCAL-BUF))
+        (saved-self (cell-get SELF-FUNCTION))
+        (saved-cells (cell-get LOCAL-LOOP-CELLS))
+        (saved-direct (cell-get DIRECT-ENTRY))
+        (ops (direct-param-ops params 0)) (slot (new-tmp)))
+    (cell-set! LOCAL-BUF ())
+    (cell-set! LOCAL-LOOP-CELLS ())
+    (cell-set! CURBUF "X")
+    (cell-set! SELF-FUNCTION #f)
+    (func-line
+      (string-append "function l $" name "_d(l %npl_env"
+                     (if (null? ops) "" (string-append ", " (args-join ops)))
+                     ") {"))
+    (func-line "@start")
+    (func-line
+      (string-append slot " =l alloc8 "
+        (number->string (* 8 (if (null? ops) 1 (count-up ops 0))))))
+    (let ((capture-env (bind-captures captures 0 ()))
+          (temps (direct-param-temps ops)))
+      (let ((prologue (cell-get LOCAL-BUF)))
+        (cell-set! LOCAL-BUF ())
+        (emit-stack-guard (string-append "$" name) "%npl_env" ops slot #f)
+        (let ((guard (cell-get LOCAL-BUF)))
+          (cell-set! LOCAL-BUF prologue)
+          (cell-set! DIRECT-ENTRY #t)
+          (emit-lambda-direct-body params body temps capture-env
+            (lambda (jumps)
+              (append-list (direct-param-lines temps ops #f) guard)))
+          (func-line "}"))))
+    (print-lines (rev (cell-get DATA-BUF)))
+    (cell-set! DATA-BUF ())
+    (print-lines (rev (cell-get LOCAL-BUF)))
+    (cell-set! LOCAL-BUF saved-local)
+    (cell-set! LOCAL-LOOP-CELLS saved-cells)
+    (cell-set! SELF-FUNCTION saved-self)
+    (cell-set! DIRECT-ENTRY saved-direct)
+    (cell-set! CURBUF saved-mode)))
+
+(define (emit-lambda-direct-body params body temps capture-env guard)
+  (let ((prologue (current-buffer)))
+    (set-current-buffer! ())
+    (let ((env (bind-direct-params params temps capture-env)))
+      (let ((cells (current-buffer)))
+        (set-current-buffer! prologue)
+        (emit-hoisted-body #f params #f body env
+          (lambda (jumps) (append-list cells (guard jumps)))
+          #t)))))

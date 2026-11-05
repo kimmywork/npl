@@ -58,6 +58,40 @@
               ", l " (number->string count) ", l " argv ")"))))
     (func-line "ret 2")))
 
+; ---------------- closure calls with an inline continuation ----------------
+;
+; (223 head arguments continuation) (frontend direct-calls.npl
+; control-closure-call-site?): when the closure in head has a direct entry
+; for this arity (runtime npl_closure_direct), call it and run the
+; continuation's body here with its parameter bound to the result;
+; otherwise make the CPS call. Errors (arity, not a procedure) come from
+; the CPS call, as before.
+(define (emit-closure-call-site e env)
+  (let ((closure (emit-expr (car (cdr e)) env))
+        (args (car (cdr (cdr e))))
+        (continuation (car (cdr (cdr (cdr e))))))
+    (let ((ops (eval-args-fixed args env (count-up args 0) ()))
+          (entry (new-tmp)) (test (new-tmp))
+          (fast (new-label)) (slow (new-label)) (result (new-tmp)))
+      (func-line
+        (string-append entry " =l call $npl_closure_direct(l " closure
+                       ", l " (number->string (+ 1 (count-up ops 0))) ")"))
+      (func-line (string-append test " =w cnel " entry ", 0"))
+      (func-line (string-append "jnz " test ", " fast ", " slow))
+      (func-line fast)
+      (func-line
+        (string-append result " =l call " entry "(l " closure
+          (if (null? ops) "" (string-append ", " (args-join ops))) ")"))
+      (emit-tail-body (car (cdr (cdr continuation)))
+        (env-bind env (cdr (car (car (cdr continuation)))) result))
+      (func-line slow)
+      (let ((all (append-list ops (cons (emit-expr continuation env) ()))))
+        (func-line
+          (string-append "call $npl_tail_request_closure(l " closure
+            ", l " (number->string (count-up all 0))
+            ", l " (argv-op all) ")"))
+        (func-line "ret 2")))))
+
 ; ---------------- direct self tail calls ----------------
 ;
 ; A tail call from an eligible top-level function (program.npl
@@ -255,6 +289,7 @@
         ((213) (emit-tail-if expression env))
         ((214) (emit-tail-let expression env 0))
         ((216) (emit-tail-sequence (cdr expression) env))
+        ((223) (emit-closure-call-site expression env))
         ((220) (emit-tail-let expression env 1))
         ((221) (emit-tail-let expression env 2))
         ((222) (emit-tail-let expression env 3))

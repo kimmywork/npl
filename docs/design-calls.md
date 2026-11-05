@@ -426,3 +426,62 @@ before any code generation change.
   and the library argument checks become direct-safe through these two
   rules; no special case for `error`. A numeric alias slow path calls the
   library procedure's direct entry when it has one.
+
+## Addendum: C3 Direct Entries for Lambdas (2026-11-05)
+
+### Problem
+
+After C2c, `map` is the gap on the lists workload (its part: 3.5 s CPU
+against Guile 0.70 and Racket 0.29). `map-one` calls an unknown closure,
+`(procedure (car items))`, in non-tail position. Control conversion
+turns that into a CPS call with a continuation closure, and every element
+costs one `npl_make_flat_closure`, three trampoline requests, and about
+800 instructions of call overhead before any allocation. C2 does not
+help: the callee is a closure, not a named function.
+
+### Design
+
+**Direct lambdas.** A lambda with fixed parameters whose body is
+direct-safe under the C2 rules (top-level verdicts are settled first, so
+a lambda may call direct-safe functions; a call through a parameter or a
+captured variable stays unsafe) is converted to
+`(219 cps-lambda direct-body)`. The backend emits the CPS function as
+today plus a direct entry `$_lambda_N_d(l %npl_env, l a0, ...)` that
+takes the arguments as C parameters and returns the value. It checks the stack limit like a
+function's direct entry and falls back through `npl_direct_fallback` to
+the CPS function. Named-let loop lambdas are never direct (they call their
+own captured name), so O2b is unaffected.
+
+**Closure layout.** `NplClosure` gains `direct` (a code pointer, NULL for
+every other closure) before `captures[]`; capture *i* moves from byte
+40 + 8i to 48 + 8i. The collector does not visit it. Creating a direct
+lambda stores the entry into the fresh closure.
+
+**Call sites.** A CPS tail call `(h a ... (lambda (v) body))` whose head
+is a variable holding a closure (not a top-level function, primitive, or
+self call) and
+whose continuation is a literal lambda with a small body that creates no
+lambdas is emitted with two paths. `npl_closure_direct(h, n)` returns the
+direct entry when `h` is a closure that has one and accepts `n`
+arguments, else 0. The fast path calls the entry and runs `body` inline
+with `v` bound, in the same C function. The slow path is today's code.
+Wrong arity, non-procedures, parameter objects and every non-direct
+closure take the slow path, so their errors are unchanged. In `map-one`
+the inline body is the self tail call, so `map` becomes a loop with one
+direct call per element.
+
+**Semantics.** A direct lambda captures no continuation and raises only
+non-continuably, as C2c functions do, so running it on the C stack is
+unobservable. The continuation is not reified on the fast path.
+
+**Seed.** The capture offset is part of the compiled code, so gen1 is
+built by the current seed linked with the previous runtime, then linked
+with the new one; gen2 and gen3 use the new runtime.
+
+### Acceptance
+
+Shared fixture: map and for-each over direct lambdas, a direct lambda
+that raises under guard, call/cc in a mapped procedure (slow path), wrong
+arity and non-procedure errors, a captured variable assigned by the
+lambda, deep recursion from a direct lambda. Gates, GC verify, chibi.
+Bench: lists against Guile and Racket; no workload slower.

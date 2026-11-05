@@ -239,6 +239,15 @@ fi
 build_ssa "$WORK/direct-calls.ssa" "$WORK/direct-calls"
 NPL_GC_NURSERY_BYTES=65536 "$WORK/direct-calls" > "$WORK/direct-calls.out"
 cmp "$DCALLS/expected.out" "$WORK/direct-calls.out"
+# Direct lambdas (design-calls C3): the mapped lambda has a direct entry
+# stored in its closure, and map-one calls it through npl_closure_direct.
+DLAMBDAS="$ROOT/tests/r7rs/fixtures/direct-lambdas"
+emit "$WORK/compiler" "$DLAMBDAS/native.npl" "$WORK/direct-lambdas.ssa"
+grep -q '^function l \$_lambda_[0-9]*_d(l %npl_env, l %npl_p0)' \
+    "$WORK/direct-lambdas.ssa"
+awk -v f='function l $_npl_fn__5fnpl_5flib_5f1_5fmap_5f2done(' \
+    'index($0, f) == 1 {p=1} p {print} p && /^}/ {exit}' \
+    "$WORK/direct-lambdas.ssa" | grep -qF 'call $npl_closure_direct('
 # Lambdas are flat closures: one npl_make_flat_closure per creation and
 # inline capture loads, no separate environment object (design-calls C1b).
 CAPTURES="$ROOT/tests/r7rs/fixtures/closure-captures"

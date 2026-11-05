@@ -322,6 +322,7 @@ NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
     closure->environment = environment;
     closure->arity = arity;
     closure->capture_count = 0;
+    closure->direct = NULL;
     return (NplVal)(uintptr_t)closure | TAG_PTR;
 }
 
@@ -343,10 +344,24 @@ NplVal npl_make_flat_closure(NplGenericFunction function, int64_t arity,
     closure->function = function;
     closure->arity = arity;
     closure->capture_count = count;
+    closure->direct = NULL;
     for (int64_t i = 0; i < count; i++) closure->captures[i] = captures[i];
     NplVal value = (NplVal)(uintptr_t)closure | TAG_PTR;
     closure->environment = value;
     return value;
+}
+
+/* Compiled call sites test this before calling a closure in CPS: a nonzero
+ * result is the code pointer to call instead, with the closure as its
+ * environment and the arguments without the continuation. Fixed arity
+ * only; anything else (another arity, a parameter object, a non-procedure)
+ * takes the CPS call, which reports the error. */
+NplVal npl_closure_direct(NplVal value, int64_t argc)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE) return 0;
+    NplClosure *closure = (NplClosure *)npl_header(value);
+    if (!closure->direct || closure->arity != argc) return 0;
+    return (NplVal)(uintptr_t)closure->direct;
 }
 
 int32_t npl_guard_integer(NplVal value)

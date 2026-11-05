@@ -487,6 +487,59 @@
     (cons (control-direct-bindings (car (cdr expression)))
       (cons (control-direct-body (car (cdr (cdr expression)))) ()))))
 
+; ---------------- direct lambdas (design-calls C3) ----------------
+
+; A lambda with fixed parameters whose body is direct-safe under the rules
+; for functions, after the top-level verdicts are settled. A call through
+; a parameter or captured variable is a local call, so named-let loops are
+; never direct.
+(define (direct-lambda? expression)
+  (let ((params (car (cdr expression))))
+    (if (control-proper-formals? params)
+        (let ((entry (direct-entry "" (direct-length params 0) #f)))
+          (direct-walk (core-body-expression (car (cdr (cdr expression))))
+                       #t entry)
+          (if (direct-safe? entry) (not (direct-unsafe-callee entry)) #f))
+        #f)))
+
+; (219 cps-lambda params direct-body): the CPS lambda, the source
+; parameters, and the body for the direct entry (backend program.npl
+; emit-direct-lambda).
+(define (control-direct-lambda cps expression)
+  (cons 219
+    (cons cps
+      (cons (car (cdr expression))
+        (cons (control-direct-body (car (cdr (cdr expression)))) ())))))
+
+; A CPS call (head argument ... continuation) whose head is a variable (not
+; a top-level function, so it holds a closure value; the backend evaluates
+; it on both paths) and whose continuation is a literal
+; one-parameter lambda with a small body that creates no lambdas: the
+; backend calls the closure's direct entry when it has one and runs the
+; body inline (tail.npl emit-closure-call-site). The size bound keeps the
+; duplicated body small; no lambda in it means no nested site.
+(define CONTROL-INLINE-BODY-LIMIT 120)
+
+(define (control-closure-call-site? head continuation)
+  (if (if (sym-atom? head) (direct-find (cdr head)) #t)
+      #f
+      (if (control-inline-continuation? continuation)
+          (control-inline-body?
+            (car (cdr (cdr continuation))) CONTROL-INLINE-BODY-LIMIT)
+          #f)))
+
+; Remaining budget after x, negative when x is too large or has a lambda.
+(define (control-inline-size x budget)
+  (cond
+    ((< budget 0) budget)
+    ((not (pair-shape? x)) budget)
+    ((if (number? (car x)) (direct-tag-in? (car x) '(212 219)) #f) -1)
+    (else (control-inline-size (cdr x)
+            (control-inline-size (car x) (- budget 1))))))
+
+(define (control-inline-body? body limit)
+  (>= (control-inline-size body limit) 0))
+
 ; (218 signature body): the direct entry of a direct-safe function, with
 ; the signature of its definition (no continuation parameter). Variadic
 ; formals become (230 fixed rest), as control conversion writes them.
