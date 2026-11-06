@@ -174,15 +174,19 @@ level with Guile/Racket (worklog 2026-11-05). C3 done (direct entries for
 lambdas, design-calls addendum C3): lists 5.00 -> 1.94 s (Guile 0.97,
 Racket 0.57), callcc 3.56 -> 1.93 (Guile 2.24). Remaining gaps: lists and
 vectors (2x Guile) and callcc (4x Racket); the lists remainder is
-allocation/GC, deferred with GC tuning. Next: user decision.
+allocation/GC, deferred with GC tuning. In progress (user, 2026-11-06):
+npli performance. Nested closure call sites done (worklog 2026-11-06):
+npli fib 1.24 -> 0.93 s, loop 8.86 -> 6.42; still 2-3x the Guile
+interpreter. C4 (design-calls addendum) not started: its estimate did not
+hold.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 238,633 lines; SHA-256
-  `00cf05db05cd507aa779fa8f62aafb20ee5584d8825dcbb78335cfa718a23e19`
-  (macOS strict relay, 2026-11-05, npli literals). The closure layout
-  changed with C3 (capture i at byte 48 + 8i): a seed from before C3 must
-  be linked with a runtime from before C3.
+- `bootstrap/current.ssa`: 238,738 lines; SHA-256
+  `24f14713d0eb75a5d9d67f88ffd8c073f20c577c6fc8c5124f60892e53211511`
+  (macOS strict relay, 2026-11-06, nested closure call sites). The closure
+  layout changed with C3 (capture i at byte 48 + 8i): a seed from before
+  C3 must be linked with a runtime from before C3.
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
   (`tools/check_linux.sh`) ~12 min. No GC override is needed on a loaded
   host since the 2026-10-21 defaults.

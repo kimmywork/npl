@@ -460,8 +460,8 @@ lambda stores the entry into the fresh closure.
 **Call sites.** A CPS tail call `(h a ... (lambda (v) body))` whose head
 is a variable holding a closure (not a top-level function, primitive, or
 self call) and
-whose continuation is a literal lambda with a small body that creates no
-lambdas is emitted with two paths. `npl_closure_direct(h, n)` returns the
+whose continuation is a literal lambda with a small body (at most 120
+nodes, nested lambdas and call sites included) is emitted with two paths. `npl_closure_direct(h, n)` returns the
 direct entry when `h` is a closure that has one and accepts `n`
 arguments, else 0. The fast path calls the entry and runs `body` inline
 with `v` bound, in the same C function. The slow path is today's code.

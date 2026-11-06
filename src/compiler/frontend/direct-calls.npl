@@ -514,10 +514,12 @@
 ; A CPS call (head argument ... continuation) whose head is a variable (not
 ; a top-level function, so it holds a closure value; the backend evaluates
 ; it on both paths) and whose continuation is a literal
-; one-parameter lambda with a small body that creates no lambdas: the
-; backend calls the closure's direct entry when it has one and runs the
-; body inline (tail.npl emit-closure-call-site). The size bound keeps the
-; duplicated body small; no lambda in it means no nested site.
+; one-parameter lambda with a small body: the backend calls the closure's
+; direct entry when it has one and runs the body inline (tail.npl
+; emit-closure-call-site). The body is emitted twice (inline and as the
+; slow path's continuation); the size bound counts nested sites and
+; lambdas in it, so the duplication stays small. Nested sites are the
+; common case in npli, whose syntax nodes call child nodes.
 (define CONTROL-INLINE-BODY-LIMIT 120)
 
 (define (control-closure-call-site? head continuation)
@@ -528,12 +530,11 @@
             (car (cdr (cdr continuation))) CONTROL-INLINE-BODY-LIMIT)
           #f)))
 
-; Remaining budget after x, negative when x is too large or has a lambda.
+; Remaining budget after x, negative when x is too large.
 (define (control-inline-size x budget)
   (cond
     ((< budget 0) budget)
     ((not (pair-shape? x)) budget)
-    ((if (number? (car x)) (direct-tag-in? (car x) '(212 219)) #f) -1)
     (else (control-inline-size (cdr x)
             (control-inline-size (car x) (- budget 1))))))
 
