@@ -94,7 +94,7 @@ rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
   stub driver and pointer representation decided first.
 - P7 (revised 2026-10-27) replaced by O1 inline fixnum arithmetic, O2
   direct self tail calls, O3 call-convention design for user review; see
-  [handoff-performance](handoff-performance.md).
+  [handoff-performance](archive/handoff-performance.md) (archived, completed).
 
 G1 done (worklog 2026-10-20 13:40). G2 done (17:30). G3 done (worklog
 2026-10-21 08:00): defaults 1 MiB nursery and 128 MiB full threshold;
@@ -133,7 +133,7 @@ P7 bench done (worklog 2026-10-27): native 9.5x Guile on loop/fib/tak,
 32x vectors; costs are generic arithmetic dispatch, the tail trampoline,
 and per-call environment allocation, not type checks. Order decided:
 O1, O2, then the O3 design (no O3 code before acceptance), per
-[handoff-performance](handoff-performance.md). O1 done (worklog
+[handoff-performance](archive/handoff-performance.md) (archived, completed). O1 done (worklog
 2026-10-27): inline fixnum add/sub/compare with overflow fallback; scaled
 CPU loop 7.41 -> 1.27 s, fib 3.77 -> 2.85, tak 2.46 -> 2.05 (Guile 0.78,
 0.40, 0.27). O2 done (worklog 2026-10-27): self tail calls are jumps;
@@ -174,11 +174,14 @@ level with Guile/Racket (worklog 2026-11-05). C3 done (direct entries for
 lambdas, design-calls addendum C3): lists 5.00 -> 1.94 s (Guile 0.97,
 Racket 0.57), callcc 3.56 -> 1.93 (Guile 2.24). Remaining gaps: lists and
 vectors (2x Guile) and callcc (4x Racket); the lists remainder is
-allocation/GC, deferred with GC tuning. In progress (user, 2026-11-06):
-npli performance. Nested closure call sites done (worklog 2026-11-06):
-npli fib 1.24 -> 0.93 s, loop 8.86 -> 6.42; still 2-3x the Guile
-interpreter. C4 (design-calls addendum) not started: its estimate did not
-hold.
+allocation/GC, deferred with GC tuning. npli performance (user, 2026-11-06):
+nested closure call sites done (worklog 2026-11-06): npli fib 1.24 -> 0.93 s,
+loop 8.86 -> 6.42; still 2-3x the Guile interpreter. If-test constant folding
+investigated: ~4% improvement, too small to justify complexity (worklog
+2026-11-06). npli performance investigation complete: 2-3x gap vs Guile
+interpreter is acceptable for an AST walker; further optimization would
+require structural changes (bytecode, loop specialization). C4 (design-calls
+addendum) not started: its estimate did not hold.
 
 ## Accepted Seed
 
@@ -194,9 +197,11 @@ hold.
 
 ## Open Items
 
-- `(sqrt -1.0-0.0i)` branch convention needs a user decision.
-- Guile 3.0 oracle gaps (covered by native suite `error-objects` instead):
+- `(sqrt -1.0-0.0i)` branch convention: follow IEEE signed-zero convention
+  (Guile and Racket precedent) when sqrt is implemented. Not blocking.
+- Guile 3.0 oracle gaps (covered by native suite `error-errors` instead):
   failed `open-input-file` is not `file-error?`; absent irritants are #f.
+  Not blocking; native tests provide coverage.
 
 History: [worklog](worklog/). Expect ~10 min for gates without the relay;
 a relay can take over an hour under heavy load, so run it in the

@@ -3,7 +3,7 @@
 Status: accepted 2026-10-27 with the recommended option for D1-D4 (see
 "Decisions").
 Follows O1 (inline fixnum arithmetic) and O2 (direct self tail calls);
-see [handoff-performance](../.agents/handoff-performance.md).
+see [handoff-performance](../.agents/archive/handoff-performance.md) (archived, completed).
 
 ## Goal
 

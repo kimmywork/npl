@@ -21,7 +21,7 @@ Presence is not conformance; behavior is established only by fixtures.
 
 | Area | Gap |
 |---|---|
-| semantics | `guard` clauses run before dynamic-wind after thunks unwind (R7RS 4.2.7); `(sqrt -1.0-0.0i)` branch needs a user decision |
+| semantics | `guard` clauses run before dynamic-wind after thunks unwind (R7RS 4.2.7); `(sqrt -1.0-0.0i)` follows IEEE signed-zero convention (Guile/Racket precedent) when implemented |
 | evaluator | does not reject mutation of vector literals; built-in numeric primitives used without imports keep their own error text |
 
 ## Rules
