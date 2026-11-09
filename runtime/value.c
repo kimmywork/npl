@@ -82,6 +82,71 @@ NplVal npl_record_set(NplVal value, NplVal type, NplVal index, NplVal field)
     return npl_unspecified();
 }
 
+/* A record type made by define-record-type (docs/design-data.md section 2)
+ * is itself a record: (npl-record-type name (field ...)). Its instances
+ * hold it in slot 0; error objects and other runtime records hold a symbol
+ * there instead. The tag is interned once and never collected. */
+static NplVal g_record_type_tag = 0;
+
+NplVal npl_record_type(NplVal name, NplVal fields)
+{
+    if (!g_record_type_tag)
+        g_record_type_tag = npl_symbol("npl-record-type", 15);
+    NplVal slots[3] = { g_record_type_tag, name, fields };
+    return npl_make_record(3, slots);
+}
+
+int npl_record_type_p_internal(NplVal value)
+{
+    return g_record_type_tag && npl_is_ptr(value) &&
+           npl_header(value)->tag == BOX_RECORD &&
+           ((NplVector *)npl_header(value))->length == 3 &&
+           ((NplVector *)npl_header(value))->data[0] == g_record_type_tag;
+}
+
+/* The record type of an instance of a define-record-type type; #f for any
+ * other value (including error objects and record types themselves). */
+NplVal npl_record_instance_type(NplVal value)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_RECORD)
+        return npl_false();
+    NplVal type = ((NplVector *)npl_header(value))->data[0];
+    return npl_record_type_p_internal(type) ? type : npl_false();
+}
+
+/* Slots including the type in slot 0. */
+NplVal npl_record_length(NplVal value)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_RECORD)
+        npl_primitive_error("record-length", "expected a record", value);
+    return npl_fixnum(((NplVector *)npl_header(value))->length);
+}
+
+/* (record-update type instance (field ...) value ...): a copy of instance
+ * with the named fields replaced. */
+NplVal npl_record_update(int64_t argc, NplVal *argv)
+{
+    NplVal type = argv[0];
+    NplVector *record = require_record(argv[1], type, "record-update");
+    if (!npl_record_type_p_internal(type))
+        npl_primitive_error("record-update", "expected a record type", type);
+    NplVal copy = npl_make_record((int64_t)record->length, record->data);
+    NplVector *target = (NplVector *)npl_header(copy);
+    NplVal names = argv[2];
+    for (int64_t i = 3; i < argc; i++, names = npl_pair_ptr(names)->cdr) {
+        NplVal name = npl_pair_ptr(names)->car;
+        uint32_t slot = 1;
+        NplVal fields = ((NplVector *)npl_header(type))->data[2];
+        for (; !npl_is_nil(fields); slot++, fields = npl_pair_ptr(fields)->cdr)
+            if (npl_pair_ptr(fields)->car == name) break;
+        if (npl_is_nil(fields))
+            npl_primitive_error("record-update", "unknown field", name);
+        target->data[slot] = argv[i];
+        npl_gc_write_barrier(target, argv[i]);
+    }
+    return copy;
+}
+
 NplVal npl_make_vector(int64_t argc, NplVal *argv)
 {
     if (argc < 0 || (uint64_t)argc > UINT32_MAX) {

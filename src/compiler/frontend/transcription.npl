@@ -33,10 +33,17 @@
       (begin-defined-list (cdr forms) (begin-defined-identifiers (car forms) acc))
       acc))
 
+; Same name and mark: one template identifier, wherever it occurs.
 (define (identifier-member? identifier identifiers)
   (if (null? identifiers)
       #f
-      (if (eq? identifier (car identifiers))
+      (if (if (eq? identifier (car identifiers))
+              #t
+              (if (string=? (datum-symbol-name identifier)
+                            (datum-symbol-name (car identifiers)))
+                  (= (identifier-mark identifier)
+                     (identifier-mark (car identifiers)))
+                  #f))
           #t
           (identifier-member? identifier (cdr identifiers)))))
 
@@ -44,35 +51,62 @@
 ; fresh mark whose only binding is the definition-site one, recorded in
 ; TRANSCRIPTION-ALIASES (syntax.npl); value lookup consults it last.
 ; Quoted data stays unchanged.
+;
+; Every occurrence of one name gets the same alias, so a binder the output
+; introduces (a lambda formal) and the references to it stay one
+; identifier: the local binding is found before the alias table.
 
 ; Keywords get the same treatment through TRANSCRIPTION-MACRO-ALIASES.
 (define (resolve-marked-free form mark definition-env definition-macros
                              defined)
+  (resolve-marked-walk form mark definition-env definition-macros defined
+                       (cell ())))
+
+(define (resolve-marked-walk form mark definition-env definition-macros
+                             defined aliases)
   (cond
     ((datum-symbol? form)
      (if (if (= (identifier-mark form) mark)
              (not (identifier-member? form defined))
              #f)
          (let ((name (datum-symbol-name form)))
-           (let ((binding (lookup-value-binding-key name 0 definition-env))
-                 (keyword (lookup-macro-cell-key name 0 definition-macros)))
-             (cond
-               ((> (string-length binding) 0)
-                (transcription-alias form TRANSCRIPTION-ALIASES binding))
-               ((not (null? keyword))
-                (transcription-alias form TRANSCRIPTION-MACRO-ALIASES keyword))
-               (else form))))
+           (let ((seen (lookup-string-entry name (cell-get aliases))))
+             (if (pair? seen)
+                 (cdr seen)
+                 (let ((resolved
+                         (resolve-marked-identifier
+                           form name definition-env definition-macros)))
+                   (cell-set! aliases
+                     (cons (cons name resolved) (cell-get aliases)))
+                   resolved))))
          form))
     ((pair? form)
      (if (if (datum-symbol? (car form))
              (string=? (datum-symbol-name (car form)) "quote")
              #f)
          form
-         (cons (resolve-marked-free (car form) mark definition-env
-                                    definition-macros defined)
-               (resolve-marked-free (cdr form) mark definition-env
-                                    definition-macros defined))))
+         (cons (resolve-marked-walk (car form) mark definition-env
+                                    definition-macros defined aliases)
+               (resolve-marked-walk (cdr form) mark definition-env
+                                    definition-macros defined aliases))))
     (else form)))
+
+(define (resolve-marked-identifier form name definition-env definition-macros)
+  (let ((binding (lookup-value-binding-key name 0 definition-env))
+        (keyword (lookup-macro-cell-key name 0 definition-macros)))
+    (cond
+      ((> (string-length binding) 0)
+       (transcription-alias form TRANSCRIPTION-ALIASES binding))
+      ((not (null? keyword))
+       (transcription-alias form TRANSCRIPTION-MACRO-ALIASES keyword))
+      (else form))))
+
+(define (lookup-string-entry name entries)
+  (if (null? entries)
+      #f
+      (if (string=? name (car (car entries)))
+          (car entries)
+          (lookup-string-entry name (cdr entries)))))
 
 (define (transcription-alias form table meaning)
   (let ((alias (datum-symbol (datum-symbol-name form)))

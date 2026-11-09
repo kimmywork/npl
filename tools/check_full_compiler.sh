@@ -122,6 +122,7 @@ run_suite error-objects "PASS error-objects 6"
 run_suite primitive-errors "PASS primitive-errors 37"
 run_suite runtime-errors "PASS runtime-errors 14"
 run_suite c-primitives "PASS c-primitives 11"
+run_suite records "PASS records 10"
 # exit maps #t (and no argument) to 0, #f and non-integers to 1.
 emit "$WORK/compiler" "$TESTS/exit-status.npl" "$WORK/exit-status.ssa"
 build_ssa "$WORK/exit-status.ssa" "$WORK/exit-status"
@@ -260,8 +261,8 @@ if grep -qE 'npl_make_environment|npl_environment_ref' \
 fi
 # Inline primitives (backend/inline.npl): car and cdr load at +7 and +15
 # after a pair-tag test, vector-ref loads from vector+15 after a bounds test,
-# vector-set! stores with an inline write barrier; the C functions remain
-# only as the failing branch.
+# vector-set! and record modifiers store and call the write barrier; the C
+# functions remain only as the failing branch.
 INLINE="$TESTS/inline-primitives"
 emit "$WORK/compiler" "$INLINE/probe.npl" "$WORK/inline.ssa"
 inline_function() {
@@ -275,6 +276,10 @@ inline_function _npl_dfn_sum_2dlist | grep -qF 'call $npl_car(l '
 inline_function _npl_dfn_sum_2dvec | grep -qE '=l add %t[0-9]+, 15$'
 inline_function _npl_dfn_sum_2dvec | grep -qF 'cultl'
 inline_function _npl_dfn_fill_21 | grep -qF 'call $npl_gc_write_barrier_value(l '
+# A record accessor tests the box tag (22) and the type in slot 0 inline.
+inline_function _npl_dfn_point_2dx | grep -qE '=w ceqw %t[0-9]+, 22$'
+inline_function _npl_dfn_point_2dx | grep -qF 'loadl $gv_point'
+inline_function _npl_dfn_set_2dpoint_2dx_21 | grep -qF 'call $npl_gc_write_barrier_value(l '
 build_ssa "$WORK/inline.ssa" "$WORK/inline"
 "$WORK/inline" > "$WORK/inline.out"
 cmp "$INLINE/expected.out" "$WORK/inline.out"
@@ -417,6 +422,10 @@ reject_compile contracts/c-primitive-conflict.npl \
 reject_compile contracts/c-primitive-values-conflict.npl \
     c-primitive-values-conflict \
     "C primitive declaration conflicts with registered npl_car"
+reject_compile contracts/record-unknown-field.npl \
+    record-unknown-field "define-record-type: unknown field z"
+reject_compile contracts/record-field-spec.npl \
+    record-field-spec "define-record-type field needs an accessor"
 reject_compile contracts/c-function-nested.npl \
     c-function-nested "define-c-function is valid at top level only"
 reject_compile contracts/c-function-type.npl \

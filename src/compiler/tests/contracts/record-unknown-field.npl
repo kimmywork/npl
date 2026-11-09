@@ -1,0 +1,1 @@
+(define-record-type bad (make-bad x z) bad? (x bad-x))

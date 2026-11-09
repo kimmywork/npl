@@ -183,6 +183,9 @@
      (expand-let-values form value-env macro-env))
     ((string=? name "define-values")
      (expand-define-values form value-env macro-env))
+    ((string=? name "%record-index") (expand-record-index form))
+    ((string=? name "%record-make")
+     (expand-record-make form value-env macro-env))
     ((string=? name "cond-expand")
      (expand-expression
        (library-expand-cond-expression form) value-env macro-env))

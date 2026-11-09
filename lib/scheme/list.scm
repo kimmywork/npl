@@ -147,8 +147,9 @@
   (assoc-loop value entries (if (pair? compare) (car compare) equal?)))
 
 ; ---------------- equal? ----------------
-; Structural equality on pairs, vectors, strings, and bytevectors; eqv?
-; elsewhere (R7RS 6.1). It must terminate on circular data. The direct pass
+; Structural equality on pairs, vectors, strings, bytevectors, and
+; instances of one define-record-type type (field by field, as Racket's
+; transparent structs); eqv? elsewhere (R7RS 6.1). It must terminate on circular data. The direct pass
 ; walks cdr chains iteratively and watches the left chain for a cycle
 ; (tortoise and hare); every other cycle passes through a car or vector
 ; element, so a bound on that nesting depth catches it. When either check
@@ -157,6 +158,11 @@
 ; equality of the infinite trees (Adams and Dybvig, "Efficient
 ; nondestructive equality checking for trees and graphs"). Acyclic data of
 ; ordinary depth never leaves the direct pass, whatever its length.
+
+; The record type both share, or #f.
+(define (equal-record-type left right)
+  (let ((type (npl_record_instance_type left)))
+    (if type (if (eq? type (npl_record_instance_type right)) type #f) #f)))
 
 (define (equal-atoms? left right)
   (cond
@@ -196,6 +202,15 @@
                                             (raw-add depth 1))))
                  (if (eq? element #t) (loop (raw-add index 1)) element))))
          #f))
+    ((equal-record-type left right)
+     => (lambda (type)
+          (let loop ((index 1))
+            (if (raw-equal index (npl_record_length left))
+                #t
+                (let ((field (equal-direct (npl_record_ref left type index)
+                                           (npl_record_ref right type index)
+                                           (raw-add depth 1))))
+                  (if (eq? field #t) (loop (raw-add index 1)) field))))))
     (else (equal-atoms? left right))))
 
 ; Both arguments are pairs. tortoise advances every second step along the
@@ -215,7 +230,7 @@
                    #f))
               (else (equal-direct left-rest right-rest depth))))))))
 
-; Union-find over nodes (pairs and vectors), keyed by eq?: an association
+; Union-find over nodes (pairs, vectors, records), keyed by eq?: an association
 ; list from node to its parent cell; small, because only the graph part
 ; that defeated the bounded pass is visited.
 (define (equal-find classes node)
@@ -259,6 +274,18 @@
                        (loop (raw-add index 1))
                        #f))))
          #f))
+    ((equal-record-type left right)
+     => (lambda (type)
+          (if (equal-union! classes left right)
+              #t
+              (let loop ((index 1))
+                (if (raw-equal index (npl_record_length left))
+                    #t
+                    (if (equal-graph? (npl_record_ref left type index)
+                                      (npl_record_ref right type index)
+                                      classes)
+                        (loop (raw-add index 1))
+                        #f))))))
     (else (equal-atoms? left right))))
 
 (define (equal? left right)

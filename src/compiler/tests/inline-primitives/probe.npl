@@ -1,11 +1,14 @@
-;; Inline car, cdr, vector-length, vector-ref, and vector-set!
-;; (backend/inline.npl): the loops load fields inline and call the C
+;; Inline car, cdr, vector-length, vector-ref, vector-set!, and record
+;; access (backend/inline.npl): the loops load fields inline and call the C
 ;; functions only on the failing branch.
 (import (scheme base) (scheme write))
 (define (sum-list xs acc) (if (null? xs) acc (sum-list (cdr xs) (+ acc (car xs)))))
 (define (sum-vec v i acc) (if (= i (vector-length v)) acc (sum-vec v (+ i 1) (+ acc (vector-ref v i)))))
 (define (fill! v i) (if (< i (vector-length v)) (begin (vector-set! v i i) (fill! v (+ i 1)))))
+(define-record-type point (make-point x y) point? (x point-x set-point-x!) (y point-y))
 (define v (make-vector 4 0))
 (fill! v 0)
-(display (list (sum-list '(1 2 3) 0) (sum-vec v 0 0)))
+(define p (make-point 1 2))
+(set-point-x! p 3)
+(display (list (sum-list '(1 2 3) 0) (sum-vec v 0 0) (point? p) (point-x p) (point-y p)))
 (newline)

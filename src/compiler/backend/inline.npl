@@ -1,6 +1,7 @@
-; Inline primitives (docs/design-data.md section 1): the type test and the
-; memory access are emitted in place; the runtime function is called only on
-; the failing branch, where it raises the same error object as before.
+; Inline primitives (docs/design-data.md sections 1 and 2): the type test
+; and the memory access are emitted in place; the runtime function is called
+; only on the failing branch, where it raises the same error object as
+; before.
 ;
 ; Layout (runtime/npl.h): a heap value is its address | 1. The header's
 ; first word is the box tag (BOX_PAIR 0, BOX_VECTOR 2, BOX_RECORD 22); a
@@ -135,6 +136,67 @@
       (func-line (string-append "jmp " done))
       (func-line fail)
       (func-line (string-append "call $npl_vector_set(" (args-join ops) ")"))
+      (func-line (string-append "jmp " done))
+      (func-line done)
+      "18")))
+
+; Records (design-data section 2): a BOX_RECORD (22) with the NplVector
+; layout whose slot 0, the first element, is the record type. The field
+; index is a fixnum from the define-record-type expansion and is not
+; range-checked, as in npl_record_ref.
+(define (emit-record-test record type ok fail)
+  (let ((on-record (new-label)) (slot (new-tmp)) (match (new-tmp)))
+    (emit-box-test record "22" on-record fail)
+    (func-line on-record)
+    (func-line (string-append slot " =l loadl " (field-address record 16)))
+    (func-line (string-append match " =w ceql " slot ", " type))
+    (func-line (string-append "jnz " match ", " ok ", " fail))))
+
+(define (inline-record-p args env)
+  (check-arity args 2 2)
+  (let ((ops (eval-args-fixed args env 2 ())))
+    (let ((raw (new-tmp)) (ok (new-label)) (fail (new-label))
+          (done (new-label)))
+      (emit-record-test (car ops) (car (cdr ops)) ok fail)
+      (func-line ok)
+      (func-line (string-append raw " =w copy 1"))
+      (func-line (string-append "jmp " done))
+      (func-line fail)
+      (func-line (string-append raw " =w copy 0"))
+      (func-line done)
+      (bool-from-raw raw))))
+
+(define (inline-record-ref args env)
+  (check-arity args 3 3)
+  (let ((ops (eval-args-fixed args env 3 ())))
+    (let ((record (car ops)) (type (car (cdr ops)))
+          (index (car (cdr (cdr ops)))) (result (new-tmp))
+          (ok (new-label)) (fail (new-label)) (done (new-label)))
+      (emit-record-test record type ok fail)
+      (func-line ok)
+      (func-line (string-append result " =l loadl "
+                                (element-address record index)))
+      (func-line (string-append "jmp " done))
+      (func-line fail)
+      (emit-failing-call result "npl_record_ref" ops done)
+      (func-line done)
+      result)))
+
+(define (inline-record-set args env)
+  (check-arity args 4 4)
+  (let ((ops (eval-args-fixed args env 4 ())))
+    (let ((record (car ops)) (type (car (cdr ops)))
+          (index (car (cdr (cdr ops)))) (field (car (cdr (cdr (cdr ops)))))
+          (ok (new-label)) (fail (new-label)) (done (new-label)))
+      (emit-record-test record type ok fail)
+      (func-line ok)
+      (func-line (string-append "storel " field ", "
+                                (element-address record index)))
+      (func-line (string-append "call $npl_gc_write_barrier_value(l "
+                                record ", l " field ")"))
+      (func-line (string-append "jmp " done))
+      (func-line fail)
+      (func-line (string-append "call $npl_record_set(" (args-join ops) ")"))
       (func-line (string-append "jmp " done))
       (func-line done)
       "18")))

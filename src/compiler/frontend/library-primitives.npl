@@ -43,7 +43,8 @@
 
 (define PRIMITIVE-MACRO-SOURCE
 "(and or when unless cond case do let*-values guard make-parameter
-parameterize make-promise promise? force delay delay-force)" )
+parameterize make-promise promise? force delay delay-force
+define-record-type record-update)" )
 
 (define (library-primitive-names source)
   (car (parse-source-text source)))

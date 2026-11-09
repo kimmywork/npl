@@ -190,16 +190,22 @@ review round). Order (design sections 1-5): inline primitives, built-in
 records (structural `equal?`, `record-update`), SRFI 125 hash tables,
 `match`, compiler adoption; `syntax-case` deferred. Inline primitives done
 (worklog 2026-11-09): car, cdr, vector-length, vector-ref, vector-set!
-inline; self-compile 45.56 -> 41.19 G instructions, seed +28%. Next:
-records.
+inline; self-compile 45.56 -> 41.19 G instructions, seed +28%. Records
+done (worklog 2026-11-09): derived `define-record-type` and
+`record-update` (also `(npl record)`), inline predicate/accessor/modifier,
+structural `equal?`, Guile-style printing, and a macro hygiene fix
+(one alias per template name); record read 128 -> 85 instructions
+(vector-ref 69; an accessor inliner is a follow-up). Next: SRFI 125 hash
+tables.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 306,095 lines; SHA-256
-  `e3ccb2f9598f31aca8883068335df8b0ba2eca3085723ffb37980b87be6c8c1d`
-  (macOS strict relay, 2026-11-09, inline primitives). The seed calls
+- `bootstrap/current.ssa`: 310,628 lines; SHA-256
+  `95fdc4e991cb4257002b1aa3df4656299545acd0fa6ab0ee44ea42599eef995f`
+  (macOS strict relay, 2026-11-09, records). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
-  later. The closure
+  later; its `(scheme base)` needs `define-record-type` from the derived
+  syntax, so it must not be paired with a `lib/` from before records. The closure
   layout changed with C3 (capture i at byte 48 + 8i): a seed from before
   C3 must be linked with a runtime from before C3.
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux

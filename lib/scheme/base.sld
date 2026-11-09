@@ -64,7 +64,7 @@
             (npl_number_remainder raw-remainder)
             (number->string raw-number->string) (append raw-append)
             (string=? raw-string=?)))
-  ; Core list procedures first: record.scm and error.scm run code at load.
+  ; Core list procedures first: error.scm runs code at load.
   (begin
     (define (call-with-port port proc)
       (call-with-values
@@ -102,5 +102,5 @@
            (let ((fast (cdr (cdr fast))) (slow (cdr slow)))
              (if (eq? fast slow) #f (loop fast slow))))))))
   (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
-           "vector.scm" "string.scm" "record.scm"
+           "vector.scm" "string.scm"
            "error.scm" "text-io.scm"))

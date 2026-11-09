@@ -6,6 +6,7 @@
   "frontend/syntax.npl"
   "frontend/expand.npl"
   "frontend/expand-values.npl"
+  "frontend/expand-record.npl"
   "frontend/transcription.npl"
   "frontend/toplevel.npl"
   "frontend/forms.npl"

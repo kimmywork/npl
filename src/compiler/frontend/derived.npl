@@ -206,4 +206,46 @@
   (syntax-rules ()
     ((delay-force expression)
      (npl_promise_op 3 (lambda () expression)))))
+
+(define-syntax %record-fields
+  (syntax-rules ()
+    ((_ type fields last) (begin last))
+    ((_ type fields last (field accessor) spec ...)
+     (begin
+       (define (accessor record)
+         (npl_record_ref record type (%record-index field fields)))
+       (%record-fields type fields last spec ...)))
+    ((_ type fields last (field accessor modifier) spec ...)
+     (begin
+       (define (accessor record)
+         (npl_record_ref record type (%record-index field fields)))
+       (define (modifier record value)
+         (npl_record_set record type (%record-index field fields) value))
+       (%record-fields type fields last spec ...)))
+    ((_ type fields last spec0 spec ...)
+     (syntax-error \"define-record-type field needs an accessor\"))))
+
+(define-syntax define-record-type
+  (syntax-rules ()
+    ((_ type-name #f predicate (field . accessors) ...)
+     (begin
+       (define type-name (npl_record_type 'type-name '(field ...)))
+       (%record-fields type-name (field ...)
+         (define (predicate object) (npl_record_p object type-name))
+         (field . accessors) ...)))
+    ((_ type-name (constructor argument ...) predicate
+        (field . accessors) ...)
+     (begin
+       (define type-name (npl_record_type 'type-name '(field ...)))
+       (define (constructor argument ...)
+         (%record-make (npl_make_record type-name) (field ...)
+                       (argument ...)))
+       (%record-fields type-name (field ...)
+         (define (predicate object) (npl_record_p object type-name))
+         (field . accessors) ...)))))
+
+(define-syntax record-update
+  (syntax-rules ()
+    ((_ type instance (field value) ...)
+     (npl_record_update type instance '(field ...) value ...))))
 ")

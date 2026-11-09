@@ -283,11 +283,15 @@ static NplLabelSlot *label_slot(NplLabels *labels, NplVal key, int create)
     return &labels->slots[k];
 }
 
+/* Records made by define-record-type print their fields, so cycles through
+ * them need labels too. */
 static int labelled_kind(NplVal value)
 {
     if (!npl_is_ptr(value)) return 0;
     uint32_t tag = npl_header(value)->tag;
-    return tag == BOX_PAIR || tag == BOX_VECTOR;
+    return tag == BOX_PAIR || tag == BOX_VECTOR ||
+           (tag == BOX_RECORD &&
+            npl_record_type_p_internal(((NplVector *)npl_header(value))->data[0]));
 }
 
 /* Returns 1 when value was already visited (and marks it as needed). */
@@ -315,9 +319,11 @@ static void finish(NplLabels *labels, NplVal value)
 static void find_labels(NplLabels *labels, NplVal value, int shared)
 {
     if (!labelled_kind(value) || visit(labels, value, shared)) return;
-    if (npl_header(value)->tag == BOX_VECTOR) {
+    uint32_t tag = npl_header(value)->tag;
+    if (tag != BOX_PAIR) {
+        /* A record's slot 0 is its type, which is not printed. */
         NplVector *vector = (NplVector *)npl_header(value);
-        for (uint32_t i = 0; i < vector->length; i++)
+        for (uint32_t i = tag == BOX_RECORD ? 1 : 0; i < vector->length; i++)
             find_labels(labels, vector->data[i], shared);
         finish(labels, value);
         return;
@@ -327,7 +333,7 @@ static void find_labels(NplLabels *labels, NplVal value, int shared)
         find_labels(labels, npl_pair_ptr(pair)->car, shared);
         NplVal next = npl_pair_ptr(pair)->cdr;
         if (!labelled_kind(next)) break;
-        if (npl_header(next)->tag == BOX_VECTOR) {
+        if (npl_header(next)->tag != BOX_PAIR) {
             find_labels(labels, next, shared);
             break;
         }
@@ -384,6 +390,40 @@ static void print_pair(NplPrinter *printer, NplVal value)
     output_char(port, ')');
 }
 
+/* #<point x: 1 y: 2> for an instance of a define-record-type type (Guile's
+ * form; field values in write syntax under display too, as Guile),
+ * #<record-type point> for the type itself, and #<tag> for runtime records
+ * whose slot 0 is a symbol (error objects). */
+static void print_record(NplPrinter *printer, NplVal value)
+{
+    NplPort *port = printer->port;
+    NplPrinter plain = { port, 0, NULL };
+    NplPrinter fields = { port, 1, printer->labels };
+    NplVector *record = (NplVector *)npl_header(value);
+    NplVal type = record->data[0];
+    output_text(port, "#<");
+    if (npl_record_type_p_internal(type)) {
+        NplVector *descriptor = (NplVector *)npl_header(type);
+        print_datum(&plain, descriptor->data[1]);
+        NplVal names = descriptor->data[2];
+        for (uint32_t i = 1; i < record->length; i++) {
+            output_char(port, ' ');
+            if (npl_is_ptr(names) && npl_box_tag(names) == BOX_PAIR) {
+                print_datum(&plain, npl_pair_ptr(names)->car);
+                output_text(port, ": ");
+                names = npl_pair_ptr(names)->cdr;
+            }
+            print_datum(&fields, record->data[i]);
+        }
+    } else if (npl_record_type_p_internal(value)) {
+        output_text(port, "record-type ");
+        print_datum(&plain, record->data[1]);
+    } else {
+        print_datum(&plain, type);
+    }
+    output_char(port, '>');
+}
+
 static void print_datum(NplPrinter *printer, NplVal value)
 {
     NplPort *port = printer->port;
@@ -431,15 +471,9 @@ static void print_datum(NplPrinter *printer, NplVal value)
         case BOX_COMPLEX:
             output_integer_value(port, value);
             break;
-        case BOX_RECORD: {
-            /* The type descriptor is the record type's name. */
-            NplVal type = ((NplVector *)header)->data[0];
-            output_text(port, "#<");
-            NplPrinter plain = { port, 0, NULL };
-            print_datum(&plain, type);
-            output_char(port, '>');
+        case BOX_RECORD:
+            print_record(printer, value);
             break;
-        }
         case BOX_VECTOR: {
             NplVector *vector = (NplVector *)header;
             output_text(port, "#(");

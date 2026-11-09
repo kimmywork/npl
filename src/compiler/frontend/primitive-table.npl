@@ -85,11 +85,16 @@
     ("npl_lex_number" fixed 3 0)
     ; vectors, bytevectors
     ("vector" count 0 -1 "npl_make_vector")
-    ; records: (scheme base) define-record-type is built on these
+    ; records: define-record-type (frontend/derived.npl) is built on these;
+    ; the predicate and the field access are inline (backend/inline.npl)
     ("npl_make_record" count 1 -1)
-    ("npl_record_p" fixed 2 0)
-    ("npl_record_ref" fixed 3 0)
-    ("npl_record_set" fixed 4 0)
+    ("npl_record_p" special 2 0 "npl_record_p")
+    ("npl_record_ref" special 3 0 "npl_record_ref")
+    ("npl_record_set" special 4 0 "npl_record_set")
+    ("npl_record_type" fixed 2 0)
+    ("npl_record_instance_type" fixed 1 0)
+    ("npl_record_length" fixed 1 0)
+    ("npl_record_update" count 3 -1)
     ("list->vector" fixed 1 0)
     ("vector?" fixed 1 0)
     ("vector-length" special 1 0 "npl_vector_length")

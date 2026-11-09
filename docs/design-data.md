@@ -86,7 +86,7 @@ R7RS `define-record-type` (5.5), plus:
 
 - `(record-update record-name instance (field value) ...)`: a new instance
   with the named fields replaced; the original is unchanged. Field names
-  are the field names of the definition, checked at expansion time. This is
+  are the field names of the definition, checked when it runs. This is
   Racket's `struct-copy` under an R7RS-flavoured name; NPL has no keyword
   arguments, and the type is named explicitly because the instance's type
   is only known at run time.
@@ -103,45 +103,69 @@ R7RS.
 ### Representation
 
 Unchanged: `BOX_RECORD` with the `NplVector` layout, slot 0 the type
-descriptor, fields from slot 1. The descriptor becomes a record of a
-built-in descriptor type holding the type name and the field-name list,
-instead of `(name)`, so printing and `equal?` can name the fields. The
-descriptor itself prints as `#<record-type point>`.
+descriptor, fields from slot 1. The descriptor becomes a record
+`(npl-record-type name (field ...))` (slot 0 the interned symbol
+`npl-record-type`), instead of the pair `(name)`, so printing and `equal?`
+can name the fields. The descriptor itself prints as
+`#<record-type point>`.
 
 ### Implementation
 
-`define-record-type` becomes a frontend core form, recognized by name like
-`define-values` (`frontend/expand.npl expand-keyword-or-application`,
-`frontend/toplevel.npl` and body splicing), so import-free programs have
-it. Its expansion is plain definitions:
+As built (2026-11-09). `define-record-type` and `record-update` are
+`syntax-rules` macros in the derived-syntax source (`frontend/derived.npl`)
+and are exported by `(npl primitive)` like `guard`, so import-free programs,
+`(scheme base)`, and the new `(npl record)` library all have the one
+definition. syntax-rules cannot count, so two expansion-time core forms in
+`frontend/expand-record.npl` supply field positions:
+
+- `(%record-index field (field1 ...))` expands to the slot number of
+  `field` (1 for `field1`);
+- `(%record-make (head ...) (field1 ...) (argument ...))` expands to
+  `(head ... slot ...)` with each field's constructor argument or `#f`, and
+  rejects a constructor argument that is not a field.
+
+The expansion is plain definitions:
 
 - `type-name`: `(npl_record_type 'point '(x y))`;
-- constructor: a lambda over the constructor's fields calling
-  `npl_make_record` with `#f` for fields it does not take;
-- predicate and accessors: lambdas whose bodies are the special forms
-  `(%record? type x)`, `(%record-ref type x i)`, and
-  `(%record-set! type x i v)`, with `i` a literal known at expansion time.
+- constructor: `(define (make-point x y) (npl_make_record point x y))`;
+- predicate, accessors, modifiers: one-line functions over
+  `npl_record_p`, `npl_record_ref`, `npl_record_set` with a literal index.
+  Those three are `special` primitive rows emitted inline (section 1); the
+  C functions are the failing branch. An accessor is direct-safe, so a
+  caller calls its direct entry.
 
-The backend emits those special forms inline (section 1). Because the
-accessor is an ordinary small top-level function, C2 makes it direct-safe
-and a caller calls its direct entry; a later inlining pass is not needed for
-correctness. A small-function inliner for accessors is listed below as a
-follow-up if the direct call still shows in the counts.
+`lib/scheme/record.scm` is deleted. npli gets the same expansion from the
+shared frontend and calls the same C functions.
 
-`(scheme base)` exports the core form; `lib/scheme/record.scm` is deleted
-(no second implementation). npli's evaluator gets the expanded definitions
-from the shared frontend, so it needs only the three special forms as
-evaluator nodes.
+`record-update` checks field names at run time (`npl_record_update`), not
+at expansion time as planned: the type name is an ordinary variable, which
+may come from another library, so its fields are not known while expanding
+the use. An unknown field raises `record-update: unknown field`.
 
-`record-update` is a core form too: it expands to a constructor-style
-`npl_make_record` call that copies every slot from the instance except the
-replaced ones, after a type check.
+`equal?` (`lib/scheme/list.scm`) compares two instances of the same
+define-record-type type field by field, in both the bounded pass and the
+union-find pass. Error objects and record types themselves compare by
+identity. Field values print in write syntax under `display` too, as in
+Guile.
 
-Acceptance: shared fixture (native, npli; Guile for the R7RS subset):
-construction, access, mutation, predicate across types, wrong-type error
-object, generativity, `equal?` on equal, unequal, nested and cyclic
-records, printing including cycles, `record-update`; the compiler can
-define and use a record without imports; read benchmark; gates; relay.
+Writing the macros exposed a hygiene bug that the old `record.scm` avoided
+by accident: in definition-producing macro output, each occurrence of a
+template identifier got its own alias, so a lambda formal and its uses
+became different identifiers whenever a global of the same name existed at
+the macro's definition site (`(define (name value) value)` returned the
+global `value`). `resolve-marked-free` now gives every occurrence of one
+name in one transcription the same alias.
+
+Measured: a record field read in a loop costs 85 instructions per
+iteration (128 with `record.scm`), against 69 for inline `vector-ref`.
+The remaining difference is the direct call to the accessor; inlining small
+accessors at their call sites would remove it and is a follow-up.
+
+Fixtures: `tests/r7rs/fixtures/records` (native, npli, Guile 3.0.11) and
+`record-extensions` (no oracle: Guile has no `record-update` and prints a
+cycle through a record field without its label);
+`src/compiler/tests/records.npl` (import-free); two expansion-error
+contracts.
 
 ## 3. Hash Tables (SRFI 125)
 

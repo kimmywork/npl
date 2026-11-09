@@ -1,0 +1,10 @@
+(update (#<point x: 1 y: 2> #<point x: 1 y: 20> #<point x: a y: b> #f))
+(update-is-a-copy (1 5))
+#0=#<node value: a next: #0#>
+(#0=#<node value: a next: #0#> #0#)
+(cyclic-equal (#t #f))
+(accessor-type ("record accessor: wrong record type" #<node value: 1 next: #f>))
+(modifier-type ("record modifier: wrong record type" p))
+(update-type ("record-update: wrong record type" #0=#<node value: a next: #0#>))
+(update-field ("record-update: unknown field" z))
+(error-object ("boom" #<point x: 1 y: 2>))

@@ -22,6 +22,7 @@
   (include "../../src/compiler/frontend/syntax.npl")
   (include "../../src/compiler/frontend/expand.npl")
   (include "../../src/compiler/frontend/expand-values.npl")
+  (include "../../src/compiler/frontend/expand-record.npl")
   (include "../../src/compiler/frontend/transcription.npl")
   (include "../../src/compiler/frontend/toplevel.npl")
   (include "../../src/compiler/frontend/forms.npl")

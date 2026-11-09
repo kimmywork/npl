@@ -53,7 +53,7 @@ for fixture in integer-arithmetic rational-arithmetic radix-exact \
                port-parameters text-io-time r5rs unicode-strings unicode-char dynamic-extent \
                datum-labels cyclic-data numeric-alias-paths unspecified-values \
                self-tail-calls closure-captures named-loops direct-calls \
-               direct-lambdas literal-mutation; do
+               direct-lambdas literal-mutation records record-extensions; do
     run "R7RS $fixture" \
         "$ROOT/tools/run_r7rs_fixture.sh" "$ROOT/tests/r7rs/fixtures/$fixture"
 done

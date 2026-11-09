@@ -1,6 +1,6 @@
 ; Error objects (R7RS 6.11). An error object is a runtime record whose type
 ; descriptor is the interned symbol npl-error-object (record types made by
-; define-record-type use fresh pairs, so they never collide). Slots:
+; define-record-type are fresh records, so they never collide). Slots:
 ; 1 kind (error, file, read), 2 message, 3 irritants. (scheme file),
 ; (scheme read), and runtime primitive errors build the same layout.
 

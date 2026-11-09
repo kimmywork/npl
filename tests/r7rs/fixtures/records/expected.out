@@ -1,0 +1,12 @@
+(access (1 2))
+(mutate (10 (a "b")))
+(argument-order (l r))
+(unset-field set)
+(predicates (#t #f #f #f #f #f #f))
+(first-class (1 3))
+(generative (#t #f))
+(equal (#t #f #t #t #f #f #t))
+#<<point> x: 1 y: "two">
+#<<point> x: 1 y: "two">
+(#<pair-box left: l right: r> #<<point> x: #<<point> x: 0 y: 0> y: #\a>)
+#<record-type <point>>

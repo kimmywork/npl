@@ -1,0 +1,64 @@
+; define-record-type and record-update without imports (docs/design-data.md
+; section 2): the compiler itself can use records. The shared behavior is in
+; tests/r7rs/fixtures/records and record-extensions.
+(include "framework.npl")
+
+(define record 'global-record)
+(define value 'global-value)
+
+(define-record-type point (make-point x y) point?
+  (x point-x set-point-x!)
+  (y point-y))
+(define-record-type cell (make-cell value) cell?
+  (value cell-value set-cell-value!))
+(define-record-type empty #f empty?)
+
+(define (sum-x points total)
+  (if (null? points)
+      total
+      (sum-x (cdr points) (+ total (point-x (car points))))))
+
+(define (main)
+  (test-equal "accessor"
+              (lambda () (point-y (make-point 1 2))) 2)
+  (test-equal "modifier"
+              (lambda ()
+                (let ((p (make-point 1 2)))
+                  (set-point-x! p 40)
+                  (+ (point-x p) (point-y p))))
+              42)
+  (test-identity "predicate"
+                 (lambda () (point? (make-point 1 2))) #t)
+  (test-identity "predicate of another type"
+                 (lambda () (point? (make-cell 1))) #f)
+  (test-identity "no constructor"
+                 (lambda () (empty? (make-point 1 2))) #f)
+  (test-equal "accessor in a loop"
+              (lambda ()
+                (sum-x (cons (make-point 40 0) (cons (make-point 2 0) ())) 0))
+              42)
+  (test-equal "binder named like a global"
+              (lambda ()
+                (let ((c (make-cell 41)))
+                  (set-cell-value! c (+ (cell-value c) 1))
+                  (cell-value c)))
+              42)
+  (test-identity "globals unchanged"
+                 (lambda () (if (eq? record 'global-record)
+                                (eq? value 'global-value)
+                                #f))
+                 #t)
+  (test-equal "record-update"
+              (lambda ()
+                (let ((p (make-point 1 2)))
+                  (let ((q (record-update point p (y 41))))
+                    (+ (point-x q) (point-y q)))))
+              42)
+  (test-equal "record-update leaves the original"
+              (lambda ()
+                (let ((p (make-point 1 2)))
+                  (record-update point p (x 99))
+                  (point-x p)))
+              1)
+  (finish-tests "records"))
+(main)

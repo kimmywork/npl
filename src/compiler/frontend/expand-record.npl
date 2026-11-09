@@ -1,0 +1,53 @@
+; Expansion-time helpers of define-record-type (frontend/derived.npl,
+; docs/design-data.md section 2). syntax-rules cannot count, so the macro
+; leaves field positions to these two core forms:
+;
+;   (%record-index field (field1 ...))  the slot of field: 1 for field1
+;   (%record-make (head ...) (field1 ...) (argument ...))
+;       (head ... slot1 ...), where slot i is the argument named like
+;       field i, or #f when the constructor does not take that field
+;
+; Field names come from one define-record-type form, so they are compared
+; by name.
+
+(define (record-field-slot field fields slot)
+  (cond
+    ((null? fields)
+     (fatal (string-append "define-record-type: unknown field "
+                           (datum-symbol-name field))))
+    ((string=? (datum-symbol-name field) (datum-symbol-name (car fields)))
+     slot)
+    (else (record-field-slot field (cdr fields) (+ slot 1)))))
+
+(define (expand-record-index form)
+  (require-raw-arity form 2 "%record-index")
+  (record-field-slot (car (cdr form)) (car (cdr (cdr form))) 1))
+
+(define (record-argument-named field arguments)
+  (cond
+    ((null? arguments) (datum-false))
+    ((string=? (datum-symbol-name field) (datum-symbol-name (car arguments)))
+     (car arguments))
+    (else (record-argument-named field (cdr arguments)))))
+
+(define (record-constructor-slots fields arguments)
+  (if (null? fields)
+      ()
+      (cons (record-argument-named (car fields) arguments)
+            (record-constructor-slots (cdr fields) arguments))))
+
+(define (check-record-arguments arguments fields)
+  (if (pair? arguments)
+      (begin
+        (record-field-slot (car arguments) fields 1)
+        (check-record-arguments (cdr arguments) fields))))
+
+(define (expand-record-make form value-env macro-env)
+  (require-raw-arity form 3 "%record-make")
+  (let ((head (car (cdr form)))
+        (fields (car (cdr (cdr form))))
+        (arguments (car (cdr (cdr (cdr form))))))
+    (check-record-arguments arguments fields)
+    (expand-expression
+      (append-forms head (record-constructor-slots fields arguments))
+      value-env macro-env)))
