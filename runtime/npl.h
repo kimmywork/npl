@@ -330,6 +330,7 @@ static inline NplHeader *npl_header(NplVal v) {
 }
 
 void npl_gc_remember_internal(NplHeader *object);
+void npl_gc_write_barrier_value(NplVal holder, NplVal value);
 /* Every NplVal field of a heap object, for marking and verification. */
 typedef void (*NplChildVisitor)(NplVal value);
 void npl_gc_visit_children_internal(NplHeader *header, NplChildVisitor visit);

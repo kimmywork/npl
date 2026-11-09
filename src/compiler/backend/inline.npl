@@ -1,0 +1,140 @@
+; Inline primitives (docs/design-data.md section 1): the type test and the
+; memory access are emitted in place; the runtime function is called only on
+; the failing branch, where it raises the same error object as before.
+;
+; Layout (runtime/npl.h): a heap value is its address | 1. The header's
+; first word is the box tag (BOX_PAIR 0, BOX_VECTOR 2, BOX_RECORD 22); a
+; pair's car and cdr are the words at 8 and 16; a vector's length is the
+; 32-bit word at 8 and its elements start at 16. Offsets below are from the
+; tagged value, so they subtract the 1.
+
+; jnz to ok when op is a heap object whose box tag is tag; fail otherwise.
+(define (emit-box-test op tag ok fail)
+  (let ((low (new-tmp)) (is-pointer (new-tmp)) (on-pointer (new-label)))
+    (func-line (string-append low " =l and " op ", 3"))
+    (func-line (string-append is-pointer " =w ceql " low ", 1"))
+    (func-line (string-append "jnz " is-pointer ", " on-pointer ", " fail))
+    (func-line on-pointer)
+    (let ((address (new-tmp)) (header (new-tmp)) (match (new-tmp)))
+      (func-line (string-append address " =l sub " op ", 1"))
+      (func-line (string-append header " =w loadw " address))
+      (func-line (string-append match " =w ceqw " header ", " tag))
+      (func-line (string-append "jnz " match ", " ok ", " fail)))))
+
+(define (field-address op offset)
+  (let ((address (new-tmp)))
+    (func-line (string-append address " =l add " op ", "
+                              (number->string (- offset 1))))
+    address))
+
+; The failing branch calls fn, which raises; its result is never used, but
+; the merge needs a definition of result on every incoming edge.
+(define (emit-failing-call result fn ops done)
+  (func-line (string-append result " =l call $" fn "("
+                            (args-join ops) ")"))
+  (func-line (string-append "jmp " done)))
+
+(define (inline-pair-field fn offset args env)
+  (check-arity args 1 1)
+  (let ((op (emit-expr (car args) env)) (result (new-tmp))
+        (ok (new-label)) (fail (new-label)) (done (new-label)))
+    (emit-box-test op "0" ok fail)
+    (func-line ok)
+    (func-line (string-append result " =l loadl " (field-address op offset)))
+    (func-line (string-append "jmp " done))
+    (func-line fail)
+    (emit-failing-call result fn (cons op ()) done)
+    (func-line done)
+    result))
+
+(define (inline-car args env) (inline-pair-field "npl_car" 8 args env))
+(define (inline-cdr args env) (inline-pair-field "npl_cdr" 16 args env))
+
+; jnz to ok when index (a tagged value) is a fixnum below the vector's
+; length. One unsigned compare covers both bounds: a negative fixnum is a
+; huge unsigned number.
+(define (emit-index-test vector index ok fail)
+  (let ((low (new-tmp)) (is-fixnum (new-tmp)) (on-fixnum (new-label)))
+    (func-line (string-append low " =l and " index ", 3"))
+    (func-line (string-append is-fixnum " =w ceql " low ", 0"))
+    (func-line (string-append "jnz " is-fixnum ", " on-fixnum ", " fail))
+    (func-line on-fixnum)
+    (let ((length (new-tmp)) (tagged-length (new-tmp)) (in-range (new-tmp)))
+      (func-line (string-append length " =l loaduw "
+                                (field-address vector 8)))
+      (func-line (string-append tagged-length " =l shl " length ", 2"))
+      (func-line (string-append in-range " =w cultl " index ", "
+                                tagged-length))
+      (func-line (string-append "jnz " in-range ", " ok ", " fail)))))
+
+; Address of element index (tagged: index is the element number times 4).
+(define (element-address vector index)
+  (let ((scaled (new-tmp)) (base (new-tmp)) (address (new-tmp)))
+    (func-line (string-append scaled " =l shl " index ", 1"))
+    (func-line (string-append base " =l add " vector ", 15"))
+    (func-line (string-append address " =l add " base ", " scaled))
+    address))
+
+(define (inline-vector-ref args env)
+  (check-arity args 2 2)
+  (let ((ops (eval-args-fixed args env 2 ())))
+    (let ((vector (car ops)) (index (car (cdr ops))) (result (new-tmp))
+          (on-vector (new-label)) (ok (new-label)) (fail (new-label))
+          (done (new-label)))
+      (emit-box-test vector "2" on-vector fail)
+      (func-line on-vector)
+      (emit-index-test vector index ok fail)
+      (func-line ok)
+      (func-line (string-append result " =l loadl "
+                                (element-address vector index)))
+      (func-line (string-append "jmp " done))
+      (func-line fail)
+      (emit-failing-call result "npl_vector_ref" ops done)
+      (func-line done)
+      result)))
+
+(define (inline-vector-length args env)
+  (check-arity args 1 1)
+  (let ((vector (emit-expr (car args) env)) (result (new-tmp))
+        (ok (new-label)) (fail (new-label)) (done (new-label)))
+    (emit-box-test vector "2" ok fail)
+    (func-line ok)
+    (let ((length (new-tmp)))
+      (func-line (string-append length " =l loaduw "
+                                (field-address vector 8)))
+      (func-line (string-append result " =l shl " length ", 2")))
+    (func-line (string-append "jmp " done))
+    (func-line fail)
+    (emit-failing-call result "npl_vector_length" (cons vector ()) done)
+    (func-line done)
+    result))
+
+; The store needs the vector to be mutable (NPL_FLAG_LITERAL, bit 0 of the
+; flags word at 4) and is followed by the runtime write barrier.
+(define (inline-vector-set args env)
+  (check-arity args 3 3)
+  (let ((ops (eval-args-fixed args env 3 ())))
+    (let ((vector (car ops)) (index (car (cdr ops)))
+          (element (car (cdr (cdr ops))))
+          (on-vector (new-label)) (mutable (new-label)) (ok (new-label))
+          (fail (new-label)) (done (new-label)))
+      (emit-box-test vector "2" on-vector fail)
+      (func-line on-vector)
+      (let ((flags (new-tmp)) (literal (new-tmp)))
+        (func-line (string-append flags " =w loaduw "
+                                  (field-address vector 4)))
+        (func-line (string-append literal " =w and " flags ", 1"))
+        (func-line (string-append "jnz " literal ", " fail ", " mutable)))
+      (func-line mutable)
+      (emit-index-test vector index ok fail)
+      (func-line ok)
+      (func-line (string-append "storel " element ", "
+                                (element-address vector index)))
+      (func-line (string-append "call $npl_gc_write_barrier_value(l "
+                                vector ", l " element ")"))
+      (func-line (string-append "jmp " done))
+      (func-line fail)
+      (func-line (string-append "call $npl_vector_set(" (args-join ops) ")"))
+      (func-line (string-append "jmp " done))
+      (func-line done)
+      "18")))

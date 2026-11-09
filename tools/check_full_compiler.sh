@@ -258,6 +258,26 @@ if grep -qE 'npl_make_environment|npl_environment_ref' \
     echo "closure environment built outside the flat closure" >&2
     exit 1
 fi
+# Inline primitives (backend/inline.npl): car and cdr load at +7 and +15
+# after a pair-tag test, vector-ref loads from vector+15 after a bounds test,
+# vector-set! stores with an inline write barrier; the C functions remain
+# only as the failing branch.
+INLINE="$TESTS/inline-primitives"
+emit "$WORK/compiler" "$INLINE/probe.npl" "$WORK/inline.ssa"
+inline_function() {
+    awk -v f="function l \$$1(" \
+        'index($0, f) == 1 {p=1} p {print} p && /^}/ {exit}' \
+        "$WORK/inline.ssa"
+}
+inline_function _npl_dfn_sum_2dlist | grep -qE '=l add %t[0-9]+, 7$'
+inline_function _npl_dfn_sum_2dlist | grep -qE '=l add %t[0-9]+, 15$'
+inline_function _npl_dfn_sum_2dlist | grep -qF 'call $npl_car(l '
+inline_function _npl_dfn_sum_2dvec | grep -qE '=l add %t[0-9]+, 15$'
+inline_function _npl_dfn_sum_2dvec | grep -qF 'cultl'
+inline_function _npl_dfn_fill_21 | grep -qF 'call $npl_gc_write_barrier_value(l '
+build_ssa "$WORK/inline.ssa" "$WORK/inline"
+"$WORK/inline" > "$WORK/inline.out"
+cmp "$INLINE/expected.out" "$WORK/inline.out"
 # docs/ffi.md example: user C functions linked next to the runtime.
 EXTENSION="$TESTS/c-extension"
 emit "$WORK/compiler" "$EXTENSION/main.npl" "$WORK/c-extension.ssa"

@@ -183,11 +183,23 @@ interpreter is acceptable for an AST walker; further optimization would
 require structural changes (bytecode, loop specialization). C4 (design-calls
 addendum) not started: its estimate did not hold.
 
+## Language Data (2026-11-09)
+
+Design [design-data](../docs/design-data.md) (user: implement without a
+review round). Order (design sections 1-5): inline primitives, built-in
+records (structural `equal?`, `record-update`), SRFI 125 hash tables,
+`match`, compiler adoption; `syntax-case` deferred. Inline primitives done
+(worklog 2026-11-09): car, cdr, vector-length, vector-ref, vector-set!
+inline; self-compile 45.56 -> 41.19 G instructions, seed +28%. Next:
+records.
+
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 238,738 lines; SHA-256
-  `24f14713d0eb75a5d9d67f88ffd8c073f20c577c6fc8c5124f60892e53211511`
-  (macOS strict relay, 2026-11-06, nested closure call sites). The closure
+- `bootstrap/current.ssa`: 306,095 lines; SHA-256
+  `e3ccb2f9598f31aca8883068335df8b0ba2eca3085723ffb37980b87be6c8c1d`
+  (macOS strict relay, 2026-11-09, inline primitives). The seed calls
+  `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
+  later. The closure
   layout changed with C3 (capture i at byte 48 + 8i): a seed from before
   C3 must be linked with a runtime from before C3.
 - `tools/run_tests.sh` (with relay): all PASS, macOS ~9-16 min, Linux
@@ -199,7 +211,7 @@ addendum) not started: its estimate did not hold.
 
 - `(sqrt -1.0-0.0i)` branch convention: follow IEEE signed-zero convention
   (Guile and Racket precedent) when sqrt is implemented. Not blocking.
-- Guile 3.0 oracle gaps (covered by native suite `error-errors` instead):
+- Guile 3.0 oracle gaps (covered by native suite `error-objects` instead):
   failed `open-input-file` is not `file-error?`; absent irritants are #f.
   Not blocking; native tests provide coverage.
 

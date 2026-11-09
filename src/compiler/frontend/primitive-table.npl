@@ -50,8 +50,10 @@
     ("npl_number_quotient" fixed 2 0)
     ("npl_number_remainder" fixed 2 0)
     ; pairs, equivalence, booleans
-    ("cons" fixed 2 0) ("car" fixed 1 0)
-    ("cdr" fixed 1 0)
+    ; car, cdr, and the vector accessors are inline (backend/inline.npl);
+    ; their C functions raise the errors.
+    ("cons" fixed 2 0) ("car" special 1 0 "npl_car")
+    ("cdr" special 1 0 "npl_cdr")
     ("set-car!" special 2 0)
     ("set-cdr!" special 2 0)
     ("null?" special 1 0 "") ("pair?" special 1 0 "")
@@ -90,9 +92,9 @@
     ("npl_record_set" fixed 4 0)
     ("list->vector" fixed 1 0)
     ("vector?" fixed 1 0)
-    ("vector-length" fixed 1 0)
-    ("vector-ref" fixed 2 0)
-    ("vector-set!" fixed 3 0)
+    ("vector-length" special 1 0 "npl_vector_length")
+    ("vector-ref" special 2 0 "npl_vector_ref")
+    ("vector-set!" special 3 0 "npl_vector_set")
     ("bytevector" count 0 -1 "npl_make_bytevector")
     ("bytevector?" fixed 1 0)
     ("bytevector-length" fixed 1 0)

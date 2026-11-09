@@ -523,6 +523,13 @@ void npl_gc_drain_internal(void)
  * pointer to a young one; the set is empty again after each collection. */
 
 
+/* The write barrier for compiled code, which stores into a field inline
+ * (compiler backend/inline.npl): holder is a tagged heap value. */
+void npl_gc_write_barrier_value(NplVal holder, NplVal value)
+{
+    npl_gc_write_barrier(npl_header(holder), value);
+}
+
 void npl_gc_remember_internal(NplHeader *object)
 {
     if (g_remembered_count == g_remembered_capacity) {

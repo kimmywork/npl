@@ -101,8 +101,14 @@
         (c-primitive-row-with-symbol
           symbol (cell-get DECLARED-PRIMITIVE-ROWS)))))
 
+; A fixed row, or a special row with its own C symbol and a fixed operand
+; count (an inline primitive such as car, backend/inline.npl).
 (define (c-primitive-row-accepts? row count)
-  (if (string=? (primitive-row-kind row) "fixed")
+  (if (if (string=? (primitive-row-kind row) "fixed")
+          #t
+          (if (string=? (primitive-row-kind row) "special")
+              (= (primitive-row-optional row) 0)
+              #f))
       (= (primitive-row-required row) count)
       #f))
 

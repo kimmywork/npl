@@ -26,6 +26,7 @@
   "backend/numeric.npl"
   "backend/environment.npl"
   "backend/expression.npl"
+  "backend/inline.npl"
   "backend/primitive-values.npl"
   "backend/tail.npl"
   "backend/bindings.npl"
