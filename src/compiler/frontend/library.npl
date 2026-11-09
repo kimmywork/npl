@@ -87,9 +87,11 @@
 (define (library-installed-key? key)
   (if (library-standard-key? key)
       #t
-      (if (< (string-length key) 4)
+      (if (< (string-length key) 5)
           #f
-          (string=? (substring key 0 4) "npl/"))))
+          (if (string=? (substring key 0 4) "npl/")
+              #t
+              (string=? (substring key 0 5) "srfi/")))))
 
 (define (library-standard-available-in? key names)
   (if (null? names)

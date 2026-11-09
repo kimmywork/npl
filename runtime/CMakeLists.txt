@@ -10,6 +10,7 @@ add_library(npl_runtime STATIC
   ${RUNTIME_SRC_DIR}/error.c
   ${RUNTIME_SRC_DIR}/ffi.c
   ${RUNTIME_SRC_DIR}/gc.c
+  ${RUNTIME_SRC_DIR}/hashtable.c
   ${RUNTIME_SRC_DIR}/inexact.c
   ${RUNTIME_SRC_DIR}/io.c
   ${RUNTIME_SRC_DIR}/lexer.c

@@ -123,6 +123,10 @@ run_suite primitive-errors "PASS primitive-errors 37"
 run_suite runtime-errors "PASS runtime-errors 14"
 run_suite c-primitives "PASS c-primitives 11"
 run_suite records "PASS records 10"
+run_suite hash-tables "PASS hash-tables 6"
+NPL_GC_NURSERY_BYTES=65536 NPL_GC_VERIFY=10 "$WORK/hash-tables" \
+    > "$WORK/hash-tables-verify.out"
+cmp "$WORK/hash-tables.expected" "$WORK/hash-tables-verify.out"
 # exit maps #t (and no argument) to 0, #f and non-integers to 1.
 emit "$WORK/compiler" "$TESTS/exit-status.npl" "$WORK/exit-status.ssa"
 build_ssa "$WORK/exit-status.ssa" "$WORK/exit-status"

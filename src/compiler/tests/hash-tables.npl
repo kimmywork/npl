@@ -1,0 +1,71 @@
+; Hash table primitive rows without imports (docs/design-data.md section 3):
+; the compiler can use them directly. Kinds: 0 eq?, 1 eqv?, 2 equal?,
+; 3 string=?; the procedure slot may be #f for the built-in kinds (an equal
+; table then compares in C and rejects keys too deep for its bounded walk). The (srfi 125) interface is covered by
+; tests/r7rs/fixtures/hash-tables; check_full_compiler.sh also runs this
+; suite with a small nursery under NPL_GC_VERIFY (young keys in old tables).
+(include "framework.npl")
+
+(define MISSING (cons 'missing ()))
+
+(define (fill table i count make-key)
+  (if (< i count)
+      (begin
+        (npl_hash_table_set table (make-key i) i)
+        (fill table (+ i 1) count make-key))))
+
+(define (all-found? table i count make-key)
+  (if (= i count)
+      #t
+      (if (= (npl_hash_table_ref table (make-key i) MISSING) i)
+          (all-found? table (+ i 1) count make-key)
+          #f)))
+
+(define (list-key i) (cons i (cons (number->string i) ())))
+
+(define (main)
+  (test-equal "eq fixnum keys"
+              (lambda ()
+                (let ((table (npl_make_hash_table 0 #f #f 0)))
+                  (fill table 0 5000 (lambda (i) i))
+                  (if (all-found? table 0 5000 (lambda (i) i))
+                      (npl_hash_table_size table)
+                      -1)))
+              5000)
+  (test-identity "string keys"
+                 (lambda ()
+                   (let ((table (npl_make_hash_table 3 #f #f 0)))
+                     (fill table 0 3000 number->string)
+                     (all-found? table 0 3000 number->string)))
+                 #t)
+  (test-identity "equal keys"
+                 (lambda ()
+                   (let ((table (npl_make_hash_table 2 #f #f 0)))
+                     (fill table 0 3000 list-key)
+                     (all-found? table 0 3000 list-key)))
+                 #t)
+  (test-equal "delete and reinsert"
+              (lambda ()
+                (let ((table (npl_make_hash_table 1 #f #f 0)))
+                  (fill table 0 100 (lambda (i) i))
+                  (npl_hash_table_delete table 7)
+                  (npl_hash_table_delete table 8)
+                  (npl_hash_table_set table 8 80)
+                  (+ (npl_hash_table_size table)
+                     (npl_hash_table_ref table 8 0))))
+              179)
+  (test-identity "missing key"
+                 (lambda ()
+                   (npl_hash_table_ref (npl_make_hash_table 0 #f #f 0)
+                                       'absent MISSING))
+                 MISSING)
+  (test-identity "contains"
+                 (lambda ()
+                   (let ((table (npl_make_hash_table 0 #f #f 0)))
+                     (npl_hash_table_set table 'k 'v)
+                     (if (npl_hash_table_contains_p table 'k)
+                         (not (npl_hash_table_contains_p table 'other))
+                         #f)))
+                 #t)
+  (finish-tests "hash-tables"))
+(main)

@@ -1,0 +1,32 @@
+(one list string 4 #f fail (one))
+10009980012998
+(0 #t)
+(11 1 new new)
+1
+(x #f)
+(#f b "hash-table-set!: cannot mutate an immutable hash table")
+(1 3)
+c
+3
+103
+((1 2 3 4) (2) (1 3) (1 3 4) b)
+(#t #f 2 b no)
+((2 2 b))
+(2 (2 b) 0)
+"hash-table-pop!: empty hash table"
+"hash-table-ref: key not found"
+"make-hash-table: unknown equality predicate needs a hash function"
+(#t #t #t #t)
+cyclic
+20
+(1 2 3)
+33
+9
+(#t #f default-equal)
+(big)
+#<hash-table 0>
+(record-key #f)
+(deep #f)
+cyclic
+eqv-miss
+half

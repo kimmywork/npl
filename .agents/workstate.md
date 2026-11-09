@@ -195,14 +195,16 @@ done (worklog 2026-11-09): derived `define-record-type` and
 `record-update` (also `(npl record)`), inline predicate/accessor/modifier,
 structural `equal?`, Guile-style printing, and a macro hygiene fix
 (one alias per template name); record read 128 -> 85 instructions
-(vector-ref 69; an accessor inliner is a follow-up). Next: SRFI 125 hash
-tables.
+(vector-ref 69; an accessor inliner is a follow-up). SRFI 125 hash tables
+done (worklog 2026-11-09): runtime `BOX_HASHTABLE`, import-free primitive
+rows, `(srfi 125)` and `(srfi 69)`; 1M eqv inserts and lookups 0.33 s
+(Guile compiled SRFI 69 1.5 s). Next: `match`.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 310,628 lines; SHA-256
+- `bootstrap/current.ssa`: 310,761 lines; SHA-256
   `95fdc4e991cb4257002b1aa3df4656299545acd0fa6ab0ee44ea42599eef995f`
-  (macOS strict relay, 2026-11-09, records). The seed calls
+  (macOS strict relay, 2026-11-09, SRFI 125 hash tables). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure
@@ -217,6 +219,11 @@ tables.
 
 - `(sqrt -1.0-0.0i)` branch convention: follow IEEE signed-zero convention
   (Guile and Racket precedent) when sqrt is implemented. Not blocking.
+- Operand evaluation order differs between native and npli: in
+  `(list (vector-ref v 0) (f))` with f mutating v, native shows the new
+  value (operands evaluated right to left, or the first operand read after
+  the call), npli and Guile the old one. R7RS leaves the order
+  unspecified, but the two paths should agree (worklog 2026-11-09).
 - Guile 3.0 oracle gaps (covered by native suite `error-objects` instead):
   failed `open-input-file` is not `file-error?`; absent irritants are #f.
   Not blocking; native tests provide coverage.

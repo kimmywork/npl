@@ -245,6 +245,18 @@ NplVal npl_apply(NplVal value, int64_t argc, NplVal *argv)
     return npl_trampoline(closure->function, closure->environment, argc, argv);
 }
 
+/* (procedure argument ...) from C, returning its value: hash table
+ * equality and hash procedures (hashtable.c). */
+NplVal npl_apply_sync(NplVal value, int64_t argc, NplVal *argv)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE)
+        npl_primitive_error("application", "not a procedure", value);
+    NplClosure *closure = (NplClosure *)npl_header(value);
+    if (!closure_accepts_arity(closure, argc + 1))
+        report_closure_arity("npl_apply_sync", closure, argc + 1);
+    return npl_call_sync(closure->function, closure->environment, argc, argv);
+}
+
 /* ---- Escape-only continuations ---- */
 
 #define NPL_MAX_ESCAPE_DEPTH 64

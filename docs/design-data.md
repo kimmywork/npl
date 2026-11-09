@@ -169,61 +169,81 @@ contracts.
 
 ## 3. Hash Tables (SRFI 125)
 
+As built (2026-11-09). Reference: [srfi-125.html](reference/srfi-125.html).
+
 ### Runtime
 
-A new box type `BOX_HASHTABLE` (`runtime/hashtable.c`): open addressing
-with linear probing over a keys/values vector pair, load factor at most
-0.5, power-of-two capacity. Kinds, chosen at construction:
+`BOX_HASHTABLE` (`runtime/hashtable.c`, `NplHashTable` in `npl.h`): open
+addressing with linear probing over one entries vector of
+`(hash key value)` triples; `#f` marks an empty slot, `#t` a deleted one
+(tombstone). Capacity is a power of two; a resize (to four times the live
+count) drops tombstones and happens when used slots would pass half.
 
 | Kind | Equivalence | Hash |
 |---|---|---|
-| `eq` | `eq?` | address (stable: the GC does not move objects) |
-| `eqv` | `eqv?` | address, or the number's value for numbers |
-| `equal` | `equal?` | structural over pairs, vectors, strings, records, numbers, chars, depth bounded |
-| `string` | `string=?` | FNV-1a over characters |
-| `custom` | user procedures | user hash procedure |
+| 0 `eq` | `eq?` | address (stable: the GC does not move objects) |
+| 1 `eqv` | `eqv?` | address, or the value for numbers (flonum bits, bignum limbs) |
+| 2 `equal` | `equal?` | structure over pairs, vectors, records, strings, bytevectors; 64-node budget |
+| 3 `string` | `string=?` | FNV-1a over characters (the symbol table's hash) |
+| 4 `general` | user procedure | user hash procedure |
 
-The four built-in kinds run entirely in C. The custom kind calls the NPL
-equality and hash procedures through `npl_call_sync`; its operations are
-not direct-safe. Deletion uses tombstones; a rehash drops them. The table
-holds its keys and values strongly; weak tables are out of scope.
-
-Mutation goes through the write barrier like vectors. Iteration order is
-the slot order and is unspecified, as SRFI 125 allows; fixtures sort before
-comparing.
+An equal table compares keys in C with a walk bounded at 10,000 nodes; a
+key too deep or cyclic for it is compared by the library's `equal?` (the
+procedure stored in the table), so cyclic keys work. The general kind calls
+its procedures through `npl_apply_sync` (new in `trampoline.c`). Mutation
+goes through the write barrier on the entries vector. A table copied
+without `mutable?` carries `NPL_FLAG_LITERAL`; mutators then raise
+`cannot mutate an immutable hash table`.
 
 ### Primitive rows (import-free)
 
-`npl_make_hash_table kind capacity`, `hash-table?`, `hash-table-ref/default`
-(as `npl_hash_table_ref table key default`), `hash-table-set!`,
-`hash-table-delete!`, `hash-table-contains?`, `hash-table-size`,
-`npl_hash_table_keys`, `npl_hash_table_values`, `hash-table-clear!`,
-`hash-table-copy`. The compiler uses these directly.
+`npl_make_hash_table kind equivalence hash capacity`, `npl_hash_table_p`,
+`_ref table key missing`, `_set`, `_delete` (returns 0 or 1),
+`_contains_p`, `_size`, `_keys`, `_values`, `_items` (a
+`#(key value ...)` snapshot for walking), `_clear`, `_copy table mutable?`,
+`_pop` (a `(key . value)` pair), `_info table field`, `npl_hash_value kind
+value`, and `npl_same_procedure_p`. The compiler can use these directly
+with `#f` for the procedure slots of the built-in kinds.
 
 ### Library
 
-`(srfi 125)` (`lib/srfi/125.sld`) implements the full SRFI 125 interface
-over the rows: constructors (`make-hash-table` with a comparator-free
-equality-procedure argument, `hash-table`, `hash-table-unfold`,
-`alist->hash-table`), predicates, accessors (`hash-table-ref` with failure
-and success procedures), mutators (`hash-table-update!`,
-`hash-table-update!/default`, `hash-table-intern!`, `hash-table-pop!`),
-the whole-table procedures (`hash-table-map`, `-for-each`, `-fold`,
-`-prune!`, `-count`, `-find`, `->alist`, `hash-table-union!` and the other
-set operations), and the deprecated SRFI 69 names that SRFI 125 keeps.
-`make-hash-table` maps the standard equality procedures (`eq?`, `eqv?`,
-`equal?`, `string=?`) to the built-in kinds and anything else to the custom
-kind. SRFI 128 comparators are accepted only as far as SRFI 125 requires
-without SRFI 128 itself: a comparator argument is rejected with an error
-object until NPL has SRFI 128.
+`(srfi 125)` (`lib/srfi/125.sld`, `125.scm`) implements the full interface,
+including the deprecated names. Decisions:
 
-`(srfi 69)` re-exports the subset with SRFI 69 names.
+- Without SRFI 128, constructors take an equality predicate and an optional
+  hash function; a non-procedure (a comparator) is an error object.
+  `hash-table=?` and `hash-table-map` take an equality predicate in the
+  comparator position.
+- `make-hash-table` recognizes `eq?`, `eqv?`, `equal?`, and `string=?` and
+  picks the built-in kind, ignoring a given hash function (allowed for
+  refinements of `equal?`); `string-ci=?` gets `string-ci-hash`; any other
+  predicate needs a hash function. With no arguments it makes an `equal?`
+  table (SRFI 69). A primitive used as a value is a fresh closure at each
+  use, so recognition compares the closure's code
+  (`npl_same_procedure_p`), not identity.
+- `hash-table` returns an immutable table; `hash-table-copy` without a true
+  second argument too.
+- `hash-table-pop!` on an empty table and `hash-table-ref` of a missing key
+  without `failure` raise error objects.
+- The walking procedures iterate a snapshot, so a procedure that mutates
+  the table cannot break the walk (SRFI 125 makes that an error anyway).
 
-Acceptance: fixture against Guile's SRFI 69 where names overlap, and
-against expected output for SRFI 125-only procedures; GC stress with many
-young keys in an old table under `NPL_GC_VERIFY`; `equal` hashing of
-cyclic keys terminates; benchmark: 1,000,000 inserts and lookups against an
-association list and against Guile.
+`(srfi 69)` (`lib/srfi/69.sld`) re-exports the SRFI 69 names. Two differ
+from their SRFI 125 synonyms, following SRFI 69 and Guile: `hash-table-copy`
+returns a mutable table, and `hash-table-merge!` lets the second table's
+values win.
+
+`srfi/` joins `scheme/` and `npl/` as an installed library prefix
+(`frontend/library.npl`).
+
+Fixtures: `hash-tables` (no oracle: Guile 3.0 has no SRFI 125; checked by
+hand against the SRFI text, including cyclic, deep, and record keys),
+`srfi-69` (native, npli, and Guile's `(srfi srfi-69)`);
+`src/compiler/tests/hash-tables.npl` (import-free rows, also run with a
+64 KiB nursery under `NPL_GC_VERIFY`).
+
+Measured (1,000,000 eqv inserts and lookups plus 100,000 string keys):
+native 0.33 s CPU; Guile 3.0.11 compiled `(srfi srfi-69)` 1.5 s.
 
 ## 4. Pattern Matching
 

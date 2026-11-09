@@ -57,6 +57,7 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_RECORD 22   /* NplVector layout: data[0] = type, data[1..] = fields */
 #define BOX_STRING_DATA 23  /* out-of-line wide string characters (string.c) */
 #define BOX_POINTER 24  /* C address (ffi.c); holds no references */
+#define BOX_HASHTABLE 25  /* NplHashTable (hashtable.c) */
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -260,6 +261,30 @@ typedef struct {
     void *address;
 } NplPointer;
 
+/* SRFI 125 hash table (hashtable.c): open addressing with linear probing
+ * over entries, a vector of capacity triples (hash key value). The hash
+ * slot is #f for an empty slot, #t for a deleted one, and the key's hash
+ * as a fixnum otherwise. The NPL_FLAG_LITERAL bit marks an immutable
+ * table. */
+typedef struct {
+    NplHeader header;
+    uint32_t kind;          /* NPL_HASH_EQ ... NPL_HASH_GENERAL */
+    uint32_t count;         /* live associations */
+    uint32_t used;          /* live and deleted slots */
+    uint32_t capacity;      /* slots, a power of two */
+    uint32_t cursor;        /* hash-table-pop! scan position */
+    uint32_t reserved;
+    NplVal entries;
+    NplVal equivalence;     /* NPL_HASH_EQUAL, NPL_HASH_GENERAL: the predicate */
+    NplVal hash;            /* NPL_HASH_GENERAL: the hash procedure */
+} NplHashTable;
+
+#define NPL_HASH_EQ 0
+#define NPL_HASH_EQV 1
+#define NPL_HASH_EQUAL 2
+#define NPL_HASH_STRING 3
+#define NPL_HASH_GENERAL 4
+
 /* Reduced exact fraction; denominator > 1 and numerator is nonzero. */
 typedef struct {
     NplHeader header;
@@ -441,6 +466,26 @@ int npl_record_type_p_internal(NplVal value);
 NplVal npl_record_instance_type(NplVal value);
 NplVal npl_record_length(NplVal value);
 NplVal npl_record_update(int64_t argc, NplVal *argv);
+NplVal npl_make_hash_table(NplVal kind, NplVal equivalence, NplVal hash,
+                           NplVal capacity);
+NplVal npl_hash_table_p(NplVal value);
+NplVal npl_hash_table_ref(NplVal table, NplVal key, NplVal missing);
+NplVal npl_hash_table_set(NplVal table, NplVal key, NplVal value);
+NplVal npl_hash_table_delete(NplVal table, NplVal key);
+NplVal npl_hash_table_contains_p(NplVal table, NplVal key);
+NplVal npl_hash_table_size(NplVal table);
+NplVal npl_hash_table_keys(NplVal table);
+NplVal npl_hash_table_values(NplVal table);
+NplVal npl_hash_table_items(NplVal table);
+NplVal npl_hash_table_clear(NplVal table);
+NplVal npl_hash_table_copy(NplVal table, NplVal mutable_p);
+NplVal npl_hash_table_pop(NplVal table);
+NplVal npl_hash_table_info(NplVal table, NplVal which);
+NplVal npl_hash_value(NplVal kind, NplVal value);
+NplVal npl_same_procedure_p(NplVal a, NplVal b);
+/* Value-position call of any procedure; argc excludes the continuation
+ * (trampoline.c). */
+NplVal npl_apply_sync(NplVal procedure, int64_t argc, NplVal *argv);
 NplVal npl_vector_length(NplVal vector);
 NplVal npl_vector_ref(NplVal vector, NplVal index);
 NplVal npl_vector_set(NplVal vector, NplVal index, NplVal value);

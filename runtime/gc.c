@@ -155,6 +155,13 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(context->continuation);
             break;
         }
+        case BOX_HASHTABLE: {
+            NplHashTable *table = (NplHashTable *)header;
+            visit(table->entries);
+            visit(table->equivalence);
+            visit(table->hash);
+            break;
+        }
         case BOX_PORT: {
             NplPort *port = (NplPort *)header;
             visit(port->buffer);
