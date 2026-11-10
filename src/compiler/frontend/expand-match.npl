@@ -1,0 +1,77 @@
+; Expansion-time helpers of match (frontend/derived-match.npl,
+; docs/design-data.md section 4). syntax-rules can neither count nor tell a
+; string from a number, so the macro leaves both to these core forms:
+;
+;   (%match-length (item ...))  the number of items, a literal
+;   (%match-literal datum eq-test eqv-test string-test bytevector-test)
+;       the test for comparing against the literal datum: eq-test for
+;       symbols, booleans, characters, (), and fixnums; eqv-test for other
+;       numbers; string-test and bytevector-test for those
+;
+; Without imports there is no equal?, and the selected test is inline
+; where the datum allows it.
+;
+; Shinn's matcher classifies pattern atoms with let-syntax tricks; these
+; forms decide the same at expansion time and expand to sk or fk. Unlike
+; let-syntax, they let a definition (match-define) reach the enclosing body.
+;
+;   (%match-identifier? x sk fk)    x is an identifier
+;   (%match-member? x (id ...) sk fk)
+;       x is one of the ids: same name and syntax mark, as a syntax-rules
+;       literal (literal-identifier?, syntax.npl)
+;   (%match-ellipsis? x sk fk)      x is the ellipsis ...
+
+(define (expand-match-length form)
+  (require-raw-arity form 1 "%match-length")
+  (raw-list-count (car (cdr form)) 0))
+
+(define MATCH-FIXNUM-LIMIT 536870912)
+
+(define (match-eq-literal? datum)
+  (cond
+    ((datum-symbol? datum) #t)
+    ((datum-true? datum) #t)
+    ((datum-false? datum) #t)
+    ((datum-char? datum) #t)
+    ((null? datum) #t)
+    ((number? datum)
+     (if (npl_integer_p datum)
+         (if (npl_inexact_p datum)
+             #f
+             (if (< datum MATCH-FIXNUM-LIMIT)
+                 (< (- 0 MATCH-FIXNUM-LIMIT) datum)
+                 #f))
+         #f))
+    (else #f)))
+
+(define (expand-match-literal form value-env macro-env)
+  (require-raw-arity form 5 "%match-literal")
+  (let ((datum (car (cdr form)))
+        (tests (cdr (cdr form))))
+    (expand-expression
+      (cond
+        ((match-eq-literal? datum) (car tests))
+        ((number? datum) (car (cdr tests)))
+        ((datum-string? datum) (car (cdr (cdr tests))))
+        ((datum-bytevector? datum) (car (cdr (cdr (cdr tests)))))
+        (else (fatal "match: literal pattern must be an atom")))
+      value-env macro-env)))
+
+; %match-identifier?, %match-member?, %match-ellipsis?
+(define (expand-match-choice form value-env macro-env)
+  (let ((name (datum-symbol-name (car form))))
+    (let ((member? (string=? name "%match-member?")))
+      (require-raw-arity form (if member? 4 3) name)
+      (let ((x (car (cdr form)))
+            (branches (if member? (cdr (cdr (cdr form))) (cdr (cdr form)))))
+        (expand-expression
+          (if (cond
+                (member?
+                 (if (datum-symbol? x)
+                     (literal-identifier? x (car (cdr (cdr form))))
+                     #f))
+                ((string=? name "%match-identifier?") (datum-symbol? x))
+                (else (raw-name? x "...")))
+              (car branches)
+              (car (cdr branches)))
+          value-env macro-env)))))

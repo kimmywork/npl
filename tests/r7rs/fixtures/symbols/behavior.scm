@@ -19,5 +19,9 @@
     (report 'nested (eq? (car (read (open-input-string "(alpha beta)")))
                          'alpha))
     (report 'unusual (list (symbol->string (string->symbol "with space"))
-                           (eq? (string->symbol "") (string->symbol ""))))))
+                           (eq? (string->symbol "") (string->symbol ""))))
+    ; R7RS 7.1.1 extended identifier characters, in source and in read.
+    (report 'extended-characters
+            (list '$x 'a&b '^ '~tilde '$ (symbol->string 'c$&^~)
+                  (eq? (read (open-input-string "a&b^$")) 'a&b^$)))))
 (define fixture-result (begin (symbol-results) 0))

@@ -104,79 +104,30 @@
           (cons (car formals) (define-values-proper-formals (cdr formals))))
       (if (null? formals) () (cons formals ()))))
 
-(define (define-values-rest? formals)
-  (if (null? formals)
-      #f
-      (if (datum-symbol? formals)
-          #t
-          (if (pair? formals) (define-values-rest? (cdr formals)) #f))))
-
-;; The consumer lambda's formals: like the source formals, with each name
-;; replaced by its bound name (the rest stays in rest position).
-(define (define-values-consumer-formals formals bound)
-  (if (datum-symbol? formals)
-      (car bound)
-      (if (null? formals)
-          ()
-          (cons (car bound)
-                (define-values-consumer-formals (cdr formals) (cdr bound))))))
-
+; The result is unexpanded source: a body or the top level splices the begin
+; and expands its definitions once, binding the formals as definitions (an
+; expanded initializer would be expanded again there). The formals are
+; checked here.
 (define (expand-define-values form value-env macro-env)
   (require-raw-arity form 2 "define-values")
-  (if (define-values-rest? (car (cdr form)))
-      (expand-define-values-rest form value-env macro-env)
-      (expand-define-values-proper form value-env macro-env)))
-
-(define (expand-define-values-rest form value-env macro-env)
-  (let ((identifiers (define-values-proper-formals (car (cdr form)))))
-    (let ((bound (bind-identifiers identifiers value-env)))
+  (let ((formals (car (cdr form))))
+    (let ((identifiers (define-values-proper-formals formals)))
+      (bind-identifiers identifiers value-env)
       (let ((packed
               (datum-symbol
                 (fresh-value-name (datum-symbol "values_packed")))))
-        (let ((initializer
-                (expand-expression
-                  (car (cdr (cdr form))) value-env macro-env)))
-          (cons (datum-symbol "begin")
-            (cons
-              (cons (datum-symbol "define")
-                (cons packed
-                  (cons
-                    (cons (datum-symbol "call-with-values")
-                      (cons (cons (datum-symbol "lambda")
-                              (cons () (cons initializer ())))
-                        (cons (cons (datum-symbol "lambda")
-                                (cons (define-values-consumer-formals
-                                        (car (cdr form)) (car bound))
-                                  (cons (values-pack-expression (car bound))
-                                        ())))
-                              ())))
-                    ())))
-              (define-values-forms identifiers packed))))))))
-
-(define (expand-define-values-proper form value-env macro-env)
-  (let ((identifiers (car (cdr form))))
-    (let ((bound (bind-identifiers identifiers value-env)))
-      (let ((packed
-              (datum-symbol
-                (fresh-value-name (datum-symbol "values_packed")))))
-        (let ((initializer
-                (expand-expression
-                  (car (cdr (cdr form))) value-env macro-env)))
-          (let ((producer
-                  (cons (datum-symbol "lambda")
-                    (cons () (cons initializer ())))))
-            (let ((consumer
-                    (cons (datum-symbol "lambda")
-                      (cons (car bound)
-                        (cons
-                          (values-pack-expression (car bound))
-                          ())))))
-              (cons (datum-symbol "begin")
+        (cons (datum-symbol "begin")
+          (cons
+            (cons (datum-symbol "define")
+              (cons packed
                 (cons
-                  (cons (datum-symbol "define")
-                    (cons packed
-                      (cons
-                        (cons (datum-symbol "call-with-values")
-                          (cons producer (cons consumer ())))
-                        ())))
-                  (define-values-forms identifiers packed))))))))))
+                  (cons (datum-symbol "call-with-values")
+                    (cons (cons (datum-symbol "lambda")
+                            (cons () (cons (car (cdr (cdr form))) ())))
+                      (cons (cons (datum-symbol "lambda")
+                              (cons formals
+                                (cons (values-pack-expression identifiers)
+                                      ())))
+                            ())))
+                  ())))
+            (define-values-forms identifiers packed)))))))

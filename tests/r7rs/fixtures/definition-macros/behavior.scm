@@ -27,4 +27,33 @@
   (report 'shadow (let ((helper (lambda (x) 'shadowed)))
                     (define-pair p q 2)
                     q)))
-(define fixture-result (begin (definition-results) 0))
+;; Literals in spliced output stay literals; define-values from a macro, and
+;; its initializer, are expanded once; a template refers to the innermost
+;; binding at the macro definition site; () matches a (p ...) subpattern.
+(define-syntax define-literals
+  (syntax-rules ()
+    ((_ s c v b) (begin (define s "x") (define c #\y) (define v #(1 "z"))
+                        (define b #t)))))
+(define-literals lit-s lit-c lit-v lit-t)
+(define-syntax define-both
+  (syntax-rules ()
+    ((_ a b e) (define-values (a b) e))))
+(define (values-results)
+  (define-both a b (values (list 3) (list 4)))
+  (define-values (c . d) (values (list 5) 6 7))
+  (list a b c d))
+(define (nearest-binding)
+  (let ((x 'outer))
+    (let ((x 'inner))
+      (let-syntax ((m (syntax-rules () ((_) x))))
+        (m)))))
+(define-syntax count-bindings
+  (syntax-rules ()
+    ((_ ((name value) ...) body) (let ((name value) ...) body))))
+(define (more-results)
+  (report 'literals (list lit-s lit-c lit-v lit-t))
+  (report 'define-values (values-results))
+  (report 'nearest-binding (nearest-binding))
+  (report 'empty-subpattern (list (count-bindings () 'none)
+                                  (count-bindings ((a 1) (b 2)) (+ a b)))))
+(define fixture-result (begin (definition-results) (more-results) 0))

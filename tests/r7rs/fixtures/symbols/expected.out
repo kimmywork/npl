@@ -5,3 +5,4 @@
 (case (first second other))
 (nested #t)
 (unusual ("with space" #t))
+(extended-characters ($x a&b ^ ~tilde $ "c$&^~" #t))

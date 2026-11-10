@@ -42,7 +42,9 @@
 (define (definition-form? form)
   (if (raw-form? form "define")
       #t
-      (raw-form? form "define-syntax")))
+      (if (raw-form? form "define-values")
+          #t
+          (raw-form? form "define-syntax"))))
 
 (define (definition-begin? form)
   (if (not (raw-form? form "begin"))
@@ -58,9 +60,10 @@
               #t
               (begin-contains-definition? (cdr forms))))))
 
-; Definition-producing output (define-syntax, or begin containing definitions)
-; is returned unexpanded so the enclosing body or top level can splice it.
-; Its template identifiers carry this transcription's mark; rewrite the free
+; Definition-producing output (define-syntax, define-values, or begin
+; containing definitions) is returned unexpanded so the enclosing body or top
+; level can splice it; define-values is wrapped in a begin for that. Its
+; template identifiers carry this transcription's mark; rewrite the free
 ; ones (not defined by the output itself) to the binding they denote at the
 ; macro definition site, so they resolve correctly wherever the forms land.
 (define (expand-transcription transformer transcription value-env macro-env)
@@ -68,11 +71,17 @@
     (let ((mark (cdr transcription)))
       (if (if (raw-form? output "define-syntax")
               #t
-              (definition-begin? output))
-          (resolve-marked-free
-            output mark (transformer-definition-env transformer)
-            (transformer-definition-macro-env transformer)
-            (begin-defined-identifiers output ()))
+              (if (raw-form? output "define-values")
+                  #t
+                  (definition-begin? output)))
+          (let ((resolved
+                  (resolve-marked-free
+                    output mark (transformer-definition-env transformer)
+                    (transformer-definition-macro-env transformer)
+                    (begin-defined-identifiers output ()))))
+            (if (raw-form? output "define-values")
+                (cons (datum-symbol "begin") (cons resolved ()))
+                resolved))
           (expand-expression
             output
             (alias-value-environment
@@ -186,6 +195,15 @@
     ((string=? name "%record-index") (expand-record-index form))
     ((string=? name "%record-make")
      (expand-record-make form value-env macro-env))
+    ((string=? name "%match-length") (expand-match-length form))
+    ((string=? name "%match-literal")
+     (expand-match-literal form value-env macro-env))
+    ((if (string=? name "%match-identifier?")
+         #t
+         (if (string=? name "%match-member?")
+             #t
+             (string=? name "%match-ellipsis?")))
+     (expand-match-choice form value-env macro-env))
     ((string=? name "cond-expand")
      (expand-expression
        (library-expand-cond-expression form) value-env macro-env))

@@ -127,6 +127,7 @@ run_suite hash-tables "PASS hash-tables 6"
 NPL_GC_NURSERY_BYTES=65536 NPL_GC_VERIFY=10 "$WORK/hash-tables" \
     > "$WORK/hash-tables-verify.out"
 cmp "$WORK/hash-tables.expected" "$WORK/hash-tables-verify.out"
+run_suite match "PASS match 17"
 # exit maps #t (and no argument) to 0, #f and non-integers to 1.
 emit "$WORK/compiler" "$TESTS/exit-status.npl" "$WORK/exit-status.ssa"
 build_ssa "$WORK/exit-status.ssa" "$WORK/exit-status"
@@ -430,6 +431,8 @@ reject_compile contracts/record-unknown-field.npl \
     record-unknown-field "define-record-type: unknown field z"
 reject_compile contracts/record-field-spec.npl \
     record-field-spec "define-record-type field needs an accessor"
+reject_compile contracts/match-repeated-variable.npl \
+    match-repeated-variable "match: repeated pattern variable"
 reject_compile contracts/c-function-nested.npl \
     c-function-nested "define-c-function is valid at top level only"
 reject_compile contracts/c-function-type.npl \

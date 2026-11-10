@@ -53,15 +53,21 @@
   (cell-set! SYNTAX-NEXT-MARK 0)
   (cell-set! EXPAND-NEXT-VALUE 0)
   (let ((environment (predeclare-globals forms ())))
-    (let ((core-result
-            (expand-top-sequence
-              (parse-source-text DERIVED-SYNTAX-SOURCE)
-              environment () ())))
-      (if (not (null? (car core-result)))
+    (car (expand-top-sequence
+           forms environment
+           (top-syntax-cells forms (expand-derived-syntax environment))
+           ()))))
+
+;; The macro environment of the derived syntax (derived.npl,
+;; derived-match.npl). Its keywords are bound before any rule is parsed, so
+;; a macro may use one defined after it.
+(define (expand-derived-syntax value-env)
+  (let ((derived (derived-syntax-forms)))
+    (let ((result (expand-top-sequence
+                    derived value-env (top-syntax-cells derived ()) ())))
+      (if (not (null? (car result)))
           (fatal "derived syntax source emitted runtime forms"))
-      (car (expand-top-sequence
-             forms environment
-             (top-syntax-cells forms (cdr core-result)) ())))))
+      (cdr result))))
 
 (define (top-syntax-prebound keyword macro-env)
   (let ((found (lookup-macro-cell keyword macro-env)))

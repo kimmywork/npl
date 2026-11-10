@@ -1,0 +1,563 @@
+; Parsed with DERIVED-SYNTAX-SOURCE (derived.npl) at expansion startup, so
+; match is available without imports, like guard and define-record-type.
+
+(define MATCH-SYNTAX-SOURCE
+";; Pattern matching (docs/design-data.md section 4): Alex Shinn's portable
+;; syntax-rules match, placed by him in the public domain, as distributed
+;; with Guile 3.0 (ice-9 match.upstream.scm). Changes: no imports are
+;; needed (equal?, list?, length, reverse, and error are replaced by
+;; inline code and the %match-literal and %match-length core forms); the
+;; let-syntax tricks that classify pattern atoms are the %match-identifier?,
+;; %match-member?, and %match-ellipsis? core forms (frontend/expand-match.npl),
+;; so match-define's definitions reach the enclosing body; a repeated
+;; pattern variable is an expansion error instead of an equal? test;
+;; ($ type pattern ...) matches define-record-type records by field
+;; position; match-define is added.
+
+(define-syntax match
+  (syntax-rules ()
+    ((match)
+     (syntax-error \"missing match expression\"))
+    ((match atom)
+     (syntax-error \"no match clauses\"))
+    ((match (app ...) (pat . body) ...)
+     (let ((v (app ...)))
+       (match-next v ((app ...) (set! (app ...))) (pat . body) ...)))
+    ((match #(vec ...) (pat . body) ...)
+     (let ((v #(vec ...)))
+       (match-next v (v (set! v)) (pat . body) ...)))
+    ((match atom (pat . body) ...)
+     (let ((v atom))
+       (match-next v (atom (set! atom)) (pat . body) ...)))))
+
+(define-syntax match-next
+  (syntax-rules (=>)
+    ((match-next v g+s)
+     (raise (npl_make_record 'npl-error-object 'error
+                             \"match: no matching pattern\" (cons v '()))))
+    ((match-next v g+s (pat (=> failure) . body) . rest)
+     (let ((failure (lambda () (match-next v g+s . rest))))
+       (match-one v pat g+s (match-drop-ids (begin . body)) (failure) ())))
+    ((match-next v g+s (pat . body) . rest)
+     (match-next v g+s (pat (=> failure) . body) . rest))))
+
+(define-syntax match-one
+  (syntax-rules ()
+    ((match-one v (p q . r) g+s sk fk i)
+     (match-check-ellipsis
+      q
+      (match-extract-vars p (match-gen-ellipsis v p r  g+s sk fk i) i ())
+      (match-two v (p q . r) g+s sk fk i)))
+    ((match-one . x)
+     (match-two . x))))
+
+(define-syntax match-two
+  (syntax-rules (_ ___ ..1 *** quote quasiquote ? $ = and or not set! get!)
+    ((match-two v () g+s (sk ...) fk i)
+     (if (null? v) (sk ... i) fk))
+    ((match-two v (quote p) g+s sk fk i)
+     (match-quote v p g+s sk fk i))
+    ((match-two v (quasiquote p) . x)
+     (match-quasiquote v p . x))
+    ((match-two v (and) g+s (sk ...) fk i) (sk ... i))
+    ((match-two v (and p q ...) g+s sk fk i)
+     (match-one v p g+s (match-one v (and q ...) g+s sk fk) fk i))
+    ((match-two v (or) g+s sk fk i) fk)
+    ((match-two v (or p) . x)
+     (match-one v p . x))
+    ((match-two v (or p ...) g+s sk fk i)
+     (match-extract-vars (or p ...) (match-gen-or v (p ...) g+s sk fk i) i ()))
+    ((match-two v (not p) g+s (sk ...) fk i)
+     (match-one v p g+s (match-drop-ids fk) (sk ... i) i))
+    ((match-two v (get! getter) (g s) (sk ...) fk i)
+     (let ((getter (lambda () g))) (sk ... i)))
+    ((match-two v (set! setter) (g (s ...)) (sk ...) fk i)
+     (let ((setter (lambda (x) (s ... x)))) (sk ... i)))
+    ((match-two v (? pred . p) g+s sk fk i)
+     (if (pred v) (match-one v (and . p) g+s sk fk i) fk))
+    ((match-two v (= proc p) . x)
+     (let ((w (proc v))) (match-one w p . x)))
+    ((match-two v (p ___ . r) g+s sk fk i)
+     (match-extract-vars p (match-gen-ellipsis v p r g+s sk fk i) i ()))
+    ((match-two v (p) g+s sk fk i)
+     (if (if (pair? v) (null? (cdr v)) #f)
+         (let ((w (car v)))
+           (match-one w p ((car v) (set-car! v)) sk fk i))
+         fk))
+    ((match-two v (p *** q) g+s sk fk i)
+     (match-extract-vars p (match-gen-search v p q g+s sk fk i) i ()))
+    ((match-two v (p *** . q) g+s sk fk i)
+     (syntax-error \"invalid use of ***\" (p *** . q)))
+    ((match-two v (p ..1) g+s sk fk i)
+     (if (pair? v)
+         (match-one v (p ___) g+s sk fk i)
+         fk))
+    ((match-two v ($ rec p ...) g+s sk fk i)
+     (if (npl_record_p v rec)
+         (if (< (%match-length (p ...)) (npl_record_length v))
+             (match-record-refs v rec () (p ...) g+s sk fk i)
+             (raise (npl_make_record 'npl-error-object 'error
+                                     \"match: too many field patterns\"
+                                     (cons v '()))))
+         fk))
+    ((match-two v (p . q) g+s sk fk i)
+     (if (pair? v)
+         (let ((w (car v)) (x (cdr v)))
+           (match-one w p ((car v) (set-car! v))
+                      (match-one x q ((cdr v) (set-cdr! v)) sk fk)
+                      fk
+                      i))
+         fk))
+    ((match-two v #(p ...) g+s . x)
+     (match-vector v 0 () (p ...) . x))
+    ((match-two v _ g+s (sk ...) fk i) (sk ... i))
+    ;; An identifier binds unless this pattern bound it already; any other
+    ;; atom is a literal.
+    ((match-two v x g+s (sk ...) fk (id ...))
+     (%match-identifier?
+      x
+      (%match-member?
+       x (id ...)
+       (syntax-error \"match: repeated pattern variable\" x)
+       (let ((x v)) (sk ... (id ... x))))
+      (if (match-literal v x) (sk ... (id ...)) fk)))))
+
+;; 'datum: structure is matched part by part, atoms by match-literal.
+(define-syntax match-quote
+  (syntax-rules ()
+    ((_ v () g+s (sk ...) fk i)
+     (if (null? v) (sk ... i) fk))
+    ((_ v (a . b) g+s sk fk i)
+     (if (pair? v)
+         (let ((w (car v)) (x (cdr v)))
+           (match-quote w a g+s (match-quote x b g+s sk fk) fk i))
+         fk))
+    ((_ v #(a ...) g+s sk fk i)
+     (match-vector-two v 0 () ((quote a) ...) sk fk i))
+    ((_ v a g+s (sk ...) fk i)
+     (if (match-literal v a) (sk ... i) fk))))
+
+(define-syntax match-literal
+  (syntax-rules ()
+    ((_ v x)
+     (%match-literal
+      x
+      (eq? v 'x)
+      (eqv? v 'x)
+      (if (string? v) (string=? v 'x) #f)
+      (if (bytevector? v)
+          (let ((n (bytevector-length 'x)))
+            (if (= (bytevector-length v) n)
+                (let loop ((k 0))
+                  (if (= k n)
+                      #t
+                      (if (= (bytevector-u8-ref v k) (bytevector-u8-ref 'x k))
+                          (loop (+ k 1))
+                          #f)))
+                #f))
+          #f)))))
+
+;; The length of a proper list, else #f (also for a circular list).
+(define-syntax match-list-length
+  (syntax-rules ()
+    ((_ ls)
+     (let loop ((fast ls) (slow ls) (n 0))
+       (if (null? fast)
+           n
+           (if (pair? fast)
+               (if (null? (cdr fast))
+                   (+ n 1)
+                   (if (pair? (cdr fast))
+                       (if (eq? (cdr (cdr fast)) (cdr slow))
+                           #f
+                           (loop (cdr (cdr fast)) (cdr slow) (+ n 2)))
+                       #f))
+               #f))))))
+
+(define-syntax match-reverse
+  (syntax-rules ()
+    ((_ ls)
+     (let loop ((rest ls) (result '()))
+       (if (null? rest)
+           result
+           (loop (cdr rest) (cons (car rest) result)))))))
+
+(define-syntax match-vector->list
+  (syntax-rules ()
+    ((_ v)
+     (let loop ((k (- (vector-length v) 1)) (result '()))
+       (if (< k 0)
+           result
+           (loop (- k 1) (cons (vector-ref v k) result)))))))
+
+(define-syntax match-quasiquote
+  (syntax-rules (unquote unquote-splicing quasiquote)
+    ((_ v (unquote p) g+s sk fk i)
+     (match-one v p g+s sk fk i))
+    ((_ v ((unquote-splicing p) . rest) g+s sk fk i)
+     (if (pair? v)
+       (match-one v
+                  (p . tmp)
+                  (match-quasiquote tmp rest g+s sk fk)
+                  fk
+                  i)
+       fk))
+    ((_ v (quasiquote p) g+s sk fk i . depth)
+     (match-quasiquote v p g+s sk fk i #f . depth))
+    ((_ v (unquote p) g+s sk fk i x . depth)
+     (match-quasiquote v p g+s sk fk i . depth))
+    ((_ v (unquote-splicing p) g+s sk fk i x . depth)
+     (match-quasiquote v p g+s sk fk i . depth))
+    ((_ v (p . q) g+s sk fk i . depth)
+     (if (pair? v)
+       (let ((w (car v)) (x (cdr v)))
+         (match-quasiquote
+          w p g+s
+          (match-quasiquote-step x q g+s sk fk depth)
+          fk i . depth))
+       fk))
+    ((_ v #(elt ...) g+s sk fk i . depth)
+     (if (vector? v)
+       (let ((ls (match-vector->list v)))
+         (match-quasiquote ls (elt ...) g+s sk fk i . depth))
+       fk))
+    ((_ v x g+s sk fk i . depth)
+     (match-one v 'x g+s sk fk i))))
+
+(define-syntax match-quasiquote-step
+  (syntax-rules ()
+    ((match-quasiquote-step x q g+s sk fk depth i)
+     (match-quasiquote x q g+s sk fk i . depth))))
+
+(define-syntax match-drop-ids
+  (syntax-rules ()
+    ((_ expr ids ...) expr)))
+
+(define-syntax match-tuck-ids
+  (syntax-rules ()
+    ((_ (letish args (expr ...)) ids ...)
+     (letish args (expr ... ids ...)))))
+
+(define-syntax match-gen-or
+  (syntax-rules ()
+    ((_ v p g+s (sk ...) fk (i ...) ((id id-ls) ...))
+     (let ((sk2 (lambda (id ...) (sk ... (i ... id ...)))))
+       (match-gen-or-step v p g+s (match-drop-ids (sk2 id ...)) fk (i ...))))))
+
+(define-syntax match-gen-or-step
+  (syntax-rules ()
+    ((_ v () g+s sk fk . x)
+     fk)
+    ((_ v (p) . x)
+     (match-one v p . x))
+    ((_ v (p . q) g+s sk fk i)
+     (let ((fk2 (lambda () (match-gen-or-step v q g+s sk fk i))))
+       (match-one v p g+s sk (fk2) i)))))
+
+(define-syntax match-gen-ellipsis
+  (syntax-rules ()
+    ((_ v p () g+s (sk ...) fk i ((id id-ls) ...))
+     (match-check-identifier p
+       (let ((w v))
+         (if (match-list-length w)
+             (match-one w p g+s (sk ...) fk i)
+             fk))
+       (let loop ((ls v) (id-ls '()) ...)
+         (if (null? ls)
+             (let ((id (match-reverse id-ls)) ...) (sk ... i))
+             (if (pair? ls)
+                 (let ((w (car ls)))
+                   (match-one w p ((car ls) (set-car! ls))
+                              (match-drop-ids (loop (cdr ls) (cons id id-ls) ...))
+                              fk i))
+                 fk)))))
+    ((_ v p r g+s sk fk (i ...) ((id id-ls) ...))
+     (match-verify-no-ellipsis
+      r
+      (match-bound-identifier-memv
+       p
+       (i ...)
+       (syntax-error \"match: repeated pattern variable\" p)
+       (let* ((tail-len (%match-length r))
+              (ls v)
+              (len (match-list-length ls)))
+         (if (if len (< len tail-len) #t)
+             fk
+             (let loop ((ls ls) (n len) (id-ls '()) ...)
+               (if (= n tail-len)
+                   (let ((id (match-reverse id-ls)) ...)
+                     (match-one ls r (#f #f) sk fk (i ... id ...)))
+                   (if (pair? ls)
+                       (let ((w (car ls)))
+                         (match-one w p ((car ls) (set-car! ls))
+                                    (match-drop-ids
+                                     (loop (cdr ls) (- n 1) (cons id id-ls) ...))
+                                    fk
+                                    (i ...)))
+                       fk))))))))))
+
+(define-syntax match-verify-no-ellipsis
+  (syntax-rules ()
+    ((_ (x . y) sk)
+     (match-check-ellipsis
+      x
+      (syntax-error
+       \"multiple ellipsis patterns not allowed at same level\")
+      (match-verify-no-ellipsis y sk)))
+    ((_ () sk)
+     sk)
+    ((_ x sk)
+     (syntax-error \"dotted tail not allowed after ellipsis\" x))))
+
+(define-syntax match-gen-search
+  (syntax-rules ()
+    ((match-gen-search v p q g+s sk fk i ((id id-ls) ...))
+     (letrec ((try (lambda (w fail id-ls ...)
+                     (match-one w q g+s
+                                (match-tuck-ids
+                                 (let ((id (match-reverse id-ls)) ...)
+                                   sk))
+                                (next w fail id-ls ...) i)))
+              (next (lambda (w fail id-ls ...)
+                      (if (not (pair? w))
+                          (fail)
+                          (let ((u (car w)))
+                            (match-one
+                             u p ((car w) (set-car! w))
+                             (match-drop-ids
+                              (let ((id-ls (cons id id-ls)) ...)
+                                (let lp ((ls (cdr w)))
+                                  (if (pair? ls)
+                                      (try (car ls)
+                                           (lambda () (lp (cdr ls)))
+                                           id-ls ...)
+                                      (fail)))))
+                             (fail) i))))))
+       (let ((id-ls '()) ...)
+         (try v (lambda () fk) id-ls ...))))))
+
+(define-syntax match-vector
+  (syntax-rules (___)
+    ((_ v n pats (p q) . x)
+     (match-check-ellipsis q
+                          (match-gen-vector-ellipsis v n pats p . x)
+                          (match-vector-two v n pats (p q) . x)))
+    ((_ v n pats (p ___) sk fk i)
+     (match-gen-vector-ellipsis v n pats p sk fk i))
+    ((_ . x)
+     (match-vector-two . x))))
+
+(define-syntax match-vector-two
+  (syntax-rules ()
+    ((_ v n ((pat index) ...) () sk fk i)
+     (if (vector? v)
+         (let ((len (vector-length v)))
+           (if (= len n)
+               (match-vector-step v ((pat index) ...) sk fk i)
+               fk))
+         fk))
+    ((_ v n (pats ...) (p . q) . x)
+     (match-vector v (+ n 1) (pats ... (p n)) q . x))))
+
+(define-syntax match-vector-step
+  (syntax-rules ()
+    ((_ v () (sk ...) fk i) (sk ... i))
+    ((_ v ((pat index) . rest) sk fk i)
+     (let ((w (vector-ref v index)))
+       (match-one w pat ((vector-ref v index) (vector-set! v index))
+                  (match-vector-step v rest sk fk)
+                  fk i)))))
+
+(define-syntax match-gen-vector-ellipsis
+  (syntax-rules ()
+    ((_ v n ((pat index) ...) p sk fk i)
+     (if (vector? v)
+       (let ((len (vector-length v)))
+         (if (>= len n)
+           (match-vector-step v ((pat index) ...)
+                              (match-vector-tail v p n len sk fk)
+                              fk i)
+           fk))
+       fk))))
+
+(define-syntax match-vector-tail
+  (syntax-rules ()
+    ((_ v p n len sk fk i)
+     (match-extract-vars p (match-vector-tail-two v p n len sk fk i) i ()))))
+
+(define-syntax match-vector-tail-two
+  (syntax-rules ()
+    ((_ v p n len (sk ...) fk i ((id id-ls) ...))
+     (let loop ((j n) (id-ls '()) ...)
+       (if (>= j len)
+         (let ((id (match-reverse id-ls)) ...) (sk ... i))
+         (let ((w (vector-ref v j)))
+           (match-one w p ((vector-ref v j) (vector-set! v j))
+                      (match-drop-ids (loop (+ j 1) (cons id id-ls) ...))
+                      fk i)))))))
+
+;; Field k of a record is slot k + 1 (slot 0 holds the type).
+(define-syntax match-record-refs
+  (syntax-rules ()
+    ((_ v rec (done ...) (p . q) g+s sk fk i)
+     (let ((w (npl_record_ref v rec (%match-length (rec done ...)))))
+       (match-one w p
+                  ((npl_record_ref v rec (%match-length (rec done ...)))
+                   (npl_record_set v rec (%match-length (rec done ...))))
+                  (match-record-refs v rec (done ... p) q g+s sk fk) fk i)))
+    ((_ v rec done () g+s (sk ...) fk i)
+     (sk ... i))))
+
+(define-syntax match-extract-vars
+  (syntax-rules (_ ___ ..1 *** ? $ = quote quasiquote and or not get! set!)
+    ((match-extract-vars (? pred . p) . x)
+     (match-extract-vars p . x))
+    ((match-extract-vars ($ rec . p) . x)
+     (match-extract-vars p . x))
+    ((match-extract-vars (= proc p) . x)
+     (match-extract-vars p . x))
+    ((match-extract-vars (quote x) (k ...) i v)
+     (k ... v))
+    ((match-extract-vars (quasiquote x) k i v)
+     (match-extract-quasiquote-vars x k i v (#t)))
+    ((match-extract-vars (and . p) . x)
+     (match-extract-vars p . x))
+    ((match-extract-vars (or . p) . x)
+     (match-extract-vars p . x))
+    ((match-extract-vars (not . p) . x)
+     (match-extract-vars p . x))
+    ((match-extract-vars (p q . r) k i v)
+     (match-check-ellipsis
+      q
+      (match-extract-vars (p . r) k i v)
+      (match-extract-vars p (match-extract-vars-step (q . r) k i v) i ())))
+    ((match-extract-vars (p . q) k i v)
+     (match-extract-vars p (match-extract-vars-step q k i v) i ()))
+    ((match-extract-vars #(p ...) . x)
+     (match-extract-vars (p ...) . x))
+    ((match-extract-vars _ (k ...) i v)    (k ... v))
+    ((match-extract-vars ___ (k ...) i v)  (k ... v))
+    ((match-extract-vars *** (k ...) i v)  (k ... v))
+    ((match-extract-vars ..1 (k ...) i v)  (k ... v))
+    ((match-extract-vars p (k ...) (i ...) v)
+     (%match-identifier?
+      p
+      (%match-member? p (i ...) (k ... v) (k ... ((p p-ls) . v)))
+      (k ... v)))))
+
+(define-syntax match-extract-vars-step
+  (syntax-rules ()
+    ((_ p k i v ((v2 v2-ls) ...))
+     (match-extract-vars p k (v2 ... . i) ((v2 v2-ls) ... . v)))))
+
+(define-syntax match-extract-quasiquote-vars
+  (syntax-rules (quasiquote unquote unquote-splicing)
+    ((match-extract-quasiquote-vars (quasiquote x) k i v d)
+     (match-extract-quasiquote-vars x k i v (#t . d)))
+    ((match-extract-quasiquote-vars (unquote-splicing x) k i v d)
+     (match-extract-quasiquote-vars (unquote x) k i v d))
+    ((match-extract-quasiquote-vars (unquote x) k i v (#t))
+     (match-extract-vars x k i v))
+    ((match-extract-quasiquote-vars (unquote x) k i v (#t . d))
+     (match-extract-quasiquote-vars x k i v d))
+    ((match-extract-quasiquote-vars (x . y) k i v d)
+     (match-extract-quasiquote-vars
+      x
+      (match-extract-quasiquote-vars-step y k i v d) i () d))
+    ((match-extract-quasiquote-vars #(x ...) k i v d)
+     (match-extract-quasiquote-vars (x ...) k i v d))
+    ((match-extract-quasiquote-vars x (k ...) i v d)
+     (k ... v))))
+
+(define-syntax match-extract-quasiquote-vars-step
+  (syntax-rules ()
+    ((_ x k i v d ((v2 v2-ls) ...))
+     (match-extract-quasiquote-vars x k (v2 ... . i) ((v2 v2-ls) ... . v) d))))
+
+(define-syntax match-lambda
+  (syntax-rules ()
+    ((_ (pattern . body) ...) (lambda (expr) (match expr (pattern . body) ...)))))
+
+(define-syntax match-lambda*
+  (syntax-rules ()
+    ((_ (pattern . body) ...) (lambda expr (match expr (pattern . body) ...)))))
+
+(define-syntax match-let
+  (syntax-rules ()
+    ((_ ((var value) ...) . body)
+     (match-let/helper let () () ((var value) ...) . body))
+    ((_ loop ((var init) ...) . body)
+     (match-named-let loop () ((var init) ...) . body))))
+
+(define-syntax match-letrec
+  (syntax-rules ()
+    ((_ ((var value) ...) . body)
+     (match-let/helper letrec () () ((var value) ...) . body))))
+
+(define-syntax match-let/helper
+  (syntax-rules ()
+    ((_ let ((var expr) ...) () () . body)
+     (let ((var expr) ...) . body))
+    ((_ let ((var expr) ...) ((pat tmp) ...) () . body)
+     (let ((var expr) ...)
+       (match-let* ((pat tmp) ...)
+         . body)))
+    ((_ let (v ...) (p ...) (((a . b) expr) . rest) . body)
+     (match-let/helper
+      let (v ... (tmp expr)) (p ... ((a . b) tmp)) rest . body))
+    ((_ let (v ...) (p ...) ((#(a ...) expr) . rest) . body)
+     (match-let/helper
+      let (v ... (tmp expr)) (p ... (#(a ...) tmp)) rest . body))
+    ((_ let (v ...) (p ...) ((a expr) . rest) . body)
+     (match-let/helper let (v ... (a expr)) (p ...) rest . body))))
+
+(define-syntax match-named-let
+  (syntax-rules ()
+    ((_ loop ((pat expr var) ...) () . body)
+     (let loop ((var expr) ...)
+       (match-let ((pat var) ...)
+         . body)))
+    ((_ loop (v ...) ((pat expr) . rest) . body)
+     (match-named-let loop (v ... (pat expr tmp)) rest . body))))
+
+(define-syntax match-let*
+  (syntax-rules ()
+    ((_ () . body)
+     (let () . body))
+    ((_ ((pat expr) . rest) . body)
+     (match expr (pat (match-let* rest . body))))))
+
+;; (match-define pattern expression) defines the pattern's variables.
+(define-syntax match-define
+  (syntax-rules ()
+    ((_ pat expr)
+     (match-extract-vars pat (match-define-values pat expr) () ()))))
+
+(define-syntax match-define-values
+  (syntax-rules ()
+    ((_ pat expr ((var var-ls) ...))
+     (define-values (var ...) (match expr (pat (values var ...)))))))
+
+(define-syntax match-check-ellipsis
+  (syntax-rules ()
+    ((match-check-ellipsis (a . b) success-k failure-k) failure-k)
+    ((match-check-ellipsis #(a ...) success-k failure-k) failure-k)
+    ((match-check-ellipsis id success-k failure-k)
+     (%match-ellipsis? id success-k failure-k))))
+
+(define-syntax match-check-identifier
+  (syntax-rules ()
+    ((_ (x . y) success-k failure-k) failure-k)
+    ((_ #(x ...) success-k failure-k) failure-k)
+    ((_ x success-k failure-k)
+     (%match-identifier? x success-k failure-k))))
+
+(define-syntax match-bound-identifier-memv
+  (syntax-rules ()
+    ((match-bound-identifier-memv a (id ...) sk fk)
+     (%match-identifier? a (%match-member? a (id ...) sk fk) fk))))
+")
+
+(define (derived-syntax-forms)
+  (parse-source-text
+    (string-append DERIVED-SYNTAX-SOURCE MATCH-SYNTAX-SOURCE)))

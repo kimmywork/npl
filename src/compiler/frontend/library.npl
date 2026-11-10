@@ -729,31 +729,26 @@
   (cell-set! LIBRARY-OUTPUT ())
   (cell-set! LIBRARY-NEXT-ID 0)
   (library-register-inline forms root)
-  (let ((primitive-result
-          (expand-top-sequence
-            (parse-source-text DERIVED-SYNTAX-SOURCE)
-            (library-primitive-value-environment
-              (library-primitive-value-names) ())
-            () ())))
-    (if (not (null? (car primitive-result)))
-        (fatal "derived syntax source emitted runtime forms"))
-    (cell-set! LIBRARY-PRIMITIVE-MACROS (cdr primitive-result))
-    (let ((split
-            (library-split-program
-              (library-expand-program-conditionals forms) () #f)))
-      (let ((imports
-              (library-import-sets
-                (car split)
-                (cons () (cons () ())))))
-        (let ((body (car (cdr split))))
-          (let ((value-env
-                  (predeclare-globals body (car imports))))
-            (let ((program
-                    (expand-top-sequence
-                      body value-env
-                      (top-syntax-cells body (car (cdr imports))) ())))
-              (append-forms
-                (cell-get LIBRARY-OUTPUT) (car program)))))))))
+  (cell-set! LIBRARY-PRIMITIVE-MACROS
+    (expand-derived-syntax
+      (library-primitive-value-environment
+        (library-primitive-value-names) ())))
+  (let ((split
+          (library-split-program
+            (library-expand-program-conditionals forms) () #f)))
+    (let ((imports
+            (library-import-sets
+              (car split)
+              (cons () (cons () ())))))
+      (let ((body (car (cdr split))))
+        (let ((value-env
+                (predeclare-globals body (car imports))))
+          (let ((program
+                  (expand-top-sequence
+                    body value-env
+                    (top-syntax-cells body (car (cdr imports))) ())))
+            (append-forms
+              (cell-get LIBRARY-OUTPUT) (car program))))))))
 
 (define (expand-source-program forms root)
   (if (library-source? forms)

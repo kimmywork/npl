@@ -2,8 +2,9 @@
 
 Status: user-approved direction 2026-11-07 (records with structural
 `equal?` and functional update, SRFI 125 hash tables, `match`, inline
-primitives; `syntax-case` deferred). The user waived review of this
-document; it records the decisions made while implementing.
+primitives; `syntax-case` deferred). Sections 1-4 are built. The user
+waived review of this document; it records the decisions made while
+implementing.
 
 ## Goal
 
@@ -247,30 +248,88 @@ native 0.33 s CPU; Guile 3.0.11 compiled `(srfi srfi-69)` 1.5 s.
 
 ## 4. Pattern Matching
 
-`match` (the Wright/Cartwright/Shinn interface used by Chibi, Chicken, and
-Guile's `(ice-9 match)`), written in `syntax-rules` as Alex Shinn's
-portable implementation is, and loaded as part of the derived-syntax
-source (`frontend/derived.npl`) so import-free programs have it.
+As built (2026-11-10). `match`, `match-lambda`, `match-lambda*`,
+`match-let` (also named), `match-let*`, `match-letrec`, and `match-define`:
+Alex Shinn's public-domain `syntax-rules` matcher as Guile 3.0 ships it
+(`ice-9/match.upstream.scm`), in `frontend/derived-match.npl`
+(`MATCH-SYNTAX-SOURCE`, parsed with the derived syntax at expansion
+startup). Import-free programs have it; `(npl primitive)` and the new
+`(npl match)` export it.
 
-Patterns: literals (numbers, strings, characters, booleans), `_`,
-variables, `'datum`, `(p ...)` lists with `...` and `..1` at any position,
-improper lists `(p . rest)`, vectors `#(p ...)`, `(and p ...)`,
-`(or p ...)`, `(not p)`, `(? pred p ...)`, `(= proc p)`,
-`(record-name field-pattern ...)` for NPL records (by position), and
-quasi-patterns with `unquote`. Forms: `match`, `match-lambda`,
-`match-lambda*`, `match-let`, `match-let*`, `match-letrec`,
-`match-define`. A failed match raises an error object
-`match: no matching pattern` with the value as irritant.
+Patterns: `_`, variables, literals (numbers, strings, characters, booleans,
+bytevectors), `'datum`, `(p ...)` lists with `...` or `___` followed by a
+fixed tail, `(p ..1)`, improper lists, vectors `#(p ...)` (with a trailing
+`...`), `(and p ...)`, `(or p ...)`, `(not p)`, `(? pred p ...)`,
+`(= proc p)`, quasi-patterns with `unquote`, `(p *** q)` tree search,
+`(set! name)`/`(get! name)`, `($ type p ...)` for define-record-type
+records by field position, and `(=> next)` failure continuations. Guile
+writes record patterns with `$` too; the planned `(type p ...)` form would
+be ambiguous with list patterns.
 
-The expansion is ordinary `if`/`let` over `pair?`, `car`, `cdr`,
-`vector-ref`, and the record forms, so it benefits from section 1 and needs
-no runtime support. Generated code size is watched: the compiler adopting
-`match` must not grow the seed by more than the code it removes.
+Changes from Shinn's code, all because the compiler must stay import-free:
 
-Acceptance: fixture against Guile `(ice-9 match)` for the shared pattern
-language, error cases, a record pattern; expansion-time check that a
-pattern variable used twice is an error (as in Shinn's `match`, the second
-use is an equality test only with `(? ...)`).
+- No `equal?`, `list?`, `length`, `reverse`, or `error` at run time. A
+  literal or quoted atom is compared by the test its kind needs, chosen at
+  expansion by the core form `%match-literal` (`frontend/expand-match.npl`):
+  `eq?` for symbols, booleans, characters, `()`, and fixnums (inline),
+  `eqv?` for other numbers, `string=?` and a byte loop for strings and
+  bytevectors. A quoted pair or vector is matched part by part. List length
+  (with cycle detection), reversal, and `vector->list` are inline loops;
+  `%match-length` counts at expansion (ellipsis tail, record slots).
+- A repeated pattern variable is an expansion error (`match: repeated
+  pattern variable`). Shinn's and Guile's matcher compare the repeats with
+  `equal?`; NPL has no import-free `equal?`, so `(? (lambda (y) (equal? x
+  y)))` spells that out.
+- The `let-syntax` tricks that classify pattern atoms (identifier?, member
+  of the bound identifiers, ellipsis?) are the core forms
+  `%match-identifier?`, `%match-member?`, `%match-ellipsis?`, with the same
+  semantics (`literal-identifier?`, name `...`). NPL's `let-syntax` body is
+  not spliced into the enclosing body (R7RS), so with the tricks
+  `match-define`'s definitions stayed local; the core forms also avoid
+  parsing a transformer for every pattern variable.
+- A failed match raises an error object `match: no matching pattern` with
+  the value as irritant. `($ type p ...)` with more patterns than `type` has
+  fields raises `match: too many field patterns` (the inline record access
+  is not range-checked); fewer patterns match a prefix.
+
+The expansion is `if`/`let` over `pair?`, `car`, `cdr`, `vector-ref`,
+`npl_record_p`, and `npl_record_ref`, all inline (section 1).
+
+Frontend defects found on the way, fixed with it:
+
+- Alias environments (`frontend/transcription.npl`) copied the whole
+  definition environment onto the use environment at every expression
+  transcription, so nested continuation-passing macros made every failed
+  lookup scan the program's globals once per nesting level: one `or`
+  pattern took 86 s to compile. An alias layer is now one entry that lookup
+  descends into for identifiers with its mark (0.1 s; compiler self-compile
+  also faster). The copy also reversed the definition environment, so a
+  template saw the outermost of two shadowed bindings at its definition
+  site; layers keep innermost-first order.
+- Derived syntax was expanded without its keywords prebound, so a derived
+  macro could only use macros defined before it. `expand-derived-syntax`
+  (`toplevel.npl`) now binds them first, for programs, libraries, and npli
+  sessions alike.
+- A literal identifier compared bindings literally: `=` from `(scheme
+  base)` (its validating procedure) did not match the primitive `=`, and in
+  npli a free `not` did not match `not` bound by `(npl primitive)`. Both
+  denote the same primitive now (`literal-binding-key`, `syntax.npl`).
+- `define-values` returned expanded code that the enclosing body or top
+  level expanded a second time, so in a program with imports its
+  initializer failed (`unbound identifier: _npl_lib_1_list`); it now
+  returns source. Macro output that is a `define-values` is spliced like
+  other definitions.
+- Spliced definition output copied datum atoms as plain pairs, which broke
+  every string, character, vector, or boolean literal in a macro that
+  expands to definitions.
+- syntax-rules matched `()` against a `(p ...)` subpattern only at the top
+  level of a list; the lexer did not accept `$ & ^ ~` in identifiers.
+
+Fixtures: `tests/r7rs/fixtures/match` (native, npli, Guile 3.0.11
+`(ice-9 match)`), `match-extensions` (no oracle: `match-define`, error
+objects), `src/compiler/tests/match.npl` (import-free, 17 tests, also under
+`NPL_GC_VERIFY`), the contract `match-repeated-variable`; the frontend
+fixes in `definition-macros` and `symbols`.
 
 ## 5. Adopting In the Compiler
 

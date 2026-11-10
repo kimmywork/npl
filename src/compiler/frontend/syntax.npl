@@ -57,15 +57,43 @@
             name mark (cell-get TRANSCRIPTION-ALIASES))))))
 
 ; Compute the lookup key once, not once per environment entry.
+; An entry is (name mark emitted), or an alias layer (#f mark definition-env)
+; (transcription.npl): identifiers with that mark see every binding of their
+; name in definition-env, innermost first.
 (define (lookup-value-binding-key name mark environment)
   (if (null? environment)
       ""
       (let ((entry (car environment)))
-        (if (if (string=? name (car entry))
-                (= mark (car (cdr entry)))
-                #f)
-            (car (cdr (cdr entry)))
-            (lookup-value-binding-key name mark (cdr environment))))))
+        (if (car entry)
+            (if (if (string=? name (car entry))
+                    (= mark (car (cdr entry)))
+                    #f)
+                (car (cdr (cdr entry)))
+                (lookup-value-binding-key name mark (cdr environment)))
+            (let ((aliased
+                    (if (= mark (car (cdr entry)))
+                        (lookup-value-binding-any-mark
+                          name (car (cdr (cdr entry))))
+                        "")))
+              (if (> (string-length aliased) 0)
+                  aliased
+                  (lookup-value-binding-key name mark (cdr environment))))))))
+
+(define (lookup-value-binding-any-mark name environment)
+  (if (null? environment)
+      ""
+      (let ((entry (car environment)))
+        (if (car entry)
+            (if (string=? name (car entry))
+                (car (cdr (cdr entry)))
+                (lookup-value-binding-any-mark name (cdr environment)))
+            (let ((aliased
+                    (lookup-value-binding-any-mark
+                      name (car (cdr (cdr entry))))))
+              (if (> (string-length aliased) 0)
+                  aliased
+                  (lookup-value-binding-any-mark
+                    name (cdr environment))))))))
 
 (define (add-value-binding identifier emitted environment)
   (cons (cons (datum-symbol-name identifier)
@@ -86,13 +114,38 @@
             name mark (cell-get TRANSCRIPTION-MACRO-ALIASES))
           found))))
 
+; Alias layers as in lookup-value-binding-key.
 (define (lookup-macro-cell-key name mark environment)
   (if (null? environment)
       ()
       (let ((entry (car environment)))
-        (if (if (string=? name (car entry)) (= mark (car (cdr entry))) #f)
-            (macro-entry-cell entry)
-            (lookup-macro-cell-key name mark (cdr environment))))))
+        (if (car entry)
+            (if (if (string=? name (car entry)) (= mark (car (cdr entry))) #f)
+                (macro-entry-cell entry)
+                (lookup-macro-cell-key name mark (cdr environment)))
+            (let ((aliased
+                    (if (= mark (car (cdr entry)))
+                        (lookup-macro-cell-any-mark
+                          name (car (cdr (cdr entry))))
+                        ())))
+              (if (null? aliased)
+                  (lookup-macro-cell-key name mark (cdr environment))
+                  aliased))))))
+
+(define (lookup-macro-cell-any-mark name environment)
+  (if (null? environment)
+      ()
+      (let ((entry (car environment)))
+        (if (car entry)
+            (if (string=? name (car entry))
+                (macro-entry-cell entry)
+                (lookup-macro-cell-any-mark name (cdr environment)))
+            (let ((aliased
+                    (lookup-macro-cell-any-mark
+                      name (car (cdr (cdr entry))))))
+              (if (null? aliased)
+                  (lookup-macro-cell-any-mark name (cdr environment))
+                  aliased))))))
 
 (define (add-macro-cell-binding identifier transformer-cell environment)
   (cons (cons (datum-symbol-name identifier)
@@ -161,14 +214,24 @@
       (if (not (string=? (datum-symbol-name pattern)
                          (datum-symbol-name input)))
           #f
-          (let ((definition-binding
-                  (lookup-value-binding pattern definition-env)))
-            (let ((use-binding (lookup-value-binding input use-env)))
-              (if (= (string-length definition-binding) 0)
-                  (= (string-length use-binding) 0)
-                  (if (= (string-length use-binding) 0)
-                      #f
-                      (string=? definition-binding use-binding))))))))
+          (string=?
+            (literal-binding-key
+              pattern (lookup-value-binding pattern definition-env))
+            (literal-binding-key
+              input (lookup-value-binding input use-env))))))
+
+; Both unbound, or the same binding. A primitive is one binding however it
+; is reached: free in a program without imports or an npli session, bound
+; to its own name by (npl primitive), or, for = and the other numeric
+; operators, exported by (scheme base) as the validating procedure that
+; stands for it (numeric-aliases.npl), as in match's (= f p).
+(define (literal-binding-key identifier binding)
+  (if (= (string-length binding) 0)
+      (if (primitive-row (datum-symbol-name identifier))
+          (datum-symbol-name identifier)
+          "")
+      (let ((primitive (numeric-alias-primitive-name binding)))
+        (if (> (string-length primitive) 0) primitive binding))))
 
 ;; Pattern variables are identifiers: a template symbol refers to a pattern
 ;; variable only if it has the same name and syntax mark, so an identifier
@@ -419,8 +482,10 @@
          (if (datum-false? input) captures MATCH-FAIL))
         ((pair? pattern)
          ; Frontend atoms (symbols, strings, ...) are tagged pairs: a list
-         ; pattern matches only list structure.
-         (if (if (pair? input) (not (syntax-atomic? input)) #f)
+         ; pattern matches only list structure, including () for (p ...).
+         (if (if (null? input)
+                 #t
+                 (if (pair? input) (not (syntax-atomic? input)) #f))
              (match-pattern-list pattern input transformer use-env
                                  captures path)
              MATCH-FAIL))

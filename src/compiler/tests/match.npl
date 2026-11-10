@@ -1,0 +1,84 @@
+; match without imports (docs/design-data.md section 4): the compiler can
+; destructure its core AST with it. The pattern language shared with Guile
+; is in tests/r7rs/fixtures/match, the NPL extensions in match-extensions.
+(include "framework.npl")
+
+(define-record-type node (make-node op left right) node?
+  (op node-op)
+  (left node-left)
+  (right node-right))
+
+(define (evaluate ast)
+  (match ast
+    ((200 value) value)
+    ((201 left right) (+ (evaluate left) (evaluate right)))
+    ((202 operand) (- 0 (evaluate operand)))
+    (($ node '+ left right) (+ (evaluate left) (evaluate right)))
+    (($ node '* left right) (* (evaluate left) (evaluate right)))))
+
+(define (sum values)
+  (match values
+    (() 0)
+    ((first . rest) (+ first (sum rest)))))
+
+(define (error-message thunk)
+  (guard (e ((npl_record_p e 'npl-error-object)
+             (npl_record_ref e 'npl-error-object 2)))
+    (thunk)))
+
+(match-define (defined-a #(defined-b defined-c ...)) '(1 #(2 3 4)))
+
+(define (main)
+  (test-equal "numeric tags"
+              (lambda () (evaluate '(201 (200 40) (202 (200 -2))))) 42)
+  (test-equal "record patterns"
+              (lambda ()
+                (evaluate (make-node '* (make-node '+ '(200 4) '(200 3))
+                                     '(200 6))))
+              42)
+  (test-equal "ellipsis"
+              (lambda () (match '((1 2) (3 4)) (((a b) ...) (+ (sum a) (sum b)))))
+              10)
+  (test-equal "ellipsis tail"
+              (lambda () (match '(1 2 3 4) ((a b ... c) (+ a c (sum b)))))
+              10)
+  (test-equal "vector"
+              (lambda () (match (vector 1 2 3) (#(a b c) (+ a b c)))) 6)
+  (test-identity "quoted symbol"
+                 (lambda () (match 'lambda ('define 'd) ('lambda 'l))) 'l)
+  (test-identity "string literal"
+                 (lambda () (match "if" ("define" 'd) ("if" 'i))) 'i)
+  (test-identity "bignum literal"
+                 (lambda ()
+                   (match 100000000000000000000
+                     (100000000000000000001 'no)
+                     (100000000000000000000 'yes)))
+                 'yes)
+  (test-equal "predicate and apply"
+              (lambda () (match '(1 2) ((? pair? (= car first)) first))) 1)
+  (test-identity "not"
+                 (lambda () (match 1 ((not 1) 'other) (_ 'one))) 'one)
+  (test-equal "or"
+              (lambda () (match '(5) ((or (a) (a _)) a))) 5)
+  (test-equal "failure continuation"
+              (lambda ()
+                (match 1 (x (=> next) (if (= x 1) (next) 0)) (_ 42)))
+              42)
+  (test-equal "match-lambda"
+              (lambda () ((match-lambda ((a b) (* a b))) '(6 7))) 42)
+  (test-equal "match-let"
+              (lambda () (match-let (((a . b) '(40 . 2))) (+ a b))) 42)
+  (test-equal "match-define"
+              (lambda () (+ defined-a defined-b (sum defined-c))) 10)
+  (test-equal "local pair? does not capture"
+              (lambda ()
+                (let ((pair? (lambda (x) #f)) (car cdr))
+                  (match '(40 2) ((a b) (+ a b)))))
+              42)
+  (test-identity "no match raises"
+                 (lambda ()
+                   (string=? (error-message (lambda () (match 3 (1 1))))
+                             "match: no matching pattern"))
+                 #t)
+  (finish-tests "match"))
+(main)

@@ -80,6 +80,12 @@
                      (cons (cons name resolved) (cell-get aliases)))
                    resolved))))
          form))
+    ; Datum atoms are tagged pairs; a vector may be a pattern (match-define).
+    ((datum-vector? form)
+     (datum-vector
+       (resolve-marked-walk (datum-vector-items form) mark definition-env
+                            definition-macros defined aliases)))
+    ((syntax-atomic? form) form)
     ((pair? form)
      (if (if (datum-symbol? (car form))
              (string=? (datum-symbol-name (car form)) "quote")
@@ -118,23 +124,13 @@
     alias))
 
 ; Expression output: the definition environment is visible under the
-; transcription mark, layered over the use environment.
+; transcription mark, layered over the use environment. One alias layer
+; entry stands for the whole definition environment (syntax.npl
+; lookup-value-binding-key), so nested transcriptions do not copy it.
 (define (alias-value-environment definition-env mark use-env)
   (if (null? definition-env)
       use-env
-      (let ((entry (car definition-env)))
-        (alias-value-environment
-          (cdr definition-env) mark
-          (cons (cons (car entry)
-                      (cons mark (cons (car (cdr (cdr entry))) ())))
-                use-env)))))
+      (cons (cons #f (cons mark (cons definition-env ()))) use-env)))
 
 (define (alias-macro-environment definition-env mark use-env)
-  (if (null? definition-env)
-      use-env
-      (let ((entry (car definition-env)))
-        (alias-macro-environment
-          (cdr definition-env) mark
-          (cons (cons (car entry)
-                      (cons mark (cons (macro-entry-cell entry) ())))
-                use-env)))))
+  (alias-value-environment definition-env mark use-env))

@@ -198,13 +198,20 @@ structural `equal?`, Guile-style printing, and a macro hygiene fix
 (vector-ref 69; an accessor inliner is a follow-up). SRFI 125 hash tables
 done (worklog 2026-11-09): runtime `BOX_HASHTABLE`, import-free primitive
 rows, `(srfi 125)` and `(srfi 69)`; 1M eqv inserts and lookups 0.33 s
-(Guile compiled SRFI 69 1.5 s). Next: `match`.
+(Guile compiled SRFI 69 1.5 s). `match` done (worklog 2026-11-10):
+Shinn's matcher as derived syntax, import-free, `(npl match)`, record
+patterns with `$`, `match-define`; fixed alias-environment copying (one
+`or` pattern compiled in 86 s, now 0.1 s; self-compile -12.6%
+instructions), derived-syntax keyword prebinding, literal identifiers for
+primitives, `define-values` from macros, literals in spliced macro output.
+Next: section 5, compiler adoption (tables, records, `match`), each step
+measured; `syntax-case` stays deferred until the user schedules it.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 310,761 lines; SHA-256
-  `95fdc4e991cb4257002b1aa3df4656299545acd0fa6ab0ee44ea42599eef995f`
-  (macOS strict relay, 2026-11-09, SRFI 125 hash tables). The seed calls
+- `bootstrap/current.ssa`: 315,502 lines; SHA-256
+  `11bd9cc70244b48f8ac4762459ade4fde8e676af175d49a8d1ea5b183365d3c8`
+  (macOS strict relay, 2026-11-10, match). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure
