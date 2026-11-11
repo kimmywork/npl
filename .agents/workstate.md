@@ -2,7 +2,7 @@
 
 ## Current
 
-Standard library stage per [plan-r7rs](../.agents/archive/plan-r7rs.md). L0-L3 and L4a
+Standard library stage per [plan-r7rs](archive/plan-r7rs.md). L0-L3 and L4a
 (records, error objects, file/read errors) are done. L4b (catchable
 primitive errors, plan section "Primitive Errors") is done: runtime value,
 port, and file errors and library argument checks raise error objects.

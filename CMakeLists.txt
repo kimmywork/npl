@@ -43,8 +43,7 @@ message(STATUS "  C compiler: ${CMAKE_C_COMPILER}")
 message(STATUS "  Target:     ${NPL_TARGET}")
 message(STATUS "  QBE:        ${QBE_BIN}")
 
-enable_testing()
-
+# Tests are driven by tools/run_tests.sh, not CTest (docs/testing.md).
 add_subdirectory(tools)
 add_subdirectory(runtime)
 add_subdirectory(bootstrap/runtime)

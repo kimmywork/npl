@@ -21,13 +21,8 @@ add_custom_command(
 
 add_custom_target(smoke DEPENDS ${HELLO_BIN})
 
-add_test(
-  NAME smoke_hello
-  COMMAND ${CMAKE_COMMAND} -E compare_files
-          ${CMAKE_SOURCE_DIR}/tools/hello.expected ${HELLO_BIN}
-)
-# Running the binary is the real assertion; compare files won't work for a binary,
-# so we add a run-test target instead.
+# Running the binary is the assertion (tools/check_stage0*.sh use these
+# targets); there is no CTest test.
 add_custom_target(smoke_run
   COMMAND ${HELLO_BIN}
   DEPENDS smoke
