@@ -140,7 +140,30 @@
            (control-transform-simple-list (cdr expression))))
     ((= (car expression) 100) (control-transform-symbol expression))
     ((= (car expression) 212) (control-transform-lambda expression))
+    ((= (car expression) 213)
+     (cons 213 (control-transform-simple-list (cdr expression))))
     (else expression)))
+
+; An if test that is itself an if of simple parts ((if (and a b) ...)) is
+; evaluated in place as a value (backend emit-if). Converting it like any
+; non-simple test would send the continuation, the whole if, to both of
+; its branches; control-send inlines it there, so each such test doubled
+; the code after it (match clauses chain them: exponential).
+(define (control-simple-test? expression)
+  (if (control-simple? expression)
+      #t
+      (if (pair-shape? expression)
+          (if (number? (car expression))
+              (if (= (car expression) 213)
+                  (if (control-simple-test? (car (cdr expression)))
+                      (if (control-simple-test? (car (cdr (cdr expression))))
+                          (control-simple-test?
+                            (car (cdr (cdr (cdr expression)))))
+                          #f)
+                      #f)
+                  #f)
+              #f)
+          #f)))
 
 (define (control-raw-continuation parameter body)
   (cons 212
@@ -521,7 +544,7 @@
 
 (define (control-cps-if expression continuation)
   (let ((test (car (cdr expression))))
-    (if (control-simple? test)
+    (if (control-simple-test? test)
         (control-cps-if-branches
           (control-transform-simple test) expression continuation)
         (let ((test-name (control-fresh-name "_npl_test_")))

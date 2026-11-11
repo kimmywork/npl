@@ -220,15 +220,22 @@ as a library. Riskier structures (environment entries, primitive rows,
 npli session, library info) stay as they are. Step 3 pilot (worklog 2026-11-11): `match` in the control-conversion
 dispatch grew the seed by 1,644 lines and self-compile by 0.8% (a failure
 closure per clause), failing the section 4 rule; reverted, not adopted.
-Open decision for the user: a cheaper `match` expansion before compiler
-adoption, or keep the hand-written AST dispatch.
+User chose (2026-11-11): a cheaper `match` expansion first, then redo the
+pilot. Re-running the pilot with a closure-free clause expansion exposed
+an exponential control conversion of `if` tests that are themselves
+`if`s of simple parts; fixed (worklog 2026-11-11), seed 316,843 -> 288,995
+lines, bench unchanged. Next: reapply the `%match-clause` expansion (kept
+outside the tree), redo the pilot, and adopt `match` only if it meets the
+section 4 seed-size rule. `syntax-case`: the user does not want it while
+it is deferred.
 `syntax-case` stays deferred until the user schedules it.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 316,843 lines; SHA-256
-  `8fd6419623bb01f73fb583c896a785ed6ed66ceb98a6f6385afba308ea52e907`
-  (macOS strict relay, 2026-11-11, compiler state records). The seed calls
+- `bootstrap/current.ssa`: 288,995 lines; SHA-256
+  `3ecd124ae7dcfdceb1ce3f0fc3f9861da6c70a9bbcff00d2b49c1596d43c8104`
+  (macOS strict relay after a two-step transition, 2026-11-11, simple if
+  tests in control conversion). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure
