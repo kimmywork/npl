@@ -24,7 +24,7 @@
       (if (not (sym-atom? nm-e))
           (fatal "bad define-variable name")
           (let ((slot (string-append "$gv_" (sanitize (cdr nm-e) 0 ""))))
-            (cell-set! GLOBS (cons (cons (cdr nm-e) slot) (cell-get GLOBS)))
+            (register-glob (cdr nm-e) slot)
             ; Global slots live in the data segment, which the collector does
             ; not scan; register every slot so set! and runtime initializers
             ; keep their values alive.

@@ -6,9 +6,12 @@
 (define DATAN (cell 0))
 (define DATA-BUF (cell ()))
 (define FUNC-BUF (cell ()))
-(define FUNCS (cell ()))
-(define FUNC-ARITIES (cell ()))
-(define GLOBS (cell ()))
+; Top-level function symbols and arities, and global slots: string hash
+; tables from name, filled once per compilation; a later registration of a
+; name wins, as the association lists they replace did.
+(define FUNCS (cell (npl_make_hash_table 3 #f #f 0)))
+(define FUNC-ARITIES (cell (npl_make_hash_table 3 #f #f 0)))
+(define GLOBS (cell (npl_make_hash_table 3 #f #f 0)))
 (define SYMS (cell ()))
 
 (define (new-tmp)
@@ -98,10 +101,11 @@
 
 ; registry stores the BARE symbol; callers prepend '$' themselves
 (define (register-func nm arity)
-  (cell-set! FUNCS (cons (cons nm (function-symbol nm))
-                         (cell-get FUNCS)))
-  (cell-set! FUNC-ARITIES (cons (cons nm arity)
-                                (cell-get FUNC-ARITIES))))
+  (npl_hash_table_set (cell-get FUNCS) nm (function-symbol nm))
+  (npl_hash_table_set (cell-get FUNC-ARITIES) nm arity))
+
+(define (register-glob nm slot)
+  (npl_hash_table_set (cell-get GLOBS) nm slot))
 
 (define (lk-s entries nm)
   (if (null? entries)
@@ -110,13 +114,7 @@
           (cdr (car entries))
           (lk-s (cdr entries) nm))))
 
-(define (lookup-func nm) (lk-s (cell-get FUNCS) nm))
-(define (lookup-func-arity-in entries nm)
-  (if (null? entries)
-      0
-      (if (string=? (car (car entries)) nm)
-          (cdr (car entries))
-          (lookup-func-arity-in (cdr entries) nm))))
+(define (lookup-func nm) (npl_hash_table_ref (cell-get FUNCS) nm ""))
 (define (lookup-func-arity nm)
-  (lookup-func-arity-in (cell-get FUNC-ARITIES) nm))
-(define (lookup-glob nm) (lk-s (cell-get GLOBS) nm))
+  (npl_hash_table_ref (cell-get FUNC-ARITIES) nm 0))
+(define (lookup-glob nm) (npl_hash_table_ref (cell-get GLOBS) nm ""))

@@ -209,15 +209,17 @@ planned tables: `byte-data` was O(n^2) (now halving) and syntax marks an
 eq association list (now an eq hash table); self-compile 98.20 G -> 20.29 G
 instructions, 7.07 -> 1.41 s user. Step 1b: predeclared globals as one
 hashed layer in the value environment, 20.29 -> 14.06 G, 1.02 s user.
-Function and global tables stay lists until a sample shows them. Next: step 2 (compiler-internal state as
+Step 1c: backend function, arity, and global tables hashed (`SYMS` stays
+an ordered list), 14.06 -> 12.49 G, 0.90 s user. Step 1 is done: the
+remaining profile is allocation, GC, string building, and file reads. Next: step 2 (compiler-internal state as
 records) and step 3 (AST destructuring with `match`), each measured;
 `syntax-case` stays deferred until the user schedules it.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 317,585 lines; SHA-256
-  `4cca8e4426eb8f5012ad61b4084eb554e4cab70835df95ad75b0fc93b7a7d7a6`
-  (macOS strict relay, 2026-11-11, hashed global layer). The seed calls
+- `bootstrap/current.ssa`: 317,369 lines; SHA-256
+  `7501b4645728e9030bd04ba689ccf8cd8defc3706800b59576b9606ba1595490`
+  (macOS strict relay, 2026-11-11, hashed backend tables). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure
