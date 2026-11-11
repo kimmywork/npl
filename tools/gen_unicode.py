@@ -5,7 +5,7 @@ Usage: python3 tools/gen_unicode.py [--ucd DIR]
 
 Writes runtime/unicode_tables.h (character properties and case mappings
 for the runtime) at the Unicode version of the host Python's unicodedata
-(docs/design-l6.md, Decision 4); the version is recorded in the output.
+(.agents/archive/design/design-l6.md, Decision 4); the version is recorded in the output.
 Derived properties that unicodedata does not expose (Alphabetic, Uppercase,
 Lowercase, White_Space) and the full case mappings come from the Unicode
 Character Database files of that same version: from --ucd DIR, or

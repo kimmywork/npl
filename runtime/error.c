@@ -1,4 +1,4 @@
-/* Catchable primitive errors (docs/plan-r7rs.md "Primitive Errors").
+/* Catchable primitive errors (.agents/archive/plan-r7rs.md "Primitive Errors").
  *
  * A safe primitive that rejects an argument calls npl_primitive_error. The
  * error becomes an R7RS error object (the record layout of

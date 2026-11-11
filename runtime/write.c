@@ -135,7 +135,7 @@ static void write_character(NplPort *port, uint32_t code)
  * <identifier> other than |...|: an <initial> followed by <subsequent>s, or
  * a <peculiar identifier> (+ - ... +a -.b and so on), which by grammar can
  * never be a number. Non-ASCII graphic characters count as <initial>
- * (Guile and Racket print them unbarred; docs/design-l6.md). */
+ * (Guile and Racket print them unbarred; .agents/archive/design/design-l6.md). */
 static int ascii_letter(uint32_t c)
 {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');

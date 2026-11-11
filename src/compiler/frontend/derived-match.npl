@@ -2,7 +2,7 @@
 ; match is available without imports, like guard and define-record-type.
 
 (define MATCH-SYNTAX-SOURCE
-";; Pattern matching (docs/design-data.md section 4): Alex Shinn's portable
+";; Pattern matching (.agents/archive/design/design-data.md section 4): Alex Shinn's portable
 ;; syntax-rules match, placed by him in the public domain, as distributed
 ;; with Guile 3.0 (ice-9 match.upstream.scm). Changes: no imports are
 ;; needed (equal?, list?, length, reverse, and error are replaced by

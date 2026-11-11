@@ -2,7 +2,7 @@
 
 ## Current
 
-Standard library stage per [plan-r7rs](../docs/plan-r7rs.md). L0-L3 and L4a
+Standard library stage per [plan-r7rs](../.agents/archive/plan-r7rs.md). L0-L3 and L4a
 (records, error objects, file/read errors) are done. L4b (catchable
 primitive errors, plan section "Primitive Errors") is done: runtime value,
 port, and file errors and library argument checks raise error objects.
@@ -10,7 +10,7 @@ L5 is done (current ports as parameter objects, text I/O, with-*-file,
 features, (scheme time), (scheme complex)). L7 (scheme r5rs) is done; all
 R7RS-small libraries export their full name lists (556/556). Remaining: L6
 (Unicode strings and chars, datum labels): design
-[design-l6](../docs/design-l6.md) accepted; L6a+b (Unicode strings,
+[design-l6](archive/design/design-l6.md) accepted; L6a+b (Unicode strings,
 characters, ports, read/write syntax) and L6c (`(scheme char)` over Unicode)
 done, L6d (datum labels in read) and L6e (cycle-aware output, terminating
 equal?) done: L6 is complete. External check: chibi's r7rs-tests.scm via
@@ -45,14 +45,14 @@ per-chunk GC sweep (19:10) cut compiler self-emit to ~23 s wall at the
 default threshold. The 1 GiB default threshold is now a CPU/memory
 trade-off (worklog 19:45; 256 MiB: 4x less memory, ~10% more self-emit CPU),
 pending a user decision. Design for shared primitive declarations and C
-foreign calls drafted in `docs/design-primitives.md` (uncommitted, awaiting
-review). Bench after these changes (worklog 19:50): native 1.1-6.1x
+foreign calls: `.agents/archive/design/design-primitives.md` (accepted
+2026-10-20, implemented; the user-facing guide is [ffi](../docs/ffi.md)). Bench after these changes (worklog 19:50): native 1.1-6.1x
 Guile wall, compile 2.3-3.5 s; npli > 30 s everywhere.
 
 ## Agreed Plan (2026-10-20)
 
 Scope: shared primitive declarations and C foreign calls
-([design-primitives](../docs/design-primitives.md)), an npli evaluator
+([design-primitives](archive/design/design-primitives.md)), an npli evaluator
 rewrite, and a GC nursery. npli is the priority. Revised after P0 (worklog
 2026-10-20 11:10), user-accepted.
 
@@ -104,7 +104,7 @@ self-emit ~80% of nursery-off CPU at 0.27 GB peak. R0 done (worklog
 generated `(npl primitive)` exports. P2b done (worklog 2026-10-22
 13:30): `define-c-primitive`, `%c-call`, `%c-procedure` register rows per
 compilation; npli resolves them since P5b. FFI user guide `docs/ffi.md`. E1 done:
-`docs/design-evaluator.md` accepted 2026-10-22 with D1 runtime unspecified
+`.agents/archive/design/design-evaluator.md` accepted 2026-10-22 with D1 runtime unspecified
 immediate, D2 `%library-definitions`, D3 native REPL re-entry. Increments
 now U0 (unspecified value), E2a, E2b, E3 as listed there. U0 done (worklog
 2026-10-22 17:40). E2a done (worklog 2026-10-23 11:40). E2b done (worklog
@@ -126,9 +126,9 @@ nplc runs the program's top level in order and generates the C main;
 (npl ffi) with with-resource, installed include/npl/npl.h. Result type
 `values` (worklog 2026-10-26). P6b done (worklog 2026-10-27):
 define-c-function with generated C stubs, built by nplc itself and by
-`nplc --emit=c-stubs` for npli. Next: P7 (optional inline type checks,
-gated on bench evidence); docs/research/gui is the user's GUI library
-research, not yet scheduled.
+`nplc --emit=c-stubs` for npli. P7 (optional inline type checks) was gated on bench evidence and dropped
+(worklog 2026-10-27); `.agents/archive/research/gui` is the user's GUI
+library research, not yet scheduled.
 P7 bench done (worklog 2026-10-27): native 9.5x Guile on loop/fib/tak,
 32x vectors; costs are generic arithmetic dispatch, the tail trampoline,
 and per-call environment allocation, not type checks. Order decided:
@@ -138,7 +138,7 @@ O1, O2, then the O3 design (no O3 code before acceptance), per
 CPU loop 7.41 -> 1.27 s, fib 3.77 -> 2.85, tak 2.46 -> 2.05 (Guile 0.78,
 0.40, 0.27). O2 done (worklog 2026-10-27): self tail calls are jumps;
 loop 1.26 -> 0.33 s (Guile 0.79), fib/tak ~3% (bound by non-tail calls).
-O3 design [design-calls](../docs/design-calls.md) accepted 2026-10-27
+O3 design [design-calls](archive/design/design-calls.md) accepted 2026-10-27
 with the recommended D1-D4. Order: C0 (GC stack scan fix), C1a, C1b, C1c,
 then stop for the C2 decision on measurements. C0 done (worklog
 2026-10-29): the GC stack scan reaches the caller of a nested trampoline.
@@ -153,7 +153,7 @@ once are jumps; no bench change, because a `begin` in a loop body still
 became a continuation closure. O2b-2 done (worklog 2026-11-02): simple
 non-final sequence expressions stay in place; vectors 2.83 -> 0.50 s,
 strings 4.01 -> 3.51 s. C2 addendum in
-[design-calls](../docs/design-calls.md) accepted 2026-11-02 (E1-E3 as
+[design-calls](archive/design/design-calls.md) accepted 2026-11-02 (E1-E3 as
 recommended). C2a done (worklog 2026-11-02): `NPL_DIRECT_REPORT` analysis,
 no SSA change; fib/tak/loop safe; compiler 545/898 safe, C2b seed growth
 estimate +6.2%. C2b done (worklog 2026-11-03): direct entries
@@ -181,11 +181,11 @@ investigated: ~4% improvement, too small to justify complexity (worklog
 2026-11-06). npli performance investigation complete: 2-3x gap vs Guile
 interpreter is acceptable for an AST walker; further optimization would
 require structural changes (bytecode, loop specialization). C4 (design-calls
-addendum) not started: its estimate did not hold.
+addendum) deferred, not started: its estimate did not hold.
 
 ## Language Data (2026-11-09)
 
-Design [design-data](../docs/design-data.md) (user: implement without a
+Design [design-data](archive/design/design-data.md) (user: implement without a
 review round). Order (design sections 1-5): inline primitives, built-in
 records (structural `equal?`, `record-update`), SRFI 125 hash tables,
 `match`, compiler adoption; `syntax-case` deferred. Inline primitives done
@@ -240,7 +240,7 @@ want it while it is deferred.
 ## Accepted Seed
 
 - `bootstrap/current.ssa`: 261,586 lines; SHA-256
-  `e6d50f48d9e427111feddcbb8f36855daa275731232d3a752727c67ed5defd80`
+  `75cc06fc853d66f5257c3460fc413b6056f3122a3b07f3f97692d6d49d3dc7ea`
   (macOS strict relay after a two-step transition, 2026-11-11, simple lets
   in control conversion). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or

@@ -1,4 +1,4 @@
-; define-record-type (R7RS 5.5, docs/design-data.md section 2): access,
+; define-record-type (R7RS 5.5, .agents/archive/design/design-data.md section 2): access,
 ; mutation, predicates, constructor argument order, generativity, equal?
 ; field by field, and the printed form (Guile's #<name field: value>).
 (define (report name value) (write (list name value)) (newline))

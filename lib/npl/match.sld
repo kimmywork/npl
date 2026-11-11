@@ -1,4 +1,4 @@
-; Pattern matching (docs/design-data.md section 4): match, match-lambda,
+; Pattern matching (.agents/archive/design/design-data.md section 4): match, match-lambda,
 ; match-lambda*, match-let, match-let*, match-letrec, and match-define, the
 ; Wright/Cartwright/Shinn interface of Guile's (ice-9 match). The macros
 ; are derived syntax (src/compiler/frontend/derived-match.npl), so

@@ -1,4 +1,4 @@
-; NPL match extensions (docs/design-data.md section 4), checked by hand:
+; NPL match extensions (.agents/archive/design/design-data.md section 4), checked by hand:
 ; Guile 3.0's (ice-9 match) has no match-define and raises a match-error
 ; throw instead of an error object.
 ;

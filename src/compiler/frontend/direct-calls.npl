@@ -1,4 +1,4 @@
-; Direct calls (docs/design-calls.md, addendum C2): which top-level functions
+; Direct calls (.agents/archive/design/design-calls.md, addendum C2): which top-level functions
 ; get a direct entry that returns its value, and the frontend side of using
 ; it. The analysis runs on the lowered core forms, before control
 ; conversion; with NPL_DIRECT_REPORT set it also writes one line per

@@ -1,5 +1,5 @@
 ; SRFI 125 intermediate hash tables (docs/reference/srfi-125.html,
-; docs/design-data.md section 3) over the runtime tables of
+; .agents/archive/design/design-data.md section 3) over the runtime tables of
 ; runtime/hashtable.c.
 ;
 ; Without SRFI 128, the constructors take an equality predicate and an

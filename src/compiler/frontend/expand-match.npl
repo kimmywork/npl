@@ -1,5 +1,5 @@
 ; Expansion-time helpers of match (frontend/derived-match.npl,
-; docs/design-data.md section 4). syntax-rules can neither count nor tell a
+; .agents/archive/design/design-data.md section 4). syntax-rules can neither count nor tell a
 ; string from a number, so the macro leaves both to these core forms:
 ;
 ;   (%match-length (item ...))  the number of items, a literal

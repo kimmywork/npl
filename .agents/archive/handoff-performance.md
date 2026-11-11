@@ -2,7 +2,7 @@
 
 Read this, then `.agents/workstate.md` and `AGENTS.md`, before changing
 code. Scope: core language performance, stability, and extensibility. GUI
-(`docs/research/gui`) is out of scope until the user schedules it.
+(`.agents/archive/research/gui`) is out of scope until the user schedules it.
 
 ## Decisions (user, 2026-10-27)
 
@@ -105,7 +105,7 @@ macOS and Linux; relay; bench.
 
 ## O3: Call Convention and Environments (design only)
 
-Write `docs/design-calls.md` for user review. Cover:
+Write `.agents/archive/design/design-calls.md` for user review. Cover:
 
 - Which environments may live on the C stack or in temporaries (not
   captured, not reachable from a continuation captured by `call/cc`), and

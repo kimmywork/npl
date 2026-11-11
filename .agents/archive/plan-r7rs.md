@@ -1,12 +1,18 @@
 # R7RS-small Standard Library Plan
 
-Status: in progress. Current progress and evidence live in
-[workstate](../.agents/workstate.md); toolchain usage is in
-[toolchain](toolchain.md).
+Status: complete, archived at the language milestone 2026-11-12. Every
+increment L0-L7 is done; the one un-done item, the P1 Guile performance
+baseline, was superseded by the P7 -> O1-O3 -> C2-C3 series (see
+[design-calls](design/design-calls.md)) and its harness is
+`tools/bench.py`. The conformance claim and known open items now live in
+[docs/r7rs-conformance.md](../../docs/r7rs-conformance.md); the
+verification workflow in [../../docs/testing.md](../../docs/testing.md).
+Historical evidence: [workstate](../workstate.md); toolchain usage:
+[toolchain](../../docs/toolchain.md).
 
 ## Goal
 
-Implement the R7RS-small standard libraries ([reference](reference/r7rs.html))
+Implement the R7RS-small standard libraries ([reference](../../docs/reference/r7rs.html))
 so that native executables (`nplc`) and the evaluator (`npli`) show the same
 observable behavior, checked against Guile 3 as the reference implementation.
 Then measure performance against Guile.
@@ -91,7 +97,7 @@ each). The three representation changes in L3-L5 were approved 2026-10-08.
    `(scheme complex)`. Done 2026-10-10.
 6. **L6 representation work** (each needs its own design review before code):
    Unicode strings and chars, datum labels in runtime `read` and
-   `write-shared`. Design: [design-l6](design-l6.md) (accepted 2026-10-10).
+   `write-shared`. Design: [design-l6](design/design-l6.md) (accepted 2026-10-10).
    Done 2026-10-11.
 7. **L7 `(scheme r5rs)`**, re-exported from the completed libraries plus
    `null-environment` and `scheme-report-environment`. Done 2026-10-10.

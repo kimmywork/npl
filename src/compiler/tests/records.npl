@@ -1,4 +1,4 @@
-; define-record-type and record-update without imports (docs/design-data.md
+; define-record-type and record-update without imports (.agents/archive/design/design-data.md
 ; section 2): the compiler itself can use records. The shared behavior is in
 ; tests/r7rs/fixtures/records and record-extensions.
 (include "framework.npl")

@@ -1,4 +1,4 @@
-; Inline primitives (docs/design-data.md sections 1 and 2): the type test
+; Inline primitives (.agents/archive/design/design-data.md sections 1 and 2): the type test
 ; and the memory access are emitted in place; the runtime function is called
 ; only on the failing branch, where it raises the same error object as
 ; before.

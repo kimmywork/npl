@@ -1,4 +1,4 @@
-; Native library definitions for npli (docs/design-evaluator.md, D2).
+; Native library definitions for npli (.agents/archive/design/design-evaluator.md, D2).
 ;
 ; (%library-definitions library-name ...) evaluates to, for each named
 ; library, (key checksum (name . value) ...): every value definition of the

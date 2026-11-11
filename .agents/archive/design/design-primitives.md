@@ -2,7 +2,7 @@
 
 Status: accepted direction 2026-10-20; sections 3 and 4 revised after the
 P0 measurements. The increment order, with the GC nursery work, is the
-"Agreed Plan" in [workstate](../.agents/workstate.md).
+"Agreed Plan" in [workstate](../../workstate.md).
 
 ## Goal
 
@@ -59,7 +59,7 @@ wrapper; import, rename, and prefix apply as to any binding. A symbol that
 is already registered keeps its row and must agree on operand count. The
 `fixed` rows stay in the table because import-free programs, including the
 compiler, resolve through it (P2a). npli rejects these forms until P5 can
-resolve symbols at run time. User documentation: [ffi](ffi.md).
+resolve symbols at run time. User documentation: [ffi](../../../docs/ffi.md).
 
 A compiler core form calls a C function directly:
 
@@ -253,7 +253,7 @@ result, checks inside).
    npli linked with the whole runtime (`-force_load`, `--whole-archive`,
    `-rdynamic`). Done 2026-10-23: `nplc -l/-L`; `npli -l PATH` (chosen
    over a source-level library declaration) and `runtime/ffi.c`. User
-   guide: [ffi](ffi.md).
+   guide: [ffi](../../../docs/ffi.md).
 6. Level B foreign calls: pointer type, typed `define-c-function`,
    generated per-library stubs (npli) and direct calls (nplc). Done
    2026-10-27 with the user's choices: a pointer box without finalizer

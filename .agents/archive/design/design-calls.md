@@ -3,7 +3,7 @@
 Status: accepted 2026-10-27 with the recommended option for D1-D4 (see
 "Decisions").
 Follows O1 (inline fixnum arithmetic) and O2 (direct self tail calls);
-see [handoff-performance](../.agents/archive/handoff-performance.md) (archived, completed).
+see [handoff-performance](../handoff-performance.md) (archived, completed).
 
 ## Goal
 
@@ -486,7 +486,7 @@ arity and non-procedure errors, a captured variable assigned by the
 lambda, deep recursion from a direct lambda. Gates, GC verify, chibi.
 Bench: lists against Guile and Racket; no workload slower.
 
-## Addendum: C4 Conditional Direct Entries for npli (2026-11-05, for review)
+## Addendum: C4 Conditional Direct Entries for npli (2026-11-05; deferred, not started)
 
 ### Problem
 

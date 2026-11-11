@@ -37,7 +37,7 @@ npl_escape() {
 } > "$work/repl.npl"
 
 # C libraries loaded with npli -l call back into the runtime through npli's
-# own symbols (docs/design-primitives.md, section 5), so npli links every
+# own symbols (.agents/archive/design/design-primitives.md, section 5), so npli links every
 # runtime member, not only those it uses, and exports them on Linux.
 RUNTIME="$ROOT/build/lib/npl/libnpl_runtime.a"
 "$ROOT/build/bin/nplc" -c "$work/repl.npl" -o "$work/repl.o"

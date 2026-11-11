@@ -170,7 +170,7 @@ contracts.
 
 ## 3. Hash Tables (SRFI 125)
 
-As built (2026-11-09). Reference: [srfi-125.html](reference/srfi-125.html).
+As built (2026-11-09). Reference: [srfi-125.html](../../../docs/reference/srfi-125.html).
 
 ### Runtime
 

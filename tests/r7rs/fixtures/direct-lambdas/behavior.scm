@@ -1,4 +1,4 @@
-;; Direct entries of lambdas and closure call sites (docs/design-calls.md
+;; Direct entries of lambdas and closure call sites (.agents/archive/design/design-calls.md
 ;; C3): each case runs on the fast path when the callee has a direct entry
 ;; and on the CPS path otherwise; both must give the same observable result.
 (define (my-map f items out)

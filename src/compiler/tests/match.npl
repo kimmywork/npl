@@ -1,4 +1,4 @@
-; match without imports (docs/design-data.md section 4): the compiler can
+; match without imports (.agents/archive/design/design-data.md section 4): the compiler can
 ; destructure its core AST with it. The pattern language shared with Guile
 ; is in tests/r7rs/fixtures/match, the NPL extensions in match-extensions.
 (include "framework.npl")

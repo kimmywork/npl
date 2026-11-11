@@ -1,7 +1,7 @@
 # L6 Design: Unicode Strings and Datum Labels
 
 Status: accepted 2026-10-10 (decisions below). Plan item L6 of
-[plan-r7rs](plan-r7rs.md).
+[plan-r7rs](../plan-r7rs.md).
 
 ## Scope
 

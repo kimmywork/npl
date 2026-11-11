@@ -1,4 +1,4 @@
-/* Strings and symbols (docs/design-l6.md, Part U).
+/* Strings and symbols (.agents/archive/design/design-l6.md, Part U).
  *
  * A string holds characters (Unicode scalar values), not encoded bytes. Its
  * storage has one of two widths:

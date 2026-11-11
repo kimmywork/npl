@@ -1,4 +1,4 @@
-; Unicode characters and strings (R7RS 6.6, 6.7; docs/design-l6.md Part U):
+; Unicode characters and strings (R7RS 6.6, 6.7; .agents/archive/design/design-l6.md Part U):
 ; scalar-value characters, O(1) indexing at any width, mutation that widens
 ; a narrow string in place, UTF-8 conversion and ports, and write syntax.
 (define (report name value) (write (list name value)) (newline))

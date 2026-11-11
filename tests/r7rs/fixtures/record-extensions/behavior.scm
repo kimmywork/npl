@@ -1,4 +1,4 @@
-; NPL record extensions (docs/design-data.md section 2), checked by hand:
+; NPL record extensions (.agents/archive/design/design-data.md section 2), checked by hand:
 ; Guile 3.0 has no record-update and prints a cycle through a record field
 ; without its label (#<node v: #0#>).
 ;

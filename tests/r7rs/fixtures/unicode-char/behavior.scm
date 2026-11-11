@@ -1,7 +1,7 @@
 ; (scheme char) over Unicode (R7RS 6.6, 6.7): properties, digit values,
 ; simple character mappings, and full string mappings with Final_Sigma.
 ; Cases where Guile 3.0 and Racket disagree are left out (see
-; docs/design-l6.md): string-foldcase of capital sharp s and final sigma,
+; .agents/archive/design/design-l6.md): string-foldcase of capital sharp s and final sigma,
 ; and the Other_Alphabetic/Other_Uppercase properties of letterlike numbers
 ; and symbols.
 (define (report name value) (write (list name value)) (newline))

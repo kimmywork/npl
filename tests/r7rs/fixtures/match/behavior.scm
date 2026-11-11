@@ -1,4 +1,4 @@
-; match (docs/design-data.md section 4): the pattern language NPL shares
+; match (.agents/archive/design/design-data.md section 4): the pattern language NPL shares
 ; with Guile's (ice-9 match), both Alex Shinn's matcher. Literals compare
 ; as equal? does; ... binds lists and needs a proper list; records match
 ; by field position with $; clauses are tried in order.

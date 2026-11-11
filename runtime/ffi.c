@@ -1,4 +1,4 @@
-/* Run-time foreign calls for npli (docs/design-primitives.md, section 5,
+/* Run-time foreign calls for npli (.agents/archive/design/design-primitives.md, section 5,
  * level A): load shared libraries and turn C functions written against
  * npl.h (NplVal arguments and result) into NPL procedures. All such
  * functions share one ABI, so fixed trampolines for 0..8 arguments cover

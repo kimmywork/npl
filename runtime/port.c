@@ -550,7 +550,7 @@ NplVal npl_byte_ready_p(NplVal value)
 }
 
 /* char-ready?: a whole character (or EOF) can be read without blocking
- * (docs/design-l6.md, Decision 3). Bytes read while checking a multibyte
+ * (.agents/archive/design/design-l6.md, Decision 3). Bytes read while checking a multibyte
  * sequence go to the port's pushback, so nothing is lost. */
 NplVal npl_port_ready_p(NplVal value)
 {

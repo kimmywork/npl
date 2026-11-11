@@ -1,4 +1,4 @@
-; Closure compiler for npli (docs/design-evaluator.md). Each core form of the
+; Closure compiler for npli (.agents/archive/design/design-evaluator.md). Each core form of the
 ; shared frontend (tags in src/compiler/frontend/forms.npl) becomes, once, a
 ; native procedure of the run-time frame. Locals are lexical addresses into
 ; frames #(parent value ...); globals are cells of the environment's table.

@@ -1,5 +1,5 @@
 ; Expansion-time helpers of define-record-type (frontend/derived.npl,
-; docs/design-data.md section 2). syntax-rules cannot count, so the macro
+; .agents/archive/design/design-data.md section 2). syntax-rules cannot count, so the macro
 ; leaves field positions to these two core forms:
 ;
 ;   (%record-index field (field1 ...))  the slot of field: 1 for field1

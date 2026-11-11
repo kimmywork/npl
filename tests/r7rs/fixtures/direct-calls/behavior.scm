@@ -1,4 +1,4 @@
-;; Direct entries (docs/design-calls.md C2b): direct-safe functions called
+;; Direct entries (.agents/archive/design/design-calls.md C2b): direct-safe functions called
 ;; in value position, including the stack-limit fallback, errors, bignums,
 ;; continuations, and closures made inside them.
 (define (fib n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))

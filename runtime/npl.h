@@ -221,7 +221,7 @@ typedef struct {
  * (npl_make_flat_closure); its environment is then the closure, so compiled
  * code reads capture i at a fixed offset (byte 48 + 8i). Runtime and FFI
  * closures have no captures and an arbitrary environment value. direct:
- * the lambda's direct entry (docs/design-calls.md C3), which takes the
+ * the lambda's direct entry (.agents/archive/design/design-calls.md C3), which takes the
  * closure's arguments without the continuation and returns the value;
  * NULL for every other closure. The collector does not visit it. */
 typedef struct {

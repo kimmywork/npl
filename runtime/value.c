@@ -82,7 +82,7 @@ NplVal npl_record_set(NplVal value, NplVal type, NplVal index, NplVal field)
     return npl_unspecified();
 }
 
-/* A record type made by define-record-type (docs/design-data.md section 2)
+/* A record type made by define-record-type (.agents/archive/design/design-data.md section 2)
  * is itself a record: (npl-record-type name (field ...)). Its instances
  * hold it in slot 0; error objects and other runtime records hold a symbol
  * there instead. The tag is interned once and never collected. */

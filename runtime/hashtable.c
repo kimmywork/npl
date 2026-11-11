@@ -1,5 +1,5 @@
 /*
- * hashtable.c — SRFI 125 hash tables (docs/design-data.md section 3).
+ * hashtable.c — SRFI 125 hash tables (.agents/archive/design/design-data.md section 3).
  *
  * Open addressing with linear probing; at most a quarter of the slots are
  * live after a resize and at most half are used (live or deleted) before

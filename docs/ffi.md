@@ -13,7 +13,7 @@ Functions".
 Supported by `nplc` since 2026-10-22 (P2b); `nplc -l`/`-L` and `npli -l`
 since 2026-10-23; pointers and `define-c-function` since 2026-10-27. Not yet
 supported: callbacks into NPL, structs, arrays. See "Limitations" and the
-plan in [design-primitives](design-primitives.md).
+plan in [design-primitives](../.agents/archive/design/design-primitives.md).
 
 ## Declaring A Function
 

@@ -1,4 +1,4 @@
-; Records beyond R7RS 5.5 (docs/design-data.md section 2).
+; Records beyond R7RS 5.5 (.agents/archive/design/design-data.md section 2).
 ;
 ; (record-update type instance (field value) ...) returns a copy of
 ; instance, which must be of the record type type, with the named fields

@@ -1,4 +1,4 @@
-; Safe primitives raise catchable R7RS error objects (docs/plan-r7rs.md
+; Safe primitives raise catchable R7RS error objects (.agents/archive/plan-r7rs.md
 ; "Primitive Errors"). Only catchability and error-object? are shared with
 ; Guile; message and irritant text is compared between native and npli by
 ; src/compiler/tests/primitive-errors.npl.
