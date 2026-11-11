@@ -137,10 +137,8 @@
     (set-current-buffer! ())
     (if name
         (cell-set! SELF-FUNCTION
-          (cons name
-            (cons (count-up params 0)
-              (cons (param-ops params env)
-                (cons label (cons entry ()))))))
+          (make-self-function name (count-up params 0)
+                              (param-ops params env) label entry))
         0)
     (emit-tail-body body env)
     (cell-set! SELF-FUNCTION #f)

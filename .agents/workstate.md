@@ -211,15 +211,20 @@ instructions, 7.07 -> 1.41 s user. Step 1b: predeclared globals as one
 hashed layer in the value environment, 20.29 -> 14.06 G, 1.02 s user.
 Step 1c: backend function, arity, and global tables hashed (`SYMS` stays
 an ordered list), 14.06 -> 12.49 G, 0.90 s user. Step 1 is done: the
-remaining profile is allocation, GC, string building, and file reads. Next: step 2 (compiler-internal state as
-records) and step 3 (AST destructuring with `match`), each measured;
+remaining profile is allocation, GC, string building, and file reads.
+Step 2 done: syntax captures, syntax-rules transformers, `SELF-FUNCTION`,
+and direct-call entries are records (accessor names unchanged), +1%
+instructions (12.61 G), seed -500 lines; a record used by the frontend
+must be defined before its first use, because npli compiles the frontend
+as a library. Riskier structures (environment entries, primitive rows,
+npli session, library info) stay as they are. Next: step 3 (AST destructuring with `match`), measured;
 `syntax-case` stays deferred until the user schedules it.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 317,369 lines; SHA-256
-  `7501b4645728e9030bd04ba689ccf8cd8defc3706800b59576b9606ba1595490`
-  (macOS strict relay, 2026-11-11, hashed backend tables). The seed calls
+- `bootstrap/current.ssa`: 316,843 lines; SHA-256
+  `8fd6419623bb01f73fb583c896a785ed6ed66ceb98a6f6385afba308ea52e907`
+  (macOS strict relay, 2026-11-11, compiler state records). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

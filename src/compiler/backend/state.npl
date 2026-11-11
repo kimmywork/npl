@@ -43,8 +43,7 @@
 ; primitives referenced as values; their closure wrappers are emitted once
 (define PRIMITIVE-VALUES (cell ()))
 ; Direct self tail calls (tail.npl emit-self-jump): while the body of an
-; eligible function is emitted, (name arity parameter-ops label-cell entry);
-; #f otherwise. entry is #f for a top-level function (its name must be
+; eligible function is emitted, a self-function (tail.npl); #f otherwise. entry is #f for a top-level function (its name must be
 ; lexically unbound at the call) and the lambda's captured binding of its
 ; letrec name for a named loop (the call must see that binding).
 (define SELF-FUNCTION (cell #f))

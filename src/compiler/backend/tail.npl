@@ -101,11 +101,16 @@
 ; QBE accepts the reassigned temporaries and builds SSA. Numeric aliases keep
 ; their inline fast path.
 
-(define (self-name self) (car self))
-(define (self-arity self) (car (cdr self)))
-(define (self-params self) (car (cdr (cdr self))))
-(define (self-label-cell self) (car (cdr (cdr (cdr self)))))
-(define (self-entry self) (car (cdr (cdr (cdr (cdr self))))))
+; The function or named loop whose body is being emitted: its name, fixed
+; arity, parameter operations, the cell of its loop label, and the binding
+; that must name it at the call (program.npl emit-hoisted-body).
+(define-record-type self-function
+  (make-self-function name arity params label-cell entry) self-function?
+  (name self-name)
+  (arity self-arity)
+  (params self-params)
+  (label-cell self-label-cell)
+  (entry self-entry))
 
 ; The call names the function being emitted: a top-level function's name is
 ; not lexically bound there; a named loop's name is its captured binding.

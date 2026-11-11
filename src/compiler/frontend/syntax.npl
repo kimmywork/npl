@@ -374,8 +374,21 @@
               (fatal "syntax literal must be an identifier"))
           (fatal "syntax literal list must be proper"))))
 
-; transformer = (ellipsis literals annotated-rules definition-value-env
-;                definition-macro-env)
+; A syntax-rules transformer: the optional ellipsis identifier (else
+; "..."), the literal identifiers, the annotated rules, and the value and
+; macro environments of its definition site. Defined before its first use:
+; in a library body ((npl frontend)) a name defined by macro output is not
+; bound before the macro use.
+(define-record-type syntax-transformer
+  (make-syntax-transformer ellipsis literals rules definition-env
+                           definition-macro-env)
+  syntax-transformer?
+  (ellipsis transformer-ellipsis)
+  (literals transformer-literals)
+  (rules transformer-rules)
+  (definition-env transformer-definition-env)
+  (definition-macro-env transformer-definition-macro-env))
+
 (define (parse-syntax-rules specification definition-env definition-macro-env)
   (if (not (raw-form? specification "syntax-rules"))
       (fatal "transformer must be syntax-rules"))
@@ -395,27 +408,20 @@
             (if (null? rules) (fatal "syntax-rules needs a rule"))
             (let ((annotated-rules
                     (validate-rules rules literals ellipsis)))
-              (cons ellipsis
-                (cons literals
-                  (cons annotated-rules
-                    (cons definition-env
-                      (cons definition-macro-env ()))))))))))))
+              (make-syntax-transformer ellipsis literals annotated-rules
+                                       definition-env
+                                       definition-macro-env))))))))
 
-(define (transformer-ellipsis transformer) (car transformer))
-(define (transformer-literals transformer) (car (cdr transformer)))
-(define (transformer-rules transformer) (car (cdr (cdr transformer))))
-(define (transformer-definition-env transformer)
-  (car (cdr (cdr (cdr transformer)))))
-(define (transformer-definition-macro-env transformer)
-  (car (cdr (cdr (cdr (cdr transformer))))))
+; A pattern variable's binding: its name, the ellipsis path it was matched
+; at, and the matched input.
+(define-record-type syntax-capture
+  (make-syntax-capture name path value) syntax-capture?
+  (name capture-name)
+  (path capture-path)
+  (value capture-value))
 
-; capture = (name path value)
 (define (add-capture name path value captures)
-  (cons (cons name (cons path (cons value ()))) captures))
-
-(define (capture-name capture) (car capture))
-(define (capture-path capture) (car (cdr capture)))
-(define (capture-value capture) (car (cdr (cdr capture))))
+  (cons (make-syntax-capture name path value) captures))
 
 (define (path-equal? left right)
   (if (null? left)

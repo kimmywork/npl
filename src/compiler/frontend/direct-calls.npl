@@ -12,25 +12,29 @@
 ; parameter is assigned or the function is variadic. The set is the
 ; greatest fixed point.
 
-; Entry: #(name arity reason calls tails mark assigned rest). arity: the
-; number of fixed parameters; rest: a rest parameter follows them. reason
-; #f: direct-safe so far, otherwise why not. calls and tails: callee entries
-; of non-tail and tail calls. mark: last tail-cycle search stamp. assigned:
-; a parameter is a set! target, so a self tail call is no jump.
+; A top-level function or lambda the analysis considers. arity: the number
+; of fixed parameters; rest: a rest parameter follows them. reason #f:
+; direct-safe so far, otherwise why not. calls and tails: callee entries of
+; non-tail and tail calls. mark: last tail-cycle search stamp. assigned: a
+; parameter is a set! target, so a self tail call is no jump.
+(define-record-type direct-call-entry
+  (make-direct-call-entry name arity reason calls tails mark assigned rest)
+  direct-call-entry?
+  (name direct-name)
+  (arity direct-arity)
+  (reason direct-reason set-direct-reason!)
+  (calls direct-calls set-direct-calls!)
+  (tails direct-tails set-direct-tails!)
+  (mark direct-mark set-direct-mark!)
+  (assigned direct-assigned? set-direct-assigned!)
+  (rest direct-rest?))
+
 (define (direct-entry name arity rest)
-  (vector name arity #f () () 0 #f rest))
-(define (direct-name entry) (vector-ref entry 0))
-(define (direct-arity entry) (vector-ref entry 1))
-(define (direct-reason entry) (vector-ref entry 2))
-(define (direct-calls entry) (vector-ref entry 3))
-(define (direct-tails entry) (vector-ref entry 4))
-(define (direct-mark entry) (vector-ref entry 5))
-(define (direct-assigned? entry) (vector-ref entry 6))
-(define (direct-rest? entry) (vector-ref entry 7))
+  (make-direct-call-entry name arity #f () () 0 #f rest))
 (define (direct-safe? entry) (not (direct-reason entry)))
 
 (define (direct-unsafe! entry reason)
-  (if (direct-reason entry) 0 (vector-set! entry 2 reason)))
+  (if (direct-reason entry) 0 (set-direct-reason! entry reason)))
 
 ; (name . entry) for every top-level function of the program, in source
 ; order.
@@ -128,7 +132,7 @@
 
 (define (direct-walk-function form)
   (let ((entry (direct-find (control-function-name form))))
-    (vector-set! entry 6
+    (set-direct-assigned! entry
       (direct-params-assigned?
         (control-fixed-formals (cdr (car (cdr form))))
         (collect-assigned form ())))
@@ -246,8 +250,8 @@
              #f)
          #f)
      (direct-unsafe! entry "tail-cycle"))
-    (tail (vector-set! entry 4 (cons callee (direct-tails entry))))
-    (else (vector-set! entry 3 (cons callee (direct-calls entry))))))
+    (tail (set-direct-tails! entry (cons callee (direct-tails entry))))
+    (else (set-direct-calls! entry (cons callee (direct-calls entry))))))
 
 ; ---------------- fixed point ----------------
 
@@ -269,7 +273,7 @@
 
 (define (direct-prune-with entry callee changed)
   (if callee
-      (begin (vector-set! entry 2 (direct-callee-reason callee)) #t)
+      (begin (set-direct-reason! entry (direct-callee-reason callee)) #t)
       changed))
 
 (define (direct-prune-entry entry changed)
@@ -296,7 +300,7 @@
     ((= (direct-mark node) stamp) #f)
     (else
      (begin
-       (vector-set! node 5 stamp)
+       (set-direct-mark! node stamp)
        (direct-reach-any? target (direct-tails node) stamp)))))
 
 (define (direct-reach-any? target callees stamp)
@@ -324,7 +328,7 @@
   (if (direct-safe? entry)
       (if (direct-reaches-others? entry (direct-tails entry)
                                   (direct-next-stamp))
-          (begin (vector-set! entry 2 "tail-cycle") #t)
+          (begin (set-direct-reason! entry "tail-cycle") #t)
           changed)
       changed))
 
