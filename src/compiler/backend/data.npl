@@ -8,19 +8,30 @@
 ;; byte per character) unless a character is above 255, then wide (32-bit
 ;; code points, flag NPL_FLAG_WIDE = 2). Header: tag, flags, length,
 ;; capacity; then the characters and a terminating zero unit.
-(define (byte-data text index)
-  (if (= index (string-length text))
+;; Character data as ", b 40, b 100, ..." (unit b) or ", w ..." (unit w).
+;; Built by halving, so a text of n characters is copied O(n log n) times;
+;; right-nested string-append copied the rest of the text at every character
+;; (O(n^2)), which dominated self-compile once the derived syntax source
+;; reached tens of thousands of characters.
+(define (data-units-run unit text from to)
+  (if (= from to)
       ""
-      (string-append ", b "
-        (string-append (number->string (string-byte-ref text index))
-                       (byte-data text (+ index 1))))))
+      (string-append ", " unit " "
+        (number->string (string-byte-ref text from))
+        (data-units-run unit text (+ from 1) to))))
+
+(define (data-units unit text from to)
+  (if (<= (- to from) 8)
+      (data-units-run unit text from to)
+      (let ((mid (+ from (npl_number_quotient (- to from) 2))))
+        (string-append (data-units unit text from mid)
+                       (data-units unit text mid to)))))
+
+(define (byte-data text index)
+  (data-units "b" text index (string-length text)))
 
 (define (word-data text index)
-  (if (= index (string-length text))
-      ""
-      (string-append ", w "
-        (string-append (number->string (string-byte-ref text index))
-                       (word-data text (+ index 1))))))
+  (data-units "w" text index (string-length text)))
 
 (define (wide-text? text index)
   (if (= index (string-length text))

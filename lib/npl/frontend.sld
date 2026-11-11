@@ -150,7 +150,7 @@
         (cell-set! EXPAND-REQUIRE-BOUND 0)
         (cell-set! TRANSCRIPTION-ALIASES ())
         (cell-set! TRANSCRIPTION-MACRO-ALIASES ())
-        (cell-set! SYNTAX-MARKS ())
+        (cell-set! SYNTAX-MARKS (new-mark-table))
         (cell-set! SYNTAX-NEXT-MARK 0)
         (cell-set! EXPAND-NEXT-VALUE 0)
         (frontend-reset-library-state)

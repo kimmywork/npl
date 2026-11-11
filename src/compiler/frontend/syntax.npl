@@ -1,6 +1,9 @@
 ; syntax-rules matcher and hygienic template transcription.
 
-(define SYNTAX-MARKS (cell ()))
+; Syntax marks: an eq hash table from identifier to mark, 0 when absent.
+(define SYNTAX-MARKS (cell (npl_make_hash_table 0 #f #f 0)))
+
+(define (new-mark-table) (npl_make_hash_table 0 #f #f 0))
 (define SYNTAX-NEXT-MARK (cell 0))
 ; Definition-site bindings for spliced macro output (transcription.npl).
 (define TRANSCRIPTION-ALIASES (cell ()))
@@ -30,18 +33,10 @@
                           (datum-false? value))))))))
 
 (define (identifier-mark identifier)
-  (identifier-mark-in identifier (cell-get SYNTAX-MARKS)))
-
-(define (identifier-mark-in identifier entries)
-  (if (null? entries)
-      0
-      (if (eq? identifier (car (car entries)))
-          (cdr (car entries))
-          (identifier-mark-in identifier (cdr entries)))))
+  (npl_hash_table_ref (cell-get SYNTAX-MARKS) identifier 0))
 
 (define (set-identifier-mark! identifier mark)
-  (cell-set! SYNTAX-MARKS
-    (cons (cons identifier mark) (cell-get SYNTAX-MARKS))))
+  (npl_hash_table_set (cell-get SYNTAX-MARKS) identifier mark))
 
 (define (fresh-syntax-mark)
   (cell-set! SYNTAX-NEXT-MARK (+ 1 (cell-get SYNTAX-NEXT-MARK)))
