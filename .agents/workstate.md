@@ -1,6 +1,18 @@
 # Workstate
 
-## Current
+## Milestone 0.1.0 (2026-11-12)
+
+The language stage is closed: R7RS-small conformance claim and evidence in
+[r7rs-conformance](../docs/r7rs-conformance.md), the gate in
+[testing](../docs/testing.md), extension paths in
+[extending](../docs/extending.md), release notes in
+[CHANGELOG](../CHANGELOG.md). Completed designs and plans are under
+[archive](archive/). Everything below is the history that led here; its
+"Next" pointers are superseded by this section. Nothing is scheduled after
+the milestone; candidate next work (SRFI 1/13 libraries, the open items
+below) waits for the user.
+
+## Current (history up to the milestone)
 
 Standard library stage per [plan-r7rs](archive/plan-r7rs.md). L0-L3 and L4a
 (records, error objects, file/read errors) are done. L4b (catchable

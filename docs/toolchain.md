@@ -36,6 +36,14 @@ After changing `src/compiler/`, regenerate and install the canonical artifact wi
 
 This first runs the complete gen1/gen2/gen3 comparison. Only after it succeeds does it replace `bootstrap/current.ssa`; no assembly, object, or binary is stored in Git.
 
+## Version
+
+`VERSION` holds the release version (also `project(npl VERSION ...)` in
+`CMakeLists.txt`; keep the two equal). It is informational: no tool reads it,
+and it does not enter `bootstrap/current.ssa`. Release notes are in
+[CHANGELOG](../CHANGELOG.md); a release is a `v<version>` git tag on a commit
+that passed the gate on macOS and Linux ([testing](testing.md)).
+
 ## Build And Install
 
 ```bash

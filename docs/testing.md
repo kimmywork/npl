@@ -43,7 +43,7 @@ Optional, not in the gate:
 |---|---|---|
 | `tools/check_linux.sh [run_tests.sh flags]` | Docker (colima context) with `npl-linux:bookworm` | runs the gate on Debian/bookworm, clang, Guile 3 |
 | `tools/run_chibi_suite.sh [--native]` | network (or a local `r7rs-tests.scm` argument) | chibi's independent R7RS suite |
-| `python3 tools/bench.py [--runs N] [--scaled]` | Guile, optionally Racket | performance against Guile and Racket |
+| `python3 tools/bench.py [--runs N] [--scaled]` | Guile; Racket from `RACKET_BIN` (its `bin` directory) or `PATH` | performance against Guile and Racket |
 
 ## Fixtures
 

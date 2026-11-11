@@ -1,0 +1,91 @@
+# Changelog
+
+All notable changes to NPL. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/) (pre-1.0: minor versions may change
+behavior).
+
+## [0.1.0] - 2026-11-12
+
+First tagged milestone: the language stage is complete. NPL is a
+self-hosting R7RS-small implementation with a native compiler (`nplc`, via
+QBE) and an evaluator (`npli`) that share one frontend. Conformance claim and
+evidence: [docs/r7rs-conformance.md](docs/r7rs-conformance.md).
+
+### Language and frontend
+
+- R7RS-small core syntax and semantics, with hygienic `syntax-rules`
+  (ellipsis depth, custom ellipsis, literal matching by binding,
+  definition-producing macros, `let-syntax`/`letrec-syntax`).
+- Proper tail calls, first-class continuations, `dynamic-wind`,
+  `with-exception-handler`/`raise`/`guard`, multiple values, parameter
+  objects, promises, `define-record-type`, R7RS `define-library`.
+- Records: transparent, generative, structural `equal?`, printed as
+  `#<point x: 1 y: 2>`, functional update with `record-update`.
+- Pattern matching: `match`, `match-lambda`, `match-lambda*`, `match-let`,
+  `match-let*`, `match-letrec`, `match-define` (Shinn's matcher), available
+  without imports and as `(npl match)`.
+- Unicode strings and characters; datum labels in `read` and cycle-aware
+  output.
+- Catchable error objects for every safe primitive and library argument
+  check, identical on native and npli.
+
+### Standard library
+
+- All R7RS-small libraries, every exported name (556/556), including
+  `(scheme r5rs)`; behavior checked by chibi's `r7rs-tests.scm` (1208 passed,
+  4 classified differences) and 41 three-way fixtures against Guile 3.
+- SRFI 125 hash tables (runtime-backed: eq, eqv, equal, string, general) and
+  SRFI 69; `(npl record)`, `(npl match)`, `(npl ffi)`, `(npl process)`.
+
+### Compiler and seed
+
+- Self-hosting compiler; the canonical compiler is checked in as QBE SSA
+  (`bootstrap/current.ssa`) and must reproduce itself (gen1 == gen2 == gen3).
+  A permanent, frozen bootstrap chain (stage0, `bootstrap/bootstrap.ssa`)
+  recovers it from C.
+- Native code: inline fixnum arithmetic and comparisons, inline
+  `car`/`cdr`/vector and record access, direct self tail calls as jumps,
+  direct entries for direct-safe functions and lambdas, flat closures.
+- Control conversion keeps simple `if` tests and `let`s with simple inits in
+  place; self-compile went from 98.2 G to 11.1 G instructions during the
+  final stage, and the seed from 316,843 to 261,586 lines.
+- Hashed lookups in the frontend (predeclared globals, syntax marks) and the
+  backend (function, arity, global tables).
+
+### Runtime
+
+- Generational, non-moving collector with a 1 MiB nursery, write barrier,
+  conservative stack scan, and `NPL_GC_VERIFY`; exact integers (bignums),
+  rationals, inexact and rectangular complex numbers.
+
+### Evaluator
+
+- `npli`: closure-compiling evaluator over the shared core AST, with the
+  standard library bound to compiled procedures; REPL and script mode.
+
+### Toolchain and FFI
+
+- Unified `nplc` driver (SSA, assembly, object, executable, C stubs) and an
+  install layout usable from any prefix; Linux parity in a Debian container.
+- C extensions: `define-c-primitive`, `%c-call`, `%c-procedure`
+  (`NplVal` ABI), and `define-c-function` with generated stubs for plain C
+  types, pointers, `with-resource`; `npli -l` loads shared libraries.
+
+### Documentation
+
+- Live: [toolchain](docs/toolchain.md), [testing](docs/testing.md),
+  [extending](docs/extending.md), [ffi](docs/ffi.md),
+  [r7rs-conformance](docs/r7rs-conformance.md).
+- Completed designs and plans are archived under `.agents/archive/`; the
+  per-day history is `.agents/worklog/`.
+
+### Known limitations
+
+- Not implemented by decision: `syntax-case`, an object system, keyword
+  arguments, record inheritance; SRFI 1 / 13 / 113 list, string, and set
+  libraries. See the conformance document for routes.
+- Native and npli differ in operand evaluation order when an operand has a
+  side effect seen by another (R7RS leaves the order unspecified).
+
+[0.1.0]: https://github.com/ng-lang/npl/releases/tag/v0.1.0
