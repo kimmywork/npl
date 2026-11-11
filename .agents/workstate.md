@@ -224,18 +224,21 @@ User chose (2026-11-11): a cheaper `match` expansion first, then redo the
 pilot. Re-running the pilot with a closure-free clause expansion exposed
 an exponential control conversion of `if` tests that are themselves
 `if`s of simple parts; fixed (worklog 2026-11-11), seed 316,843 -> 288,995
-lines, bench unchanged. Next: reapply the `%match-clause` expansion (kept
-outside the tree), redo the pilot, and adopt `match` only if it meets the
-section 4 seed-size rule. `syntax-case`: the user does not want it while
+lines, bench unchanged. Also fixed: a `let` with simple inits stays a
+`let` in control conversion instead of becoming a closure applied to them
+(seed 288,995 -> 261,586 lines, -9.5%; self-compile 12.28 -> 11.13 G).
+Next: reapply the `%match-clause` expansion (kept outside the tree), redo
+the pilot, and adopt `match` only if it meets the section 4 seed-size
+rule. `syntax-case`: the user does not want it while
 it is deferred.
 `syntax-case` stays deferred until the user schedules it.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 288,995 lines; SHA-256
-  `3ecd124ae7dcfdceb1ce3f0fc3f9861da6c70a9bbcff00d2b49c1596d43c8104`
-  (macOS strict relay after a two-step transition, 2026-11-11, simple if
-  tests in control conversion). The seed calls
+- `bootstrap/current.ssa`: 261,586 lines; SHA-256
+  `e6d50f48d9e427111feddcbb8f36855daa275731232d3a752727c67ed5defd80`
+  (macOS strict relay after a two-step transition, 2026-11-11, simple lets
+  in control conversion). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

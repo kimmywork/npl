@@ -618,13 +618,42 @@
 
 (define (control-cps-let expression continuation)
   (let ((bindings (car (cdr expression))))
-    (let ((lambda-expression
-            (cons 212
-              (cons (control-binding-names bindings)
-                    (cons (car (cdr (cdr expression))) ())))))
-      (control-cps-application
-        (cons lambda-expression (control-binding-values bindings))
-        continuation))))
+    (if (control-simple-list? (control-binding-values bindings))
+        (control-cps-simple-let bindings (car (cdr (cdr expression)))
+                                continuation)
+        (let ((lambda-expression
+                (cons 212
+                  (cons (control-binding-names bindings)
+                        (cons (car (cdr (cdr expression))) ())))))
+          (control-cps-application
+            (cons lambda-expression (control-binding-values bindings))
+            continuation)))))
+
+; A let whose inits are simple cannot capture a continuation while they are
+; evaluated, so it stays a let around the converted body instead of becoming
+; a closure applied to the inits. A continuation that is not a variable is
+; bound to a fresh name first: the body may send to it from several places
+; (both branches of an if), and control-send would copy an inline
+; continuation into each.
+(define (control-cps-simple-let bindings body continuation)
+  (if (sym-atom? continuation)
+      (cons 214
+        (cons (control-transform-simple-bindings bindings)
+              (cons (cons (control-cps-body body continuation) ()) ())))
+      (let ((name (control-fresh-name "_npl_let_k_")))
+        (cons 214
+          (cons (cons (cons (control-symbol name) continuation) ())
+                (cons (cons (control-cps-simple-let
+                              bindings body (control-symbol name))
+                            ())
+                      ()))))))
+
+(define (control-transform-simple-bindings bindings)
+  (if (null? bindings)
+      ()
+      (cons (cons (car (car bindings))
+                  (control-transform-simple (cdr (car bindings))))
+            (control-transform-simple-bindings (cdr bindings)))))
 
 (define (control-placeholder-bindings bindings)
   (if (null? bindings)
