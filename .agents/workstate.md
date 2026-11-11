@@ -227,11 +227,15 @@ an exponential control conversion of `if` tests that are themselves
 lines, bench unchanged. Also fixed: a `let` with simple inits stays a
 `let` in control conversion instead of becoming a closure applied to them
 (seed 288,995 -> 261,586 lines, -9.5%; self-compile 12.28 -> 11.13 G).
-Next: reapply the `%match-clause` expansion (kept outside the tree), redo
-the pilot, and adopt `match` only if it meets the section 4 seed-size
-rule. `syntax-case`: the user does not want it while
-it is deferred.
-`syntax-case` stays deferred until the user schedules it.
+Second pilot done (worklog 2026-11-11): the closure-free `%match-clause`
+expansion is linear in clauses and slightly smaller than Shinn's (24
+clauses 46,410 vs 46,636 lines), but the expander costs 4,138 seed lines
+(+1.6%) and the pilot still grows the seed (+549 vs Shinn's +633 while
+removing 22 source lines), so section 4's rule fails under either
+expansion. Reverted; the compiler keeps its hand-written dispatch and
+`match` is unchanged for programs and libraries. Section 5 is complete as
+far as the rule allows. `syntax-case`: deferred, and the user does not
+want it while it is deferred.
 
 ## Accepted Seed
 
