@@ -37,13 +37,30 @@
                                  (datum-symbol-name identifier)
                                  environment))))))
 
+; All directly defined names of forms as one global layer (syntax.npl
+; value-binding-layer): the compiler predeclares about a thousand globals,
+; and an unbound name (a primitive) would otherwise scan them all.
 (define (predeclare-globals forms environment)
+  (value-binding-layer (defined-identifiers-of forms ()) environment))
+
+(define (defined-identifiers-of forms acc)
   (if (null? forms)
-      environment
-      (predeclare-globals
+      (rev acc)
+      (defined-identifiers-of
         (cdr forms)
-        (predeclare-global-identifiers
-          (direct-defined-identifiers (car forms)) environment))))
+        (checked-identifiers-into
+          (direct-defined-identifiers (car forms)) acc))))
+
+(define (checked-identifiers-into identifiers acc)
+  (if (null? identifiers)
+      acc
+      (if (not (pair? identifiers))
+          (fatal "definition names must be a proper list")
+          (begin
+            (if (not (datum-symbol? (car identifiers)))
+                (fatal "definition name must be an identifier"))
+            (checked-identifiers-into (cdr identifiers)
+                                      (cons (car identifiers) acc))))))
 
 (define (expand-program forms)
   (cell-set! TRANSCRIPTION-ALIASES ())

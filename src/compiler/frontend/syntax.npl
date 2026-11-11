@@ -52,9 +52,11 @@
             name mark (cell-get TRANSCRIPTION-ALIASES))))))
 
 ; Compute the lookup key once, not once per environment entry.
-; An entry is (name mark emitted), or an alias layer (#f mark definition-env)
+; An entry is (name mark emitted); an alias layer (#f mark definition-env)
 ; (transcription.npl): identifiers with that mark see every binding of their
-; name in definition-env, innermost first.
+; name in definition-env, innermost first; or a global layer (#f #f table)
+; (value-binding-layer): a string hash table from name to its
+; ((mark . emitted) ...), innermost first, standing for that many entries.
 (define (lookup-value-binding-key name mark environment)
   (if (null? environment)
       ""
@@ -65,13 +67,17 @@
                     #f)
                 (car (cdr (cdr entry)))
                 (lookup-value-binding-key name mark (cdr environment)))
-            (let ((aliased
-                    (if (= mark (car (cdr entry)))
-                        (lookup-value-binding-any-mark
-                          name (car (cdr (cdr entry))))
-                        "")))
-              (if (> (string-length aliased) 0)
-                  aliased
+            (let ((found
+                    (if (car (cdr entry))
+                        (if (= mark (car (cdr entry)))
+                            (lookup-value-binding-any-mark
+                              name (car (cdr (cdr entry))))
+                            "")
+                        (layer-binding-with-mark
+                          (npl_hash_table_ref (car (cdr (cdr entry))) name ())
+                          mark))))
+              (if (> (string-length found) 0)
+                  found
                   (lookup-value-binding-key name mark (cdr environment))))))))
 
 (define (lookup-value-binding-any-mark name environment)
@@ -82,13 +88,41 @@
             (if (string=? name (car entry))
                 (car (cdr (cdr entry)))
                 (lookup-value-binding-any-mark name (cdr environment)))
-            (let ((aliased
-                    (lookup-value-binding-any-mark
-                      name (car (cdr (cdr entry))))))
-              (if (> (string-length aliased) 0)
-                  aliased
+            (let ((found
+                    (if (car (cdr entry))
+                        (lookup-value-binding-any-mark
+                          name (car (cdr (cdr entry))))
+                        (let ((bindings
+                                (npl_hash_table_ref
+                                  (car (cdr (cdr entry))) name ())))
+                          (if (null? bindings) "" (cdr (car bindings)))))))
+              (if (> (string-length found) 0)
+                  found
                   (lookup-value-binding-any-mark
                     name (cdr environment))))))))
+
+(define (layer-binding-with-mark bindings mark)
+  (if (null? bindings)
+      ""
+      (if (= mark (car (car bindings)))
+          (cdr (car bindings))
+          (layer-binding-with-mark (cdr bindings) mark))))
+
+; One global layer over environment for identifiers, each bound to its own
+; name as add-value-binding would (later ones shadow earlier ones). The table
+; is new and never changed, so environments stay persistent.
+(define (value-binding-layer identifiers environment)
+  (let ((table (npl_make_hash_table 3 #f #f 0)))
+    (fill-value-binding-layer table identifiers)
+    (cons (cons #f (cons #f (cons table ()))) environment)))
+
+(define (fill-value-binding-layer table identifiers)
+  (if (pair? identifiers)
+      (let ((name (datum-symbol-name (car identifiers))))
+        (npl_hash_table_set table name
+          (cons (cons (identifier-mark (car identifiers)) name)
+                (npl_hash_table_ref table name ())))
+        (fill-value-binding-layer table (cdr identifiers)))))
 
 (define (add-value-binding identifier emitted environment)
   (cons (cons (datum-symbol-name identifier)

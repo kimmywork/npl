@@ -207,16 +207,17 @@ primitives, `define-values` from macros, literals in spliced macro output.
 Section 5 step 1 done (worklog 2026-11-11): sampled hot spots, not the
 planned tables: `byte-data` was O(n^2) (now halving) and syntax marks an
 eq association list (now an eq hash table); self-compile 98.20 G -> 20.29 G
-instructions, 7.07 -> 1.41 s user. Function and global tables stay lists
-until a sample shows them. Next: step 2 (compiler-internal state as
+instructions, 7.07 -> 1.41 s user. Step 1b: predeclared globals as one
+hashed layer in the value environment, 20.29 -> 14.06 G, 1.02 s user.
+Function and global tables stay lists until a sample shows them. Next: step 2 (compiler-internal state as
 records) and step 3 (AST destructuring with `match`), each measured;
 `syntax-case` stays deferred until the user schedules it.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 315,561 lines; SHA-256
-  `8abe2791b9bec3237aa0f5304d5a53b55fde0a7c9d2948993411f0d7a78c8e78`
-  (macOS strict relay, 2026-11-11, self-compile hot spots). The seed calls
+- `bootstrap/current.ssa`: 317,585 lines; SHA-256
+  `4cca8e4426eb8f5012ad61b4084eb554e4cab70835df95ad75b0fc93b7a7d7a6`
+  (macOS strict relay, 2026-11-11, hashed global layer). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure
