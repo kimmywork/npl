@@ -217,7 +217,11 @@ and direct-call entries are records (accessor names unchanged), +1%
 instructions (12.61 G), seed -500 lines; a record used by the frontend
 must be defined before its first use, because npli compiles the frontend
 as a library. Riskier structures (environment entries, primitive rows,
-npli session, library info) stay as they are. Next: step 3 (AST destructuring with `match`), measured;
+npli session, library info) stay as they are. Step 3 pilot (worklog 2026-11-11): `match` in the control-conversion
+dispatch grew the seed by 1,644 lines and self-compile by 0.8% (a failure
+closure per clause), failing the section 4 rule; reverted, not adopted.
+Open decision for the user: a cheaper `match` expansion before compiler
+adoption, or keep the hand-written AST dispatch.
 `syntax-case` stays deferred until the user schedules it.
 
 ## Accepted Seed
