@@ -14,7 +14,7 @@ GC, npli, or a later per-thread runtime.
 
 ## Current State
 
-Checked 2026-10-27 at `2a336ef`.
+Checked 2026-10-27 at `1404ff7`.
 
 Interleaved A/B, CPU seconds, startup amortized (`bench.py --scaled`):
 
@@ -83,7 +83,7 @@ slow path) are not scanned:
 
 With `NPL_GC_NURSERY_BYTES` 512-4096 the program fails deterministically
 (`vector-ref: expected a vector`); default settings pass by chance. It
-reproduces with the pre-O1 compiler and runtime (`55ec07b`). A temporary
+reproduces with the pre-O1 compiler and runtime (`098359e`). A temporary
 runtime that keeps the outermost bottom passes at every nursery size. This
 blocks any design that adds nested C frames, so it is increment C0.
 
@@ -279,7 +279,7 @@ and numbers, no SSA change) first, then a go/no-go before code generation.
 
 ### State after C1 and O2
 
-Interleaved A/B, CPU seconds, startup amortized, `b0ceb56`. Guile from the
+Interleaved A/B, CPU seconds, startup amortized, `0242425`. Guile from the
 P7 run (2026-10-27, a different host load, so ratios are approximate):
 
 | workload | native | Guile | ratio |
