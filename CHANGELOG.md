@@ -40,6 +40,9 @@ behavior and feature detection, not evaluation semantics.
 - Strict C99 builds on glibc define `_DEFAULT_SOURCE`, so the runtime and
   frozen stage0 find `strdup`; the Linux gate builds with Ubuntu 24.04's
   clang 18.
+- The `strings` fixture marks the Guile 3.0.8 and 3.0.9 `string-for-each`
+  defect as a known oracle defect, so the Ubuntu 24.04 CI gate does not
+  report it as an NPL failure.
 
 [0.1.1]: https://github.com/ng-lang/npl/releases/tag/v0.1.1
 
