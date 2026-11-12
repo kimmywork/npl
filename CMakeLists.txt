@@ -6,6 +6,14 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# The runtime and frozen stage0 use POSIX functions such as strdup. Under
+# strict C99 on glibc they need an explicit feature-test macro; Darwin
+# exposes them (and MAP_ANON) by default. This keeps the build portable
+# without changing the C language level or the frozen bootstrap sources.
+if(NOT APPLE)
+  add_compile_definitions(_DEFAULT_SOURCE)
+endif()
+
 # Keep explicit Debug/custom configurations; default builds run the compiler too.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
