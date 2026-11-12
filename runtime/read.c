@@ -530,15 +530,36 @@ static NplVal patch_placeholder(NplVal original, NplVal placeholder,
     return original;
 }
 
-/* #n=datum or #n# after the digits of n. */
-static NplVal read_label_datum(NplDatumReader *reader, int first)
+static int array_pair_p(NplVal value)
 {
-    int64_t label = first - '0';
-    int code;
-    while ((code = reader_get(reader)) >= '0' && code <= '9') {
-        if (label > (INT64_C(1) << 40)) read_error("datum label too large");
-        label = label * 10 + (code - '0');
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_PAIR;
+}
+
+/* Build a rank-n array from the list read after #nA. */
+static NplVal array_from_items(NplVal list, int64_t rank)
+{
+    if (rank < 0) read_error("invalid array rank");
+    if (rank == 0) {
+        if (!array_pair_p(list) || !npl_is_nil(npl_pair_ptr(list)->cdr))
+            read_error("rank-0 array needs exactly one element");
+        return npl_pair_ptr(list)->car;
     }
+    if (rank == 1) return npl_list_to_vector(list);
+    NplVal reversed = npl_nil();
+    while (array_pair_p(list)) {
+        NplVal row = npl_pair_ptr(list)->car;
+        if (!array_pair_p(row) && !npl_is_nil(row))
+            read_error("array literal row is not a list");
+        reversed = npl_cons(array_from_items(row, rank - 1), reversed);
+        list = npl_pair_ptr(list)->cdr;
+    }
+    return npl_list_to_vector(reverse_onto(reversed, npl_nil()));
+}
+
+/* #n=datum or #n# after the digits of n. */
+static NplVal read_label_after_digits(NplDatumReader *reader, int64_t label,
+                                      int code)
+{
     if (code == '#') {
         NplVal entry = label_entry(reader, label);
         if (npl_is_nil(entry)) read_error("undefined datum label");
@@ -566,7 +587,22 @@ static NplVal read_label_datum(NplDatumReader *reader, int first)
 static NplVal read_hash_datum(NplDatumReader *reader)
 {
     int code = reader_get(reader);
-    if (code >= '0' && code <= '9') return read_label_datum(reader, code);
+    if (code >= '0' && code <= '9') {
+        int64_t rank = code - '0';
+        int next;
+        while ((next = reader_get(reader)) >= '0' && next <= '9') {
+            if (rank > (INT64_C(1) << 30)) read_error("array rank too large");
+            rank = rank * 10 + (next - '0');
+        }
+        if (next == 'A' || next == 'a') {
+            reader_skip_space(reader);
+            if (reader_peek(reader) != '(')
+                read_error("array literal requires (...)");
+            (void)reader_get(reader);
+            return array_from_items(read_list_datum(reader), rank);
+        }
+        return read_label_after_digits(reader, rank, next);
+    }
     if (code == 't' || code == 'f') {
         /* #t #f #true #false (R7RS 2.1). */
         const char *rest = code == 't' ? "rue" : "alse";

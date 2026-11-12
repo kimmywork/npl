@@ -27,6 +27,11 @@ behavior).
 - SRFI 195 multiple-value boxes as `(npl data multiple-value-box)` /
   `(srfi 195)`; they share the `box`/`unbox`/`set-box!` bindings with
   `(npl data box)`.
+- SRFI 47 arrays as `(npl data array)` / `(srfi 47)`, including
+  `#nA(...)` literals. Rank-1 arrays are vectors and strings; literals read
+  as nested vectors; `make-shared-array` and rank-0/prototype values use an
+  array record. The uniform-array prototypes are fill-value descriptors, not
+  separate byte-array storage.
 - SRFI 111 boxes now hold one or more values, which SRFI 195 requires; the
   one-value behavior is unchanged.
 - SRFI 111 boxes as `(npl data box)` / `(srfi 111)`.
@@ -52,6 +57,10 @@ behavior).
 - `(npl string)` re-exports base `string-map`/`string-for-each`, so their
   SRFI 13 optional [start end] arguments are not available on those two
   names; use the other SRFI 13 procedures for substring work.
+- Both readers accept `#nA(...)` array literals: the NPL reader used by
+  `nplc` and `(npl internal frontend)`, and the C reader used by
+  `(scheme read)`, `load`, and the `npli` REPL. `#nA` reads to nested
+  vectors. The compiler changed, so `bootstrap/current.ssa` was relayed.
 
 ### Fixed
 

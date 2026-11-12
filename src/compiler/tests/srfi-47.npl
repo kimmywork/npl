@@ -1,0 +1,88 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (scheme read)
+        (npl data array)
+        (prefix (srfi 47) s47:))
+
+(include "framework.npl")
+
+(define (test-list name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (define literal #2A((1 2) (3 4)))
+  (define made (make-array '#(0) 2 3))
+  (define shared (make-shared-array made (lambda (i) (list i i)) 2))
+  (test-identity "array? literal"
+                 (lambda () (array? literal))
+                 #t)
+  (test-identity "array? vector"
+                 (lambda () (array? '#(1 2)))
+                 #t)
+  (test-identity "array? string"
+                 (lambda () (array? "abc"))
+                 #t)
+  (test-equal "array-rank literal"
+              (lambda () (array-rank literal))
+              2)
+  (test-list "array-dimensions literal"
+             (lambda () (array-dimensions literal))
+             '(2 2))
+  (test-equal "array-ref literal"
+              (lambda () (array-ref literal 1 0))
+              3)
+  (test-identity "array-in-bounds? true"
+                 (lambda () (array-in-bounds? literal 1 1))
+                 #t)
+  (test-identity "array-in-bounds? false"
+                 (lambda () (array-in-bounds? literal 2 0))
+                 #f)
+  (test-identity "literal arrays are immutable"
+                 (lambda ()
+                   (guard (e (#t #t))
+                     (array-set! literal 0 0 0)
+                     #f))
+                 #t)
+  (test-list "make-array dimensions"
+             (lambda () (array-dimensions made))
+             '(2 3))
+  (test-equal "make-array fill"
+              (lambda () (array-ref made 1 2))
+              0)
+  (begin
+    (array-set! made 7 1 2)
+    (test-equal "array-set!"
+                (lambda () (array-ref made 1 2))
+                7))
+  (begin
+    (array-set! shared 9 1)
+    (test-equal "make-shared-array writes through"
+                (lambda () (array-ref made 1 1))
+                9))
+  (test-identity "string array"
+                 (lambda () (char=? (array-ref "abc" 1) #\b))
+                 #t)
+  (test-equal "array-rank vector"
+              (lambda () (array-rank '#(1 2 3)))
+              1)
+  (test-list "array-dimensions string"
+             (lambda () (array-dimensions "abc"))
+             '(3))
+  (test-equal "uniform prototype"
+              (lambda () (array-ref (au8 7)))
+              7)
+  (test-equal "make-array from prototype"
+              (lambda () (array-ref (make-array (au8 7) 2) 1))
+              7)
+  (test-list "read #2A through the runtime reader"
+             (lambda () (array-dimensions (read (open-input-string "#2A((1 2) (3 4))"))))
+             '(2 2))
+  (test-identity "datum labels still read"
+                 (lambda () (pair? (read (open-input-string "#12=(a . #12#)"))))
+                 #t)
+  (test-equal "srfi 47 alias"
+              (lambda () (s47:array-ref '#(1 2) 1))
+              2)
+  (finish-tests "srfi-47"))
+(main)

@@ -41,14 +41,14 @@ Current extensions include `(npl hashtable)` / `(srfi 125)`,
 `(npl list)` / `(srfi 1)`, `(npl string)` / `(srfi 13)`,
 `(npl string cursor)` / `(srfi 130)`, `(npl string immutable)` / `(srfi 140)`,
 `(npl vector)` / `(srfi 133)`, `(npl data stream)` / `(srfi 41)`,
-`(npl data generator)` / `(srfi 158)`, `(npl data unifiable-box)` / `(srfi 161)`,
+`(npl data generator)` / `(srfi 158)`, `(npl data array)` / `(srfi 47)`, `(npl data unifiable-box)` / `(srfi 161)`,
 `(npl data multiple-value-box)` / `(srfi 195)`, `(npl data box)` / `(srfi 111)`,
 `(npl data range)` / `(srfi 196)`, and the SRFI 189 family:
 `(npl data maybe)` and `(npl data either)` are disjoint subsets, while
 `(npl data option)` or `(srfi 189)` provides the complete surface. Canonical
 libraries re-export shared bindings rather than redefining them, so they can
-be imported together with `(scheme base)` without conflicts. SRFI 140 is the
-exception: it deliberately gives the R7RS string names istring-returning
+be imported together with `(scheme base)` without conflicts. Array literals such as `#2A((1 2) (3 4))` read as nested vectors in both
+`nplc` and `npli`. SRFI 140 is the exception: it deliberately gives the R7RS string names istring-returning
 behavior, so import it with `(except (scheme base) ...)` for the names it
 redefines. SRFI 13 and SRFI 130 also overlap; import one of them, or select
 the needed names with `only`/`except`.

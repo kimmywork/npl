@@ -90,6 +90,21 @@
           (set-cdr! entry value)
           value)))))
 
+(define (array-datum rank items)
+  (if (< rank 1)
+      (fatal "array literal rank must be at least 1")
+      (if (= rank 1)
+          (datum-vector items)
+          (datum-vector (array-rows rank items)))))
+
+(define (array-rows rank items)
+  (if (null? items)
+      ()
+      (if (pair? (car items))
+          (cons (array-datum (- rank 1) (car items))
+                (array-rows rank (cdr items)))
+          (fatal "array literal row is not a list"))))
+
 (define (parse-quote-datum cur)
   (let ((k (peek-kind cur)))
     (case k
@@ -113,6 +128,13 @@
               (datum-char code)))
       ((14) (begin (advance! cur) (datum-vector (datum-items cur))))
       ((15) (begin (advance! cur) (datum-bytevector (datum-items cur))))
+      ((20) (let ((rank (peek-payload cur)))
+              (advance! cur)
+              (if (= (peek-kind cur) 1)
+                  (begin
+                    (advance! cur)
+                    (array-datum rank (datum-items cur)))
+                  (fatal "array literal requires (...)"))))
       ((16) (parse-datum-label cur (peek-payload cur)))
       ((17) (let ((label (peek-payload cur)))
               (advance! cur)

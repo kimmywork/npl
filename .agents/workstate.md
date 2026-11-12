@@ -32,11 +32,15 @@ I2 and part of I3 are implemented on `feature/srfi-i2-i3`:
   `(npl string immutable)` / 140.
 - I3: `(npl vector)` / 133, `(npl data stream)` / 41,
   `(npl data generator)` / 158, `(npl data unifiable-box)` / 161,
-  `(npl data multiple-value-box)` / 195.
+  `(npl data multiple-value-box)` / 195, `(npl data array)` / 47.
 - SRFI 111 boxes now store a value list so SRFI 195 shares its bindings.
+- SRFI 47 adds `#2A`/`#nA` array literals to both readers: the NPL compiler
+  reader and the C runtime reader. Literals read as nested vectors; rank-1
+  vectors and strings are arrays; shared arrays use an array record.
+- The seed was relayed for the reader change.
 
-Remaining I3: SRFI 113 (with SRFI 128 comparators), 44, 47, 146, 178.
-`check_full_compiler.sh` covers 42 suites.
+Remaining I3: SRFI 113 (with SRFI 128 comparators), 44, 146, 178.
+`check_full_compiler.sh` covers 43 suites.
 
 ## 0.1.1 (2026-11-12)
 
@@ -311,9 +315,9 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 263,408 lines; SHA-256
-  `c143f35900deda45d696bc637d642577f8601950d01ef4e67164eb0502ec5b43`
-  (strict relay, 2026-11-12, 0.1.1 release hardening). The seed calls
+- `bootstrap/current.ssa`: 263,946 lines; SHA-256
+  `a159900b60131c63cb2b432ac4b0679cacd6515ac95c18f2dbe61c05c3713e4e`
+  (strict relay, 2026-11-12, SRFI 47 array literal support in the reader). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure
