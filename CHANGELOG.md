@@ -37,6 +37,9 @@ behavior and feature detection, not evaluation semantics.
 - Two Unicode fixtures no longer fail on a host with an empty `LANG`.
 - `cond-expand (library ...)` returns true for an importable `(srfi ...)` or
   user library whose file exists but has not been loaded yet.
+- Strict C99 builds on glibc define `_DEFAULT_SOURCE`, so the runtime and
+  frozen stage0 find `strdup`; the Linux gate builds with Ubuntu 24.04's
+  clang 18.
 
 [0.1.1]: https://github.com/ng-lang/npl/releases/tag/v0.1.1
 
