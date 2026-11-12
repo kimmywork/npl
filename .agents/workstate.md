@@ -1,5 +1,13 @@
 # Workstate
 
+## 0.1.2 (planning, 2026-11-12)
+
+Plan: [0.1.2-srfi](plans/0.1.2-srfi.md). Scope is the SRFI library train
+(requested SRFI-1/13/130/140/133/19/170 plus the data-structure SRFIs) with
+canonical `(npl ...)` library names and `(srfi N)` aliases. Remaining
+diagnostics (D1) run in parallel; SRFI-18/230 and full SRFI-226 move to
+0.1.3 after a runtime/control design. No 0.1.2 code has landed yet.
+
 ## 0.1.1 (2026-11-12)
 
 Release-hardening work on branch `release/0.1.1`, tracked by
