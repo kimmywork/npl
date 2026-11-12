@@ -14,7 +14,10 @@ PR: https://github.com/kimmywork/npl/pull/1.
 The new seed is 263,408 lines; the strict relay passes. The macOS gate with
 `tools/run_tests.sh --skip-current-fixed-point` and the Linux gate with
 `tools/check_linux.sh --skip-current-fixed-point` are each 56/56 PASS. The
-review's remaining P1/P2 findings (source spans and stack traces,
+GitHub Actions Linux gate also passes on Ubuntu 24.04; strict glibc C99
+builds define `_DEFAULT_SOURCE`, and the `strings` fixture marks the Guile
+3.0.8/3.0.9 `string-for-each` defect. The review's remaining P1/P2
+findings (source spans and stack traces,
 uncaught-error exit status, SRFI 1/13/113, separate compilation,
 performance) are not part of this branch.
 
