@@ -1,0 +1,94 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl data stream)
+        (prefix (srfi 41) s41:))
+
+(include "framework.npl")
+
+(define (test-list name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (test-list "stream"
+             (lambda () (stream->list (stream 1 2 3)))
+             '(1 2 3))
+  (test-list "stream-map"
+             (lambda ()
+               (stream->list (stream-map (lambda (x) (* x x))
+                                         (stream-range 0 5))))
+             '(0 1 4 9 16))
+  (test-list "stream-filter"
+             (lambda () (stream->list (stream-filter even? (stream-range 0 8))))
+             '(0 2 4 6))
+  (test-list "stream-take"
+             (lambda () (stream->list (stream-take (stream-from 10 2) 4)))
+             '(10 12 14 16))
+  (test-list "stream-take-while"
+             (lambda ()
+               (stream->list (stream-take-while (lambda (x) (< x 3))
+                                                (stream-from 0))))
+             '(0 1 2))
+  (test-equal "stream-length"
+              (lambda () (stream-length (stream 1 2 3)))
+              3)
+  (test-equal "stream-ref"
+              (lambda () (stream-ref (stream-from 1) 5))
+              6)
+  (test-list "stream-append"
+             (lambda () (stream->list (stream-append (stream 1 2) (stream 3))))
+             '(1 2 3))
+  (test-list "stream-concat"
+             (lambda ()
+               (stream->list (stream-concat (stream (stream 1 2) (stream 3)))))
+             '(1 2 3))
+  (test-list "stream-reverse"
+             (lambda () (stream->list (stream-reverse (stream 1 2 3))))
+             '(3 2 1))
+  (test-list "stream-scan"
+             (lambda () (stream->list (stream-scan + 0 (stream 1 2 3))))
+             '(0 1 3 6))
+  (test-list "stream-iterate"
+             (lambda ()
+               (stream->list (stream-iterate (lambda (x) (+ x 1)) 0) 4))
+             '(0 1 2 3))
+  (test-list "stream-unfold"
+             (lambda ()
+               (stream->list
+                (stream-unfold (lambda (x) (* x x))
+                               (lambda (x) (< x 5))
+                               (lambda (x) (+ x 1))
+                               0)))
+             '(0 1 4 9 16))
+  (test-identity "stream-match"
+                 (lambda ()
+                   (stream-match (stream 1 2 3)
+                                 (() 'empty)
+                                 ((x . rest) x)
+                                 (_ 'other)))
+                 1)
+  (test-list "stream-of"
+             (lambda ()
+               (stream->list (stream-of (* x x) (x in (stream 1 2 3)))))
+             '(1 4 9))
+  (test-list "stream-zip"
+             (lambda ()
+               (stream->list (stream-zip (stream 1 2) (stream 'a 'b))))
+             '((1 a) (2 b)))
+  (test-list "stream-unfolds"
+             (lambda ()
+               (call-with-values
+                (lambda ()
+                  (stream-unfolds
+                   (lambda (n)
+                     (values (+ n 1)
+                             (if (> n 2) '() (list n))
+                             (if (> n 3) '() (list n))))
+                   0))
+                (lambda (a b) (list (stream->list a) (stream->list b)))))
+             '((0 1 2 3) (0 1 2)))
+  (test-list "srfi 41 alias"
+             (lambda () (s41:stream->list (s41:stream 1 2)))
+             '(1 2))
+  (finish-tests "srfi-41"))
+(main)

@@ -1,0 +1,105 @@
+(import (except (scheme base) vector-copy)
+        (scheme write)
+        (scheme process-context)
+        (npl vector)
+        (prefix (srfi 133) s133:))
+
+(include "framework.npl")
+
+(define (test-list name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (test-list "vector-unfold"
+             (lambda ()
+               (vector->list (vector-unfold
+                              (lambda (i s) (values (* i s) s)) 4 2)))
+             '(0 2 4 6))
+  (test-list "vector-unfold-right"
+             (lambda () (vector->list (vector-unfold-right
+                                       (lambda (i) (values i)) 3)))
+             '(0 1 2))
+  (test-list "vector-copy with fill"
+             (lambda () (vector->list (vector-copy '#(1 2 3) 1 5 'x)))
+             '(2 3 x x))
+  (test-list "vector-reverse-copy"
+             (lambda () (vector->list (vector-reverse-copy '#(1 2 3))))
+             '(3 2 1))
+  (test-list "vector-concatenate"
+             (lambda ()
+               (vector->list (vector-concatenate '(#(1) #(2 3)))))
+             '(1 2 3))
+  (test-list "vector-append-subvectors"
+             (lambda ()
+               (vector->list
+                (vector-append-subvectors '#(0 1 2 3 4) 1 3 '#(5 6) 0 2)))
+             '(1 2 5 6))
+  (test-identity "vector-empty?"
+                 (lambda () (vector-empty? '#()))
+                 #t)
+  (test-identity "vector="
+                 (lambda () (vector= = '#(1 2) '#(1 2)))
+                 #t)
+  (test-equal "vector-fold"
+              (lambda () (vector-fold (lambda (s x) (+ s x)) 0 '#(1 2 3)))
+              6)
+  (test-list "vector-fold-right"
+             (lambda ()
+               (vector-fold-right (lambda (s x) (cons x s)) '() '#(1 2 3)))
+             '(1 2 3))
+  (test-equal "vector-count"
+              (lambda () (vector-count even? '#(1 2 3 4)))
+              2)
+  (test-list "vector-cumulate"
+             (lambda ()
+               (vector->list (vector-cumulate + 0 '#(3 1 4))))
+             '(3 4 8))
+  (test-equal "vector-index"
+              (lambda () (vector-index even? '#(3 1 4)))
+              2)
+  (test-equal "vector-index-right"
+              (lambda () (vector-index-right even? '#(3 1 4)))
+              2)
+  (test-equal "vector-skip"
+              (lambda () (vector-skip even? '#(2 4 5)))
+              2)
+  (test-equal "vector-binary-search"
+              (lambda ()
+                (vector-binary-search '#(1 3 5) 3 (lambda (a b) (- a b))))
+              1)
+  (test-identity "vector-any"
+                 (lambda () (vector-any even? '#(1 3 4)))
+                 #t)
+  (test-identity "vector-every"
+                 (lambda () (vector-every positive? '#(1 3 4)))
+                 #t)
+  (test-list "vector-partition"
+             (lambda ()
+               (call-with-values
+                (lambda () (vector-partition even? '#(1 2 3 4)))
+                (lambda (v count) (list (vector->list v) count))))
+             '((2 4 1 3) 2))
+  (test-list "vector-swap!"
+             (lambda ()
+               (let ((v (vector-copy '#(1 2 3))))
+                 (vector-swap! v 0 2)
+                 (vector->list v)))
+             '(3 2 1))
+  (test-list "vector-reverse!"
+             (lambda ()
+               (let ((v (vector-copy '#(1 2 3))))
+                 (vector-reverse! v)
+                 (vector->list v)))
+             '(3 2 1))
+  (test-list "reverse-vector->list"
+             (lambda () (reverse-vector->list '#(1 2 3)))
+             '(3 2 1))
+  (test-list "reverse-list->vector"
+             (lambda () (vector->list (reverse-list->vector '(1 2 3))))
+             '(3 2 1))
+  (test-list "srfi 133 alias"
+             (lambda ()
+               (vector->list (s133:vector-reverse-copy '#(1 2 3))))
+             '(3 2 1))
+  (finish-tests "srfi-133"))
+(main)
