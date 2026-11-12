@@ -46,7 +46,7 @@
 
 
 ; SRFI 189 helpers (the reference implementation assumes these).
-(define (assume . args) #t)
+; ASSUME is included from assume.scm by the library definition.
 (define (syntax-error message . irritants)
   (apply error message irritants))
 
@@ -374,7 +374,7 @@
 
 (define (either->list either)
   (assume (either? either))
-  ((if (right? either) right-objs left-objs) either))
+  (if (right? either) (right-objs either) '()))
 
 (define (list->maybe lis)
   (assume (or (null? lis) (pair? lis)))

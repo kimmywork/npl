@@ -19,4 +19,4 @@
     maybe-and maybe-or maybe-let* either-and either-or either-let*
     maybe-let*-values either-let*-values maybe-if)
   (import (scheme base) (scheme case-lambda) (npl list))
-  (include "option-core.scm" "option-syntax.scm"))
+  (include "assume.scm" "option-core.scm" "option-syntax.scm"))

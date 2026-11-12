@@ -1,3 +1,4 @@
 (import (scheme base) (scheme write)
         (npl list) (npl data box) (npl data range)
-        (npl data maybe) (npl data either))
+        (npl data maybe) (npl data either)
+        (srfi 1) (srfi 111) (srfi 196) (srfi 189))

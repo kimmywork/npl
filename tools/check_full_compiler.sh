@@ -124,9 +124,9 @@ run_suite runtime-errors "PASS runtime-errors 14"
 run_suite c-primitives "PASS c-primitives 11"
 run_suite records "PASS records 10"
 run_suite boxes "PASS boxes 6"
-run_suite srfi-1 "PASS srfi-1 42"
-run_suite srfi-196 "PASS srfi-196 24"
-run_suite srfi-189 "PASS srfi-189 34"
+run_suite srfi-1 "PASS srfi-1 44"
+run_suite srfi-196 "PASS srfi-196 29"
+run_suite srfi-189 "PASS srfi-189 39"
 run_suite hash-tables "PASS hash-tables 6"
 NPL_GC_NURSERY_BYTES=65536 NPL_GC_VERIFY=10 "$WORK/hash-tables" \
     > "$WORK/hash-tables-verify.out"
@@ -515,6 +515,8 @@ reject_compile macro-errors/force-arity.npl \
     force-arity "macro use does not match any syntax rule: force"
 reject_compile macro-errors/delay-arity.npl \
     delay-arity "macro use does not match any syntax rule: delay"
+
+python3 "$ROOT/tools/check_srfi_exports.py"
 
 echo "full compiler dynamic core: PASS"
 echo "full compiler reader/datum: PASS"

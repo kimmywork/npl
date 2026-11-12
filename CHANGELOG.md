@@ -20,7 +20,7 @@ behavior).
 - `(npl hashtable)` as the canonical SRFI 125 implementation; `(srfi 125)`
   is a thin re-export.
 - Compiler suites for the new libraries and a native/npli `srfi-core`
-  fixture.
+  fixture, plus `tools/check_srfi_exports.py` for alias export parity.
 
 ### Changed
 
@@ -33,6 +33,17 @@ behavior).
 - `(npl list)` is a complete SRFI 1 surface; base bindings are re-exported
   with their original identity so `(scheme base)`, `(npl list)`, and
   `(srfi 1)` can be imported together.
+
+### Fixed
+
+- SRFI 196 `range-first`, `range-split-at`, and `range-reverse` now preserve
+  a range's nonzero start offset.
+- SRFI 196/189 `assume` is a real precondition check again, shared through
+  `lib/npl/data/assume.scm`, instead of a no-op.
+- SRFI 189 `either->list` returns `'()` for a Left, as specified.
+- Added the missing `range?` export to `(srfi 196)`, and `maybe-if` /
+  `two-values->maybe` to `(npl data maybe)`.
+- Added `memq`, `memv`, `assq`, and `assv` to the SRFI 1 export surfaces.
 
 ### Removed
 

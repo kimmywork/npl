@@ -1,7 +1,7 @@
 ; SRFI 196 compatibility alias for (npl data range).
 (define-library (srfi 196)
   (export range numeric-range vector-range string-range range-append
-          iota-range range=? range-length range-ref range-first
+          iota-range range? range=? range-length range-ref range-first
           range-last subrange range-segment range-split-at range-take
           range-take-right range-drop range-drop-right range-count
           range-map->list range-for-each range-fold range-fold-right

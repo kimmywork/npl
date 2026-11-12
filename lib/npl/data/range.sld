@@ -17,8 +17,8 @@
           range-drop-while-right vector->range range->string
           range->list range->generator range->vector)
   (import (scheme base) (scheme case-lambda) (npl list))
+  (include "assume.scm")
   (begin
-    (define (assume . args) #t)
     (define (vector-unfold f len)
       (let ((result (make-vector len)))
         (let loop ((index 0))

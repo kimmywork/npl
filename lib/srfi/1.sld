@@ -7,7 +7,7 @@
     caaar caadr cadar caddr cdaar cdadr cddar cdddr
     caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
     cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
-    list-ref length append reverse map for-each member assoc
+    list-ref length append reverse map for-each member memq memv assoc assq assv
 
     xcons cons* list-tabulate circular-list iota
     proper-list? circular-list? dotted-list? not-pair? null-list? list=

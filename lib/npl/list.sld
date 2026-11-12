@@ -3,8 +3,8 @@
 ; The portable SRFI 1 reference implementation by Olin Shivers (MIT) is
 ; split into core, fold/map, and search/deletion files to keep each source
 ; file below the project's soft line limit. Base R7RS procedures are
-; re-exported from (scheme base) and (scheme cxr), so this library is a
-; complete SRFI 1 surface rather than only the extension names.
+; re-exported from (scheme base) and (scheme cxr); this library is a
+; complete SRFI 1 surface, so importing (scheme base) separately is optional.
 (define-library (npl list)
   (export
     cons list make-list list-copy
@@ -13,7 +13,7 @@
     caaar caadr cadar caddr cdaar cdadr cddar cdddr
     caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
     cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
-    list-ref length append reverse map for-each member assoc
+    list-ref length append reverse map for-each member memq memv assoc assq assv
 
     xcons cons* list-tabulate circular-list iota
     proper-list? circular-list? dotted-list? not-pair? null-list? list=

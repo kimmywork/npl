@@ -4,7 +4,7 @@
  * functions share one ABI, so fixed trampolines for 0..8 arguments cover
  * them without libffi. Library naming, search paths, and error policy are
  * NPL: src/repl/main.npl loads libraries (npli -l) and
- * lib/npl/evaluator-session.scm binds declared C primitives.
+ * lib/scheme/internal/evaluator-session.scm binds declared C primitives.
  *
  * Symbols resolve through the whole process (RTLD_DEFAULT): the host's own
  * runtime functions and every library loaded here with RTLD_GLOBAL. */

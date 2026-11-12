@@ -44,6 +44,26 @@
              '(1 3))
   (test-list "range remove" (lambda () (range->list (range-remove odd? r)))
              '(0 2 4))
+  (test-equal "range-first after drop"
+              (lambda () (range-first (range-drop (numeric-range 0 5) 2)))
+              2)
+  (test-list "range-reverse after drop"
+             (lambda () (range->list (range-reverse (range-drop (numeric-range 0 5) 2))))
+             '(4 3 2))
+  (test-identity "range-split-at preserves offset"
+                 (lambda ()
+                   (call-with-values
+                     (lambda () (range-split-at (range-drop (numeric-range 0 5) 2) 1))
+                     (lambda (left right)
+                       (equal? (list (range->list left) (range->list right))
+                               '((2) (3 4))))))
+                 #t)
+  (test-equal "range bounds error"
+              (lambda () (guard (e (#t 42)) (range-ref (numeric-range 0 10) 50)))
+              42)
+  (test-equal "range constructor type error"
+              (lambda () (guard (e (#t 42)) (range 3 'x)))
+              42)
   (test-equal "range index" (lambda () (range-index even? r)) 0)
   (test-equal "range take-while"
               (lambda () (range-length (range-take-while (lambda (x) (< x 3)) r)))

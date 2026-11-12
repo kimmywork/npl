@@ -122,7 +122,7 @@ an omission:
 | `filter`, `fold`, `partition` | **implemented** in `(npl list)` / `(srfi 1)`, not `(scheme base)`; `sort` is still absent | SRFI 1 / SRFI 132 for `sort` |
 | `string-split`, `string-join`, `string-trim` | absent | SRFI 13 / SRFI 152 |
 | Sets | absent | SRFI 113 |
-| Boxes, ranges, Maybe/Either | **implemented** | `(npl data box)` / SRFI 111, `(npl data range)` / SRFI 196, `(npl data maybe)` and `(npl data either)` / SRFI 189 |
+| Boxes, ranges, Maybe/Either | **implemented** | `(npl data box)` / SRFI 111, `(npl data range)` / SRFI 196, `(npl data maybe)` / `(npl data either)` subsets, `(npl data option)` / `(srfi 189)` complete |
 | Hash tables | **implemented** | `(npl hashtable)`, `(srfi 125)` |
 | `match`, `match-define` | **implemented** as `(npl match)` and import-free | SRFI 200 pattern language |
 | `pretty-print` | absent | R6RS / implementation extension |
