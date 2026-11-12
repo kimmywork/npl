@@ -1,1 +1,1 @@
-(import (scheme base) (scheme write) (scheme char) (srfi 125))
+(import (scheme base) (scheme write) (scheme char) (npl hashtable))

@@ -9,7 +9,17 @@ imported individually; there is no aggregate import syntax. Remaining
 diagnostics (D1) run in parallel; SRFI-18/230 and full SRFI-226 move to
 0.1.3 after a runtime/control design.
 
+I0b is implemented on `release/0.1.2`: `(npl primitive)` -> `(npl internal
+primitive)`, `(npl frontend)`/`(npl repl-io)` -> `(npl internal ...)`, and
+the evaluator/eval-runtime -> `(scheme internal ...)`. `(npl internal *)`
+now has no `(scheme base)` dependency; `(scheme *)` may import only the
+internal core and scheme-internal services.
+
+Hash tables are canonical as `(npl hashtable)`; `(srfi 125)` is an alias and
+the standalone `(srfi 69)` library/fixture is removed.
+
 I1 is implemented on `release/0.1.2`: `(npl list)` / `(srfi 1)`,
+
 `(npl data box)` / `(srfi 111)`, `(npl data range)` / `(srfi 196)`, and
 `(npl data maybe)` / `(npl data either)` / `(npl data option)` /
 `(srfi 189)`. The new compiler suites and the `srfi-core` native/npli
@@ -247,7 +257,7 @@ structural `equal?`, Guile-style printing, and a macro hygiene fix
 (one alias per template name); record read 128 -> 85 instructions
 (vector-ref 69; an accessor inliner is a follow-up). SRFI 125 hash tables
 done (worklog 2026-11-09): runtime `BOX_HASHTABLE`, import-free primitive
-rows, `(srfi 125)` and `(srfi 69)`; 1M eqv inserts and lookups 0.33 s
+rows, `(srfi 125)` (the `(srfi 69)` compatibility library was removed in 0.1.2); 1M eqv inserts and lookups 0.33 s
 (Guile compiled SRFI 69 1.5 s). `match` done (worklog 2026-11-10):
 Shinn's matcher as derived syntax, import-free, `(npl match)`, record
 patterns with `$`, `match-define`; fixed alias-environment copying (one
@@ -290,7 +300,7 @@ want it while it is deferred.
 ## Accepted Seed
 
 - `bootstrap/current.ssa`: 263,408 lines; SHA-256
-  `6323d6265b3ca16dbe4fd0446c9f69fcc52699d54923b72c324cde17c7185e85`
+  `c143f35900deda45d696bc637d642577f8601950d01ef4e67164eb0502ec5b43`
   (strict relay, 2026-11-12, 0.1.1 release hardening). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived

@@ -63,7 +63,7 @@ PREFIX/bin/nplc, PREFIX/bin/npli
 PREFIX/libexec/npl/qbe
 PREFIX/lib/npl/libnpl_runtime.a
 PREFIX/share/npl/lib/            (scheme ...) and (npl ...) libraries
-PREFIX/share/npl/src/compiler/   frontend sources included by (npl frontend)
+PREFIX/share/npl/src/compiler/   frontend sources included by (npl internal frontend)
 PREFIX/include/npl/npl.h         runtime ABI for C functions (docs/ffi.md)
 ```
 
@@ -130,7 +130,7 @@ The script copies tracked and non-ignored files into `build/linux/src` and runs 
 
 R7RS library sources live under `lib/scheme/`; they are runtime compiler inputs, not embedded in `bootstrap/current.ssa`. `nplc` locates them as described above. User libraries remain relative to the source program.
 
-Libraries and programs can declare further runtime C functions with `define-c-primitive`; see [C Functions From NPL](ffi.md). Only `(npl primitive)` is compiler-defined. It maps the backend/runtime intrinsics and derived syntax needed by checked-in standard libraries. Changes to ordinary `(scheme ...)` implementation or exports do not require canonical compiler regeneration; changes to the primitive registry, loader, lowering, or runtime ABI do.
+Libraries and programs can declare further runtime C functions with `define-c-primitive`; see [C Functions From NPL](ffi.md). Only `(npl internal primitive)` is compiler-defined. It maps the backend/runtime intrinsics and derived syntax needed by checked-in standard libraries. Changes to ordinary `(scheme ...)` implementation or exports do not require canonical compiler regeneration; changes to the primitive registry, loader, lowering, or runtime ABI do.
 
 ## Fixed Point Scope
 
@@ -150,7 +150,7 @@ Cell allocation is limited to `set!` targets (`collect-assigned`), and closures 
 
 The collector is generational and non-moving (`runtime/alloc.c`, `runtime/gc.c`): young objects are collected when `NPL_GC_NURSERY_BYTES` (default 1 MiB; 0 disables the nursery) have been allocated, and the whole heap when it reaches `NPL_GC_THRESHOLD_BYTES` (default 128 MiB, doubling with live data). Runtime stores into existing objects go through `npl_gc_write_barrier`; `NPL_GC_VERIFY=N` checks barriers and dangling references at every Nth collection. Measured 2026-10-21 (host load ~8): self-compilation 13.3-13.6 s CPU and 0.27 GB peak RSS, against 16.6-16.7 s and 2.65 GB without the nursery at the former 1 GiB threshold; all nine bench workloads take equal or less CPU, with identical output.
 
-npli compiles each expanded form to native closures (`lib/npl/evaluator-compile.scm`, .agents/archive/design/design-evaluator.md): lexical addresses, hashed global cells, native control and error objects. Measured 2026-10-23 (host load ~8-11): a 2M-iteration import-free loop 3.9 s user (about 20x the former CPS interpreter); with `(import (scheme base))` the same loop took 48.8 s while the standard library was evaluated from source, and 3.95 s since E2b binds it to npli's compiled procedures (`(%library-definitions ...)` with a source checksum; an edited library falls back to evaluation from source). Two-operand calls to `(scheme base)`'s numeric operators take the compiled fixnum fast path while their binding is unchanged (E3); all nine bench workloads then finish under npli in 0.5-18.4 s user. Most of the remaining time is allocation for native non-tail calls. Mapped chunks are never returned, and allocator metadata adds 64 bytes per object.
+npli compiles each expanded form to native closures (`lib/scheme/internal/evaluator-compile.scm`, .agents/archive/design/design-evaluator.md): lexical addresses, hashed global cells, native control and error objects. Measured 2026-10-23 (host load ~8-11): a 2M-iteration import-free loop 3.9 s user (about 20x the former CPS interpreter); with `(import (scheme base))` the same loop took 48.8 s while the standard library was evaluated from source, and 3.95 s since E2b binds it to npli's compiled procedures (`(%library-definitions ...)` with a source checksum; an edited library falls back to evaluation from source). Two-operand calls to `(scheme base)`'s numeric operators take the compiled fixnum fast path while their binding is unchanged (E3); all nine bench workloads then finish under npli in 0.5-18.4 s user. Most of the remaining time is allocation for native non-tail calls. Mapped chunks are never returned, and allocator metadata adds 64 bytes per object.
 
 ## Deferred: Libraries And Binary Interop
 

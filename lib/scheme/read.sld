@@ -1,6 +1,6 @@
 (define-library (scheme read)
   (export read)
-  (import (scheme base) (only (npl primitive) read-result npl_make_record))
+  (import (scheme base) (only (npl internal primitive) read-result npl_make_record))
   (begin
     ; read-result yields #(#t datum) or #(#f message); a syntax error becomes
     ; a read error object (layout: lib/scheme/error.scm).

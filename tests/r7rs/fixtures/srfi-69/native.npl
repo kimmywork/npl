@@ -1,2 +1,0 @@
-(import (scheme base) (scheme write) (srfi 69))
-(include "behavior.scm")

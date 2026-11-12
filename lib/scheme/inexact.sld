@@ -1,7 +1,7 @@
 (define-library (scheme inexact)
   (export acos asin atan cos exp finite? infinite? log nan? sin sqrt tan)
   (import (scheme base)
-          (only (npl primitive) npl_inexact_op npl_inexact_binary
+          (only (npl internal primitive) npl_inexact_op npl_inexact_binary
                 npl_finite_p npl_nan_p npl_infinite_p npl_make_record))
   (begin
     ; Same error shape as (scheme base) argument checks (lib/scheme/error.scm).

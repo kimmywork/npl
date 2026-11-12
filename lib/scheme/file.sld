@@ -5,7 +5,7 @@
           open-binary-input-file open-binary-output-file
           with-input-from-file with-output-to-file)
   (import (scheme base)
-          (only (npl primitive)
+          (only (npl internal primitive)
                 delete-file file-exists? npl_try_open_file npl_make_record
                 npl_list_to_values))
   (begin

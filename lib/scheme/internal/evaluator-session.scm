@@ -3,7 +3,7 @@
 ; by the shared frontend, compiled once (evaluator-compile.scm), and run.
 ; Errors are raised as R7RS error objects, as in compiled code.
 
-; Native values of the libraries compiled into npli: the (npl primitive)
+; Native values of the libraries compiled into npli: the (npl internal primitive)
 ; names, generated from the shared primitive table, and every definition of
 ; the standard libraries below, each with a checksum of its source. Entry:
 ; (key checksum (name . value) ...). (scheme eval), (scheme load),
@@ -11,7 +11,7 @@
 ; procedures act on the running evaluator's environments.
 (define EVAL-NATIVE-LIBRARIES
   (%library-definitions
-    (npl primitive) (scheme base) (scheme case-lambda) (scheme char)
+    (npl internal primitive) (scheme base) (scheme case-lambda) (scheme char)
     (scheme complex) (scheme cxr) (scheme file) (scheme inexact)
     (scheme lazy) (scheme process-context) (scheme read) (scheme time)
     (scheme write)))
@@ -195,12 +195,12 @@
 
 (define EVAL-PRIMITIVE-BINDINGS
   (cons (cons "list" (lambda values values))
-        (map eval-primitive-binding (eval-native-definitions "npl/primitive"))))
+        (map eval-primitive-binding (eval-native-definitions "npl/internal/primitive"))))
 
 (define (set-eval-standard-root! root)
   (frontend-set-standard-root! root))
 
-; (npl eval-runtime) inside npli: (scheme eval) and (scheme load) reach the
+; (scheme internal eval-runtime) inside npli: (scheme eval) and (scheme load) reach the
 ; evaluator through these names, bound per environment.
 (define EVAL-RUNTIME-LIBRARY-EXPORTS
   (list
@@ -222,7 +222,7 @@
 (define (eval-new-environment)
   (let ((session (make-frontend-session)))
     (frontend-register-runtime-library!
-      session "npl/eval-runtime" EVAL-RUNTIME-LIBRARY-EXPORTS)
+      session "scheme/internal/eval-runtime" EVAL-RUNTIME-LIBRARY-EXPORTS)
     (let ((environment
             (make-eval-environment-record (eval-make-table) #t session)))
       (eval-install-bindings! environment EVAL-PRIMITIVE-BINDINGS)

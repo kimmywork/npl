@@ -251,7 +251,7 @@
 
 ; Both unbound, or the same binding. A primitive is one binding however it
 ; is reached: free in a program without imports or an npli session, bound
-; to its own name by (npl primitive), or, for = and the other numeric
+; to its own name by (npl internal primitive), or, for = and the other numeric
 ; operators, exported by (scheme base) as the validating procedure that
 ; stands for it (numeric-aliases.npl), as in match's (= f p).
 (define (literal-binding-key identifier binding)
@@ -377,7 +377,7 @@
 ; A syntax-rules transformer: the optional ellipsis identifier (else
 ; "..."), the literal identifiers, the annotated rules, and the value and
 ; macro environments of its definition site. Defined before its first use:
-; in a library body ((npl frontend)) a name defined by macro output is not
+; in a library body ((npl internal frontend)) a name defined by macro output is not
 ; bound before the macro use.
 (define-record-type syntax-transformer
   (make-syntax-transformer ellipsis literals rules definition-env

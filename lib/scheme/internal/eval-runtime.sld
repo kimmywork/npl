@@ -1,11 +1,11 @@
 ; The evaluator behind (scheme eval) and (scheme load) in compiled programs.
-; npli registers its own (npl eval-runtime) bound to the running evaluator
-; (EVAL-RUNTIME-LIBRARY-EXPORTS in lib/npl/evaluator-session.scm).
-(define-library (npl eval-runtime)
+; npli registers its own (scheme internal eval-runtime) bound to the running evaluator
+; (EVAL-RUNTIME-LIBRARY-EXPORTS in lib/scheme/internal/evaluator-session.scm).
+(define-library (scheme internal eval-runtime)
   (export (rename make-eval-environment-from-imports make-environment)
           (rename eval-in-environment evaluate)
           load-file)
-  (import (npl evaluator))
+  (import (scheme internal evaluator))
   (begin
     (define load-environment (make-eval-environment))
 

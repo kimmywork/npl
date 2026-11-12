@@ -13,7 +13,7 @@
 (define-library (npl ffi)
   (export pointer? pointer-null? null-pointer pointer->integer with-resource)
   (import (scheme base)
-          (only (npl primitive)
+          (only (npl internal primitive)
                 pointer? pointer-null? null-pointer pointer->integer))
   (begin
     (define-syntax with-resource

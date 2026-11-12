@@ -1,9 +1,9 @@
 ; Runtime argument errors that (scheme base) normally prevents by validating
-; first: called through the raw (npl primitive) names, each must raise a
+; first: called through the raw (npl internal primitive) names, each must raise a
 ; catchable error object with its who, message, and irritant, instead of
 ; exiting the process. Run natively and under npli (tools/check_repl.sh).
 (import (scheme base) (scheme write) (scheme process-context)
-        (prefix (npl primitive) p:))
+        (prefix (npl internal primitive) p:))
 
 (include "framework.npl")
 

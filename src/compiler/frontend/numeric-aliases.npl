@@ -7,7 +7,7 @@
 ; external name is the operation and is a PRIMITIVE-TABLE name.
 ;
 ; Library export resolution registers aliases, so the registry lives in the
-; frontend, which the compiler and (npl frontend) share. Only the compiler
+; frontend, which the compiler and (npl internal frontend) share. Only the compiler
 ; backend consults it.
 (define PUBLIC-NUMERIC-ALIAS-SOURCES
   '(("integer-add" "+") ("integer-subtract" "-") ("integer-multiply" "*")

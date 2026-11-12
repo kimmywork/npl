@@ -2,6 +2,7 @@
         (scheme write)
         (scheme process-context)
         (npl list)
+        (srfi 1)
         (prefix (srfi 1) s:))
 
 (include "framework.npl")
@@ -64,6 +65,15 @@
   (test-identity "lset<="
                  (lambda () (lset<= = '(1 2) '(1 2 3)))
                  #t)
+  (test-list "base make-list" (lambda () (make-list 2 'x)) '(x x))
+  (test-list "base list-copy" (lambda () (list-copy '(1 2 3))) '(1 2 3))
+  (test-list "base member" (lambda () (member 2 '(1 2 3))) '(2 3))
+  (test-list "base assoc" (lambda () (assoc 'b '((a . 1) (b . 2)))) '(b . 2))
+  (test-list "base map" (lambda () (map (lambda (x) (+ x 1)) '(1 2))) '(2 3))
+  (test-equal "base caaaar" (lambda () (caaaar '((((42)))))) 42)
+  (test-list "alias base make-list"
+             (lambda () (s:make-list 2 'y))
+             '(y y))
   (test-equal "npl library feature"
               (lambda () (cond-expand ((library (npl list)) 42) (else 0)))
               42)

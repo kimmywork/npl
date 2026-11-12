@@ -14,8 +14,8 @@ tools/run_tests.sh --skip-current-fixed-point   # without it, ~6-10 min
 
 `tools/run_tests.sh` prints one `PASS`/`FAIL` line per stage and exits with the
 number of failures. On a failure it prints the last 30 lines of that stage's
-output (captured in `/tmp/npl-suite.out`). 57 stages with
-`--skip-current-fixed-point` (stage 5 is omitted), 58 with the relay. The
+output (captured in `/tmp/npl-suite.out`). 56 stages with
+`--skip-current-fixed-point` (stage 5 is omitted), 57 with the relay. The
 gate selects a UTF-8
 locale (`NPL_TEST_LC_ALL` overrides it) so Guile encodes Unicode output
 independently of the caller's environment. CI (`.github/workflows/ci.yml`)

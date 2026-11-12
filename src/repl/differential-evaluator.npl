@@ -3,7 +3,7 @@
         (scheme write)
         (scheme file)
         (scheme process-context)
-        (npl evaluator))
+        (scheme internal evaluator))
 
 (define environment (make-eval-environment))
 

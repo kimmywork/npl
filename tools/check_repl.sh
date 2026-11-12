@@ -216,7 +216,7 @@ grep -F "npli: cannot load $WORK/missing-library" "$WORK/rejected.err" >/dev/nul
 grep -Fx 'PASS primitive-errors 37' "$WORK/primitive-errors-suite.out" >/dev/null
 # Standard libraries are bound to npli's compiled procedures only when their
 # source matches what npli was built from; an edited library is evaluated
-# from source (lib/npl/evaluator-session.scm, EVAL-NATIVE-LIBRARIES).
+# from source (lib/scheme/internal/evaluator-session.scm, EVAL-NATIVE-LIBRARIES).
 mkdir -p "$WORK/stdlib-edited"
 cp -R "$ROOT/lib/." "$WORK/stdlib-edited/"
 sed 's/(define (current-jiffy) (npl_current_jiffy))/(define (current-jiffy) 42)/' \

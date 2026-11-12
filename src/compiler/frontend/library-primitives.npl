@@ -1,9 +1,9 @@
-; The (npl primitive) library: runtime primitive value names and core
+; The (npl internal primitive) library: runtime primitive value names and core
 ; derived-syntax keywords, with their bindings for import resolution.
 
 (define LIBRARY-PRIMITIVE-MACROS (cell ()))
 
-; Value names (npl primitive) exports: every registered primitive except
+; Value names (npl internal primitive) exports: every registered primitive except
 ; the control-conversion internals below, plus the control operators that
 ; control conversion lowers itself (not table rows).
 (define PRIMITIVE-INTERNAL-NAMES
@@ -87,4 +87,4 @@ match-let* match-letrec match-define)" )
       (library-primitive-names PRIMITIVE-MACRO-SOURCE))))
 
 (define (library-primitive-name? name)
-  (string=? (library-name-key name) "npl/primitive"))
+  (string=? (library-name-key name) "npl/internal/primitive"))

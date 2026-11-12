@@ -2,7 +2,7 @@
         (scheme read)
         (scheme write)
         (scheme process-context)
-        (npl evaluator))
+        (scheme internal evaluator))
 
 (include "../compiler/tests/framework.npl")
 

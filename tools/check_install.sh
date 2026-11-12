@@ -14,7 +14,7 @@ PREFIX="$WORK/prefix with space"
 cmake --install "$ROOT/build" --prefix "$PREFIX" >/dev/null
 
 for path in bin/nplc bin/npli libexec/npl/qbe lib/npl/libnpl_runtime.a \
-            share/npl/lib/scheme/base.sld share/npl/lib/npl/frontend.sld \
+            share/npl/lib/scheme/base.sld share/npl/lib/npl/internal/frontend.sld \
             share/npl/src/compiler/main.npl include/npl/npl.h; do
     [ -e "$PREFIX/$path" ]
 done
