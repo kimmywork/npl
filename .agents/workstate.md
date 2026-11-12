@@ -1,5 +1,23 @@
 # Workstate
 
+## 0.1.1 (2026-11-12)
+
+Release-hardening work on branch `release/0.1.1`, tracked by
+[2026-11-12-0.1.0-state-review](reviews/2026-11-12-0.1.0-state-review.md):
+MIT `LICENSE`, `docs/README.md` with a root symlink, Linux-only CI,
+`nplc`/`npli --version`, a locale-independent gate, compiler diagnostics on
+standard error without the partial-SSA relay, standard feature identifiers,
+`cond-expand` detection of installed `(srfi ...)` and user libraries, and
+synchronized test/version documentation. No language semantics changed.
+PR: https://github.com/kimmywork/npl/pull/1.
+
+The new seed is 263,408 lines; the strict relay passes. The macOS gate with
+`tools/run_tests.sh --skip-current-fixed-point` and the Linux gate with
+`tools/check_linux.sh --skip-current-fixed-point` are each 56/56 PASS. The
+review's remaining P1/P2 findings (source spans and stack traces,
+uncaught-error exit status, SRFI 1/13/113, separate compilation,
+performance) are not part of this branch.
+
 ## Milestone 0.1.0 (2026-11-12)
 
 The language stage is closed: R7RS-small conformance claim and evidence in
@@ -251,10 +269,9 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 261,586 lines; SHA-256
-  `75cc06fc853d66f5257c3460fc413b6056f3122a3b07f3f97692d6d49d3dc7ea`
-  (macOS strict relay after a two-step transition, 2026-11-11, simple lets
-  in control conversion). The seed calls
+- `bootstrap/current.ssa`: 263,408 lines; SHA-256
+  `6323d6265b3ca16dbe4fd0446c9f69fcc52699d54923b72c324cde17c7185e85`
+  (strict relay, 2026-11-12, 0.1.1 release hardening). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure
@@ -267,6 +284,9 @@ want it while it is deferred.
 
 ## Open Items
 
+- 0.1.1 review follow-ups: [state review](reviews/2026-11-12-0.1.0-state-review.md).
+  Highest-value next work is source spans and stack traces, a unified
+  uncaught-error exit status, SRFI 1/13/113, and separate compilation.
 - `(sqrt -1.0-0.0i)` branch convention: follow IEEE signed-zero convention
   (Guile and Racket precedent) when sqrt is implemented. Not blocking.
 - Operand evaluation order differs between native and npli: in
