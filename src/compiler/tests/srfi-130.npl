@@ -1,0 +1,90 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl string cursor)
+        (prefix (srfi 130) s130:))
+
+(include "framework.npl")
+
+(define (test-string name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (define s "abcdef")
+  (define c (string-cursor-start s))
+  (test-identity "string-cursor?"
+                 (lambda () (string-cursor? c))
+                 #t)
+  (test-identity "index is not a cursor"
+                 (lambda () (string-cursor? 0))
+                 #f)
+  (test-identity "string-ref/cursor"
+                 (lambda ()
+                   (char=? (string-ref/cursor s (string-cursor-forward s c 2))
+                           #\c))
+                 #t)
+  (test-equal "string-cursor->index"
+              (lambda () (string-cursor->index s (string-cursor-next s c)))
+              1)
+  (test-identity "string-cursor=?"
+                 (lambda ()
+                   (string-cursor=?
+                    c (string-cursor-prev s (string-cursor-next s c))))
+                 #t)
+  (test-identity "string-cursor<?"
+                 (lambda () (string-cursor<? c (string-cursor-next s c)))
+                 #t)
+  (test-equal "string-cursor-diff"
+              (lambda ()
+                (string-cursor-diff (string-cursor-forward s c 3) c))
+              3)
+  (test-string "substring/cursors"
+               (lambda ()
+                 (substring/cursors s
+                                    (string-cursor-forward s c 1)
+                                    (string-cursor-forward s c 3)))
+               "bc")
+  (test-identity "string->list/cursors"
+                 (lambda ()
+                   (equal? (string->list/cursors s c (string-cursor-forward s c 3))
+                           '(#\a #\b #\c)))
+                 #t)
+  (test-equal "string-index with cursor"
+              (lambda () (string-index s #\c c))
+              2)
+  (test-equal "string-contains with cursor"
+              (lambda () (string-contains s "cd" c))
+              2)
+  (test-equal "string-contains-right"
+              (lambda () (string-contains-right "abab" "ab"))
+              2)
+  (test-string "string-replicate"
+               (lambda () (string-replicate s 2 8))
+               "cdefab")
+  (test-identity "string-split"
+                 (lambda () (equal? (string-split "a,b,,c" #\,)
+                                    '("a" "b" "" "c")))
+                 #t)
+  (test-string "string-remove"
+               (lambda () (string-remove #\a "banana"))
+               "bnn")
+  (test-equal "string-for-each-cursor"
+              (lambda ()
+                (let ((sum 0))
+                  (string-for-each-cursor
+                   (lambda (cursor)
+                     (set! sum (+ sum (string-cursor->index s cursor))))
+                   "abcd")
+                  sum))
+              6)
+  (test-string "string-pad with cursors"
+               (lambda ()
+                 (string-pad "abc" 5 #\space
+                             (string-cursor-start "abc")
+                             (string-cursor-end "abc")))
+               "  abc")
+  (test-string "srfi 130 alias"
+               (lambda () (s130:substring/cursors s 1 3))
+               "bc")
+  (finish-tests "srfi-130"))
+(main)

@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 ALIASES = {
     "lib/srfi/1.sld": "lib/npl/list.sld",
+    "lib/srfi/13.sld": "lib/npl/string.sld",
+    "lib/srfi/130.sld": "lib/npl/string/cursor.sld",
+    "lib/srfi/140.sld": "lib/npl/string/immutable.sld",
     "lib/srfi/111.sld": "lib/npl/data/box.sld",
     "lib/srfi/125.sld": "lib/npl/hashtable.sld",
     "lib/srfi/189.sld": "lib/npl/data/option.sld",
