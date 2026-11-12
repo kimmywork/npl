@@ -10,6 +10,11 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 [ -n "${NPL_TOOLCHAIN_BUILT:-}" ] || "$ROOT/tools/build_toolchain.sh" >/dev/null
+VERSION=$(cat "$ROOT/VERSION")
+[ "$("$NPLC" --version)" = "nplc $VERSION" ]
+grep -F "project(npl VERSION $VERSION LANGUAGES C)" "$ROOT/CMakeLists.txt" >/dev/null
+grep -F "(define NPL-VERSION \"$VERSION\")" \
+    "$ROOT/src/compiler/common/version.npl" >/dev/null
 # Resolution must come from the build-tree install layout alone.
 unset NPL_QBE NPL_RUNTIME NPL_STDLIB_ROOT NPL_CC
 mkdir -p "$WORK/tmp" "$WORK/path with spaces"
@@ -106,6 +111,25 @@ set -e
 grep -F 'only import name not exported' "$WORK/rejected.err" >/dev/null
 [ ! -s "$WORK/rejected.out" ]
 [ ! -e "$WORK/rejected" ]
+empty_tmp
+
+# A backend error after SSA emission reports one diagnostic on stderr; the
+# partial SSA must not be relayed.
+cat > "$WORK/arity-error.npl" <<'EOF'
+(import (scheme base) (scheme write))
+(define (f x) (car x x))
+(display (f (list 1)))
+EOF
+set +e
+TMPDIR="$WORK/tmp" "$NPLC" "$WORK/arity-error.npl" -o "$WORK/arity-error" \
+    > "$WORK/arity-error.out" 2> "$WORK/arity-error.err"
+arity_status=$?
+set -e
+[ "$arity_status" -ne 0 ]
+[ ! -s "$WORK/arity-error.out" ]
+[ "$(wc -c < "$WORK/arity-error.err")" -lt 4096 ]
+grep -F 'too many arguments expected=1' "$WORK/arity-error.err" >/dev/null
+[ ! -e "$WORK/arity-error" ]
 empty_tmp
 
 # Missing tool: the stage and status are reported, nothing is left behind.

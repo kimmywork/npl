@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 # Keep in sync with VERSION; the release version is informational.
-project(npl VERSION 0.1.0 LANGUAGES C)
+project(npl VERSION 0.1.1 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)

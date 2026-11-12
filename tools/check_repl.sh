@@ -6,6 +6,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 [ -n "${NPL_TOOLCHAIN_BUILT:-}" ] || "$ROOT/tools/build_toolchain.sh" >/dev/null
+[ "$("$ROOT/build/bin/npli" --version)" = "npli $(cat "$ROOT/VERSION")" ]
 "$ROOT/build/bin/nplc" "$ROOT/src/evaluator/core-tests.npl" \
     -o "$WORK/evaluator-core"
 "$WORK/evaluator-core" > "$WORK/evaluator.out"

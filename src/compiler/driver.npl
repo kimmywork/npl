@@ -29,6 +29,7 @@ Options:
   -l NAME, -lNAME   link library NAME into the executable
   -L DIR, -LDIR     search DIR for -l libraries
   -h, --help        show this help
+  --version         show the NPL release version
 ")
 
 ; Configuration slots.
@@ -109,6 +110,11 @@ Options:
       (let ((argument (car arguments))
             (rest (cdr arguments)))
         (cond
+          ((string=? argument "--version")
+           (display "nplc ")
+           (display NPL-VERSION)
+           (newline)
+           (exit 0))
           ((if (string=? argument "-h") #t (string=? argument "--help"))
            (display DRIVER-USAGE)
            (exit 0))
@@ -253,18 +259,9 @@ Options:
   (let ((self (executable-path)))
     (if self self (driver-error "cannot locate the nplc executable"))))
 
-; Compiler diagnostics share standard output with SSA; on failure the
-; partial output holds them, so relay it to standard error.
-(define (driver-relay-file path port)
-  (if (file-exists? path)
-      (let ((input (open-input-file path)))
-        (let loop ()
-          (let ((value (read-char input)))
-            (if (eof-object? value)
-                (close-port input)
-                (begin (write-char value port) (loop))))))
-      #f))
-
+; Compiler diagnostics go to standard error; standard output is reserved for
+; SSA. A failed child therefore needs no output relay, and a large partial
+; SSA file can never bury the diagnostic.
 (define (driver-emit-ssa config ssa stubs)
   (let ((status
           (run-process
@@ -278,9 +275,7 @@ Options:
             ssa)))
     (if (= status 0)
         0
-        (begin
-          (driver-relay-file ssa (current-error-port))
-          (driver-stage-failure "compile" status)))))
+        (driver-stage-failure "compile" status))))
 
 (define (driver-compile-stubs config stubs object)
   (let ((status

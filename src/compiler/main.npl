@@ -1,5 +1,6 @@
 (include
   "common/base.npl"
+  "common/version.npl"
   "reader/lexer.npl"
   "reader/datum.npl"
   "frontend/derived.npl"

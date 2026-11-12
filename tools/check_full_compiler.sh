@@ -101,7 +101,7 @@ run_suite exceptions "PASS exceptions 6"
 run_suite guard "PASS guard 9"
 run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
-run_suite libraries "PASS libraries 16"
+run_suite libraries "PASS libraries 20"
 run_suite eval "PASS eval 14"
 run_load() {
     emit "$WORK/compiler" "$TESTS/load.npl" "$WORK/load.ssa"

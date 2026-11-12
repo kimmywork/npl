@@ -233,9 +233,9 @@
                 (expand-expression-list (cdr expressions)
                                         value-env macro-env))
           (begin
-            (display "nplc1: improper expression tail: ")
-            (display expressions)
-            (newline)
+            (display "nplc: improper expression tail: " (current-error-port))
+            (display expressions (current-error-port))
+            (newline (current-error-port))
             (fatal "expression list must be proper")))))
 
 (define (expand-application form value-env macro-env)

@@ -5,6 +5,7 @@
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$ROOT/tools/utf8_locale.sh"
 FIXTURE=${1:?fixture directory required}
 FIXTURE=$(cd "$FIXTURE" && pwd)
 META="$FIXTURE/fixture.meta"

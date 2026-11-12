@@ -31,6 +31,15 @@ gives each standard library against the `export` list of `lib/scheme/*.sld`:
 
 Presence is not behavior; the two checks below establish behavior.
 
+### Feature identifiers
+
+`(features)` advertises the standard identifiers the implementation
+satisfies: `r7rs`, `npl`, `full-unicode`, `ratios`, `exact-closed`,
+`exact-complex`, `ieee-float`, `posix`, and `unix`. `cond-expand` accepts
+the same identifiers, and `(library ...)` is true for an installed
+`(scheme ...)`, `(srfi ...)`, or user library whose file exists, even before
+it is loaded.
+
 ### External conformance suite: 1208 passed, 4 failed, 10 aborted
 
 `tools/run_chibi_suite.sh --native` runs chibi-scheme's independent

@@ -93,5 +93,29 @@
                   ((library (scheme nonexistent)) 0)
                   (else 42)))
               42)
+  (test-equal "installed srfi library feature"
+              (lambda ()
+                (cond-expand
+                  ((library (srfi 125)) 42)
+                  (else 0)))
+              42)
+  (test-equal "user library feature"
+              (lambda ()
+                (cond-expand
+                  ((library (libraries conditional-only)) 42)
+                  (else 0)))
+              42)
+  (test-identity "portable feature identifiers"
+                 (lambda ()
+                   (if (if (memq 'full-unicode (features)) #t #f)
+                       (if (memq 'ratios (features)) #t #f)
+                       #f))
+                 #t)
+  (test-equal "cond-expand feature identifier"
+              (lambda ()
+                (cond-expand
+                  (full-unicode 42)
+                  (else 0)))
+              42)
   (finish-tests "libraries"))
 (main)

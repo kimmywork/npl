@@ -14,8 +14,13 @@ tools/run_tests.sh --skip-current-fixed-point   # without it, ~6-10 min
 
 `tools/run_tests.sh` prints one `PASS`/`FAIL` line per stage and exits with the
 number of failures. On a failure it prints the last 30 lines of that stage's
-output (captured in `/tmp/npl-suite.out`). 57 stages with
-`--skip-current-fixed-point`, 58 with the relay.
+output (captured in `/tmp/npl-suite.out`). 56 stages with
+`--skip-current-fixed-point` (stage 5 is omitted), 57 with the relay. The
+gate selects a UTF-8
+locale (`NPL_TEST_LC_ALL` overrides it) so Guile encodes Unicode output
+independently of the caller's environment. CI (`.github/workflows/ci.yml`)
+runs the Linux gate without the relay on pull requests and pushes to
+`master`.
 
 | # | Stage | What it proves |
 |---|---|---|
@@ -24,7 +29,7 @@ output (captured in `/tmp/npl-suite.out`). 57 stages with
 | 3 | `check_stage0_qbe.sh` | frozen stage0 QBE output |
 | 4 | `check_bootstrap.sh` | the permanent chain (`bootstrap/bootstrap.ssa` + `bootstrap/compiler/`) against the frozen runtime |
 | 5 | `check_current_fixed_point.sh` | the seed relay: gen1 == gen2 == gen3 (skipped by the flag) |
-| 6 | `check_full_compiler.sh` | 35 compiler suites, 45 contracts, reader/macro errors, SSA probes, C extensions |
+| 6 | `check_full_compiler.sh` | 30 compiler suites, 77 negative checks, SSA probes, C extensions |
 | 7 | `check_driver.sh` | unified `nplc`: output kinds, path handling, failure cleanup, `-l`/`-L` |
 | 8 | `check_install.sh` | install layout used from outside the repo, including a prefix with a space |
 | 9 | `check_repl.sh` | `npli` REPL, script mode, `-l` |

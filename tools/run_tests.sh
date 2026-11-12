@@ -2,6 +2,7 @@
 set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$ROOT/tools/utf8_locale.sh"
 FAILED=0
 SKIP_CURRENT_FIXED_POINT=0
 

@@ -205,17 +205,38 @@
   (let ((library-name (car (cdr requirement))))
     (if (library-primitive-name? library-name)
         #t
-        (if (library-standard-key? (library-name-key library-name))
-            (library-standard-available? (library-name-key library-name))
-            (not (null?
-              (library-find (library-name-key library-name)
-                            (cell-get LIBRARY-REGISTRY))))))))
+        (let ((key (library-name-key library-name)))
+          (if (library-standard-key? key)
+              (library-standard-available? key)
+              (if (not (null?
+                    (library-find key (cell-get LIBRARY-REGISTRY))))
+                  #t
+                  (file-exists? (library-path-for-key key))))))))
+
+; Feature identifiers advertised by (features) in lib/scheme/text-io.scm.
+; Keep both lists in sync; the libraries suite checks the common ones.
+(define (library-feature-name? name)
+  (if (string=? name "r7rs")
+      #t
+      (if (string=? name "npl")
+          #t
+          (if (string=? name "full-unicode")
+              #t
+              (if (string=? name "ratios")
+                  #t
+                  (if (string=? name "exact-closed")
+                      #t
+                      (if (string=? name "exact-complex")
+                          #t
+                          (if (string=? name "ieee-float")
+                              #t
+                              (if (string=? name "posix")
+                                  #t
+                                  (string=? name "unix"))))))))))
 
 (define (library-feature? requirement)
   (if (datum-symbol? requirement)
-      (if (string=? (datum-symbol-name requirement) "r7rs")
-          #t
-          (string=? (datum-symbol-name requirement) "npl"))
+      (library-feature-name? (datum-symbol-name requirement))
       (if (not (pair? requirement))
           #f
           (let ((head (car requirement)))

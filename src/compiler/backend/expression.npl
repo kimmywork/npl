@@ -17,9 +17,12 @@
         (if (> n hi) (fatal2n "too many arguments" hi) n))))
 
 (define (fatal2n msg n)
-  (begin (display "nplc1: ") (display msg)
-         (display " expected=") (display n)
-         (newline) (exit 21)))
+  (begin (display "nplc: " (current-error-port))
+         (display msg (current-error-port))
+         (display " expected=" (current-error-port))
+         (display n (current-error-port))
+         (newline (current-error-port))
+         (exit 21)))
 
 (define (checked-call fn n args env)
   (check-arity args n n)
@@ -130,8 +133,10 @@
       (bool-from-raw raw))))
 
 (define (unknown-call nm)
-  (begin (display "nplc1: unknown builtin or unbound: ")
-         (display nm) (newline) (exit 31)))
+  (begin (display "nplc: unknown builtin or unbound: " (current-error-port))
+         (display nm (current-error-port))
+         (newline (current-error-port))
+         (exit 31)))
 
 (define (make-cell-op value)
   (let ((cell-op (new-tmp)))

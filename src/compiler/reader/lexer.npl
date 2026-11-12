@@ -412,16 +412,25 @@
 
 (define (paren-close-error line col)
   (begin
-    (display "npl: unmatched ) at line ") (display line)
-    (display " col ") (display col) (newline) (exit 20)))
+    (display "nplc: unmatched ) at line " (current-error-port))
+    (display line (current-error-port))
+    (display " col " (current-error-port))
+    (display col (current-error-port))
+    (newline (current-error-port))
+    (exit 20)))
 
 (define (paren-open-error line col)
   (begin
-    (display "npl: unmatched ( at line ") (display line)
-    (display " col ") (display col)
-    (display "; expected ) before end of input")
-    (newline) (exit 20)))
+    (display "nplc: unmatched ( at line " (current-error-port))
+    (display line (current-error-port))
+    (display " col " (current-error-port))
+    (display col (current-error-port))
+    (display "; expected ) before end of input" (current-error-port))
+    (newline (current-error-port))
+    (exit 20)))
 
 (define (do-bad-char c)
-  (begin (display "nplc1: bad character byte ") (display c)
-         (newline) (exit 20)))
+  (begin (display "nplc: bad character byte " (current-error-port))
+         (display c (current-error-port))
+         (newline (current-error-port))
+         (exit 20)))
