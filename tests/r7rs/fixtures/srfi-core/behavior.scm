@@ -9,7 +9,7 @@
                (set-box! value 42)
                (list (box? value) (unbox value))))
 (report 'range (let ((r (numeric-range 0 5)))
-                 (list (range-length r)
+                 (list (range? r) (range-length r)
                        (range->list (range-map (lambda (x) (* x x)) r))
                        (range-fold + 0 r))))
 (report 'maybe (list (maybe->list (just 1 2))

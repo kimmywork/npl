@@ -55,6 +55,9 @@ Rules:
   procedure bodies. A canonical library is complete for its standard: names
   shared with `(scheme base)` are re-exported from the same binding, not
   redefined, so importing `(scheme base)` and `(npl list)` together is valid.
+  The SRFI 189 split is the exception: `(npl data maybe)` and
+  `(npl data either)` are disjoint subsets; use `(npl data option)` or
+  `(srfi 189)` for the complete surface.
 - **Import libraries individually.** R7RS import sets do not support
   grouping inside a library name, so `(npl data (set range))` is not valid.
   Use `(import (npl data set) (npl data range))`; there are no aggregate
@@ -81,8 +84,11 @@ Use the library graph, not directory labels, to keep dependencies acyclic:
 - `(scheme *)` must not import `(npl list)`, `(npl hashtable)`, or another
   extension library. If a standard library needs a utility, put it in L0/L1
   or implement it in the standard library.
-- Two extension libraries must not import each other. Extract their shared
-  code into a lower-level library instead.
+- Extension libraries may import a lower L3 library, but must not form a
+  mutual or circular dependency. For example, `(npl data range)` may import
+  `(npl list)`; `(npl list)` must not import `(npl data range)`. If two
+  libraries need each other, extract their shared code into a lower-level
+  library.
 - `(srfi *)` is a leaf: it re-exports `(npl *)` and is not imported by other
   libraries.
 - All library nodes must form a DAG. A period or library rename must not

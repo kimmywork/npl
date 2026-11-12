@@ -5,7 +5,7 @@
 #   <prefix>/libexec/npl/qbe
 #   <prefix>/lib/npl/libnpl_runtime.a
 #   <prefix>/share/npl/lib/...        standard and (npl ...) libraries
-#   <prefix>/share/npl/src/compiler/  frontend sources included by (npl frontend)
+#   <prefix>/share/npl/src/compiler/  frontend sources included by (npl internal frontend)
 #   <prefix>/include/npl/npl.h        runtime ABI for C functions (docs/ffi.md)
 #
 # nplc and npli have no build-time paths compiled in except npli's REPL-STDLIB

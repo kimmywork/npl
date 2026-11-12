@@ -70,6 +70,8 @@
   (test-list "base member" (lambda () (member 2 '(1 2 3))) '(2 3))
   (test-list "base assoc" (lambda () (assoc 'b '((a . 1) (b . 2)))) '(b . 2))
   (test-list "base map" (lambda () (map (lambda (x) (+ x 1)) '(1 2))) '(2 3))
+  (test-list "base memq" (lambda () (memq 'b '(a b c))) '(b c))
+  (test-list "base assq" (lambda () (assq 'b '((a . 1) (b . 2)))) '(b . 2))
   (test-equal "base caaaar" (lambda () (caaaar '((((42)))))) 42)
   (test-list "alias base make-list"
              (lambda () (s:make-list 2 'y))

@@ -1,4 +1,4 @@
-; (srfi 125) procedures; see 125.sld. Runtime kinds (runtime/npl.h):
+; (npl hashtable) procedures; see hashtable.sld. Runtime kinds (runtime/npl.h):
 ; 0 eq?, 1 eqv?, 2 equal?, 3 string=?, 4 general.
 
 (define (table-error who message . irritants)

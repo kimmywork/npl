@@ -39,9 +39,10 @@ individually; R7RS import sets do not support grouping inside a library name.
 
 Current extensions include `(npl hashtable)` / `(srfi 125)`,
 `(npl list)` / `(srfi 1)`, `(npl data box)` / `(srfi 111)`,
-`(npl data range)` / `(srfi 196)`, and
-`(npl data maybe)` / `(npl data either)` / `(srfi 189)`. Each canonical
-library is complete for its SRFI; shared bindings are re-exported, so it can
+`(npl data range)` / `(srfi 196)`, and the SRFI 189 family:
+`(npl data maybe)` and `(npl data either)` are disjoint subsets, while
+`(npl data option)` or `(srfi 189)` provides the complete surface. Canonical
+libraries re-export shared bindings rather than redefining them, so they can
 be imported together with `(scheme base)` without conflicts.
 
 ## Quick start

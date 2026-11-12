@@ -141,7 +141,7 @@
     ((_ r index)
      ((range-indexer r) (+ index (range-start-index r))))))
 
-(define (range-first r) (%range-ref-no-check r (range-start-index r)))
+(define (range-first r) (%range-ref-no-check r 0))
 
 (define (range-last r) (%range-ref-no-check r (- (range-length r) 1)))
 
@@ -184,7 +184,9 @@
         (else
          (let ((indexer (range-indexer r)) (k (range-complexity r)))
            (values (raw-range (range-start-index r) index indexer k)
-                   (raw-range index (- (range-length r) index) indexer k))))))
+                   (raw-range (+ (range-start-index r) index)
+                              (- (range-length r) index)
+                              indexer k))))))
 
 (define (subrange r start end)
   (assume (range? r))
@@ -441,10 +443,11 @@
 (define (range-reverse r)
   (assume (range? r))
   (%range-maybe-vectorize
-   (raw-range (range-start-index r)
+   (raw-range 0
               (range-length r)
               (lambda (n)
-                ((range-indexer r) (- (range-length r) 1 n)))
+                ((range-indexer r)
+                 (- (+ (range-start-index r) (range-length r) -1) n)))
               (+ 1 (range-complexity r)))))
 
 (define range-append
