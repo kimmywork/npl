@@ -538,12 +538,7 @@ static int array_pair_p(NplVal value)
 /* Build a rank-n array from the list read after #nA. */
 static NplVal array_from_items(NplVal list, int64_t rank)
 {
-    if (rank < 0) read_error("invalid array rank");
-    if (rank == 0) {
-        if (!array_pair_p(list) || !npl_is_nil(npl_pair_ptr(list)->cdr))
-            read_error("rank-0 array needs exactly one element");
-        return npl_pair_ptr(list)->car;
-    }
+    if (rank < 1) read_error("array literal rank must be at least 1");
     if (rank == 1) return npl_list_to_vector(list);
     NplVal reversed = npl_nil();
     while (array_pair_p(list)) {
