@@ -20,7 +20,7 @@
     vector->list reverse-vector->list
     list->vector reverse-list->vector
     vector->string string->vector)
-  (import (except (scheme base) vector-copy) (scheme cxr))
+  (import (scheme base) (scheme cxr))
   (begin
     (define (vector-unfold f length . seeds)
       (let ((result (make-vector length)))
@@ -42,22 +42,6 @@
                (lambda (value . next-seeds)
                  (vector-set! result i value)
                  (loop (- i 1) next-seeds)))))
-        result))
-
-    (define (vector-copy vec . rest)
-      (let* ((len (vector-length vec))
-             (start (if (pair? rest) (car rest) 0))
-             (rest (if (pair? rest) (cdr rest) '()))
-             (end (if (pair? rest) (car rest) len))
-             (rest (if (pair? rest) (cdr rest) '()))
-             (fill (if (pair? rest) (car rest) #f))
-             (size (- end start))
-             (result (make-vector size fill)))
-        (let loop ((i 0))
-          (if (and (< i size) (< (+ start i) len))
-              (begin
-                (vector-set! result i (vector-ref vec (+ start i)))
-                (loop (+ i 1)))))
         result))
 
     (define (vector-reverse-copy vec . rest)

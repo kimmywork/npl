@@ -40,8 +40,27 @@
   (let ((bounds (checked-range "vector->list" (vector-length source) range)))
     (vector-slice->list source (car bounds) (cdr bounds) '())))
 
+; R7RS vector-copy. The optional third argument is the SRFI 133 fill value,
+; used when end is past the end of the source.
 (define (vector-copy source . range)
-  (list->vector (apply vector->list source range)))
+  (let* ((start (index-argument range 0))
+         (end (if (pair? range)
+                  (if (pair? (cdr range)) (car (cdr range))
+                      (vector-length source))
+                  (vector-length source)))
+         (fill (if (and (pair? range) (pair? (cdr range)) (pair? (cddr range)))
+                   (car (cddr range))
+                   #f)))
+    (if (and (exact-integer? start) (exact-integer? end)
+             (raw-less-equal 0 start) (raw-less-equal start end))
+        (let ((result (make-vector (raw-subtract end start) fill)))
+          (let loop ((i start) (at 0))
+            (if (and (raw-less i end) (raw-less i (vector-length source)))
+                (begin
+                  (vector-set! result at (vector-ref source i))
+                  (loop (raw-add i 1) (raw-add at 1)))))
+          result)
+        (range-error "vector-copy" start end))))
 
 (define (vector-fill-range! target fill index end)
   (if (raw-less index end)

@@ -50,7 +50,8 @@ libraries re-export shared bindings rather than redefining them, so they can
 be imported together with `(scheme base)` without conflicts. SRFI 140 is the
 exception: it deliberately gives the R7RS string names istring-returning
 behavior, so import it with `(except (scheme base) ...)` for the names it
-redefines.
+redefines. SRFI 13 and SRFI 130 also overlap; import one of them, or select
+the needed names with `only`/`except`.
 
 ## Quick start
 
