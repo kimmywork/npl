@@ -55,7 +55,7 @@ for fixture in integer-arithmetic rational-arithmetic radix-exact \
                datum-labels cyclic-data numeric-alias-paths unspecified-values \
                self-tail-calls closure-captures named-loops direct-calls \
                direct-lambdas literal-mutation records record-extensions \
-               hash-tables srfi-69 match match-extensions; do
+               hash-tables srfi-69 match match-extensions srfi-core; do
     run "R7RS $fixture" \
         "$ROOT/tools/run_r7rs_fixture.sh" "$ROOT/tests/r7rs/fixtures/$fixture"
 done

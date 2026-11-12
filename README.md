@@ -25,6 +25,22 @@ claimed and how it is checked.
 - The compiler is self-hosting: `bootstrap/current.ssa` is the checked-in
   recovery artifact and must reproduce itself in a gen1/gen2/gen3 relay.
 
+## Libraries
+
+Beyond R7RS-small, extension libraries use canonical `(npl ...)` names and
+keep the SRFI number as a compatibility alias. Import each library
+individually; R7RS import sets do not support grouping inside a library name.
+
+```scheme
+(import (npl list) (npl data box) (npl data range) (npl data maybe))
+;; portable aliases
+(import (srfi 1) (srfi 111) (srfi 196) (srfi 189))
+```
+
+Current extensions include `(npl list)` / `(srfi 1)`, `(npl data box)` /
+`(srfi 111)`, `(npl data range)` / `(srfi 196)`, and
+`(npl data maybe)` / `(npl data either)` / `(srfi 189)`.
+
 ## Quick start
 
 Prerequisites: CMake 3.20+, Ninja, a C99 compiler (Apple clang, Clang, or

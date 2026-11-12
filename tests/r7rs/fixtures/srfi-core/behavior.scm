@@ -1,0 +1,22 @@
+; Canonical NPL extension names and the SRFI aliases must agree on both
+; execution paths. This fixture has oracle=none: Guile lacks SRFI 196/189.
+(define (report name value) (write (list name value)) (newline))
+
+(report 'list (list (take '(1 2 3 4) 2)
+                    (filter odd? '(1 2 3 4 5))
+                    (fold + 0 '(1 2 3 4))))
+(report 'box (let ((value (box 1)))
+               (set-box! value 42)
+               (list (box? value) (unbox value))))
+(report 'range (let ((r (numeric-range 0 5)))
+                 (list (range-length r)
+                       (range->list (range-map (lambda (x) (* x x)) r))
+                       (range-fold + 0 r))))
+(report 'maybe (list (maybe->list (just 1 2))
+                     (maybe-ref/default (nothing) 'none)
+                     (maybe-ref (maybe-bind (just 2) (lambda (x) (just (+ x 40))))
+                                (lambda () (quote none)))))
+(report 'either (list (either->list (right 1 2))
+                      (either-ref/default (left 'error) 'none)
+                      (either-ref (either-bind (right 2) (lambda (x) (right (+ x 40))))
+                                   (lambda () (quote none)))))
