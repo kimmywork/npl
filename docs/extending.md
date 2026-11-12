@@ -48,6 +48,15 @@ Rules:
   library file exists. The feature list belongs in
   `lib/scheme/text-io.scm` (`features`) and `library-feature-name?` in
   `src/compiler/frontend/library.npl`; keep the two in sync.
+- **NPL extension names are canonical; SRFI numbers are aliases.** Put the
+  implementation in `lib/npl/…` and keep the `(srfi N)` library as a thin
+  re-export. For example, `(npl list)` owns SRFI 1 and `(srfi 1)` imports and
+  re-exports it; `(npl data range)` owns SRFI 196. Do not duplicate the
+  procedure bodies.
+- **Import libraries individually.** R7RS import sets do not support
+  grouping inside a library name, so `(npl data (set range))` is not valid.
+  Use `(import (npl data set) (npl data range))`; there are no aggregate
+  libraries in 0.1.2.
 - Export with `export` or `(rename internal external)`; `(scheme base)` maps
   `integer-add` to `+` this way.
 

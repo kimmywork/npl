@@ -5,6 +5,21 @@ All notable changes to NPL. The format follows
 [Semantic Versioning](https://semver.org/) (pre-1.0: minor versions may change
 behavior).
 
+## [Unreleased] - target 0.1.2
+
+### Added
+
+- Canonical `(npl ...)` extension libraries with thin `(srfi N)`
+  compatibility aliases. Libraries are imported individually; there is no
+  aggregate import syntax.
+- SRFI 1 lists as `(npl list)` / `(srfi 1)`.
+- SRFI 111 boxes as `(npl data box)` / `(srfi 111)`.
+- SRFI 196 ranges as `(npl data range)` / `(srfi 196)`.
+- SRFI 189 Maybe/Either as `(npl data maybe)`, `(npl data either)`, and
+  `(npl data option)` / `(srfi 189)`.
+- Compiler suites for the new libraries and a native/npli `srfi-core`
+  fixture.
+
 ## [0.1.1] - 2026-11-12
 
 Release-preparation patch for the 0.1.x series. It changes toolchain

@@ -4,9 +4,16 @@
 
 Plan: [0.1.2-srfi](plans/0.1.2-srfi.md). Scope is the SRFI library train
 (requested SRFI-1/13/130/140/133/19/170 plus the data-structure SRFIs) with
-canonical `(npl ...)` library names and `(srfi N)` aliases. Remaining
+canonical `(npl ...)` library names and `(srfi N)` aliases. Libraries are
+imported individually; there is no aggregate import syntax. Remaining
 diagnostics (D1) run in parallel; SRFI-18/230 and full SRFI-226 move to
-0.1.3 after a runtime/control design. No 0.1.2 code has landed yet.
+0.1.3 after a runtime/control design.
+
+I1 is implemented on `release/0.1.2`: `(npl list)` / `(srfi 1)`,
+`(npl data box)` / `(srfi 111)`, `(npl data range)` / `(srfi 196)`, and
+`(npl data maybe)` / `(npl data either)` / `(npl data option)` /
+`(srfi 189)`. The new compiler suites and the `srfi-core` native/npli
+fixture pass. I2 (strings) is next.
 
 ## 0.1.1 (2026-11-12)
 

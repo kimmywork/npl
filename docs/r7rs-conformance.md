@@ -119,9 +119,10 @@ an omission:
 | Keyword arguments (`#:key`) | absent | SRFI 88 (keyword objects), SRFI 89 (named/optional parameters), SRFI 177 (portable keyword arguments) |
 | Default-valued optional parameters | absent (rest args and `case-lambda` exist) | SRFI 89, or `case-lambda` |
 | Records: inheritance, `#:guard`, opaque, prefab | absent (all records transparent, generative) | SRFI 99 / SRFI 256 |
-| `filter`, `fold`, `partition`, `sort` | absent from `(scheme base)` | SRFI 1 |
+| `filter`, `fold`, `partition` | **implemented** in `(npl list)` / `(srfi 1)`, not `(scheme base)`; `sort` is still absent | SRFI 1 / SRFI 132 for `sort` |
 | `string-split`, `string-join`, `string-trim` | absent | SRFI 13 / SRFI 152 |
 | Sets | absent | SRFI 113 |
+| Boxes, ranges, Maybe/Either | **implemented** | `(npl data box)` / SRFI 111, `(npl data range)` / SRFI 196, `(npl data maybe)` and `(npl data either)` / SRFI 189 |
 | Hash tables | **implemented** | `(srfi 125)`, `(srfi 69)` |
 | `match`, `match-define` | **implemented** as `(npl match)` and import-free | SRFI 200 pattern language |
 | `pretty-print` | absent | R6RS / implementation extension |

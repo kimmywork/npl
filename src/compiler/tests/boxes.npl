@@ -1,0 +1,32 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl data box)
+        (prefix (srfi 111) srfi:))
+
+(include "framework.npl")
+
+(define (main)
+  (test-identity "box predicate"
+                 (lambda () (box? (box 1)))
+                 #t)
+  (test-equal "box value"
+                 (lambda () (unbox (box 42)))
+                 42)
+  (test-equal "box mutation"
+                 (lambda ()
+                   (let ((value (box 1)))
+                     (set-box! value 42)
+                     (unbox value)))
+                 42)
+  (test-identity "boxes are disjoint"
+                 (lambda () (box? 42))
+                 #f)
+  (test-identity "srfi alias constructs"
+                 (lambda () (srfi:box? (srfi:box 42)))
+                 #t)
+  (test-equal "srfi alias accesses"
+                 (lambda () (srfi:unbox (srfi:box 42)))
+                 42)
+  (finish-tests "boxes"))
+(main)
