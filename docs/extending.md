@@ -52,11 +52,41 @@ Rules:
   implementation in `lib/npl/…` and keep the `(srfi N)` library as a thin
   re-export. For example, `(npl list)` owns SRFI 1 and `(srfi 1)` imports and
   re-exports it; `(npl data range)` owns SRFI 196. Do not duplicate the
-  procedure bodies.
+  procedure bodies. A canonical library is complete for its standard: names
+  shared with `(scheme base)` are re-exported from the same binding, not
+  redefined, so importing `(scheme base)` and `(npl list)` together is valid.
 - **Import libraries individually.** R7RS import sets do not support
   grouping inside a library name, so `(npl data (set range))` is not valid.
   Use `(import (npl data set) (npl data range))`; there are no aggregate
   libraries in 0.1.2.
+
+### Library layers and dependency direction
+
+Use the library graph, not directory labels, to keep dependencies acyclic:
+
+| Layer | Libraries | May import |
+|---|---|---|
+| L0 runtime | `(npl internal primitive)` | nothing |
+| L1 core | `(npl internal frontend)`, `(npl internal repl-io)` | L0 |
+| L2 standard | `(scheme *)` and `(scheme internal *)` | L0, L1, lower `(scheme *)` |
+| L3 extensions | `(npl list)`, `(npl hashtable)`, `(npl data ...)`, `(npl ffi)`, `(npl match)`, `(npl record)`, `(npl process)` | L0-L2, lower L3 |
+| L4 SRFI aliases | `(srfi *)` | L3 only |
+
+- `(npl internal *)` must not import `(scheme *)`. `(npl internal primitive)`,
+  `(npl internal frontend)`, and `(npl internal repl-io)` satisfy this.
+- The evaluator and its eval/load adapter implement `(scheme eval)`,
+  `(scheme load)`, and `(scheme repl)`, so they live under
+  `(scheme internal evaluator)` and `(scheme internal eval-runtime)`. They may
+  import `(scheme base)`; that is why they are not `(npl internal *)`.
+- `(scheme *)` must not import `(npl list)`, `(npl hashtable)`, or another
+  extension library. If a standard library needs a utility, put it in L0/L1
+  or implement it in the standard library.
+- Two extension libraries must not import each other. Extract their shared
+  code into a lower-level library instead.
+- `(srfi *)` is a leaf: it re-exports `(npl *)` and is not imported by other
+  libraries.
+- All library nodes must form a DAG. A period or library rename must not
+  introduce a back-edge.
 - Export with `export` or `(rename internal external)`; `(scheme base)` maps
   `integer-add` to `+` this way.
 
@@ -83,7 +113,7 @@ A library change needs no relay.
 - `(%c-call "sym" (types ...) args ...)` and `(%c-procedure "sym" (types ...))`
   call or take a procedure value without binding a name.
 - Under npli a declared primitive resolves through `C-PRIMITIVE-HOOK`
-  (`lib/npl/evaluator-session.scm`); under nplc it is a direct C call.
+  (`lib/scheme/internal/evaluator-session.scm`); under nplc it is a direct C call.
 
 The C side and the full type list are in [C Functions From NPL](ffi.md).
 
@@ -92,7 +122,7 @@ The C side and the full type list are in [C Functions From NPL](ffi.md).
 `src/compiler/frontend/primitive-table.npl` is the compiler's own registry.
 Add a row there only when the primitive is needed **before any import**: by
 the compiler itself, by `(scheme base)`'s implementation, by derived syntax,
-records, or hash tables. Those rows are exported by `(npl primitive)`,
+records, or hash tables. Those rows are exported by `(npl internal primitive)`,
 participate in control conversion (every row is synchronous), and changing
 them changes the seed, so they need a relay. Everything else — anything a
 user program or an ordinary library can declare — belongs in
@@ -138,13 +168,13 @@ Existing forms: `%record-index`, `%record-make`, `%match-length`,
 `%match-literal`, `%match-identifier?`, `%match-member?`,
 `%match-ellipsis?`, `%c-call`, `%c-procedure`.
 
-**Export it from `(npl primitive)`** — add the keyword to
+**Export it from `(npl internal primitive)`** — add the keyword to
 `PRIMITIVE-MACRO-SOURCE` in `library-primitives.npl`, otherwise
-`(import (npl primitive))` and any `(npl …)` shim fails with
+`(import (npl internal primitive))` and any `(npl …)` shim fails with
 `missing primitive syntax binding`. Optionally add a shim library
 (`lib/npl/match.sld`) and a fixture.
 
-**Ordering constraint.** npli compiles the frontend as the `(npl frontend)`
+**Ordering constraint.** npli compiles the frontend as the `(npl internal frontend)`
 library, and in a library body a name produced by macro output is not bound
 before the macro use. So a record type — or anything a macro defines — must
 appear **before its first use** in the frontend sources. This is why

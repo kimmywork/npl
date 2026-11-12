@@ -7,4 +7,4 @@
 ; library alone is enough to define and update records.
 (define-library (npl record)
   (export define-record-type record-update)
-  (import (npl primitive)))
+  (import (npl internal primitive)))

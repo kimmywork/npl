@@ -1,7 +1,7 @@
 (define-library (scheme eval)
   (export environment eval)
   (import (only (scheme base) cons eq? raise)
-          (only (npl eval-runtime) make-environment evaluate))
+          (only (scheme internal eval-runtime) make-environment evaluate))
   (begin
     (define environment-key (cons #f #f))
 

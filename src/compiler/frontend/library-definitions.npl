@@ -4,7 +4,7 @@
 ; library, (key checksum (name . value) ...): every value definition of the
 ; library body, keyed by its emitted name without the library prefix, bound
 ; to the compiled procedure or object. The checksum covers the library's
-; parsed declarations, including included files. (npl primitive) lists its
+; parsed declarations, including included files. (npl internal primitive) lists its
 ; generated value exports, with checksum 0.
 ;
 ; When npli's frontend loads a library, library-record-load! asks

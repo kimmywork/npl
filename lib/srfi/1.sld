@@ -1,6 +1,14 @@
 ; SRFI 1 compatibility alias for (npl list).
 (define-library (srfi 1)
   (export
+    cons list make-list list-copy
+    pair? null? car cdr set-car! set-cdr!
+    caar cadr cdar cddr
+    caaar caadr cadar caddr cdaar cdadr cddar cdddr
+    caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
+    cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
+    list-ref length append reverse map for-each member assoc
+
     xcons cons* list-tabulate circular-list iota
     proper-list? circular-list? dotted-list? not-pair? null-list? list=
     first second third fourth fifth sixth seventh eighth ninth tenth

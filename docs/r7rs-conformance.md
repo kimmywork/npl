@@ -123,7 +123,7 @@ an omission:
 | `string-split`, `string-join`, `string-trim` | absent | SRFI 13 / SRFI 152 |
 | Sets | absent | SRFI 113 |
 | Boxes, ranges, Maybe/Either | **implemented** | `(npl data box)` / SRFI 111, `(npl data range)` / SRFI 196, `(npl data maybe)` and `(npl data either)` / SRFI 189 |
-| Hash tables | **implemented** | `(srfi 125)`, `(srfi 69)` |
+| Hash tables | **implemented** | `(npl hashtable)`, `(srfi 125)` |
 | `match`, `match-define` | **implemented** as `(npl match)` and import-free | SRFI 200 pattern language |
 | `pretty-print` | absent | R6RS / implementation extension |
 

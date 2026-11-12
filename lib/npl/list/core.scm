@@ -41,21 +41,7 @@
 
 ;;; Make a list of length LEN.
 
-(define (make-list len . maybe-elt)
-  (check-arg (lambda (n) (and (integer? n) (>= n 0))) len make-list)
-  (let ((elt (cond ((null? maybe-elt) #f) ; Default value
-		   ((null? (cdr maybe-elt)) (car maybe-elt))
-		   (else (error "Too many arguments to MAKE-LIST"
-				(cons len maybe-elt))))))
-    (do ((i len (- i 1))
-	 (ans '() (cons elt ans)))
-	((<= i 0) ans))))
-
-
-;(define (list . ans) ans)	; R4RS
-
-
-;;; Make a list of length LEN. Elt i is (PROC i) for 0 <= i < LEN.
+; make-list is re-exported from (scheme base).
 
 (define (list-tabulate len proc)
   (check-arg (lambda (n) (and (integer? n) (>= n 0))) len list-tabulate)
@@ -77,13 +63,7 @@
 
 ;;; (unfold not-pair? car cdr lis values)
 
-(define (list-copy lis)
-  (let recur ((lis lis))
-    (if (pair? lis)
-	(cons (car lis) (recur (cdr lis)))
-	lis)))
-
-;;; IOTA count [start step]	(start start+step ... start+(count-1)*step)
+; list-copy is re-exported from (scheme base).
 
 (define (iota count . maybe-start+step)
   (check-arg integer? count iota)

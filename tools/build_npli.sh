@@ -30,8 +30,8 @@ npl_escape() {
         '        (scheme file)' \
         '        (npl process)' \
         '        (scheme repl)' \
-        '        (npl evaluator)' \
-        '        (npl repl-io))'
+        '        (scheme internal evaluator)' \
+        '        (npl internal repl-io))'
     printf '(define REPL-STDLIB "%s")\n' "$(npl_escape "$ROOT/lib")"
     printf '(include "%s")\n' "$(npl_escape "$ROOT/src/repl/main.npl")"
 } > "$work/repl.npl"

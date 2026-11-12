@@ -54,7 +54,7 @@
   ; The current-port primitives read the same parameter objects as the
   ; procedures defined below (runtime/port.c npl_current_output_port); the
   ; library calls them directly (text-io.scm).
-  (import (rename (except (npl primitive) current-error-port)
+  (import (rename (except (npl internal primitive) current-error-port)
             (current-input-port raw-current-input-port)
             (current-output-port raw-current-output-port)
             (+ raw-add) (- raw-subtract) (* raw-multiply)

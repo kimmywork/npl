@@ -93,7 +93,13 @@
                   ((library (scheme nonexistent)) 0)
                   (else 42)))
               42)
-  (test-equal "installed srfi library feature"
+  (test-equal "installed npl library feature"
+              (lambda ()
+                (cond-expand
+                  ((library (npl hashtable)) 42)
+                  (else 0)))
+              42)
+  (test-equal "installed srfi alias feature"
               (lambda ()
                 (cond-expand
                   ((library (srfi 125)) 42)

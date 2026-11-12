@@ -1,4 +1,4 @@
-(define-library (npl evaluator)
+(define-library (scheme internal evaluator)
   (export make-eval-environment make-eval-environment-from-imports
           eval-in-environment eval-load-file
           set-eval-standard-root!
@@ -7,6 +7,6 @@
           (scheme read)
           (scheme file)
           (scheme write)
-          (only (npl primitive) npl_freeze_literal)
-          (npl frontend))
+          (only (npl internal primitive) npl_freeze_literal)
+          (npl internal frontend))
   (include "evaluator-compile.scm" "evaluator-session.scm"))

@@ -1,5 +1,5 @@
 ; Primitive registry: one declaration per runtime primitive, shared by the
-; compiler backend, the (npl primitive) library, and the evaluator frontend.
+; compiler backend, the (npl internal primitive) library, and the evaluator frontend.
 ;
 ; Declaration: (name kind required optional [c-symbol]), kind a symbol:
 ;   kind fixed     call the C symbol with exactly `required` operands
@@ -219,7 +219,7 @@
     ("npl_handler_pop" fixed 1 0)
     ; raise in a direct entry (direct-calls.npl, runtime/error.c)
     ("npl_raise_direct" fixed 1 0)
-    ; evaluator constants (lib/npl/evaluator-compile.scm, runtime/value.c)
+    ; evaluator constants (lib/scheme/internal/evaluator-compile.scm, runtime/value.c)
     ("npl_freeze_literal" fixed 1 0)
     ("npl_make_parameter" fixed 2 0)
     ("npl_parameter_converter" fixed 1 0)

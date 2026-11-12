@@ -6,4 +6,4 @@
 (define-library (npl match)
   (export match match-lambda match-lambda* match-let match-let* match-letrec
           match-define)
-  (import (npl primitive)))
+  (import (npl internal primitive)))

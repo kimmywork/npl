@@ -3,7 +3,7 @@
           get-environment-variable get-environment-variables)
   (import
     (rename
-      (only (npl primitive)
+      (only (npl internal primitive)
             command-line exit
             get-environment-variable get-environment-variables car null?
             npl_wind_exit_step)

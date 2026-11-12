@@ -207,17 +207,8 @@
   (let ((= (:optional maybe-= equal?)))
     (filter! (lambda (y) (not (= x y))) lis)))
 
-;;; Extended from R4RS to take an optional comparison argument.
-(define (member x lis . maybe-=)
-  (let ((= (:optional maybe-= equal?)))
-    (find-tail (lambda (y) (= x y)) lis)))
-
-;;; R4RS, hence we don't bother to define.
-;;; The MEMBER and then FIND-TAIL call should definitely
-;;; be inlined for MEMQ & MEMV.
-;(define (memq    x lis) (member x lis eq?))
-;(define (memv    x lis) (member x lis eqv?))
-
+; member is re-exported from (scheme base); the base binding takes
+; the same optional comparison argument.
 
 ;;; right-duplicate deletion
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -252,10 +243,8 @@
 ;;; alist stuff
 ;;;;;;;;;;;;;;;
 
-;;; Extended from R4RS to take an optional comparison argument.
-(define (assoc x lis . maybe-=)
-  (let ((= (:optional maybe-= equal?)))
-    (find (lambda (entry) (= x (car entry))) lis)))
+; assoc is re-exported from (scheme base); the base binding takes the
+; same optional comparison argument.
 
 (define (alist-cons key datum alist) (cons (cons key datum) alist))
 

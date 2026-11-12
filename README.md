@@ -20,7 +20,7 @@ claimed and how it is checked.
   function entries, flat closures, and a generational non-moving collector.
 - Exact integers (bignums), rationals, inexact and rectangular complex
   numbers; Unicode 15.1 strings, characters, ports, `read`, and `write`.
-- Records, pattern matching, SRFI 125 and SRFI 69 hash tables, and a C FFI
+- Records, pattern matching, hash tables as `(npl hashtable)` / `(srfi 125)`, and a C FFI
   with typed `define-c-function` stubs and `(npl ffi)` resources.
 - The compiler is self-hosting: `bootstrap/current.ssa` is the checked-in
   recovery artifact and must reproduce itself in a gen1/gen2/gen3 relay.
@@ -37,9 +37,12 @@ individually; R7RS import sets do not support grouping inside a library name.
 (import (srfi 1) (srfi 111) (srfi 196) (srfi 189))
 ```
 
-Current extensions include `(npl list)` / `(srfi 1)`, `(npl data box)` /
-`(srfi 111)`, `(npl data range)` / `(srfi 196)`, and
-`(npl data maybe)` / `(npl data either)` / `(srfi 189)`.
+Current extensions include `(npl hashtable)` / `(srfi 125)`,
+`(npl list)` / `(srfi 1)`, `(npl data box)` / `(srfi 111)`,
+`(npl data range)` / `(srfi 196)`, and
+`(npl data maybe)` / `(npl data either)` / `(srfi 189)`. Each canonical
+library is complete for its SRFI; shared bindings are re-exported, so it can
+be imported together with `(scheme base)` without conflicts.
 
 ## Quick start
 

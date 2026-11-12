@@ -19,7 +19,7 @@
                 string->list list->string string-length string-ref
                 char=? char<? char>? char<=? char>=?
                 string=? string<? string>? string<=? string>=?)
-          (only (npl primitive)
+          (only (npl internal primitive)
                 npl_char_property npl_char_digit_value npl_char_case
                 npl_char_full_case npl_string_full_case))
   (begin

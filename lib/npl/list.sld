@@ -2,12 +2,19 @@
 ;
 ; The portable SRFI 1 reference implementation by Olin Shivers (MIT) is
 ; split into core, fold/map, and search/deletion files to keep each source
-; file below the project's soft line limit. Base R7RS names (cons, list,
-; make-list, list-copy, map, for-each, member, assoc, append, reverse,
-; list-ref, and the pair selectors) remain in (scheme base); import both
-; libraries when the full SRFI 1 surface is wanted.
+; file below the project's soft line limit. Base R7RS procedures are
+; re-exported from (scheme base) and (scheme cxr), so this library is a
+; complete SRFI 1 surface rather than only the extension names.
 (define-library (npl list)
   (export
+    cons list make-list list-copy
+    pair? null? car cdr set-car! set-cdr!
+    caar cadr cdar cddr
+    caaar caadr cadar caddr cdaar cdadr cddar cdddr
+    caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
+    cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
+    list-ref length append reverse map for-each member assoc
+
     xcons cons* list-tabulate circular-list iota
     proper-list? circular-list? dotted-list? not-pair? null-list? list=
     first second third fourth fifth sixth seventh eighth ninth tenth
@@ -26,6 +33,5 @@
     lset<= lset= lset-adjoin lset-union lset-union! lset-intersection
     lset-intersection! lset-difference lset-difference! lset-xor lset-xor!
     lset-diff+intersection lset-diff+intersection!)
-  (import (except (scheme base) make-list list-copy member assoc)
-          (scheme cxr))
+  (import (scheme base) (scheme cxr))
   (include "list/core.scm" "list/fold.scm" "list/search.scm"))

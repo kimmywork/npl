@@ -1,6 +1,6 @@
 (define-library (scheme time)
   (export current-jiffy current-second jiffies-per-second)
-  (import (only (npl primitive)
+  (import (only (npl internal primitive)
                 npl_current_jiffy npl_current_second npl_jiffies_per_second))
   (begin
     (define (current-jiffy) (npl_current_jiffy))

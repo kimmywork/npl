@@ -1,4 +1,4 @@
-; SRFI 125 (lib/srfi/125.sld), checked by hand against
+; SRFI 125 (lib/npl/hashtable.sld), checked by hand against
 ; docs/reference/srfi-125.html: Guile 3.0 has no SRFI 125. Key order is
 ; unspecified, so keys are sorted before printing.
 (define (sorted-keys t) (list-sort (hash-table-keys t)))

@@ -14,7 +14,7 @@
 ; A declaration is valid at top level only and precedes the uses of its
 ; name. nplc leaves the symbol to the linker; npli resolves it when the
 ; declaration is expanded, through C-PRIMITIVE-HOOK (set by
-; lib/npl/evaluator-session.scm), which binds the row name to a procedure
+; lib/scheme/internal/evaluator-session.scm), which binds the row name to a procedure
 ; calling the C function.
 ;
 ; Tests below are single predicate calls: control conversion copies an if's

@@ -1,7 +1,7 @@
 ; Hash table primitive rows without imports (.agents/archive/design/design-data.md section 3):
 ; the compiler can use them directly. Kinds: 0 eq?, 1 eqv?, 2 equal?,
 ; 3 string=?; the procedure slot may be #f for the built-in kinds (an equal
-; table then compares in C and rejects keys too deep for its bounded walk). The (srfi 125) interface is covered by
+; table then compares in C and rejects keys too deep for its bounded walk). The (npl hashtable) / (srfi 125) interface is covered by
 ; tests/r7rs/fixtures/hash-tables; check_full_compiler.sh also runs this
 ; suite with a small nursery under NPL_GC_VERIFY (young keys in old tables).
 (include "framework.npl")

@@ -17,8 +17,27 @@ behavior).
 - SRFI 196 ranges as `(npl data range)` / `(srfi 196)`.
 - SRFI 189 Maybe/Either as `(npl data maybe)`, `(npl data either)`, and
   `(npl data option)` / `(srfi 189)`.
+- `(npl hashtable)` as the canonical SRFI 125 implementation; `(srfi 125)`
+  is a thin re-export.
 - Compiler suites for the new libraries and a native/npli `srfi-core`
   fixture.
+
+### Changed
+
+- Internal libraries moved under `(npl internal ...)`: `(npl primitive)`,
+  `(npl frontend)`, and `(npl repl-io)`. The evaluator and eval/load adapter
+  moved to `(scheme internal evaluator)` and `(scheme internal eval-runtime)`
+  because they implement the standard `(scheme eval/load/repl)` libraries and
+  depend on `(scheme base)`. `(npl internal *)` no longer depends on
+  `(scheme base)`.
+- `(npl list)` is a complete SRFI 1 surface; base bindings are re-exported
+  with their original identity so `(scheme base)`, `(npl list)`, and
+  `(srfi 1)` can be imported together.
+
+### Removed
+
+- The separate `(srfi 69)` compatibility library and its fixture. The SRFI
+  125 library remains available as `(npl hashtable)` / `(srfi 125)`.
 
 ## [0.1.1] - 2026-11-12
 
