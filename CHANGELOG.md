@@ -13,6 +13,22 @@ behavior).
   compatibility aliases. Libraries are imported individually; there is no
   aggregate import syntax.
 - SRFI 1 lists as `(npl list)` / `(srfi 1)`.
+- SRFI 13 strings as `(npl string)` / `(srfi 13)`, with a shared string
+  kernel; character-set criteria are not supported because NPL has no
+  SRFI 14 library, so a criterion is a character or a predicate.
+- SRFI 130 string cursors as `(npl string cursor)` / `(srfi 130)`.
+- SRFI 140 immutable strings as `(npl string immutable)` / `(srfi 140)`,
+  including UTF-16 conversion. An istring is a frozen NPL string, so the
+  base mutators reject it.
+- SRFI 133 vectors as `(npl vector)` / `(srfi 133)`.
+- SRFI 41 streams as `(npl data stream)` / `(srfi 41)`.
+- SRFI 158 generators as `(npl data generator)` / `(srfi 158)`.
+- SRFI 161 unifiable boxes as `(npl data unifiable-box)` / `(srfi 161)`.
+- SRFI 195 multiple-value boxes as `(npl data multiple-value-box)` /
+  `(srfi 195)`; they share the `box`/`unbox`/`set-box!` bindings with
+  `(npl data box)`.
+- SRFI 111 boxes now hold one or more values, which SRFI 195 requires; the
+  one-value behavior is unchanged.
 - SRFI 111 boxes as `(npl data box)` / `(srfi 111)`.
 - SRFI 196 ranges as `(npl data range)` / `(srfi 196)`.
 - SRFI 189 Maybe/Either as `(npl data maybe)`, `(npl data either)`, and
@@ -33,6 +49,9 @@ behavior).
 - `(npl list)` is a complete SRFI 1 surface; base bindings are re-exported
   with their original identity so `(scheme base)`, `(npl list)`, and
   `(srfi 1)` can be imported together.
+- `(npl string)` re-exports base `string-map`/`string-for-each`, so their
+  SRFI 13 optional [start end] arguments are not available on those two
+  names; use the other SRFI 13 procedures for substring work.
 
 ### Fixed
 

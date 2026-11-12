@@ -29,7 +29,7 @@ runs the Linux gate without the relay on pull requests and pushes to
 | 3 | `check_stage0_qbe.sh` | frozen stage0 QBE output |
 | 4 | `check_bootstrap.sh` | the permanent chain (`bootstrap/bootstrap.ssa` + `bootstrap/compiler/`) against the frozen runtime |
 | 5 | `check_current_fixed_point.sh` | the seed relay: gen1 == gen2 == gen3 (skipped by the flag) |
-| 6 | `check_full_compiler.sh` | 34 compiler suites, 77 negative checks, alias-export check, SSA probes, C extensions |
+| 6 | `check_full_compiler.sh` | 42 compiler suites, 77 negative checks, alias-export check, SSA probes, C extensions |
 | 7 | `check_driver.sh` | unified `nplc`: output kinds, path handling, failure cleanup, `-l`/`-L` |
 | 8 | `check_install.sh` | install layout used from outside the repo, including a prefix with a space |
 | 9 | `check_repl.sh` | `npli` REPL, script mode, `-l` |

@@ -24,7 +24,19 @@ I1 is implemented on `release/0.1.2`: `(npl list)` / `(srfi 1)`,
 `(npl data maybe)` / `(npl data either)` / `(npl data option)` /
 `(srfi 189)`. The new compiler suites and the `srfi-core` native/npli fixture pass;
 `tools/run_tests.sh --skip-current-fixed-point` is 56/56 PASS; the
-implemented SRFI references are committed. PR: https://github.com/kimmywork/npl/pull/2. I2 (strings) is next.
+implemented SRFI references are committed. PR #2 merged at `c05dd68`.
+
+I2 and part of I3 are implemented on `feature/srfi-i2-i3`:
+
+- I2: `(npl string)` / 13, `(npl string cursor)` / 130,
+  `(npl string immutable)` / 140.
+- I3: `(npl vector)` / 133, `(npl data stream)` / 41,
+  `(npl data generator)` / 158, `(npl data unifiable-box)` / 161,
+  `(npl data multiple-value-box)` / 195.
+- SRFI 111 boxes now store a value list so SRFI 195 shares its bindings.
+
+Remaining I3: SRFI 113 (with SRFI 128 comparators), 44, 47, 146, 178.
+`check_full_compiler.sh` covers 42 suites.
 
 ## 0.1.1 (2026-11-12)
 

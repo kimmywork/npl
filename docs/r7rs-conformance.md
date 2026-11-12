@@ -120,9 +120,9 @@ an omission:
 | Default-valued optional parameters | absent (rest args and `case-lambda` exist) | SRFI 89, or `case-lambda` |
 | Records: inheritance, `#:guard`, opaque, prefab | absent (all records transparent, generative) | SRFI 99 / SRFI 256 |
 | `filter`, `fold`, `partition` | **implemented** in `(npl list)` / `(srfi 1)`, not `(scheme base)`; `sort` is still absent | SRFI 1 / SRFI 132 for `sort` |
-| `string-split`, `string-join`, `string-trim` | absent | SRFI 13 / SRFI 152 |
-| Sets | absent | SRFI 113 |
-| Boxes, ranges, Maybe/Either | **implemented** | `(npl data box)` / SRFI 111, `(npl data range)` / SRFI 196, `(npl data maybe)` / `(npl data either)` subsets, `(npl data option)` / `(srfi 189)` complete |
+| `string-split`, `string-join`, `string-trim` | **implemented** in `(npl string)` / `(srfi 13)`, `(npl string cursor)` / `(srfi 130)`, and `(npl string immutable)` / `(srfi 140)` | SRFI 152 (`string-split` is also in SRFI 130) |
+| Sets, bags | absent | SRFI 113 (needs comparators, SRFI 128) |
+| Boxes, ranges, streams, generators, Maybe/Either | **implemented** | `(npl data box)` / SRFI 111, `(npl data multiple-value-box)` / SRFI 195, `(npl data unifiable-box)` / SRFI 161, `(npl data range)` / SRFI 196, `(npl data stream)` / SRFI 41, `(npl data generator)` / SRFI 158, `(npl vector)` / SRFI 133, `(npl data maybe)` / `(npl data either)` subsets, `(npl data option)` / `(srfi 189)` complete |
 | Hash tables | **implemented** | `(npl hashtable)`, `(srfi 125)` |
 | `match`, `match-define` | **implemented** as `(npl match)` and import-free | SRFI 200 pattern language |
 | `pretty-print` | absent | R6RS / implementation extension |
