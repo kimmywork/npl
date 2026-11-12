@@ -12,8 +12,7 @@ behavior and feature detection, not evaluation semantics.
 
 ### Added
 
-- `docs/README.md`, with the root `README.md` as a symlink, and an MIT
-  `LICENSE`.
+- A root `README.md`, a GitHub Pages `docs/README.md`, and an MIT `LICENSE`.
 - Linux CI (`.github/workflows/ci.yml`) running the gate without the seed
   relay.
 - `nplc --version` and `npli --version`; `VERSION` and the CMake project

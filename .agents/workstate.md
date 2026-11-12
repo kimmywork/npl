@@ -4,8 +4,9 @@
 
 Release-hardening work on branch `release/0.1.1`, tracked by
 [2026-11-12-0.1.0-state-review](reviews/2026-11-12-0.1.0-state-review.md):
-MIT `LICENSE`, `docs/README.md` with a root symlink, Linux-only CI,
-`nplc`/`npli --version`, a locale-independent gate, compiler diagnostics on
+MIT `LICENSE`, root `README.md` with a GitHub Pages `docs/README.md`,
+Linux-only CI, `nplc`/`npli --version`, a locale-independent gate, compiler
+diagnostics on
 standard error without the partial-SSA relay, standard feature identifiers,
 `cond-expand` detection of installed `(srfi ...)` and user libraries, and
 synchronized test/version documentation. No language semantics changed.
