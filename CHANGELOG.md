@@ -5,6 +5,41 @@ All notable changes to NPL. The format follows
 [Semantic Versioning](https://semver.org/) (pre-1.0: minor versions may change
 behavior).
 
+## [0.1.1] - 2026-11-12
+
+Release-preparation patch for the 0.1.x series. It changes toolchain
+behavior and feature detection, not evaluation semantics.
+
+### Added
+
+- `docs/README.md`, with the root `README.md` as a symlink, and an MIT
+  `LICENSE`.
+- Linux CI (`.github/workflows/ci.yml`) running the gate without the seed
+  relay.
+- `nplc --version` and `npli --version`; `VERSION` and the CMake project
+  version move to 0.1.1.
+- Standard feature identifiers in `features` (`full-unicode`, `ratios`,
+  `exact-closed`, `exact-complex`, `ieee-float`, `posix`, `unix`), and
+  `cond-expand` recognition of installed `(srfi ...)` and user libraries.
+
+### Changed
+
+- Compiler diagnostics go to standard error; standard output is reserved for
+  SSA. A failed build no longer relays the partial SSA file, and the stale
+  `nplc1:` prefix is now `nplc:`.
+- The test gate selects a UTF-8 locale instead of inheriting the caller's
+  locale (Guile escapes non-ASCII output under a non-UTF-8 locale).
+- `docs/testing.md` stage/suite counts and `docs/toolchain.md` performance
+  figures now match the current tree.
+
+### Fixed
+
+- Two Unicode fixtures no longer fail on a host with an empty `LANG`.
+- `cond-expand (library ...)` returns true for an importable `(srfi ...)` or
+  user library whose file exists but has not been loaded yet.
+
+[0.1.1]: https://github.com/ng-lang/npl/releases/tag/v0.1.1
+
 ## [0.1.0] - 2026-11-12
 
 First tagged milestone: the language stage is complete. NPL is a

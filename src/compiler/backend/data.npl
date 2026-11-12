@@ -114,9 +114,9 @@
            (build-static-pair d))))
     (else
       (begin
-        (display "nplc1: bad datum: ")
-        (display d)
-        (newline)
+        (display "nplc: bad datum: " (current-error-port))
+        (display d (current-error-port))
+        (newline (current-error-port))
         (fatal "bad datum")))))
 
 (define (walk-boxed d)
@@ -153,9 +153,9 @@
            (label-constant (ensure-static-pair datum)))))
     (else
       (begin
-        (display "nplc1: bad static datum: ")
-        (display datum)
-        (newline)
+        (display "nplc: bad static datum: " (current-error-port))
+        (display datum (current-error-port))
+        (newline (current-error-port))
         (fatal "bad static datum")))))
 
 (define (static-vector-items items)

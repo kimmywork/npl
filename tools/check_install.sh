@@ -44,6 +44,8 @@ clean cc -std=c99 -c -o typed.o "$ROOT/src/compiler/tests/c-extension/typed.c"
 clean ar rcs libdemotyped.a typed.o
 clean "$PREFIX/bin/nplc" typed.npl -L . -l demotyped
 ./typed | cmp "$ROOT/src/compiler/tests/c-extension/typed.out" -
+[ "$(clean "$PREFIX/bin/nplc" --version)" = "nplc $(cat "$ROOT/VERSION")" ]
+[ "$(clean "$PREFIX/bin/npli" --version)" = "npli $(cat "$ROOT/VERSION")" ]
 [ "$(clean "$PREFIX/bin/npli" script.scm x)" = '(#\A ("x"))' ]
 [ "$(printf '(+ 40 2)\n' | clean "$PREFIX/bin/npli" --no-prompt)" = "42" ]
 

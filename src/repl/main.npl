@@ -8,12 +8,15 @@
 ;
 ; A program sees (command-line) as (FILE ARG ...), like other R7RS runners.
 
+(include "../compiler/common/version.npl")
+
 (define NPLI-USAGE
 "usage: npli [--no-prompt]
        npli [--stdlib-root DIR] FILE [ARG ...]
        npli [--stdlib-root DIR] -e EXPR [-e EXPR ...] [FILE [ARG ...]]
 Options:
   -l LIBRARY        load a shared library of C functions (docs/ffi.md)
+  --version         show the NPL release version
 ")
 
 (define (repl-exit-form? expression)
@@ -138,6 +141,11 @@ Options:
          (begin
            (npli-run-expressions (reverse expressions))
            0)))
+    ((string=? (car arguments) "--version")
+     (display "npli ")
+     (display NPL-VERSION)
+     (newline)
+     0)
     ((if (string=? (car arguments) "-h") #t
          (string=? (car arguments) "--help"))
      (display NPLI-USAGE)

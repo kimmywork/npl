@@ -39,10 +39,13 @@ This first runs the complete gen1/gen2/gen3 comparison. Only after it succeeds d
 ## Version
 
 `VERSION` holds the release version (also `project(npl VERSION ...)` in
-`CMakeLists.txt`; keep the two equal). It is informational: no tool reads it,
-and it does not enter `bootstrap/current.ssa`. Release notes are in
-[CHANGELOG](../CHANGELOG.md); a release is a `v<version>` git tag on a commit
-that passed the gate on macOS and Linux ([testing](testing.md)).
+`CMakeLists.txt` and `src/compiler/common/version.npl`; keep the three
+equal). The source constant is what `nplc --version` and `npli --version`
+print. Because it is part of the compiler source, changing the version
+changes `bootstrap/current.ssa`; regenerate the seed with the relay. Release
+notes are in [CHANGELOG](../CHANGELOG.md); a release is a `v<version>` git
+tag on a commit that passed the gate on macOS and Linux
+([testing](testing.md)).
 
 ## Build And Install
 
@@ -85,6 +88,7 @@ nplc --emit=ssa program.npl -o p.ssa # QBE SSA to a file
 nplc --emit=c-stubs program.npl      # define-c-function C stubs, for npli (docs/ffi.md)
 nplc --keep-temps program.npl        # keep and report intermediate files
 nplc program.npl -L lib -l clamp     # also link lib/libclamp (C functions, docs/ffi.md)
+nplc --version                       # print the release version
 ```
 
 A program is its top-level forms, run in order as in `npli` (R7RS 5.1); `main` is an ordinary name. A program that reaches its end exits with status 0, and `(exit n)` ends it earlier with status `n`. `nplc` generates the C `main` (`src/compiler/frontend/control-program.npl`). Programs for the frozen stage0 `nplc0` still use `(define (main) ...)`.
@@ -93,7 +97,7 @@ A program is its top-level forms, run in order as in `npli` (R7RS 5.1); `main` i
 
 `--emit-qbe` is an alias for `--emit=ssa`. `--emit=staticlib` and `--emit=dylib` are reserved and rejected; see "Deferred: Libraries And Binary Interop". An object file contains `main` and links with the runtime archive: `cc -o program program.o libnpl_runtime.a`.
 
-SSA to standard output is emitted in-process; this is the relay path. File-producing builds re-run `nplc --emit=ssa` as a child into an isolated temporary directory, then run QBE and the C compiler with argv-based processes. On failure the compiler diagnostic is relayed to standard error, partial outputs are removed, and the temporary directory is deleted. Option errors exit 2; a failed stage reports its name and status.
+SSA to standard output is emitted in-process; this is the relay path. File-producing builds re-run `nplc --emit=ssa` as a child into an isolated temporary directory, then run QBE and the C compiler with argv-based processes. Compiler diagnostics go to standard error; standard output is reserved for SSA, so a failed build never relays a partial SSA file. Partial outputs are removed and the temporary directory is deleted. Option errors exit 2; a failed stage reports its name and status.
 
 ## npli
 
@@ -104,6 +108,7 @@ npli                                  # interactive REPL (--no-prompt for transc
 npli program.scm arg ...              # run a program; (command-line) is (program.scm arg ...)
 npli -e '(import (scheme base))' -e EXPR [program.scm ...]
 npli -l ./libclamp.so program.scm     # load C functions first (docs/ffi.md)
+npli --version                        # print the release version
 ```
 
 `npli` links the whole runtime archive (`-Wl,-force_load` on macOS; `--whole-archive` and `-rdynamic` on Linux, `tools/build_npli.sh`) so a library loaded with `-l` can call every runtime function through it. A library that cannot be loaded exits 66.
@@ -137,7 +142,7 @@ Measured on macOS arm64; single samples on a loaded host.
 
 | Measurement | Value |
 |---|---:|
-| Self-compilation instructions retired (2026-09-29) | 338 G (was 601 G) |
+| Self-compilation instructions retired (2026-11-11) | 11.1 G (was 338 G on 2026-09-29) |
 | Strict relay | ~4-5 min (was 902 s on 2026-09-07) |
 | `tools/run_tests.sh`, with relay | 11 min |
 

@@ -15,7 +15,11 @@
 
 (define (fatal msg)
   (if (null? (cell-get FRONTEND-ERROR-HANDLER))
-      (begin (display "nplc1: ") (display msg) (newline) (exit 21))
+      (begin
+        (display "nplc: " (current-error-port))
+        (display msg (current-error-port))
+        (newline (current-error-port))
+        (exit 21))
       ((cell-get FRONTEND-ERROR-HANDLER) msg)))
 
 (define (and2 a b) (if a b #f))

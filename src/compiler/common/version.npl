@@ -1,0 +1,2 @@
+; Release version. Keep in sync with VERSION and CMakeLists.txt.
+(define NPL-VERSION "0.1.1")

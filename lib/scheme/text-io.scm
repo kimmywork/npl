@@ -50,4 +50,8 @@
 (define (u8-ready? . port) (npl_byte_ready_p (input-port-argument port)))
 
 ; The feature identifiers cond-expand accepts (frontend/library.npl).
-(define (features) (list 'r7rs 'npl))
+; NPL is a POSIX-only implementation at this stage; add platform-specific
+; identifiers when a platform primitive exists.
+(define (features)
+  (list 'r7rs 'npl 'full-unicode 'ratios 'exact-closed 'exact-complex
+        'ieee-float 'posix 'unix))

@@ -38,11 +38,16 @@ Rules:
   mismatched name.
 - **Helpers** go in a sibling `.scm` pulled in by `(include "x.scm")`, or in
   the `begin` of the library. `include-library-declarations` and
-  `cond-expand` (with `library`, `and`, `or`, `not`, `else`, features `r7rs`
-  and `npl`) work.
+  `cond-expand` (with `library`, `and`, `or`, `not`, `else`, features
+  `r7rs`, `npl`, `full-unicode`, `ratios`, `exact-closed`, `exact-complex`,
+  `ieee-float`, `posix`, and `unix`) work.
 - **A new `(scheme …)` name must be listed in `lib/scheme/libraries.scm`.**
   That file is the index used by `cond-expand (library ...)` and
-  `library-standard-available?`; `(npl …)` and `(srfi …)` do not need it.
+  `library-standard-available?`. `(npl …)` and `(srfi …)` names do not need
+  an index entry: `cond-expand (library ...)` also checks whether the
+  library file exists. The feature list belongs in
+  `lib/scheme/text-io.scm` (`features`) and `library-feature-name?` in
+  `src/compiler/frontend/library.npl`; keep the two in sync.
 - Export with `export` or `(rename internal external)`; `(scheme base)` maps
   `integer-add` to `+` this way.
 

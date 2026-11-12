@@ -8,6 +8,7 @@
 #   (chibi test) is the minimal portable version in tests/chibi/.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$ROOT/tools/utf8_locale.sh"
 COMMIT=${CHIBI_COMMIT:-master}
 NATIVE=0
 if [ "${1:-}" = --native ]; then NATIVE=1; shift; fi
