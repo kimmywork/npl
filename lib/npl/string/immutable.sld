@@ -28,7 +28,8 @@
     string-fold string-fold-right string-map string-map-index
     string-for-each string-for-each-index
     string-contains string-contains-right
-    string-index string-index-right string-count
+    string-index string-index-right string-skip string-skip-right
+    string-count
     string-filter string-remove string-split string-tokenize
     string-replicate string-repeat xsubstring
     string-upcase string-downcase string-foldcase string-titlecase)
@@ -36,9 +37,8 @@
                   string string-append list->string vector->string
                   substring string-map utf8->string)
           (rename (only (scheme base)
-                        string-map list->string vector->string string-append
+                        list->string vector->string string-append
                         substring utf8->string)
-                  (string-map %base-string-map)
                   (list->string %base-list->string)
                   (vector->string %base-vector->string)
                   (string-append %base-string-append)
@@ -49,18 +49,9 @@
           (only (npl internal primitive) npl_freeze_literal)
           (prefix (npl string) s13:)
           (prefix (npl string cursor) sc:))
+  (include "kernel.scm")
   (begin
     (define (%freeze value) (npl_freeze_literal value))
-
-    (define (%range who s args)
-      (let* ((n (string-length s))
-             (start (if (pair? args) (car args) 0))
-             (rest (if (pair? args) (cdr args) '()))
-             (end (if (pair? rest) (car rest) n)))
-        (if (and (exact-integer? start) (exact-integer? end)
-                 (<= 0 start end n))
-            (cons start end)
-            (error who "invalid range" start end))))
 
     (define (istring? value)
       (and (string? value)
@@ -84,8 +75,35 @@
       (%freeze (apply %base-string-append strings)))
     (define (substring s start end)
       (%freeze (%base-substring s start end)))
+    (define (%mapped-pieces who proc strings)
+      (let* ((len (let loop ((items strings) (n #f))
+                    (if (pair? items)
+                        (loop (cdr items)
+                              (if n (min n (string-length (car items)))
+                                  (string-length (car items))))
+                        n))))
+        (let loop ((i 0) (pieces '()))
+          (if (>= i len)
+              (reverse pieces)
+              (let ((value
+                     (apply proc
+                            (map (lambda (item) (string-ref item i))
+                                 strings))))
+                (loop (+ i 1)
+                      (cons (cond ((char? value) (string value))
+                                  ((string? value) value)
+                                  (else
+                                   (error
+                                    (string-append
+                                     who ": expected a character or string")
+                                    value)))
+                            pieces)))))))
+
     (define (string-map proc s . rest)
-      (%freeze (apply %base-string-map proc s rest)))
+      (%freeze
+       (string-concatenate
+        (%mapped-pieces "string-map" proc (cons s rest)))))
+
     (define (string-tabulate proc len)
       (%freeze (s13:string-tabulate proc len)))
     (define (string-unfold stop? mapper successor seed . rest)
@@ -123,15 +141,24 @@
     (define (string-for-each-index proc s . rest)
       (apply s13:string-for-each-index proc s rest))
     (define (string-map-index proc s . rest)
-      (let* ((range (%range "string-map-index" s rest))
+      (let* ((range (%string-range "string-map-index" s rest))
              (start (car range))
-             (result (make-string (- (cdr range) start))))
-        (let loop ((i start) (j 0))
-          (if (< i (cdr range))
-              (begin
-                (string-set! result j (proc i))
-                (loop (+ i 1) (+ j 1)))))
-        (%freeze result)))
+             (end (cdr range)))
+        (%freeze
+         (string-concatenate
+          (let loop ((i start) (pieces '()))
+            (if (>= i end)
+                (reverse pieces)
+                (let ((value (proc i)))
+                  (loop (+ i 1)
+                        (cons (cond ((char? value) (string value))
+                                    ((string? value) value)
+                                    (else
+                                     (error
+                                      "string-map-index: expected a character or string"
+                                      value)))
+                              pieces)))))))))
+
     (define (string-contains s1 s2 . rest)
       (apply s13:string-contains s1 s2 rest))
     (define (string-contains-right s1 s2 . rest)
@@ -140,6 +167,10 @@
       (apply s13:string-index s criterion rest))
     (define (string-index-right s criterion . rest)
       (apply s13:string-index-right s criterion rest))
+    (define (string-skip s criterion . rest)
+      (apply s13:string-skip s criterion rest))
+    (define (string-skip-right s criterion . rest)
+      (apply s13:string-skip-right s criterion rest))
     (define (string-count s criterion . rest)
       (apply s13:string-count s criterion rest))
     (define (string-filter criterion s . rest)
@@ -183,7 +214,15 @@
 
     (define (%utf16-encode s start end big?)
       (let* ((count (- end start))
-             (bytes (make-bytevector (* 2 count) 0)))
+             (units (let loop ((i start) (n 0))
+                      (if (>= i end)
+                          n
+                          (loop (+ i 1)
+                                (+ n (if (> (char->integer (string-ref s i))
+                                            #xFFFF)
+                                         2
+                                         1))))))
+             (bytes (make-bytevector (* 2 units) 0)))
         (let loop ((i 0) (at 0))
           (if (< i count)
               (let ((code (char->integer (string-ref s (+ start i)))))
@@ -237,17 +276,17 @@
                        (loop (+ i 2)))))))))
 
     (define (string->utf16 s . rest)
-      (let* ((range (%range "string->utf16" s rest))
+      (let* ((range (%string-range "string->utf16" s rest))
              (body (%utf16-encode s (car range) (cdr range) #t))
              (result (make-bytevector (+ 2 (bytevector-length body)) 0)))
         (%u16-set! result 0 #xFEFF #t)
         (bytevector-copy! result 2 body)
         result))
     (define (string->utf16be s . rest)
-      (let ((range (%range "string->utf16be" s rest)))
+      (let ((range (%string-range "string->utf16be" s rest)))
         (%utf16-encode s (car range) (cdr range) #t)))
     (define (string->utf16le s . rest)
-      (let ((range (%range "string->utf16le" s rest)))
+      (let ((range (%string-range "string->utf16le" s rest)))
         (%utf16-encode s (car range) (cdr range) #f)))
 
     (define (utf8->string bytes . rest)
@@ -263,12 +302,16 @@
     (define (utf16->string bytes . rest)
       (let* ((range (%parse-utf16-range "utf16->string" bytes rest))
              (start (car range))
-             (end (cdr range))
-             (bom? (and (>= (- end start) 2)
-                        (= (%u16-ref bytes start #t) #xFEFF))))
-        (if bom?
-            (%freeze (%utf16-decode "utf16->string" bytes
-                                    (+ start 2) end #t))
-            (%freeze (%utf16-decode "utf16->string" bytes
-                                    start end #t))))))
-)
+             (end (cdr range)))
+        (cond ((and (>= (- end start) 2)
+                    (= (%u16-ref bytes start #t) #xFEFF))
+               (%freeze (%utf16-decode "utf16->string" bytes
+                                       (+ start 2) end #t)))
+              ((and (>= (- end start) 2)
+                    (= (%u16-ref bytes start #t) #xFFFE))
+               (%freeze (%utf16-decode "utf16->string" bytes
+                                       (+ start 2) end #f)))
+              (else
+               (%freeze (%utf16-decode "utf16->string" bytes
+                                       start end #t))))))
+))

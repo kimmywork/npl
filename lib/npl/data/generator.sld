@@ -59,6 +59,12 @@
 
     (define make-range-generator
       (case-lambda
+        ((start)
+         (let ((value start))
+           (lambda ()
+             (let ((item value))
+               (set! value (+ value 1))
+               item))))
         ((start end) (make-range-generator start end 1))
         ((start end step)
          (let ((value start))
@@ -70,21 +76,26 @@
                    item)))))))
 
     (define (make-coroutine-generator proc)
-      (let ((resume #f) (return #f))
+      (let ((resume #f) (return #f) (done #f))
         (define (yield value)
           (call/cc (lambda (k)
                      (set! resume k)
                      (return value))))
         (lambda ()
-          (call/cc
-           (lambda (k)
-             (set! return k)
-             (if resume
-                 (resume (if #f #f))
-                 (begin
-                   (proc yield)
-                   (set! proc #f)
-                   (return (eof-object)))))))))
+          (if done
+              (eof-object)
+              (call/cc
+               (lambda (k)
+                 (set! return k)
+                 (if resume
+                     (begin
+                       (resume (if #f #f))
+                       (set! done #t)
+                       (return (eof-object)))
+                     (begin
+                       (proc yield)
+                       (set! done #t)
+                       (return (eof-object))))))))))
 
     (define (list->generator items)
       (let ((rest items))
@@ -279,8 +290,13 @@
                         (loop (+ i 1) (cons value items)))))))))
 
     (define (gmerge2 less? left-gen right-gen)
-      (let ((left (left-gen)) (right (right-gen)))
+      (let ((left #f) (right #f) (started #f))
         (lambda ()
+          (if (not started)
+              (begin
+                (set! started #t)
+                (set! left (left-gen))
+                (set! right (right-gen))))
           (cond ((and (eof-object? left) (eof-object? right)) left)
                 ((eof-object? left)
                  (let ((value right))

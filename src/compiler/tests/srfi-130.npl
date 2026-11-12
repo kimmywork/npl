@@ -11,6 +11,9 @@
 
 (define (main)
   (define s "abcdef")
+  (define s3 "abcb")
+  (define s4 "aaab")
+  (define s5 "abab")
   (define c (string-cursor-start s))
   (test-identity "string-cursor?"
                  (lambda () (string-cursor? c))
@@ -36,7 +39,7 @@
                  #t)
   (test-equal "string-cursor-diff"
               (lambda ()
-                (string-cursor-diff (string-cursor-forward s c 3) c))
+                (string-cursor-diff s c (string-cursor-forward s c 3)))
               3)
   (test-string "substring/cursors"
                (lambda ()
@@ -49,21 +52,58 @@
                    (equal? (string->list/cursors s c (string-cursor-forward s c 3))
                            '(#\a #\b #\c)))
                  #t)
+  (test-identity "string-index returns a cursor"
+                 (lambda () (string-cursor? (string-index s #\c c)))
+                 #t)
   (test-equal "string-index with cursor"
-              (lambda () (string-index s #\c c))
+              (lambda () (string-cursor->index s (string-index s #\c c)))
               2)
+  (test-equal "string-index miss returns end"
+              (lambda () (string-cursor->index s (string-index s #\z)))
+              6)
+  (test-equal "string-index-right returns the successor"
+              (lambda ()
+                (string-cursor->index s3 (string-index-right s3 #\b)))
+              4)
+  (test-equal "string-skip"
+              (lambda () (string-cursor->index s4 (string-skip s4 #\a)))
+              3)
   (test-equal "string-contains with cursor"
-              (lambda () (string-contains s "cd" c))
+              (lambda ()
+                (string-cursor->index s (string-contains s "cd" c)))
               2)
   (test-equal "string-contains-right"
-              (lambda () (string-contains-right "abab" "ab"))
+              (lambda ()
+                (string-cursor->index s5 (string-contains-right s5 "ab")))
               2)
+  (test-string "string-copy/cursors defaults"
+               (lambda () (string-copy/cursors s))
+               "abcdef")
   (test-string "string-replicate"
                (lambda () (string-replicate s 2 8))
                "cdefab")
   (test-identity "string-split"
                  (lambda () (equal? (string-split "a,b,,c" #\,)
                                     '("a" "b" "" "c")))
+                 #t)
+  (test-identity "string-split limit"
+                 (lambda () (equal? (string-split "a,b,c" "," 'infix 1)
+                                    '("a" "b,c")))
+                 #t)
+  (test-identity "string-split prefix grammar"
+                 (lambda () (equal? (string-split ",a," "," 'prefix)
+                                    '("a" "")))
+                 #t)
+  (test-identity "string-split suffix grammar"
+                 (lambda () (equal? (string-split "a," "," 'suffix)
+                                    '("a")))
+                 #t)
+  (test-identity "string-split empty input"
+                 (lambda () (null? (string-split "" ",")))
+                 #t)
+  (test-identity "string-split empty delimiter"
+                 (lambda () (equal? (string-split "abc" "")
+                                    '("a" "b" "c")))
                  #t)
   (test-string "string-remove"
                (lambda () (string-remove #\a "banana"))

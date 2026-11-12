@@ -33,35 +33,36 @@
     (define (ubox=? left right)
       (eq? (find-root left) (find-root right)))
 
-    (define (link-roots! left right)
+    (define (union-roots! left right)
       (let ((left-root (find-root left))
             (right-root (find-root right)))
-        (if (eq? left-root right-root)
-            right-root
-            (begin
-              (set-ubox-parent! left-root right-root)
-              (if (< (ubox-rank left-root) (ubox-rank right-root))
-                  0
-                  (set-ubox-rank! right-root
-                                  (+ (ubox-rank right-root) 1)))
-              right-root))))
+        (cond ((eq? left-root right-root) left-root)
+              ((< (ubox-rank left-root) (ubox-rank right-root))
+               (set-ubox-parent! left-root right-root)
+               right-root)
+              ((> (ubox-rank left-root) (ubox-rank right-root))
+               (set-ubox-parent! right-root left-root)
+               left-root)
+              (else
+               (set-ubox-parent! right-root left-root)
+               (set-ubox-rank! left-root (+ (ubox-rank left-root) 1))
+               left-root))))
 
     (define (ubox-link! left right)
-      (let* ((left-root (find-root left))
-             (right-root (find-root right))
-             (survivor (link-roots! left right)))
-        (if (eq? survivor right-root)
+      (let ((right-value (ubox-ref right)))
+        (if (ubox=? left right)
             0
-            (set-ubox-parent! right-root survivor))
-        0))
+            (let ((survivor (union-roots! left right)))
+              (set-ubox-content! survivor right-value)
+              0))))
 
     (define (ubox-union! left right)
-      (link-roots! left right)
+      (union-roots! left right)
       0)
 
     (define (ubox-unify! proc left right)
       (let ((value (proc (ubox-ref left) (ubox-ref right)))
-            (root (link-roots! left right)))
+            (root (union-roots! left right)))
         (set-ubox-content! root value)
         0)))
 )

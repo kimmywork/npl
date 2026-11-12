@@ -9,6 +9,9 @@
 (define (test-list name thunk expected)
   (test-identity name (lambda () (equal? (thunk) expected)) #t))
 
+(define-stream (nats n)
+  (stream-cons n (nats (+ n 1))))
+
 (define (main)
   (test-list "stream"
              (lambda () (stream->list (stream 1 2 3)))
@@ -22,7 +25,7 @@
              (lambda () (stream->list (stream-filter even? (stream-range 0 8))))
              '(0 2 4 6))
   (test-list "stream-take"
-             (lambda () (stream->list (stream-take (stream-from 10 2) 4)))
+             (lambda () (stream->list (stream-take 4 (stream-from 10 2))))
              '(10 12 14 16))
   (test-list "stream-take-while"
              (lambda ()
@@ -50,7 +53,7 @@
              '(0 1 3 6))
   (test-list "stream-iterate"
              (lambda ()
-               (stream->list (stream-iterate (lambda (x) (+ x 1)) 0) 4))
+               (stream->list 4 (stream-iterate (lambda (x) (+ x 1)) 0)))
              '(0 1 2 3))
   (test-list "stream-unfold"
              (lambda ()
@@ -86,7 +89,63 @@
                              (if (> n 3) '() (list n))))
                    0))
                 (lambda (a b) (list (stream->list a) (stream->list b)))))
-             '((0 1 2 3) (0 1 2)))
+             '((0 1 2) (0 1 2 3)))
+  (test-identity "stream? rejects lists"
+                 (lambda () (stream? '(1 2)))
+                 #f)
+  (test-identity "stream-null? rejects lists"
+                 (lambda () (stream-null? '()))
+                 #f)
+  (test-identity "stream-cons does not force the head"
+                 (lambda () (stream? (stream-cons (/ 1 0) stream-null)))
+                 #t)
+  (test-equal "stream-car does not force the tail"
+              (lambda () (stream-car (stream-cons 1 (/ 1 0))))
+              1)
+  (test-identity "stream-filter is suspended"
+                 (lambda ()
+                   (stream? (stream-filter (lambda (x) #f)
+                                           (stream-from 0))))
+                 #t)
+  (test-list "stream-map uses the shortest input"
+             (lambda ()
+               (stream->list (stream-map + (stream 1 2) (stream 10))))
+             '(11))
+  (test-list "stream-of with a filter"
+             (lambda ()
+               (stream->list
+                (stream-of (* x x) (x in (stream 1 2 3 4)) (even? x))))
+             '(4 16))
+  (test-list "stream-of with is"
+             (lambda ()
+               (stream->list (stream-of (list a b) (a in (stream 1 2))
+                                        (b is 9))))
+             '((1 9) (2 9)))
+  (test-identity "stream-match nested pattern"
+                 (lambda ()
+                   (stream-match (stream 1 2)
+                                 (() 'empty)
+                                 ((x y) (+ x y))
+                                 (_ 'other)))
+                 3)
+  (test-identity "stream-match fender falls through"
+                 (lambda ()
+                   (stream-match (stream 1)
+                                 ((x) #f 'no)
+                                 ((x) 'yes)
+                                 (_ 'other)))
+                 'yes)
+  (test-identity "stream-reverse does not force elements"
+                 (lambda ()
+                   (let ((reversed
+                          (stream-reverse (stream 1 (/ 1 0) 3))))
+                     (and (= (stream-ref reversed 0) 3)
+                          (= (stream-ref reversed 2) 1))))
+                 #t)
+  (test-identity "define-stream recursion"
+                 (lambda ()
+                   (equal? (stream->list (stream-take 3 (nats 0))) '(0 1 2)))
+                 #t)
   (test-list "srfi 41 alias"
              (lambda () (s41:stream->list (s41:stream 1 2)))
              '(1 2))

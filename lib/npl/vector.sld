@@ -254,12 +254,19 @@
       (let* ((start (if (pair? rest) (car rest) 0))
              (end (if (and (pair? rest) (pair? (cdr rest)))
                       (cadr rest)
-                      (vector-length source))))
+                      (vector-length source)))
+             (count (- end start))
+             (temporary (make-vector count)))
+        ;; Copy through a temporary so overlapping target/source ranges work.
         (let loop ((i 0))
-          (if (< i (- end start))
+          (if (< i count)
               (begin
-                (vector-set! target (+ tstart i)
-                             (vector-ref source (- end 1 i)))
+                (vector-set! temporary i (vector-ref source (- end 1 i)))
+                (loop (+ i 1)))))
+        (let loop ((i 0))
+          (if (< i count)
+              (begin
+                (vector-set! target (+ tstart i) (vector-ref temporary i))
                 (loop (+ i 1)))))
         target))
 

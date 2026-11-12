@@ -107,7 +107,7 @@ supported, and there is no cross-compilation path at this stage.
   [SRFI 125 reference](docs/reference/srfi-125.html)
 
 Deliberate omissions (R7RS-large features, `syntax-case`, keyword arguments,
-record inheritance, SRFI 1/13/113, and separate compilation) are listed in
+record inheritance, SRFI 113, and separate compilation) are listed in
 the [conformance statement](docs/r7rs-conformance.md#deliberately-outside-the-language-stage).
 
 ## Testing

@@ -91,6 +91,12 @@
                  (vector-reverse! v)
                  (vector->list v)))
              '(3 2 1))
+  (test-list "vector-reverse-copy! overlapping range"
+             (lambda ()
+               (let ((v (vector 1 2 3)))
+                 (vector-reverse-copy! v 0 v)
+                 (vector->list v)))
+             '(3 2 1))
   (test-list "reverse-vector->list"
              (lambda () (reverse-vector->list '#(1 2 3)))
              '(3 2 1))

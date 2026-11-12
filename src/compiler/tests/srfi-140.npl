@@ -41,6 +41,26 @@
   (test-string "string-upcase"
                (lambda () (string-upcase "abC"))
                "ABC")
+  (test-string "string-map accepts string results"
+               (lambda () (string-map (lambda (c) "xy") "ab"))
+               "xyxy")
+  (test-string "string-map-index accepts string results"
+               (lambda () (string-map-index (lambda (i) "xy") "ab"))
+               "xyxy")
+  (test-equal "string-skip"
+              (lambda () (string-skip "aaab" (lambda (c) (char=? c #\a))))
+              3)
+  (test-equal "string-skip-right"
+              (lambda () (string-skip-right "baaa" (lambda (c) (char=? c #\a))))
+              0)
+  (test-string "utf16 little-endian BOM"
+               (lambda () (utf16->string #u8(255 254 65 0)))
+               "A")
+  (test-string "utf16 supplementary character"
+               (lambda ()
+                 (utf16->string
+                  (string->utf16 (string (integer->char #x1F600)))))
+               (string (integer->char #x1F600)))
   (test-string "string-foldcase"
                (lambda () (string-foldcase "AbC"))
                "abc")

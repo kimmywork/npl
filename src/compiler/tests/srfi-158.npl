@@ -20,6 +20,16 @@
   (test-list "make-range-generator"
              (lambda () (generator->list (make-range-generator 0 5)))
              '(0 1 2 3 4))
+  (test-list "unbounded make-range-generator"
+             (lambda () (generator->list (make-range-generator 3) 3))
+             '(3 4 5))
+  (test-identity "coroutine stays exhausted"
+                 (lambda ()
+                   (let ((gen (make-coroutine-generator
+                               (lambda (yield) (yield 1)))))
+                     (gen)
+                     (and (eof-object? (gen)) (eof-object? (gen)))))
+                 #t)
   (test-list "list->generator"
              (lambda () (generator->list (list->generator '(1 2 3))))
              '(1 2 3))
@@ -98,6 +108,14 @@
                (generator->list
                 (ggroup (list->generator '(1 2 3 4 5)) 2)))
              '((1 2) (3 4) (5)))
+  (test-identity "gmerge is lazy at construction"
+                 (lambda ()
+                   (let ((calls 0))
+                     (gmerge <
+                             (lambda () (set! calls (+ calls 1)) (eof-object))
+                             (lambda () (set! calls (+ calls 1)) (eof-object)))
+                     (= calls 0)))
+                 #t)
   (test-list "gmerge"
              (lambda ()
                (generator->list
