@@ -13,7 +13,8 @@ I1 is implemented on `release/0.1.2`: `(npl list)` / `(srfi 1)`,
 `(npl data box)` / `(srfi 111)`, `(npl data range)` / `(srfi 196)`, and
 `(npl data maybe)` / `(npl data either)` / `(npl data option)` /
 `(srfi 189)`. The new compiler suites and the `srfi-core` native/npli
-fixture pass. I2 (strings) is next.
+fixture pass; Linux CI and the full gate pass. PR:
+https://github.com/kimmywork/npl/pull/2. I2 (strings) is next.
 
 ## 0.1.1 (2026-11-12)
 
