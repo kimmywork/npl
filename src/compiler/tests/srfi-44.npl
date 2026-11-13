@@ -1,0 +1,170 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (prefix (npl data collection) c:)
+        (prefix (srfi 44) s44:))
+
+(include "framework.npl")
+
+(define (test-list name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (test-identity "collection?"
+                 (lambda ()
+                   (and (c:collection? '(1 2))
+                        (c:collection? '#(1 2))
+                        (c:collection? "ab")
+                        (not (c:collection? 42))))
+                 #t)
+  (test-list "collection-name"
+             (lambda ()
+               (list (c:collection-name '(1)) (c:collection-name '#(1))
+                     (c:collection-name "a")))
+             '(list vector string))
+  (test-equal "collection-size"
+              (lambda ()
+                (+ (c:collection-size '(1 2))
+                   (c:collection-size '#(1 2))
+                   (c:collection-size "ab")))
+              6)
+  (test-identity "collection-empty?"
+                 (lambda ()
+                   (and (c:collection-empty? '())
+                        (c:collection-empty? '#())
+                        (c:collection-empty? "")))
+                 #t)
+  (test-equal "collection-count"
+              (lambda ()
+                (+ (c:collection-count '(1 2 1) 1)
+                   (c:collection-count '#(1 2 1) 1)
+                   (c:collection-count "aba" #\a)))
+              6)
+  (test-list "collection-get-any"
+             (lambda ()
+               (list (c:collection-get-any '(1 2))
+                     (c:collection-get-any '() (lambda () 'none))))
+             '(1 none))
+  (test-list "collection->list"
+             (lambda ()
+               (list (c:collection->list '(1)) (c:collection->list '#(1))
+                     (c:collection->list "a")))
+             '((1) (1) (#\a)))
+  (test-list "collection-copy"
+             (lambda ()
+               (list (c:collection-copy '(1)) (c:collection-copy '#(1))
+                     (c:collection-copy "a")))
+             '((1) #(1) "a"))
+  (test-list "collection-clear"
+             (lambda ()
+               (list (c:collection-clear '(1)) (c:collection-clear '#(1))
+                     (c:collection-clear "a")))
+             '(() #() ""))
+  (test-equal "collection-fold-left"
+              (lambda ()
+                (call-with-values
+                  (lambda ()
+                    (c:collection-fold-left
+                     '(1 2 3)
+                     (lambda (value total) (values #t (+ value total)))
+                     0))
+                  (lambda (total) total)))
+              6)
+  (test-equal "collection-fold-right"
+              (lambda ()
+                (call-with-values
+                  (lambda ()
+                    (c:collection-fold-right
+                     '#(1 2 3)
+                     (lambda (value total) (values #t (+ (* value 10) total)))
+                     0))
+                  (lambda (total) total)))
+              60)
+  (test-identity "collection predicates"
+                 (lambda ()
+                   (and (c:ordered-collection? '(1))
+                        (c:sequence? '#(1))
+                        (c:flexible-sequence? '(1))
+                        (not (c:flexible-sequence? '#(1)))
+                        (c:directional-collection? '(1))))
+                 #t)
+  (test-list "list-size and access"
+             (lambda ()
+               (list (c:list-size '(1 2)) (c:list-empty? '())
+                     (c:list-contains? '(1 2) 2) (c:list-ref '(1 2 3) 1)
+                     (c:list-get-any '(1 2)) (c:list-get-left '(1 2))
+                     (c:list-get-right '(1 2))))
+             '(2 #t #t 2 1 1 2))
+  (test-equal "list-count"
+              (lambda () (c:list-count '(1 2 1) 1))
+              2)
+  (test-identity "list="
+                 (lambda () (c:list= = '(1 2) '(1 2) '(1 2)))
+                 #t)
+  (test-list "list-add and set"
+             (lambda ()
+               (list (c:list-add '(1) 2) (c:list-add! '(1) 2)
+                     (c:list-set '(1 2) 1 9)))
+             '((1 2) (1 2) (1 9)))
+  (test-list "list insertion"
+             (lambda ()
+               (list (c:list-insert-left '(1) 0)
+                     (c:list-insert-right '(1) 2)
+                     (c:list-insert '(1 3) 1 2)))
+             '((0 1) (1 2) (1 2 3)))
+  (test-list "list deletion"
+             (lambda ()
+               (list (c:list-delete '(1 2 1) 1)
+                     (c:list-delete-all '(1 2 1) 1)
+                     (c:list-delete-left '(1 2))
+                     (c:list-delete-right '(1 2))
+                     (c:list-delete-at '(1 2) 0)))
+             '((2 1) (2) (2) (1) (2)))
+  (test-list "list-replace-from"
+             (lambda () (c:list-replace-from '(1 2 3) 1 '(8 9)))
+             '(1 8 9))
+  (test-list "vector access"
+             (lambda ()
+               (list (c:vector-size '#(1 2)) (c:vector-empty? '#())
+                     (c:vector-contains? '#(1 2) 2)
+                     (c:vector-count '#(1 2 1) 1)
+                     (c:vector-ref '#(1 2) 1)
+                     (c:vector-get-left '#(1 2))
+                     (c:vector-get-right '#(1 2))))
+             '(2 #t #t 2 2 1 2))
+  (test-list "vector-set and replace"
+             (lambda ()
+               (list (c:vector-set '#(1 2) 0 9)
+                     (c:vector-replace-from '#(1 2 3) 1 '#(8 9))))
+             '(#(9 2) #(1 8 9)))
+  (test-identity "vector="
+                 (lambda () (c:vector= = '#(1 2) '#(1 2)))
+                 #t)
+  (test-list "string access"
+             (lambda ()
+               (list (c:string-size "ab") (c:string-empty? "")
+                     (c:string-contains? "ab" #\a)
+                     (c:string-count "aba" #\a)
+                     (c:string-ref "ab" 1)
+                     (c:string-get-left "ab")
+                     (c:string-get-right "ab")))
+             '(2 #t #t 2 #\b #\a #\b))
+  (test-list "string-set and replace"
+             (lambda ()
+               (list (c:string-set "ab" 0 #\z)
+                     (c:string-replace-from "abc" 1 "89")))
+             '("zb" "a89"))
+  (test-identity "string="
+                 (lambda () (c:string= char=? "ab" "ab"))
+                 #t)
+  (test-list "generic sequence access"
+             (lambda ()
+               (list (c:sequence-size '(1)) (c:sequence-ref '#(1 2) 1)
+                     (c:sequence-get-left "ab")
+                     (c:sequence-get-right '(1 2))))
+             '(1 2 #\a 2))
+  (test-equal "srfi 44 alias"
+              (lambda () (s44:collection-size '(1 2 3)))
+              3)
+  (finish-tests "srfi-44"))
+(main)

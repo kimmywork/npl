@@ -32,6 +32,15 @@ behavior).
   `(srfi 113)`; they use `(npl comparator)`.
 - SRFI 132 sort libraries as `(npl sort)` / `(srfi 132)`, including the
   SRFI 95 generic `sorted?`/`merge`/`sort` names with optional keys.
+- SRFI 44 collections over lists, vectors, and strings as
+  `(npl data collection)` / `(srfi 44)`.
+- SRFI 146 mappings as `(npl data map)` / `(srfi 146)`, backed by a
+  persistent red-black tree.
+- SRFI 178 bitvectors as `(npl data bitvector)` / `(srfi 178)`.
+- Forward references to value-defined procedures now compile: a procedure
+  may call a global that is defined later with `(define name (lambda ...))`
+  or `(define name (case-lambda ...))`, as R7RS library and program bodies
+  require. `bootstrap/current.ssa` was relayed for this fix.
 - SRFI 47 arrays as `(npl data array)` / `(srfi 47)`, including
   `#nA(...)` literals. Rank-1 arrays are vectors and strings; rank-1
   literals read as ordinary vectors. Rank-n literals read as tagged flat

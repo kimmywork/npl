@@ -44,8 +44,28 @@ I2 and part of I3 are implemented on `feature/srfi-i2-i3`:
   `src/compiler/tests/` and `tests/r7rs/fixtures/srfi-i2-i3`; the design note
   is `.agents/reviews/2026-11-12-srfi-i2-i3-test-design.md`.
 
-Remaining I3: SRFI 113 (with SRFI 128 comparators), 44, 146, 178.
-`check_full_compiler.sh` covers 47 suites.
+I3 completion is on `feature/0.1.2-i3-remaining` (PR #5):
+
+- `(npl comparator)` / 128, `(npl data set)` + `(npl data bag)` / 113,
+  and `(npl sort)` / 132 + 95.
+- `(npl data collection)` / 44 (lists, vectors, strings),
+  `(npl data map)` / 146 (persistent red-black tree), and
+  `(npl data bitvector)` / 178.
+- Compiler fix: a procedure may call a global defined later with
+  `(define name (lambda ...))` or `(define name (case-lambda ...))`
+  (R7RS 5.1). This fixed the SRFI 146 port. The seed was relayed;
+  `bootstrap/current.ssa` is 269,201 lines,
+  SHA-256 `68ceaee686e21ffaa836fe93df46ca95600523c34c81381bf5a7eba71ed13d6a`.
+- Set/bag internal accessors were renamed away from the exported
+  `set-comparator`/`bag-comparator` values so the forward pre-registration
+  cannot turn accessor calls into variable calls.
+- New suites: `forward-references` 4, `srfi-44` 27, `srfi-146` 33,
+  `srfi-178` 30. `check_full_compiler.sh` covers 54 suites.
+- SRFI 44 is documented as the lists/vectors/strings subset; bags, sets,
+  maps, and dictionaries remain outside this increment.
+
+I3 is complete. Remaining 0.1.2 work: I4 time/POSIX, I5 SRFI-226
+evaluation, and the D1 diagnostics items.
 
 ## 0.1.1 (2026-11-12)
 

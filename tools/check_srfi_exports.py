@@ -27,6 +27,9 @@ ALIASES = {
     "lib/srfi/125.sld": "lib/npl/hashtable.sld",
     "lib/srfi/189.sld": "lib/npl/data/option.sld",
     "lib/srfi/196.sld": "lib/npl/data/range.sld",
+    "lib/srfi/44.sld": "lib/npl/data/collection.sld",
+    "lib/srfi/146.sld": "lib/npl/data/map.sld",
+    "lib/srfi/178.sld": "lib/npl/data/bitvector.sld",
 }
 
 

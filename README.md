@@ -43,7 +43,10 @@ Current extensions include `(npl hashtable)` / `(srfi 125)`,
 `(npl vector)` / `(srfi 133)`, `(npl data stream)` / `(srfi 41)`,
 `(npl data generator)` / `(srfi 158)`, `(npl data array)` / `(srfi 47)`,
 `(npl comparator)` / `(srfi 128)`, `(npl data set)` and `(npl data bag)` /
-`(srfi 113)`, `(npl sort)` / `(srfi 132)` and `(srfi 95)`, `(npl data unifiable-box)` / `(srfi 161)`,
+`(srfi 113)`, `(npl sort)` / `(srfi 132)` and `(srfi 95)`,
+`(npl data collection)` / `(srfi 44)`, `(npl data map)` / `(srfi 146)`,
+`(npl data bitvector)` / `(srfi 178)`,
+`(npl data unifiable-box)` / `(srfi 161)`,
 `(npl data multiple-value-box)` / `(srfi 195)`, `(npl data box)` / `(srfi 111)`,
 `(npl data range)` / `(srfi 196)`, and the SRFI 189 family:
 `(npl data maybe)` and `(npl data either)` are disjoint subsets, while
@@ -61,6 +64,8 @@ behavior, so import it with `(except (scheme base) ...)` for the names it
 redefines. SRFI 13 and SRFI 130 also overlap, as do SRFI 13 and
 `(scheme char)` for `string-upcase`/`string-downcase`; import one of the
 overlapping libraries, or select the needed names with `only`/`except`.
+SRFI 44 covers lists, vectors, and strings; its remaining names are
+re-exported from `(scheme base)` and can be imported together with it.
 
 ## Quick start
 
