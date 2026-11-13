@@ -69,7 +69,7 @@ procedure. These cases focus on the gaps:
 PASS review-foundation 119
 PASS review-lazy-data 60
 PASS review-strings 100
-PASS review-vectors-arrays 68
+PASS review-vectors-arrays 69
 imports: all compile/reject cases as expected
 fixture srfi-i2-i3: native PASS, repl PASS, guile SKIP (oracle=none)
 ```

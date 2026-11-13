@@ -152,7 +152,7 @@ run_suite srfi-161 "PASS srfi-161 10"
 run_suite srfi-195 "PASS srfi-195 7"
 run_suite srfi-review-foundation "PASS review-foundation 119"
 run_suite srfi-review-strings "PASS review-strings 100"
-run_suite srfi-review-vectors-arrays "PASS review-vectors-arrays 68"
+run_suite srfi-review-vectors-arrays "PASS review-vectors-arrays 69"
 run_suite srfi-review-lazy-data "PASS review-lazy-data 60"
 
 run_import all-aliases-with-base

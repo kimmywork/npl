@@ -108,6 +108,24 @@
                  #f
                  (loop slow-next fast-next)))))))
 
+(define (array-tagged-datum? value)
+  (if (not (pair? value))
+      #f
+      (let ((head (car value)))
+        (if (eq? head DATUM-SYMBOL-TAG)
+            #t
+            (if (eq? head DATUM-STRING-TAG)
+                #t
+                (if (eq? head DATUM-CHAR-TAG)
+                    #t
+                    (if (eq? head DATUM-VECTOR-TAG)
+                        #t
+                        (if (eq? head DATUM-BYTEVECTOR-TAG)
+                            #t
+                            (if (eq? head DATUM-TRUE-TAG)
+                                #t
+                                (eq? head DATUM-FALSE-TAG))))))))))
+
 (define (array-shape-equal left right)
   (cond ((null? left) (null? right))
         ((null? right) #f)
@@ -130,17 +148,22 @@
                             (if shape shape
                                 (array-zero-shape (- rank 1))))
                       flat)
-                (let* ((sub (array-flat (- rank 1) (car rows) flat))
-                       (sub-shape (car sub))
-                       (sub-flat (cdr sub)))
+                (let ((row (car rows)))
+                  (if (not (if (pair? row) #t (null? row)))
+                      (fatal "array literal row is not a list"))
+                  (if (array-tagged-datum? row)
+                      (fatal "array literal row is not a list"))
+                  (let* ((sub (array-flat (- rank 1) row flat))
+                         (sub-shape (car sub))
+                         (sub-flat (cdr sub)))
                   (if (if shape
                           (not (array-shape-equal shape sub-shape))
                           #f)
                       (fatal "array literal rows differ in shape"))
-                  (loop (cdr rows)
-                        (if shape shape sub-shape)
-                        (+ count 1)
-                        sub-flat)))))))
+                    (loop (cdr rows)
+                          (if shape shape sub-shape)
+                          (+ count 1)
+                          sub-flat))))))))
 
 (define (array-datum rank items)
   (if (< rank 1)
