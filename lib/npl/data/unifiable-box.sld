@@ -2,7 +2,8 @@
 ;
 ; Boxes form disjoint-set forests: each box points at a parent until it is a
 ; root, and the root holds the shared value. Path compression runs on every
-; lookup. Union always makes the second argument's class the survivor.
+; lookup. Every union uses rank; ubox-link! additionally keeps the second
+; argument's value in the surviving class.
 (define-library (npl data unifiable-box)
   (export ubox ubox? ubox-ref ubox-set! ubox-unify! ubox-union! ubox-link! ubox=?)
   (import (scheme base))

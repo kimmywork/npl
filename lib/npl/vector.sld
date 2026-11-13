@@ -1,8 +1,9 @@
 ; SRFI 133 vectors with the canonical NPL library name.
 ;
 ; The R7RS vector procedures whose signatures match SRFI 133 are re-exported
-; from (scheme base) with their original identity. vector-copy is the SRFI
-; extension with an optional fill value, so it is defined here.
+; from (scheme base) with their original identity. SRFI 133 permits an
+; implementation without vector-copy fill, so the strict R7RS procedure is
+; shared with (scheme base) rather than redefined.
 (define-library (npl vector)
   (export
     make-vector vector vector-unfold vector-unfold-right

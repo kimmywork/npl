@@ -232,7 +232,11 @@
                               #t
                               (if (string=? name "posix")
                                   #t
-                                  (string=? name "unix"))))))))))
+                                  (if (string=? name "unix")
+                                      #t
+                                      (if (string=? name "little-endian")
+                                          #t
+                                          (string=? name "big-endian"))))))))))))
 
 (define (library-feature? requirement)
   (if (datum-symbol? requirement)

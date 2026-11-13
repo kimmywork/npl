@@ -47,11 +47,15 @@ Current extensions include `(npl hashtable)` / `(srfi 125)`,
 `(npl data maybe)` and `(npl data either)` are disjoint subsets, while
 `(npl data option)` or `(srfi 189)` provides the complete surface. Canonical
 libraries re-export shared bindings rather than redefining them, so they can
-be imported together with `(scheme base)` without conflicts. Array literals such as `#2A((1 2) (3 4))` read as nested vectors in both
-`nplc` and `npli`. SRFI 140 is the exception: it deliberately gives the R7RS string names istring-returning
+be imported together with `(scheme base)` without conflicts. Rank-1 array
+literals such as `#1A(1 2)` read as ordinary vectors. Rank-n literals such as
+`#2A((1 2) (3 4))` read as tagged flat vectors
+`#(npl-array-literal-5f8d shape data)` in both `nplc` and `npli`; this tag is
+reserved for literals, while arrays made by `make-array` are opaque records. SRFI 140 is the exception: it deliberately gives the R7RS string names istring-returning
 behavior, so import it with `(except (scheme base) ...)` for the names it
-redefines. SRFI 13 and SRFI 130 also overlap; import one of them, or select
-the needed names with `only`/`except`.
+redefines. SRFI 13 and SRFI 130 also overlap, as do SRFI 13 and
+`(scheme char)` for `string-upcase`/`string-downcase`; import one of the
+overlapping libraries, or select the needed names with `only`/`except`.
 
 ## Quick start
 

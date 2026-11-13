@@ -90,6 +90,8 @@
           (set-cdr! entry value)
           value)))))
 
+(define ARRAY-MAX-RANK 32)
+
 (define (array-list-length items n)
   (if (null? items) n (array-list-length (cdr items) (+ n 1))))
 
@@ -116,8 +118,6 @@
 (define (array-zero-shape rank)
   (if (= rank 0) () (cons 0 (array-zero-shape (- rank 1)))))
 
-; flat is the reversed row-major data accumulated so far; rev is applied once
-; in array-datum, so a wide literal does not copy earlier rows for each row.
 (define (array-flat rank items flat)
   (if (not (array-list-proper? items))
       (fatal "array literal row is not a proper list")
@@ -142,19 +142,20 @@
                         (+ count 1)
                         sub-flat)))))))
 
-; #nA(...) reads as the vector [npl-array-tag shape flat-data]. Keeping the
-; shape explicit lets ordinary vectors stay rank-1 arrays whose elements may
-; themselves be vectors, and preserves zero-length dimensions.
 (define (array-datum rank items)
   (if (< rank 1)
       (fatal "array literal rank must be at least 1")
-      (let* ((data (array-flat rank items ()))
-             (shape (car data))
-             (flat (rev (cdr data))))
-        (datum-vector
-         (cons (datum-symbol "npl-array-tag")
-               (cons (datum-vector shape)
-                     (cons (datum-vector flat) ())))))))
+      (if (> rank ARRAY-MAX-RANK)
+          (fatal "array literal rank is too large")
+          (let* ((data (array-flat rank items ()))
+                 (shape (car data))
+                 (flat (rev (cdr data))))
+            (if (= rank 1)
+                (datum-vector flat)
+                (datum-vector
+                 (cons (datum-symbol "npl-array-literal-5f8d")
+                       (cons (datum-vector shape)
+                             (cons (datum-vector flat) ())))))))))
 
 (define (parse-quote-datum cur)
   (let ((k (peek-kind cur)))

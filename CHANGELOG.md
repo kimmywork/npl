@@ -28,9 +28,10 @@ behavior).
   `(srfi 195)`; they share the `box`/`unbox`/`set-box!` bindings with
   `(npl data box)`.
 - SRFI 47 arrays as `(npl data array)` / `(srfi 47)`, including
-  `#nA(...)` literals. Rank-1 arrays are vectors and strings; literals read
-  as nested vectors; `make-shared-array` and rank-0/prototype values use an
-  array record. The uniform-array prototypes are fill-value descriptors, not
+  `#nA(...)` literals. Rank-1 arrays are vectors and strings; rank-1
+  literals read as ordinary vectors. Rank-n literals read as tagged flat
+  vectors `#(npl-array-literal-5f8d shape data)`; `make-array`, shared arrays,
+  and rank-0/prototype values use opaque records. The uniform-array prototypes are fill-value descriptors, not
   separate byte-array storage.
 - SRFI 111 boxes now hold one or more values, which SRFI 195 requires; the
   one-value behavior is unchanged.
@@ -57,10 +58,15 @@ behavior).
 - `(npl string)` re-exports base `string-map`/`string-for-each`, so their
   SRFI 13 optional [start end] arguments are not available on those two
   names; use the other SRFI 13 procedures for substring work.
+- The R7RS `(scheme base)` `vector-copy` remains strict; SRFI 133's optional
+  fill extension is not provided, so the binding can be shared with
+  `(scheme base)`.
+- `(features)` now reports `little-endian` or `big-endian`, and
+  `string->utf16` writes the matching byte order.
 - Both readers accept `#nA(...)` array literals: the NPL reader used by
   `nplc` and `(npl internal frontend)`, and the C reader used by
-  `(scheme read)`, `load`, and the `npli` REPL. `#nA` reads to nested
-  vectors. The compiler changed, so `bootstrap/current.ssa` was relayed.
+  `(scheme read)`, `load`, and the `npli` REPL. `#1A` reads as an ordinary
+  vector and `#nA` (n > 1) as a tagged flat vector. The compiler changed, so `bootstrap/current.ssa` was relayed.
 
 ### Fixed
 

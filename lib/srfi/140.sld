@@ -12,7 +12,8 @@
     string-concatenate string-concatenate-reverse string-join string-fold
     string-fold-right string-map string-map-index string-for-each
     string-for-each-index string-contains string-contains-right string-index
-    string-index-right string-skip string-skip-right string-count
+    string-index-right string-skip string-skip-right string-prefix?
+    string-suffix? string-prefix-length string-suffix-length string-count
     string-filter string-remove string-split string-tokenize string-replicate
     string-repeat xsubstring string-upcase string-downcase string-foldcase
     string-titlecase)

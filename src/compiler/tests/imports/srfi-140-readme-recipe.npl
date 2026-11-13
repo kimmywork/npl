@@ -1,0 +1,3 @@
+; README recipe: exclude the base names SRFI 140 redefines.
+(import (except (scheme base) string string-append list->string vector->string substring string-map utf8->string) (scheme write) (srfi 140))
+(display "ok")

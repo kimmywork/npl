@@ -605,11 +605,17 @@ static NplVal array_collect(NplVal list, int64_t rank, NplVal *flat_reversed)
 static NplVal array_from_items(NplVal list, int64_t rank)
 {
     if (rank < 1) read_error("array literal rank must be at least 1");
+    if (rank > 32) read_error("array literal rank is too large");
+    if (rank == 1) {
+        if (!array_proper_list_p(list))
+            read_error("array literal row is not a proper list");
+        return npl_list_to_vector(list);
+    }
     NplVal flat_reversed = npl_nil();
     NplVal shape = npl_list_to_vector(array_collect(list, rank, &flat_reversed));
     NplVal data = npl_list_to_vector(reverse_onto(flat_reversed, npl_nil()));
     NplVal items[3];
-    items[0] = npl_symbol("npl-array-tag", 13);
+    items[0] = npl_symbol("npl-array-literal-5f8d", 22);
     items[1] = shape;
     items[2] = data;
     return npl_make_vector(3, items);
@@ -650,10 +656,12 @@ static NplVal read_hash_datum(NplDatumReader *reader)
         int64_t rank = code - '0';
         int next;
         while ((next = reader_get(reader)) >= '0' && next <= '9') {
-            if (rank > (INT64_C(1) << 30)) read_error("array rank too large");
+            if (rank > (INT64_C(1) << 40))
+                read_error("datum label too large");
             rank = rank * 10 + (next - '0');
         }
         if (next == 'A' || next == 'a') {
+            if (rank > 32) read_error("array literal rank is too large");
             reader_skip_space(reader);
             if (reader_peek(reader) != '(')
                 read_error("array literal requires (...)");

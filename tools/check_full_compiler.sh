@@ -81,6 +81,22 @@ reject_runtime() {
     grep -F "$message" "$WORK/$name.out" >/dev/null
 }
 
+run_import() {
+    name=$1
+    emit "$WORK/compiler" "$TESTS/imports/$name.npl" "$WORK/import-$name.ssa"
+}
+
+reject_import() {
+    name=$1
+    set +e
+    "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
+        "$TESTS/imports/$name.npl" > "$WORK/import-$name.out" 2>&1
+    rc=$?
+    set -e
+    [ "$rc" -ne 0 ]
+    grep -F "conflicting imported binding" "$WORK/import-$name.out" >/dev/null
+}
+
 reject_literal_mutation() {
     name=$1
     message=$2
@@ -134,6 +150,20 @@ run_suite srfi-47 "PASS srfi-47 34"
 run_suite srfi-158 "PASS srfi-158 38"
 run_suite srfi-161 "PASS srfi-161 10"
 run_suite srfi-195 "PASS srfi-195 7"
+run_suite srfi-review-foundation "PASS review-foundation 119"
+run_suite srfi-review-strings "PASS review-strings 99"
+run_suite srfi-review-vectors-arrays "PASS review-vectors-arrays 68"
+run_suite srfi-review-lazy-data "PASS review-lazy-data 60"
+
+run_import all-aliases-with-base
+run_import base-and-npl-string
+run_import base-and-npl-vector
+run_import box-111-and-195
+run_import srfi-140-readme-recipe
+run_import srfi-140-spec-names
+reject_import scheme-char-and-srfi-13-reject
+reject_import srfi-13-and-125-reject
+reject_import srfi-13-and-130-reject
 run_suite srfi-196 "PASS srfi-196 29"
 run_suite srfi-189 "PASS srfi-189 39"
 run_suite hash-tables "PASS hash-tables 6"

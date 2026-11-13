@@ -124,9 +124,6 @@
          (count (%string-count-check "string-drop-right" s n)))
     (substring s 0 (- len count))))
 
-(define (string-copy-range s start end)
-  (substring s start end))
-
 (define (string-pad s len . rest)
   (let* ((char (if (pair? rest) (car rest) #\space))
          (range (%string-range "string-pad" s

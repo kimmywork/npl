@@ -1,0 +1,3 @@
+; Common R7RS pairing; (scheme char) and SRFI 13 both export string-upcase/string-downcase.
+(import (scheme base) (scheme char) (scheme write) (srfi 13))
+(display "ok")

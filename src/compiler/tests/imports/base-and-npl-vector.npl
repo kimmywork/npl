@@ -1,0 +1,3 @@
+; SRFI 133 re-exports base vector procedures with their original identity.
+(import (scheme base) (scheme write) (npl vector) (srfi 133))
+(display "ok")

@@ -218,10 +218,11 @@
 
 (define (string-concatenate-reverse strings . rest)
   (let* ((final (if (pair? rest) (car rest) ""))
+         (end (if (and (pair? rest) (pair? (cdr rest)))
+                  (car (cdr rest))
+                  (string-length final)))
          (range (%string-range "string-concatenate-reverse" final
-                               (if (and (pair? rest) (pair? (cdr rest)))
-                                   (list (car (cdr rest)))
-                                   '())))
+                               (list 0 end)))
          (tail (substring final (car range) (cdr range))))
     (string-concatenate (append (reverse strings) (list tail)))))
 
@@ -303,16 +304,18 @@
 
 (define (string-hash s . rest)
   (let ((bound (if (pair? rest) (car rest) 4194304)))
-    (if (and (exact-integer? bound) (positive? bound))
+    (if (and (exact-integer? bound) (<= 0 bound))
         (string-hash-range s (if (pair? rest) (cdr rest) '())
-                           %string-identity bound)
+                           %string-identity
+                           (if (zero? bound) 4194304 bound))
         (%string-error "string-hash" "invalid bound" bound))))
 
 (define (string-hash-ci s . rest)
   (let ((bound (if (pair? rest) (car rest) 4194304)))
-    (if (and (exact-integer? bound) (positive? bound))
+    (if (and (exact-integer? bound) (<= 0 bound))
         (string-hash-range s (if (pair? rest) (cdr rest) '())
-                           char-foldcase bound)
+                           char-foldcase
+                           (if (zero? bound) 4194304 bound))
         (%string-error "string-hash-ci" "invalid bound" bound))))
 
 (define (%graphic-char? c)

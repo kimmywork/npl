@@ -35,9 +35,14 @@ I2 and part of I3 are implemented on `feature/srfi-i2-i3`:
   `(npl data multiple-value-box)` / 195, `(npl data array)` / 47.
 - SRFI 111 boxes now store a value list so SRFI 195 shares its bindings.
 - SRFI 47 adds `#2A`/`#nA` array literals to both readers: the NPL compiler
-  reader and the C runtime reader. Literals read as nested vectors; rank-1
-  vectors and strings are arrays; shared arrays use an array record.
+  reader and the C runtime reader. Rank-1 literals read as ordinary vectors;
+  rank-n literals use a reserved tagged flat vector; `make-array`, shared
+  arrays, and rank-0/prototype values use opaque records.
 - The seed was relayed for the reader change.
+- Review (2026-11-12): all findings are fixed. The spec-derived suites,
+  import cases, and native/npli fixture were merged into
+  `src/compiler/tests/` and `tests/r7rs/fixtures/srfi-i2-i3`; the design note
+  is `.agents/reviews/2026-11-12-srfi-i2-i3-test-design.md`.
 
 Remaining I3: SRFI 113 (with SRFI 128 comparators), 44, 146, 178.
 `check_full_compiler.sh` covers 43 suites.
@@ -315,9 +320,9 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 265,190 lines; SHA-256
-  `4d70f4333267d6bb4be4b4f583b06ff9d8ec82e93324e88038296705e6e856cf`
-  (strict relay, 2026-11-13, array shape and reader cycle checks). The seed calls
+- `bootstrap/current.ssa`: 265,343 lines; SHA-256
+  `c1212d190d7506a475805d67508bc520ec5cee748b037d3eda47f27f18f8b342`
+  (strict relay, 2026-11-13, review fixes and endianness feature). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

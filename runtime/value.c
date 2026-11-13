@@ -6,6 +6,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+NplVal npl_little_endian_p(void)
+{
+    union { uint16_t value; uint8_t bytes[2]; } probe;
+    probe.value = 1;
+    return probe.bytes[0] ? npl_true() : npl_false();
+}
+
 /* ---- Value constructors ---- */
 
 NplVal npl_cons(NplVal car, NplVal cdr) {

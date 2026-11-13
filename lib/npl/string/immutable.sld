@@ -29,6 +29,7 @@
     string-for-each string-for-each-index
     string-contains string-contains-right
     string-index string-index-right string-skip string-skip-right
+    string-prefix? string-suffix? string-prefix-length string-suffix-length
     string-count
     string-filter string-remove string-split string-tokenize
     string-replicate string-repeat xsubstring
@@ -162,7 +163,19 @@
     (define (string-contains s1 s2 . rest)
       (apply s13:string-contains s1 s2 rest))
     (define (string-contains-right s1 s2 . rest)
-      (apply sc:string-contains-right s1 s2 rest))
+      (let ((cursor (apply sc:string-contains-right s1 s2 rest)))
+        (if cursor
+            (sc:string-cursor->index s1 cursor)
+            #f)))
+    (define (string-prefix? s1 s2 . rest)
+      (apply s13:string-prefix? s1 s2 rest))
+    (define (string-suffix? s1 s2 . rest)
+      (apply s13:string-suffix? s1 s2 rest))
+    (define (string-prefix-length s1 s2 . rest)
+      (apply s13:string-prefix-length s1 s2 rest))
+    (define (string-suffix-length s1 s2 . rest)
+      (apply s13:string-suffix-length s1 s2 rest))
+
     (define (string-index s criterion . rest)
       (apply s13:string-index s criterion rest))
     (define (string-index-right s criterion . rest)
@@ -183,8 +196,10 @@
       (%freeze-list (apply s13:string-tokenize s rest)))
     (define (string-replicate s from to . rest)
       (%freeze (apply sc:string-replicate s from to rest)))
-    (define (string-repeat s count)
-      (%freeze (s13:xsubstring s 0 (* count (string-length s)))))
+    (define (string-repeat value count)
+      (let ((source (if (char? value) (string value) value)))
+        (%freeze (s13:xsubstring source 0
+                                (* count (string-length source))))))
     (define (xsubstring s from . rest)
       (%freeze (apply s13:xsubstring s from rest)))
     (define (string-upcase s . rest)
@@ -277,9 +292,11 @@
 
     (define (string->utf16 s . rest)
       (let* ((range (%string-range "string->utf16" s rest))
-             (body (%utf16-encode s (car range) (cdr range) #t))
+             (little-endian? (and (memq 'little-endian (features)) #t))
+             (body (%utf16-encode s (car range) (cdr range)
+                                  (not little-endian?)))
              (result (make-bytevector (+ 2 (bytevector-length body)) 0)))
-        (%u16-set! result 0 #xFEFF #t)
+        (%u16-set! result 0 #xFEFF (not little-endian?))
         (bytevector-copy! result 2 body)
         result))
     (define (string->utf16be s . rest)

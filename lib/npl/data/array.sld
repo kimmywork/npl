@@ -14,7 +14,7 @@
           au64 au32 au16 au8 at1)
   (import (scheme base))
   (begin
-    (define ARRAY-TAG 'npl-array-tag)
+    (define ARRAY-TAG 'npl-array-literal-5f8d)
 
     (define-record-type array-record
       (make-array-record kind base mapper dimensions content)
@@ -108,7 +108,15 @@
              (vector-ref (vector-ref value 2)
                          (flat-index (vector-ref value 1) indices)))
             ((array-record? value)
-             (cond ((eq? (array-kind value) 'shared)
+             (cond ((eq? (array-kind value) 'array)
+                    (check-indices "array-ref"
+                                   (array-dimensions-list value)
+                                   indices)
+                    (vector-ref (array-content value)
+                                (flat-index (list->vector
+                                             (array-dimensions-list value))
+                                            indices)))
+                   ((eq? (array-kind value) 'shared)
                     (check-indices "array-ref"
                                    (array-dimensions-list value)
                                    indices)
@@ -123,14 +131,14 @@
                  (prototype-value value)
                  (array-error "array-ref" "prototype takes no indices")))
             ((vector? value)
-             (if (null? (cdr indices))
+             (if (and (pair? indices) (null? (cdr indices)))
                  (begin
                    (check-indices "array-ref" (list (vector-length value))
                                   indices)
                    (vector-ref value (car indices)))
                  (array-error "array-ref" "vector array has rank 1" indices)))
             ((string? value)
-             (if (null? (cdr indices))
+             (if (and (pair? indices) (null? (cdr indices)))
                  (begin
                    (check-indices "array-ref" (list (string-length value))
                                   indices)
@@ -146,7 +154,17 @@
                           item)
              item)
             ((array-record? value)
-             (cond ((eq? (array-kind value) 'shared)
+             (cond ((eq? (array-kind value) 'array)
+                    (check-indices "array-set!"
+                                   (array-dimensions-list value)
+                                   indices)
+                    (vector-set! (array-content value)
+                                 (flat-index (list->vector
+                                              (array-dimensions-list value))
+                                             indices)
+                                 item)
+                    item)
+                   ((eq? (array-kind value) 'shared)
                     (check-indices "array-set!"
                                    (array-dimensions-list value)
                                    indices)
@@ -163,7 +181,7 @@
                  (begin (set-prototype-value! value item) item)
                  (array-error "array-set!" "prototype takes no indices")))
             ((vector? value)
-             (if (null? (cdr indices))
+             (if (and (pair? indices) (null? (cdr indices)))
                  (begin
                    (check-indices "array-set!" (list (vector-length value))
                                   indices)
@@ -171,7 +189,7 @@
                    item)
                  (array-error "array-set!" "vector array has rank 1" indices)))
             ((string? value)
-             (if (null? (cdr indices))
+             (if (and (pair? indices) (null? (cdr indices)))
                  (begin
                    (check-indices "array-set!" (list (string-length value))
                                   indices)
@@ -227,9 +245,9 @@
               ((= 1 (length dimensions))
                (make-vector (car dimensions) fill))
               (else
-               (vector ARRAY-TAG
-                       (list->vector dimensions)
-                       (make-vector (shape-product dimensions) fill))))))
+               (make-array-record
+                'array #f #f dimensions
+                (make-vector (shape-product dimensions) fill))))))
 
     (define (make-shared-array value mapper . dimensions)
       (if (not (array? value))
