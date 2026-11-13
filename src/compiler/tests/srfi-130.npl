@@ -105,6 +105,10 @@
                  (lambda () (equal? (string-split "abc" "")
                                     '("a" "b" "c")))
                  #t)
+  (test-identity "string-split empty delimiter with limit"
+                 (lambda () (equal? (string-split "abc" "" 'infix 1)
+                                    '("a" "bc")))
+                 #t)
   (test-string "string-remove"
                (lambda () (string-remove #\a "banana"))
                "bnn")

@@ -90,20 +90,56 @@
           (set-cdr! entry value)
           value)))))
 
+(define (array-list-length items n)
+  (if (null? items) n (array-list-length (cdr items) (+ n 1))))
+
+(define (array-shape-equal left right)
+  (cond ((null? left) (null? right))
+        ((null? right) #f)
+        ((= (car left) (car right))
+         (array-shape-equal (cdr left) (cdr right)))
+        (else #f)))
+
+(define (array-zero-shape rank)
+  (if (= rank 0) () (cons 0 (array-zero-shape (- rank 1)))))
+
+(define (array-append left right)
+  (if (null? left) right (cons (car left) (array-append (cdr left) right))))
+
+(define (array-flat rank items)
+  (if (= rank 1)
+      (cons (cons (array-list-length items 0) ()) items)
+      (let loop ((rows items) (shape #f) (flat ()) (count 0))
+        (if (null? rows)
+            (cons (cons count
+                        (if shape shape (array-zero-shape (- rank 1))))
+                  flat)
+            (let ((row (car rows)))
+              (if (not (if (pair? row) #t (null? row)))
+                  (fatal "array literal row is not a list"))
+              (let* ((sub (array-flat (- rank 1) row))
+                     (sub-shape (car sub))
+                     (sub-flat (cdr sub)))
+                (if (if shape (not (array-shape-equal shape sub-shape)) #f)
+                    (fatal "array literal rows differ in shape"))
+                (loop (cdr rows)
+                      (if shape shape sub-shape)
+                      (array-append flat sub-flat)
+                      (+ count 1))))))))
+
+; #nA(...) reads as the vector [npl-array-tag shape flat-data]. Keeping the
+; shape explicit lets ordinary vectors stay rank-1 arrays whose elements may
+; themselves be vectors, and preserves zero-length dimensions.
 (define (array-datum rank items)
   (if (< rank 1)
       (fatal "array literal rank must be at least 1")
-      (if (= rank 1)
-          (datum-vector items)
-          (datum-vector (array-rows rank items)))))
-
-(define (array-rows rank items)
-  (if (null? items)
-      ()
-      (if (pair? (car items))
-          (cons (array-datum (- rank 1) (car items))
-                (array-rows rank (cdr items)))
-          (fatal "array literal row is not a list"))))
+      (let* ((data (array-flat rank items))
+             (shape (car data))
+             (flat (cdr data)))
+        (datum-vector
+         (cons (datum-symbol "npl-array-tag")
+               (cons (datum-vector shape)
+                     (cons (datum-vector flat) ())))))))
 
 (define (parse-quote-datum cur)
   (let ((k (peek-kind cur)))

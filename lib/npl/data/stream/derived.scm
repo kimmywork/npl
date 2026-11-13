@@ -24,11 +24,14 @@
   (let ((port (if (pair? rest) (car rest) (current-input-port))))
     (if (not (input-port? port))
         (error "port->stream: non-input-port argument" port)
-        (let loop ()
-          (let ((c (read-char port)))
-            (if (eof-object? c)
-                stream-null
-                (stream-cons c (loop))))))))
+        (letrec
+            ((loop
+              (stream-lambda ()
+                (let ((c (read-char port)))
+                  (if (eof-object? c)
+                      stream-null
+                      (stream-cons c (loop)))))))
+          (loop)))))
 
 (define-syntax stream
   (syntax-rules ()
@@ -346,20 +349,22 @@
   (define (value-count)
     (call-with-values (lambda () (proc seed))
                       (lambda values (- (length values) 1))))
-  (define (result-stream seed)
-    (call-with-values
-     (lambda () (proc seed))
-     (lambda (next . results)
-       (stream-cons results (result-stream next)))))
-  (define (output-stream results index)
-    (let ((result (list-ref (stream-car results) (- index 1))))
-      (cond ((pair? result)
-             (stream-cons
-              (car result)
-              (output-stream (stream-cdr results) index)))
-            ((not result) (output-stream (stream-cdr results) index))
-            ((null? result) stream-null)
-            (else (error "stream-unfolds: invalid result" result)))))
+  (define result-stream
+    (stream-lambda (seed)
+      (call-with-values
+       (lambda () (proc seed))
+       (lambda (next . results)
+         (stream-cons results (result-stream next))))))
+  (define output-stream
+    (stream-lambda (results index)
+      (let ((result (list-ref (stream-car results) (- index 1))))
+        (cond ((pair? result)
+               (stream-cons
+                (car result)
+                (output-stream (stream-cdr results) index)))
+              ((not result) (output-stream (stream-cdr results) index))
+              ((null? result) stream-null)
+              (else (error "stream-unfolds: invalid result" result))))))
   (define (output-streams results)
     (let loop ((index (value-count)) (outputs '()))
       (if (zero? index)

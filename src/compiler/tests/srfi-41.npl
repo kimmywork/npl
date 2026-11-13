@@ -111,6 +111,22 @@
              (lambda ()
                (stream->list (stream-map + (stream 1 2) (stream 10))))
              '(11))
+  (test-identity "port->stream does not read at construction"
+                 (lambda ()
+                   (let* ((port (open-input-string "ab"))
+                          (stream (port->stream port)))
+                     (char=? (read-char port) #\a)))
+                 #t)
+  (test-identity "stream-unfolds skips without blocking"
+                 (lambda ()
+                   (call-with-values
+                    (lambda ()
+                      (stream-unfolds
+                       (lambda (n) (values (+ n 1) (list n) #f))
+                       0))
+                    (lambda (values other)
+                      (= (stream-ref (stream-take 1 values) 0) 0))))
+                 #t)
   (test-list "stream-of with a filter"
              (lambda ()
                (stream->list

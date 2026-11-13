@@ -208,10 +208,14 @@
 
     (define (%split-fields s delimiter start end limit)
       (cond ((and (string? delimiter) (zero? (string-length delimiter)))
-             (let loop ((i start) (fields '()))
-               (if (>= i end)
-                   (reverse fields)
-                   (loop (+ i 1) (cons (substring s i (+ i 1)) fields)))))
+             (let loop ((i start) (fields '()) (splits 0))
+               (cond ((>= i end) (reverse fields))
+                     ((and limit (>= splits limit))
+                      (reverse (cons (substring s i end) fields)))
+                     (else
+                      (loop (+ i 1)
+                            (cons (substring s i (+ i 1)) fields)
+                            (+ splits 1))))))
             (else
              (let* ((dlen (if (char? delimiter) 1 (string-length delimiter)))
                     (matches?

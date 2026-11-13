@@ -535,20 +535,69 @@ static int array_pair_p(NplVal value)
     return npl_is_ptr(value) && npl_header(value)->tag == BOX_PAIR;
 }
 
-/* Build a rank-n array from the list read after #nA. */
+static int shape_equal(NplVal left, NplVal right)
+{
+    while (array_pair_p(left) && array_pair_p(right)) {
+        if (npl_fixnum_value(npl_pair_ptr(left)->car) !=
+            npl_fixnum_value(npl_pair_ptr(right)->car))
+            return 0;
+        left = npl_pair_ptr(left)->cdr;
+        right = npl_pair_ptr(right)->cdr;
+    }
+    return npl_is_nil(left) && npl_is_nil(right);
+}
+
+/* Returns the shape as a list of dimensions and appends the row-major data
+ * to *flat_reversed. */
+static NplVal array_collect(NplVal list, int64_t rank, NplVal *flat_reversed)
+{
+    if (rank == 1) {
+        int64_t count = 0;
+        NplVal cursor = list;
+        while (array_pair_p(cursor)) {
+            *flat_reversed =
+                npl_cons(npl_pair_ptr(cursor)->car, *flat_reversed);
+            count++;
+            cursor = npl_pair_ptr(cursor)->cdr;
+        }
+        if (!npl_is_nil(cursor)) read_error("improper array row");
+        return npl_cons(npl_fixnum(count), npl_nil());
+    }
+    int64_t rows = 0;
+    NplVal shape = npl_nil();
+    NplVal cursor = list;
+    while (array_pair_p(cursor)) {
+        NplVal row = npl_pair_ptr(cursor)->car;
+        if (!array_pair_p(row) && !npl_is_nil(row))
+            read_error("array literal row is not a list");
+        NplVal row_shape = array_collect(row, rank - 1, flat_reversed);
+        if (rows == 0)
+            shape = row_shape;
+        else if (!shape_equal(shape, row_shape))
+            read_error("array literal rows differ in shape");
+        rows++;
+        cursor = npl_pair_ptr(cursor)->cdr;
+    }
+    if (!npl_is_nil(cursor)) read_error("improper array list");
+    if (rows == 0) {
+        for (int64_t i = 0; i < rank; i++)
+            shape = npl_cons(npl_fixnum(0), shape);
+    }
+    return npl_cons(npl_fixnum(rows), shape);
+}
+
+/* Build [npl-array-tag shape flat-data] from the list read after #nA. */
 static NplVal array_from_items(NplVal list, int64_t rank)
 {
     if (rank < 1) read_error("array literal rank must be at least 1");
-    if (rank == 1) return npl_list_to_vector(list);
-    NplVal reversed = npl_nil();
-    while (array_pair_p(list)) {
-        NplVal row = npl_pair_ptr(list)->car;
-        if (!array_pair_p(row) && !npl_is_nil(row))
-            read_error("array literal row is not a list");
-        reversed = npl_cons(array_from_items(row, rank - 1), reversed);
-        list = npl_pair_ptr(list)->cdr;
-    }
-    return npl_list_to_vector(reverse_onto(reversed, npl_nil()));
+    NplVal flat_reversed = npl_nil();
+    NplVal shape = npl_list_to_vector(array_collect(list, rank, &flat_reversed));
+    NplVal data = npl_list_to_vector(reverse_onto(flat_reversed, npl_nil()));
+    NplVal items[3];
+    items[0] = npl_symbol("npl-array-tag", 13);
+    items[1] = shape;
+    items[2] = data;
+    return npl_make_vector(3, items);
 }
 
 /* #n=datum or #n# after the digits of n. */

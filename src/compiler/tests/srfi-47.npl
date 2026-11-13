@@ -66,9 +66,55 @@
   (test-equal "array-rank vector"
               (lambda () (array-rank '#(1 2 3)))
               1)
+  (test-equal "vector of vectors stays rank 1"
+              (lambda () (array-rank (vector (vector 1 2))))
+              1)
+  (test-identity "vector element is returned unchanged"
+                 (lambda ()
+                   (equal? (array-ref (vector (vector 1 2)) 0)
+                           '#(1 2)))
+                 #t)
+  (test-list "empty rows keep their shape"
+             (lambda () (array-dimensions #2A(() ())))
+             '(2 0))
+  (test-list "zero-length dimensions are retained"
+             (lambda () (array-dimensions (make-array '#(0) 0 3)))
+             '(0 3))
+  (test-equal "zero-length rank"
+              (lambda () (array-rank (make-array '#(0) 0 3)))
+              2)
   (test-list "array-dimensions string"
              (lambda () (array-dimensions "abc"))
              '(3))
+  (test-identity "shared array bounds are checked"
+                 (lambda ()
+                   (let* ((base (make-array '#(0) 4))
+                          (view (make-shared-array
+                                 base (lambda (i) (list i)) 2)))
+                     (and (not (array-in-bounds? view 2))
+                          (guard (e (#t #t))
+                            (array-ref view 2)
+                            #f))))
+                 #t)
+  (test-equal "shared prototype uses its origin"
+              (lambda ()
+                (let* ((base (make-array '#(7) 2 2))
+                       (view (make-shared-array
+                              base (lambda (i) (list i i)) 2))
+                       (copy (make-array view 2)))
+                  (array-ref copy 1)))
+              7)
+  (test-list "runtime reader empty rows"
+             (lambda ()
+               (array-dimensions
+                (read (open-input-string "#2A(() ())"))))
+             '(2 0))
+  (test-identity "runtime reader rejects dotted rows"
+                 (lambda ()
+                   (guard (e (#t #t))
+                     (read (open-input-string "#2A((1 2) . x)"))
+                     #f))
+                 #t)
   (test-equal "uniform prototype"
               (lambda () (array-ref (au8 7)))
               7)
