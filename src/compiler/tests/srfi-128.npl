@@ -12,6 +12,11 @@
   tag?
   (value tag-value))
 
+(define-record-type plain
+  (make-plain value)
+  plain?
+  (value plain-value))
+
 (define (main)
   (define real (make-comparator real? = < number-hash))
   (test-identity "comparator?" (lambda () (comparator? real)) #t)
@@ -113,6 +118,19 @@
                      (lambda (value) 5)))
                    (and (=? default-comparator (make-tag 1) (make-tag 1))
                         (<? default-comparator (make-tag 1) (make-tag 2))))
+                 #t)
+  (test-identity "registered comparator without hash stays consistent"
+                 (lambda ()
+                   (comparator-register-default!
+                    (make-comparator
+                     plain?
+                     (lambda (left right)
+                       (= (plain-value left) (plain-value right)))
+                     (lambda (left right)
+                       (< (plain-value left) (plain-value right)))
+                     #f))
+                   (= (comparator-hash default-comparator (make-plain 1))
+                      (comparator-hash default-comparator (make-plain 1))))
                  #t)
   (test-identity "srfi 128 alias"
                  (lambda () (s:comparator? s:default-comparator))

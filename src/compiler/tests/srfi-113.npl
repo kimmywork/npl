@@ -145,6 +145,11 @@
                  (lambda ()
                    (bag-member (bag boolean-comparator #f) #f 'missing))
                  #f)
+  (test-identity "set hash tolerates unhashable element comparator"
+                 (lambda ()
+                   (let ((nested (set (make-comparator symbol? eq? #f #f) 'a)))
+                     (exact-integer? (comparator-hash set-comparator nested))))
+                 #t)
   (test-equal "srfi 113 alias"
               (lambda () (s113:set-size (s113:set comparator 1 2)))
               2)

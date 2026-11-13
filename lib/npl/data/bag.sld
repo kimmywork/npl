@@ -424,10 +424,14 @@
                             (bag-fold-unique
                              (lambda (element count total)
                                (+ total
-                                  (modulo (+ (comparator-hash comparator
+                                  (modulo
+                                   (+ (* 31
+                                         (if (comparator-hashable? comparator)
+                                             (comparator-hash comparator
                                                               element)
-                                             count)
-                                          bound)))
+                                             0))
+                                      count)
+                                   bound)))
                              0 value)
                             bound)))))
 )

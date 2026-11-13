@@ -244,8 +244,11 @@
     (define (default-hash value . rest)
       (let ((bound (if (pair? rest) (car rest) hash-limit)))
         (let ((registered (registered-comparator-for value value)))
-          (if (and registered (comparator-hash-function registered))
-              ((comparator-hash-function registered) value)
+          (if registered
+              (let ((registered-hash (comparator-hash-function registered)))
+                (if registered-hash
+                    (registered-hash value)
+                    0))
               (cond ((boolean? value) (boolean-hash value bound))
                     ((char? value) (char-hash value bound))
                     ((string? value) (string-hash value bound))

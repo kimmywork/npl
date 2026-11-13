@@ -273,8 +273,11 @@
                             (set-fold
                              (lambda (element total)
                                (+ total
-                                  (modulo (comparator-hash comparator element)
-                                          bound)))
+                                  (modulo
+                                   (if (comparator-hashable? comparator)
+                                       (comparator-hash comparator element)
+                                       0)
+                                   bound)))
                              0 value)
                             bound)))))
 )
