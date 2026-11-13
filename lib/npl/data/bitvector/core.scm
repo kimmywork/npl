@@ -602,13 +602,11 @@
           #f))
 
     (define (bitvector->integer bvec)
-      (let loop ((index 0) (result 0))
-        (if (>= index (bitvector-length bvec))
+      (let loop ((index (- (bitvector-length bvec) 1)) (result 0))
+        (if (< index 0)
             result
-            (loop (+ index 1)
-                  (if (= 1 (bitvector-ref/int bvec index))
-                      (+ result (expt 2 index))
-                      result)))))
+            (loop (- index 1)
+                  (+ (* result 2) (bitvector-ref/int bvec index))))))
 
     (define (bitvector-integer-length integer)
       (let loop ((value integer) (length 0))
