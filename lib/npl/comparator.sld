@@ -11,7 +11,7 @@
     make-equal-comparator
     boolean-hash char-hash char-ci-hash string-hash string-ci-hash
     symbol-hash number-hash hash-bound hash-salt
-    make-default-comparator default-hash
+    make-default-comparator default-hash comparator-register-default!
     comparator-type-test-predicate comparator-equality-predicate
     comparator-ordering-predicate comparator-hash-function
     comparator-test-type comparator-check-type comparator-hash
@@ -88,6 +88,9 @@
                                     ((bytevector? value) 41)
                                     (else 43)))
                           (if (pair? rest) (car rest) hash-limit)))))
+
+    (define (comparator-register-default! comparator)
+      (if (comparator? comparator) #t (error "expected a comparator" comparator)))
 
     (define (make-default-comparator)
       (make-comparator (lambda (value) #t) equal? #f default-hash))
