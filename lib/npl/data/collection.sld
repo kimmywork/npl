@@ -8,8 +8,10 @@
 ; Bags, sets, maps, and dictionaries are not part of this subset.
 ;
 ; The procedures named like their (scheme base) counterparts are re-exported
-; with their standard identity, except list-ref, vector-ref, string-ref, and
-; list-copy, whose SRFI 44 forms accept optional range or absence arguments.
+; with their standard identity, so a combined import with (scheme base) stays
+; valid. Consequently the SRFI 44 optional absence and range arguments to
+; list-ref, vector-ref, string-ref, and list-copy are not provided; use the
+; collection accessors for absence handling.
 (define-library (npl data collection)
   (export
     collection? collection-name
