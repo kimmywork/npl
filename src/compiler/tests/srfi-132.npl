@@ -168,9 +168,9 @@
               '(2 3))
   (test-list "vector-find-median! sorts and returns median"
              (lambda ()
-                (let ((vector (vector 3 1 2 4)))
-                  (list (vector-find-median! < vector 'none)
-                        (vector->list vector))))
+                (let* ((vector (vector 3 1 2 4))
+                       (median (vector-find-median! < vector 'none)))
+                  (list median (vector->list vector))))
               '(5/2 (1 2 3 4)))
   (test-list "stable sort variants"
              (lambda ()
