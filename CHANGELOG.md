@@ -27,6 +27,11 @@ behavior).
 - SRFI 195 multiple-value boxes as `(npl data multiple-value-box)` /
   `(srfi 195)`; they share the `box`/`unbox`/`set-box!` bindings with
   `(npl data box)`.
+- SRFI 128 comparators as `(npl comparator)` / `(srfi 128)`.
+- SRFI 113 sets and bags as `(npl data set)` and `(npl data bag)` /
+  `(srfi 113)`; they use `(npl comparator)`.
+- SRFI 132 sort libraries as `(npl sort)` / `(srfi 132)`, including the
+  SRFI 95 generic `sorted?`/`merge`/`sort` names with optional keys.
 - SRFI 47 arrays as `(npl data array)` / `(srfi 47)`, including
   `#nA(...)` literals. Rank-1 arrays are vectors and strings; rank-1
   literals read as ordinary vectors. Rank-n literals read as tagged flat

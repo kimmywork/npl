@@ -41,7 +41,9 @@ Current extensions include `(npl hashtable)` / `(srfi 125)`,
 `(npl list)` / `(srfi 1)`, `(npl string)` / `(srfi 13)`,
 `(npl string cursor)` / `(srfi 130)`, `(npl string immutable)` / `(srfi 140)`,
 `(npl vector)` / `(srfi 133)`, `(npl data stream)` / `(srfi 41)`,
-`(npl data generator)` / `(srfi 158)`, `(npl data array)` / `(srfi 47)`, `(npl data unifiable-box)` / `(srfi 161)`,
+`(npl data generator)` / `(srfi 158)`, `(npl data array)` / `(srfi 47)`,
+`(npl comparator)` / `(srfi 128)`, `(npl data set)` and `(npl data bag)` /
+`(srfi 113)`, `(npl sort)` / `(srfi 132)` and `(srfi 95)`, `(npl data unifiable-box)` / `(srfi 161)`,
 `(npl data multiple-value-box)` / `(srfi 195)`, `(npl data box)` / `(srfi 111)`,
 `(npl data range)` / `(srfi 196)`, and the SRFI 189 family:
 `(npl data maybe)` and `(npl data either)` are disjoint subsets, while

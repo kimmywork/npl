@@ -1,0 +1,57 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl comparator)
+        (prefix (srfi 128) s:))
+
+(include "framework.npl")
+
+(define (main)
+  (define real (make-comparator real? = < number-hash))
+  (test-identity "comparator?" (lambda () (comparator? real)) #t)
+  (test-identity "ordered?" (lambda () (comparator-ordered? real)) #t)
+  (test-identity "hashable?" (lambda () (comparator-hashable? real)) #t)
+  (test-identity "test type" (lambda () (comparator-test-type real 1)) #t)
+  (test-identity "check type failure"
+                 (lambda () (guard (e (#t #t)) (comparator-check-type real 'x)))
+                 #t)
+  (test-identity "=? " (lambda () (=? real 1 1)) #t)
+  (test-identity "<? " (lambda () (<? real 1 2)) #t)
+  (test-identity ">? " (lambda () (>? real 2 1)) #t)
+  (test-identity "<=?" (lambda () (<=? real 2 2)) #t)
+  (test-identity ">=?" (lambda () (>=? real 2 1)) #t)
+  (test-equal "comparator-hash"
+              (lambda () (comparator-hash real 10))
+              10)
+  (test-equal "comparator-max"
+              (lambda () (comparator-max real 1 3 2))
+              3)
+  (test-equal "comparator-min"
+              (lambda () (comparator-min real 1 3 2))
+              1)
+  (test-equal "comparator-max-in-list"
+              (lambda () (comparator-max-in-list real '(1 5 2)))
+              5)
+  (test-identity "comparator-if<=>"
+                 (lambda ()
+                   (comparator-if<=> real 1 2 'less 'equal 'greater))
+                 'less)
+  (test-identity "list comparator"
+                 (lambda ()
+                   (=? list-comparator '(1 2) '(1 2)))
+                 #t)
+  (test-identity "vector comparator"
+                 (lambda ()
+                   (=? vector-comparator '#(1 2) '#(1 2)))
+                 #t)
+  (test-identity "string comparator"
+                 (lambda () (=? string-comparator "ab" "ab"))
+                 #t)
+  (test-identity "default comparator"
+                 (lambda () (=? default-comparator '(1 2) '(1 2)))
+                 #t)
+  (test-identity "srfi 128 alias"
+                 (lambda () (s:comparator? s:default-comparator))
+                 #t)
+  (finish-tests "srfi-128"))
+(main)

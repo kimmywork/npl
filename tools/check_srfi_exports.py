@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 ALIASES = {
     "lib/srfi/1.sld": "lib/npl/list.sld",
+    "lib/srfi/128.sld": "lib/npl/comparator.sld",
     "lib/srfi/13.sld": "lib/npl/string.sld",
     "lib/srfi/41.sld": "lib/npl/data/stream.sld",
     "lib/srfi/47.sld": "lib/npl/data/array.sld",
@@ -115,6 +116,29 @@ def main():
                 print("  missing: " + " ".join(missing))
             if extra:
                 print("  extra:   " + " ".join(extra))
+    set_exports = exports(ROOT / "lib/npl/data/set.sld")
+    bag_exports = exports(ROOT / "lib/npl/data/bag.sld")
+    alias_113 = exports(ROOT / "lib/srfi/113.sld")
+    missing = sorted((set_exports | bag_exports) - alias_113)
+    extra = sorted(alias_113 - (set_exports | bag_exports))
+    if missing or extra:
+        failed = True
+        print("(srfi 113) != set + bag")
+        if missing:
+            print("  missing: " + " ".join(missing))
+        if extra:
+            print("  extra:   " + " ".join(extra))
+
+    for alias, canonical in (("lib/srfi/132.sld", "lib/npl/sort.sld"),
+                             ("lib/srfi/95.sld", "lib/npl/sort.sld")):
+        actual = exports(ROOT / alias)
+        expected = exports(ROOT / canonical)
+        extra = sorted(actual - expected)
+        if extra:
+            failed = True
+            print("%s has names outside %s: %s" % (alias, canonical,
+                                                    " ".join(extra)))
+
     option = exports(ROOT / "lib/npl/data/option.sld")
     maybe_either = (exports(ROOT / "lib/npl/data/maybe.sld") |
                     exports(ROOT / "lib/npl/data/either.sld"))

@@ -1,0 +1,75 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl comparator)
+        (npl data set)
+        (npl data bag)
+        (prefix (srfi 113) s113:))
+
+(include "framework.npl")
+
+(define (test-list name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (define comparator (make-default-comparator))
+  (define a (set comparator 1 2 3))
+  (define b (set comparator 3 4))
+  (define bag-a (bag comparator 1 1 2))
+  (test-identity "set?" (lambda () (set? a)) #t)
+  (test-equal "set-size" (lambda () (set-size a)) 3)
+  (test-identity "set-contains?" (lambda () (set-contains? a 2)) #t)
+  (test-equal "set-member" (lambda () (set-member a 2 #f)) 2)
+  (test-equal "set-adjoin size"
+              (lambda () (set-size (set-adjoin a 4)))
+              4)
+  (test-equal "set-union size"
+              (lambda () (set-size (set-union a b)))
+              4)
+  (test-identity "set-union member"
+                 (lambda () (set-contains? (set-union a b) 4))
+                 #t)
+  (test-equal "set-intersection size"
+              (lambda () (set-size (set-intersection a b)))
+              1)
+  (test-equal "set-difference size"
+              (lambda () (set-size (set-difference a b)))
+              2)
+  (test-identity "set=?"
+                 (lambda () (set=? (set comparator 1 2) (set comparator 2 1)))
+                 #t)
+  (test-identity "set<?"
+                 (lambda () (set<? (set comparator 1) (set comparator 1 2)))
+                 #t)
+  (test-equal "set-fold"
+              (lambda () (set-fold + 0 a))
+              6)
+  (test-equal "set-count"
+              (lambda () (set-count even? a))
+              1)
+  (test-identity "set-any?"
+                 (lambda () (set-any? even? a))
+                 #t)
+  (test-identity "set-every?"
+                 (lambda () (set-every? positive? a))
+                 #t)
+  (test-identity "bag?" (lambda () (bag? bag-a)) #t)
+  (test-equal "bag-size" (lambda () (bag-size bag-a)) 3)
+  (test-equal "bag-element-count"
+              (lambda () (bag-element-count bag-a 1))
+              2)
+  (test-equal "bag-unique-size"
+              (lambda () (bag-unique-size bag-a))
+              2)
+  (test-equal "bag-sum"
+              (lambda ()
+                (bag-element-count (bag-sum bag-a (bag comparator 1)) 1))
+              3)
+  (test-identity "bag->set"
+                 (lambda () (set? (bag->set bag-a)))
+                 #t)
+  (test-equal "srfi 113 alias"
+              (lambda () (s113:set-size (s113:set comparator 1 2)))
+              2)
+  (finish-tests "srfi-113"))
+(main)
