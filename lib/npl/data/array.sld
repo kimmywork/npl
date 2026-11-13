@@ -189,11 +189,15 @@
     (define (prototype-fill prototype)
       (cond ((prototype? prototype) (prototype-value prototype))
             ((array-record? prototype)
-             (apply array-ref prototype
-                    (make-list (array-rank prototype) 0)))
+             (if (zero? (shape-product (array-dimensions-list prototype)))
+                 0
+                 (apply array-ref prototype
+                        (make-list (array-rank prototype) 0))))
             ((array-literal? prototype)
-             (apply array-ref prototype
-                    (make-list (array-rank prototype) 0)))
+             (if (zero? (vector-length (vector-ref prototype 2)))
+                 0
+                 (apply array-ref prototype
+                        (make-list (array-rank prototype) 0))))
             ((vector? prototype)
              (if (zero? (vector-length prototype))
                  0
