@@ -308,7 +308,7 @@
       (if (null? value)
           (values '() #f)
           (values (cdr value) (car value))))
-    (define list-delete-left! list-delete-left)
+    (define (list-delete-left! . args) (apply list-delete-left args))
 
     (define (delete-right value)
       (if (null? value)
@@ -323,7 +323,7 @@
                     (loop (cdr items)))))))
 
     (define (list-delete-right value) (delete-right (list-range-copy value 0 (length value))))
-    (define list-delete-right! delete-right)
+    (define (list-delete-right! . args) (apply delete-right args))
 
     (define (list-clear value) '())
     (define (list-clear! value) '())

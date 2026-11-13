@@ -247,16 +247,68 @@
                 (loop (+ i 1)))))
         (+ start (vector-length kept))))
 
+    (define (vector-swap! vector left right)
+      (let ((value (vector-ref vector left)))
+        (vector-set! vector left (vector-ref vector right))
+        (vector-set! vector right value)))
+
+    (define (median-of-three less? left middle right)
+      (cond ((less? left middle)
+             (if (less? middle right) middle
+                 (if (less? left right) right left)))
+            ((less? left right) left)
+            (else (if (less? middle right) right middle))))
+
+    ; Partition [start,end) into values less than, equal to, and greater than
+    ; pivot. Returns the equal range as two values.
+    (define (partition-three-way! less? vector start end pivot)
+      (let loop ((lt start) (index start) (gt end))
+        (cond ((>= index gt) (values lt gt))
+              ((less? (vector-ref vector index) pivot)
+               (vector-swap! vector lt index)
+               (loop (+ lt 1) (+ index 1) gt))
+              ((less? pivot (vector-ref vector index))
+               (let ((next (- gt 1)))
+                 (vector-swap! vector index next)
+                 (loop lt index next)))
+              (else (loop lt (+ index 1) gt)))))
+
+    ; Quickselect: the element at start+k is the k-th smallest (0-based) of
+    ; [start,end), and the range is partitioned around it.
+    (define (vector-select-range! less? vector start end k)
+      (let loop ((left start) (right end))
+        (if (>= left right)
+            (vector-ref vector left)
+            (let* ((middle (+ left (quotient (- right left) 2)))
+                   (pivot (median-of-three less?
+                                           (vector-ref vector left)
+                                           (vector-ref vector middle)
+                                           (vector-ref vector (- right 1)))))
+              (call-with-values
+                (lambda ()
+                  (partition-three-way! less? vector left right pivot))
+                (lambda (lt gt)
+                  (let ((target (+ start k)))
+                    (cond ((< target lt) (loop left lt))
+                          ((< target gt) (vector-ref vector target))
+                          (else (loop gt right))))))))))
+
     (define (vector-find-median less? vector knil . rest)
       (let* ((mean (if (pair? rest) (car rest)
                        (lambda (left right) (/ (+ left right) 2))))
-             (sorted (vector-sort less? vector))
-             (length (vector-length sorted)))
+             (length (vector-length vector))
+             (copy (vector-copy vector)))
         (cond ((zero? length) knil)
-              ((odd? length) (vector-ref sorted (quotient length 2)))
-              (else (mean (vector-ref sorted (- (quotient length 2) 1))
-                          (vector-ref sorted (quotient length 2)))))))
+              ((odd? length)
+               (vector-select-range! less? copy 0 length (quotient length 2)))
+              (else
+               (let* ((upper-index (quotient length 2))
+                      (upper (vector-select-range! less? copy 0 length upper-index))
+                      (lower (vector-select-range! less? copy 0 upper-index
+                                                   (- upper-index 1))))
+                 (mean lower upper))))))
 
+    ; The linear-update variant may leave the vector sorted.
     (define (vector-find-median! less? vector knil . rest)
       (let ((mean (if (pair? rest) (car rest)
                       (lambda (left right) (/ (+ left right) 2)))))
@@ -271,14 +323,18 @@
       (let* ((start (if (pair? rest) (car rest) 0))
              (end (if (and (pair? rest) (pair? (cdr rest)))
                       (car (cdr rest)) (vector-length vector))))
-        (vector-sort! less? vector start end)
-        (vector-ref vector (+ start k))))
+        (if (if (exact-integer? k) (if (<= 0 k) (< k (- end start)) #f) #f)
+            (vector-select-range! less? vector start end k)
+            (error "vector-select!" "index out of range" k))))
 
     (define (vector-separate! less? vector k . rest)
       (let* ((start (if (pair? rest) (car rest) 0))
              (end (if (and (pair? rest) (pair? (cdr rest)))
                       (car (cdr rest)) (vector-length vector))))
-        (vector-sort! less? vector start end)
+        (if (if (exact-integer? k) (if (<= 0 k) (<= k (- end start)) #f) #f)
+            (if (if (> k 0) (< k (- end start)) #f)
+                (vector-select-range! less? vector start end (- k 1)))
+            (error "vector-separate!" "index out of range" k))
         (if #f #f)))
 
 ;;;; SRFI 95 generic procedures

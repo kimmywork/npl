@@ -186,7 +186,7 @@
      (assume (mapping? mapping1))
      (assume (mapping? mapping2))
      (apply mapping-union (%mapping-union mapping1 mapping2) mappings))))
-(define mapping-union! mapping-union)
+(define (mapping-union! . args) (apply mapping-union args))
 
 (define mapping-intersection
   (case-lambda
@@ -201,7 +201,7 @@
      (assume (mapping? mapping1))
      (assume (mapping? mapping2))
      (apply mapping-intersection (%mapping-intersection mapping1 mapping2) mappings))))
-(define mapping-intersection! mapping-intersection)
+(define (mapping-intersection! . args) (apply mapping-intersection args))
 
 (define mapping-difference
   (case-lambda
@@ -216,7 +216,7 @@
      (assume (mapping? mapping1))
      (assume (mapping? mapping2))
      (apply mapping-difference (%mapping-difference mapping1 mapping2) mappings))))
-(define mapping-difference! mapping-difference)
+(define (mapping-difference! . args) (apply mapping-difference args))
 
 (define mapping-xor
   (case-lambda
@@ -231,7 +231,7 @@
      (assume (mapping? mapping1))
      (assume (mapping? mapping2))
      (apply mapping-xor (%mapping-xor mapping1 mapping2) mappings))))
-(define mapping-xor! mapping-xor)
+(define (mapping-xor! . args) (apply mapping-xor args))
 
 ;; Additional procedures for mappings with ordererd keys
 
@@ -335,11 +335,11 @@
     (tree-split comparator (mapping-tree mapping) obj)
       (%make-mapping comparator tree>=))))
 
-(define mapping-range=! mapping-range=)
-(define mapping-range<! mapping-range<)
-(define mapping-range>! mapping-range>)
-(define mapping-range<=! mapping-range<=)
-(define mapping-range>=! mapping-range>=)
+(define (mapping-range=! . args) (apply mapping-range= args))
+(define (mapping-range<! . args) (apply mapping-range< args))
+(define (mapping-range>! . args) (apply mapping-range> args))
+(define (mapping-range<=! . args) (apply mapping-range<= args))
+(define (mapping-range>=! . args) (apply mapping-range>= args))
 
 (define (mapping-split mapping obj)
   (assume (mapping? mapping))
@@ -361,7 +361,7 @@
                        pivot-value
                        (mapping-tree mapping2))))
 
-(define mapping-catenate! mapping-catenate)
+(define (mapping-catenate! . args) (apply mapping-catenate args))
 
 (define (mapping-map/monotone proc comparator mapping)
   (assume (procedure? proc))
@@ -369,7 +369,7 @@
   (assume (mapping? mapping))
   (%make-mapping comparator (tree-map proc (mapping-tree mapping))))
 
-(define mapping-map/monotone! mapping-map/monotone)
+(define (mapping-map/monotone! . args) (apply mapping-map/monotone args))
 
 (define (mapping-fold/reverse proc acc mapping)
   (assume (procedure? proc))

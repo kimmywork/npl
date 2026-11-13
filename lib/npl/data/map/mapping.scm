@@ -61,8 +61,8 @@
       (loop (mapping-adjoin mapping key value)
         (successor seed))))))
 
-(define mapping/ordered mapping)
-(define mapping-unfold/ordered mapping-unfold)
+(define (mapping/ordered . args) (apply mapping args))
+(define (mapping-unfold/ordered . args) (apply mapping-unfold args))
 
 ;; Predicates
 
@@ -134,7 +134,7 @@
         (mapping-intern mapping (car args) (lambda () (cadr args)))
       (loop (cddr args) mapping)))))
 
-(define mapping-adjoin! mapping-adjoin)
+(define (mapping-adjoin! . args) (apply mapping-adjoin args))
 
 (define (mapping-set mapping . args)
   (assume (mapping? mapping))
@@ -147,7 +147,7 @@
       (loop (cddr args)
         mapping)))))
 
-(define mapping-set! mapping-set)
+(define (mapping-set! . args) (apply mapping-set args))
 
 (define (mapping-replace mapping key value)
   (assume (mapping? mapping))
@@ -160,13 +160,13 @@
             (update key value #f)))
     mapping))
 
-(define mapping-replace! mapping-replace)
+(define (mapping-replace! . args) (apply mapping-replace args))
 
 (define (mapping-delete mapping . keys)
   (assume (mapping? mapping))
   (mapping-delete-all mapping keys))
 
-(define mapping-delete! mapping-delete)
+(define (mapping-delete! . args) (apply mapping-delete args))
 
 (define (mapping-delete-all mapping keys)
   (assume (mapping? mapping))
@@ -182,7 +182,7 @@
         mapping))
     mapping keys))
 
-(define mapping-delete-all! mapping-delete-all)
+(define (mapping-delete-all! . args) (apply mapping-delete-all args))
 
 (define (mapping-intern mapping key failure)
   (assume (mapping? mapping))
@@ -198,7 +198,7 @@
          (lambda (old-key old-value update remove)
            (return mapping old-value))))))
 
-(define mapping-intern! mapping-intern)
+(define (mapping-intern! . args) (apply mapping-intern args))
 
 (define mapping-update 
   (case-lambda
@@ -222,12 +222,12 @@
               (update key (updater (success old-value)) #f)))
       mapping))))
 
-(define mapping-update! mapping-update)
+(define (mapping-update! . args) (apply mapping-update args))
 
 (define (mapping-update/default mapping key updater default)
   (mapping-update mapping key updater (lambda () default)))
 
-(define mapping-update!/default mapping-update/default)
+(define (mapping-update!/default . args) (apply mapping-update/default args))
 
 (define mapping-pop
   (case-lambda
@@ -244,31 +244,29 @@
        (lambda ()
          (values (mapping-delete mapping key) key value)))))))))
 
-(define mapping-pop! mapping-pop)
+(define (mapping-pop! . args) (apply mapping-pop args))
 
 (define (mapping-search mapping key failure success)
   (assume (mapping? mapping))
   (assume (procedure? failure))
   (assume (procedure? success))
-  (call/cc
-   (lambda (return)
-     (let*-values
-     (((comparator)
-       (mapping-key-comparator mapping))
-      ((tree obj)
-       (tree-search comparator
-            (mapping-tree mapping)
-            key
-            (lambda (insert ignore)
-              (failure (lambda (value obj)
-                     (insert key value obj))
-                   (lambda (obj)
-                     (return mapping obj))))
-            success)))
-       (values (%make-mapping comparator tree)
-           obj)))))
+  (let*-values
+      (((comparator)
+        (mapping-key-comparator mapping))
+       ((tree obj)
+        (tree-search comparator
+                     (mapping-tree mapping)
+                     key
+                     (lambda (insert ignore)
+                       (failure (lambda (value obj)
+                                  (insert key value obj))
+                                ignore))
+                     (lambda (old-key old-value update remove)
+                       (success old-key old-value update remove)))))
+    (values (%make-mapping comparator tree) obj)))
 
-(define mapping-search! mapping-search)
+(define (mapping-search! mapping key failure success)
+  (mapping-search mapping key failure success))
 
 ;; The whole mapping
 
@@ -375,7 +373,7 @@
         (make-empty-mapping (mapping-key-comparator mapping))
         mapping))
 
-(define mapping-filter! mapping-filter)
+(define (mapping-filter! . args) (apply mapping-filter args))
 
 (define (mapping-remove predicate mapping)
   (assume (procedure? predicate))
@@ -384,7 +382,7 @@
         (not (predicate key value)))
           mapping))
 
-(define mapping-remove! mapping-remove)
+(define (mapping-remove! . args) (apply mapping-remove args))
 
 (define (mapping-partition predicate mapping)
   (assume (procedure? predicate))
@@ -392,7 +390,7 @@
   (values (mapping-filter predicate mapping)
       (mapping-remove predicate mapping)))
 
-(define mapping-partition! mapping-partition)
+(define (mapping-partition! . args) (apply mapping-partition args))
 
 ;; Copying and conversion
 
@@ -431,6 +429,6 @@
     mapping
     alist))
 
-(define alist->mapping/ordered alist->mapping)
-(define alist->mapping/ordered! alist->mapping!)
+(define (alist->mapping/ordered . args) (apply alist->mapping args))
+(define (alist->mapping/ordered! . args) (apply alist->mapping! args))
 

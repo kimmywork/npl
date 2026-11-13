@@ -201,13 +201,13 @@
        (bag (bag-key-comparator bag-value))
        bag-value))
 
-    (define bag-filter! bag-filter)
+    (define (bag-filter! . args) (apply bag-filter args))
     (define (bag-remove predicate bag-value)
       (bag-filter (lambda (element) (not (predicate element))) bag-value))
-    (define bag-remove! bag-remove)
+    (define (bag-remove! . args) (apply bag-remove args))
     (define (bag-partition predicate bag)
       (values (bag-filter predicate bag) (bag-remove predicate bag)))
-    (define bag-partition! bag-partition)
+    (define (bag-partition! . args) (apply bag-partition args))
 
     (define (bag-copy bag)
       (make-bag (bag-copy-table (bag-table bag) (bag-key-comparator bag))

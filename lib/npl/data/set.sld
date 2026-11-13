@@ -166,14 +166,14 @@
        (set (set-key-comparator set-value))
        set-value))
 
-    (define set-filter! set-filter)
+    (define (set-filter! predicate set-value) (set-filter predicate set-value))
     (define (set-remove predicate set-value)
       (set-filter (lambda (element) (not (predicate element))) set-value))
-    (define set-remove! set-remove)
+    (define (set-remove! predicate set-value) (set-remove predicate set-value))
 
     (define (set-partition predicate set)
       (values (set-filter predicate set) (set-remove predicate set)))
-    (define set-partition! set-partition)
+    (define (set-partition! predicate set-value) (set-partition predicate set-value))
 
     (define (set-copy set)
       (make-set (set-copy-table (set-table set) (set-key-comparator set))

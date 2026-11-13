@@ -59,9 +59,12 @@ I3 completion is on `feature/0.1.2-i3-remaining` (PR #5):
 - Set/bag internal accessors were renamed away from the exported
   `set-comparator`/`bag-comparator` values so the forward pre-registration
   cannot turn accessor calls into variable calls.
-- New suites: `forward-references` 4, `srfi-44` 43, `srfi-146` 38,
-  `srfi-178` 39; `srfi-128` 33, `srfi-113` 38, `srfi-132` 27.
-  `check_full_compiler.sh` covers 54 suites and 78 negative checks.
+- New suites: `forward-references` 4, `srfi-44` 43 plus surface 12,
+  `srfi-146` 38 plus surface 17, `srfi-178` 39 plus surface 8;
+  `srfi-128` 38, `srfi-113` 44, `srfi-132` 36.
+  `check_full_compiler.sh` covers 57 suites and 78 negative checks, and
+  `check_library_test_coverage.py` requires every new export to appear in a
+  test.
 
 The 2026-11-13 review pass corrected SRFI 128 default/composite comparator
 ordering and hashing, SRFI 113 bag multiplicities/relations/search/replace,
@@ -368,6 +371,14 @@ want it while it is deferred.
 - 0.1.1 review follow-ups: [state review](reviews/2026-11-12-0.1.0-state-review.md).
   Highest-value next work is source spans and stack traces, a unified
   uncaught-error exit status, SRFI 1/13/113, and separate compilation.
+- Macro/reader follow-ups: [syntax-rules review](reviews/2026-11-14-syntax-rules-ellipsis-and-lambda-shorthand.md)
+  and [macro system review](reviews/2026-11-14-macro-system-review.md).
+  Fix first: M1 (macro-produced single `define` not bound in bodies; nplc
+  rejects or miscompiles) and M2 (depth-0 pattern variables in ellipsis
+  templates). Then M3 hygiene, M5 body macro order, and decisions on M4
+  (top-level introduced definitions), M6 (core syntax exports), and N1
+  (multiple same-level ellipses). syntax-case stays deferred; SRFI 211
+  er/ir macros come first if procedural macros are needed.
 - `(sqrt -1.0-0.0i)` branch convention: follow IEEE signed-zero convention
   (Guile and Racket precedent) when sqrt is implemented. Not blocking.
 - Operand evaluation order differs between native and npli: in
