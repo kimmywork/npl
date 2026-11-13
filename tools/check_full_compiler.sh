@@ -81,6 +81,22 @@ reject_runtime() {
     grep -F "$message" "$WORK/$name.out" >/dev/null
 }
 
+run_import() {
+    name=$1
+    emit "$WORK/compiler" "$TESTS/imports/$name.npl" "$WORK/import-$name.ssa"
+}
+
+reject_import() {
+    name=$1
+    set +e
+    "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
+        "$TESTS/imports/$name.npl" > "$WORK/import-$name.out" 2>&1
+    rc=$?
+    set -e
+    [ "$rc" -ne 0 ]
+    grep -F "conflicting imported binding" "$WORK/import-$name.out" >/dev/null
+}
+
 reject_literal_mutation() {
     name=$1
     message=$2
@@ -101,7 +117,7 @@ run_suite exceptions "PASS exceptions 6"
 run_suite guard "PASS guard 9"
 run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
-run_suite libraries "PASS libraries 21"
+run_suite libraries "PASS libraries 23"
 run_suite eval "PASS eval 14"
 run_load() {
     emit "$WORK/compiler" "$TESTS/load.npl" "$WORK/load.ssa"
@@ -125,6 +141,29 @@ run_suite c-primitives "PASS c-primitives 11"
 run_suite records "PASS records 10"
 run_suite boxes "PASS boxes 6"
 run_suite srfi-1 "PASS srfi-1 44"
+run_suite srfi-13 "PASS srfi-13 61"
+run_suite srfi-130 "PASS srfi-130 29"
+run_suite srfi-140 "PASS srfi-140 24"
+run_suite srfi-133 "PASS srfi-133 25"
+run_suite srfi-41 "PASS srfi-41 32"
+run_suite srfi-47 "PASS srfi-47 34"
+run_suite srfi-158 "PASS srfi-158 38"
+run_suite srfi-161 "PASS srfi-161 10"
+run_suite srfi-195 "PASS srfi-195 7"
+run_suite srfi-review-foundation "PASS review-foundation 119"
+run_suite srfi-review-strings "PASS review-strings 100"
+run_suite srfi-review-vectors-arrays "PASS review-vectors-arrays 69"
+run_suite srfi-review-lazy-data "PASS review-lazy-data 60"
+
+run_import all-aliases-with-base
+run_import base-and-npl-string
+run_import base-and-npl-vector
+run_import box-111-and-195
+run_import srfi-140-readme-recipe
+run_import srfi-140-spec-names
+reject_import scheme-char-and-srfi-13-reject
+reject_import srfi-13-and-125-reject
+reject_import srfi-13-and-130-reject
 run_suite srfi-196 "PASS srfi-196 29"
 run_suite srfi-189 "PASS srfi-189 39"
 run_suite hash-tables "PASS hash-tables 6"

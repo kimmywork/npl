@@ -1,0 +1,3 @@
+; SRFI 195 requires the same box/unbox/set-box! bindings as SRFI 111.
+(import (scheme base) (scheme write) (npl data box) (srfi 111) (npl data multiple-value-box) (srfi 195))
+(display "ok")

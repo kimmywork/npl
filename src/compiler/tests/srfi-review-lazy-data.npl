@@ -1,0 +1,257 @@
+; SRFI 41 streams, SRFI 158 generators, and SRFI 111/161/195 boxes.
+(import (scheme base) (scheme write) (scheme process-context)
+        (prefix (npl data stream) st:)
+        (prefix (npl data generator) g:)
+        (prefix (npl data box) b:)
+        (prefix (srfi 111) b111:)
+        (prefix (npl data multiple-value-box) mv:)
+        (prefix (npl data unifiable-box) u:))
+
+(include "review-harness.scm")
+
+;;;; ST: SRFI 41
+
+(define forced 0)
+(define (note x) (set! forced (+ forced 1)) x)
+
+(check "ST-01 stream-from step"
+       (lambda () (st:stream->list 3 (st:stream-from 1 2)))
+       '(1 3 5))
+(check "ST-02 stream-range descending default step"
+       (lambda () (st:stream->list (st:stream-range 3 0)))
+       '(3 2 1))
+(check "ST-03 stream-range explicit step"
+       (lambda () (st:stream->list (st:stream-range 0 1 1/4)))
+       '(0 1/4 1/2 3/4))
+(check "ST-04 stream-constant cycles"
+       (lambda () (st:stream->list 5 (st:stream-constant 1 2)))
+       '(1 2 1 2 1))
+(check "ST-05 stream-drop past end"
+       (lambda () (st:stream->list (st:stream-drop 5 (st:stream 1 2))))
+       '())
+(check "ST-06 stream-drop-while"
+       (lambda () (st:stream->list (st:stream-drop-while odd? (st:stream 1 3 4 5))))
+       '(4 5))
+(check "ST-07 stream-fold"
+       (lambda () (st:stream-fold + 0 (st:stream 1 2 3)))
+       6)
+(check "ST-08 stream-for-each multi"
+       (lambda ()
+         (let ((acc '()))
+           (st:stream-for-each (lambda (a b) (set! acc (cons (+ a b) acc)))
+                               (st:stream 1 2 3) (st:stream 10 20))
+           acc))
+       '(22 11))
+(check "ST-09 stream-scan"
+       (lambda () (st:stream->list (st:stream-scan + 0 (st:stream 1 2 3))))
+       '(0 1 3 6))
+(check "ST-10 stream-unfolds two outputs"
+       (lambda ()
+         (call-with-values
+          (lambda ()
+            (st:stream-unfolds
+             (lambda (n) (values (+ n 1) (if (even? n) (list n) #f)
+                                 (if (odd? n) (list n) #f)))
+             0))
+          (lambda (evens odds)
+            (list (st:stream->list 3 evens) (st:stream->list 3 odds)))))
+       '((0 2 4) (1 3 5)))
+(check "ST-11 stream-match rest binding"
+       (lambda () (st:stream-match (st:stream 1 2 3) ((x . rest) (list x (st:stream->list rest)))))
+       '(1 (2 3)))
+(check "ST-12 stream-match underscore"
+       (lambda () (st:stream-match (st:stream 1 2) ((st:_ y) y)))
+       2)
+(check-error "ST-13 stream-match pattern failure"
+             (lambda () (st:stream-match (st:stream 1) (() 'empty))))
+(check "ST-14 stream-of nested generators"
+       (lambda ()
+         (st:stream->list
+          (st:stream-of (list a b) (a in (st:stream 1 2)) (b in (st:stream 'x 'y)))))
+       '((1 x) (1 y) (2 x) (2 y)))
+(check "ST-15 stream-ref does not force earlier heads"
+       (lambda ()
+         (set! forced 0)
+         (let ((s (st:stream-cons (note 1) (st:stream-cons (note 2) st:stream-null))))
+           (list (st:stream-ref s 1) forced)))
+       '(2 1))
+(check "ST-16 heads are memoized"
+       (lambda ()
+         (set! forced 0)
+         (let ((s (st:stream-cons (note 1) st:stream-null)))
+           (st:stream-car s) (st:stream-car s)
+           forced))
+       1)
+(check "ST-17 long stream does not grow the stack"
+       (lambda () (st:stream-length (st:stream-take 200000 (st:stream-from 0))))
+       200000)
+(check "ST-18 deep filter does not grow the stack"
+       (lambda ()
+         (st:stream-car (st:stream-filter (lambda (x) (> x 100000)) (st:stream-from 0))))
+       100001)
+(check-error "ST-19 stream-car of null" (lambda () (st:stream-car st:stream-null)))
+(check-error "ST-20 stream-take negative" (lambda () (st:stream-take -1 (st:stream 1))))
+(check "ST-21 list->stream / stream->list"
+       (lambda () (st:stream->list (st:list->stream '(a b c))))
+       '(a b c))
+(check-error "ST-22 list->stream improper" (lambda () (st:list->stream '(a . b))))
+(check "ST-23 port->stream"
+       (lambda () (st:stream->list (st:port->stream (open-input-string "ab"))))
+       '(#\a #\b))
+(check "ST-24 stream-let"
+       (lambda ()
+         (st:stream->list
+          (st:stream-let loop ((n 3))
+            (if (= n 0) st:stream-null (st:stream-cons n (loop (- n 1)))))))
+       '(3 2 1))
+
+;;;; G158: SRFI 158
+
+(check "G158-01 make-iota-generator step"
+       (lambda () (g:generator->list (g:make-iota-generator 3 1 2)))
+       '(1 3 5))
+(check "G158-02 make-range-generator negative step"
+       (lambda () (g:generator->list (g:make-range-generator 3 0 -1)))
+       '(3 2 1))
+(check "G158-03 circular-generator"
+       (lambda () (g:generator->list (g:circular-generator 1 2) 5))
+       '(1 2 1 2 1))
+(check "G158-04 vector->generator range"
+       (lambda () (g:generator->list (g:vector->generator #(a b c d) 1 3)))
+       '(b c))
+(check "G158-05 reverse-vector->generator range"
+       (lambda () (g:generator->list (g:reverse-vector->generator #(a b c d) 1 3)))
+       '(c b))
+(check "G158-06 make-for-each-generator"
+       (lambda () (g:generator->list (g:make-for-each-generator for-each '(1 2 3))))
+       '(1 2 3))
+(check "G158-07 coroutine generator with many yields"
+       (lambda ()
+         (g:generator-fold + 0
+                           (g:make-coroutine-generator
+                            (lambda (yield)
+                              (let loop ((i 0))
+                                (if (< i 10000) (begin (yield i) (loop (+ i 1)))))))))
+       49995000)
+(check "G158-08 gtake with padding"
+       (lambda () (g:generator->list (g:gtake (g:generator 1) 3 'pad)))
+       '(1 pad pad))
+(check "G158-09 gcombine"
+       (lambda ()
+         (g:generator->list
+          (g:gcombine (lambda (x s) (values (+ x s) (+ s 1))) 0 (g:generator 10 20 30))))
+       '(10 21 32))
+(check "G158-10 gstate-filter"
+       (lambda ()
+         (g:generator->list
+          (g:gstate-filter (lambda (x s) (values (> x s) (max x s))) 0
+                           (g:generator 1 3 2 5 4))))
+       '(1 3 5))
+(check "G158-11 ggroup with padding"
+       (lambda () (g:generator->list (g:ggroup (g:generator 1 2 3) 2 0)))
+       '((1 2) (3 0)))
+(check "G158-12 gmerge three"
+       (lambda () (g:generator->list (g:gmerge < (g:generator 1 4) (g:generator 2 5) (g:generator 3))))
+       '(1 2 3 4 5))
+(check "G158-13 gdelete-neighbor-dups"
+       (lambda () (g:generator->list (g:gdelete-neighbor-dups (g:generator 1 1 2 1 1))))
+       '(1 2 1))
+(check "G158-14 gdelete-neighbor-dups empty"
+       (lambda () (g:generator->list (g:gdelete-neighbor-dups (g:generator))))
+       '())
+(check "G158-15 gindex"
+       (lambda () (g:generator->list (g:gindex (g:generator 'a 'b 'c 'd) (g:generator 0 2))))
+       '(a c))
+(check "G158-16 gselect"
+       (lambda () (g:generator->list (g:gselect (g:generator 'a 'b 'c) (g:generator #t #f #t))))
+       '(a c))
+(check "G158-17 gtake-while stays exhausted"
+       (lambda ()
+         (let ((g (g:gtake-while odd? (g:generator 1 2 3))))
+           (list (g) (eof-object? (g)) (eof-object? (g)))))
+       '(1 #t #t))
+(check "G158-18 generator->vector! bounded"
+       (lambda ()
+         (let ((v (make-vector 2 #f)))
+           (list (g:generator->vector! v 0 (g:generator 1 2 3)) v)))
+       '(2 #(1 2)))
+(check "G158-19 generator-unfold with unfold-right"
+       (lambda ()
+         (g:generator-unfold (g:generator 1 2 3)
+                             (lambda (stop? mapper successor seed)
+                               (let loop ((s seed) (acc '()))
+                                 (if (stop? s) acc (loop (successor s) (cons (mapper s) acc)))))))
+       '(3 2 1))
+(check "G158-20 accumulators"
+       (lambda ()
+         (let ((v (g:vector-accumulator)) (s (g:string-accumulator))
+               (b (g:bytevector-accumulator)) (c (g:count-accumulator)))
+           (for-each (lambda (x) (v x) (c x)) '(1 2))
+           (s #\a) (s #\b) (b 7)
+           (list (v (eof-object)) (s (eof-object)) (b (eof-object)) (c (eof-object)))))
+       (list #(1 2) "ab" (bytevector 7) 2))
+(check "G158-21 reverse-vector-accumulator"
+       (lambda () (let ((a (g:reverse-vector-accumulator))) (a 1) (a 2) (a (eof-object))))
+       #(2 1))
+(check "G158-22 product-accumulator"
+       (lambda () (let ((a (g:product-accumulator))) (a 3) (a 4) (a (eof-object))))
+       12)
+(check "G158-23 gappend of none" (lambda () (eof-object? ((g:gappend)))) #t)
+(check "G158-24 generator-find miss" (lambda () (g:generator-find odd? (g:generator 2 4))) #f)
+
+;;;; BX: SRFI 111/195/161
+
+(check "BX-01 SRFI 111 single value"
+       (lambda () (let ((x (b:box 1))) (b:set-box! x 2) (b:unbox x)))
+       2)
+(check "BX-02 SRFI 111 alias interoperates"
+       (lambda () (b111:unbox (b:box 'v)))
+       'v)
+(check "BX-03 SRFI 195 zero-value box"
+       (lambda () (list (mv:box-arity (mv:box)) (values->list (lambda () (mv:unbox (mv:box))))))
+       '(0 ()))
+(check "BX-04 SRFI 195 set-box-value!"
+       (lambda ()
+         (let ((x (mv:box 1 2 3)))
+           (mv:set-box-value! x 1 'b)
+           (values->list (lambda () (mv:unbox x)))))
+       '(1 b 3))
+(check-error "BX-05 unbox-value out of range" (lambda () (mv:unbox-value (mv:box 1) 1)))
+(check-error "BX-06 set-box! arity change" (lambda () (mv:set-box! (mv:box 1) 1 2)))
+(check "BX-07 SRFI 111 box is a SRFI 195 box"
+       (lambda () (mv:box-arity (b:box 1)))
+       1)
+(check "U161-01 union! keeps one of the values"
+       (lambda ()
+         (let ((a (u:ubox 1)) (b (u:ubox 2)))
+           (u:ubox-union! a b)
+           (and (u:ubox=? a b) (memv (u:ubox-ref a) '(1 2)) #t)))
+       #t)
+(check "U161-02 link! takes the second value whatever the ranks"
+       (lambda ()
+         (let ((a (u:ubox 'a)) (b (u:ubox 'b)) (c (u:ubox 'c)))
+           (u:ubox-link! a b)            ; a's class now has rank 1
+           (u:ubox-link! c a)            ; survivor may be either root
+           (list (u:ubox-ref c) (u:ubox-ref b))))
+       '(b b))
+(check "U161-03 unify on already-equal boxes applies proc"
+       (lambda ()
+         (let ((a (u:ubox 2)) (b (u:ubox 3)))
+           (u:ubox-link! a b)
+           (u:ubox-unify! + a b)
+           (u:ubox-ref a)))
+       6)
+(check "U161-04 transitive equality after long chain"
+       (lambda ()
+         (let* ((boxes (let loop ((i 0) (acc '())) (if (= i 2000) acc (loop (+ i 1) (cons (u:ubox i) acc)))))
+                (first (car boxes)))
+           (for-each (lambda (x) (u:ubox-union! first x)) (cdr boxes))
+           (u:ubox=? (car boxes) (car (reverse boxes)))))
+       #t)
+(check "U161-05 set! through any member"
+       (lambda ()
+         (let ((a (u:ubox 1)) (b (u:ubox 2)))
+           (u:ubox-union! a b) (u:ubox-set! b 'z) (u:ubox-ref a)))
+       'z)
+
+(review-finish "review-lazy-data")

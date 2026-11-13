@@ -1,0 +1,3 @@
+; README: SRFI 13 and SRFI 130 overlap; importing both unqualified must be rejected.
+(import (scheme base) (scheme write) (srfi 13) (srfi 130))
+(display "ok")

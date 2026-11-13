@@ -1,0 +1,41 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl data multiple-value-box)
+        (npl data box)
+        (prefix (srfi 195) s195:))
+
+(include "framework.npl")
+
+(define (main)
+  (define values-box (box 1 2 3))
+  (test-equal "box-arity" (lambda () (box-arity values-box)) 3)
+  (test-equal "unbox-value"
+              (lambda () (unbox-value values-box 1))
+              2)
+  (test-identity "unbox returns multiple values"
+                 (lambda ()
+                   (call-with-values (lambda () (unbox values-box))
+                                     (lambda (a b c) (and (= a 1) (= b 2) (= c 3)))))
+                 #t)
+  (set-box-value! values-box 1 'x)
+  (test-identity "set-box-value!"
+                 (lambda ()
+                   (equal? (call-with-values (lambda () (unbox values-box)) list)
+                           '(1 x 3)))
+                 #t)
+  (set-box! values-box 9 8 7)
+  (test-identity "set-box! keeps arity"
+                 (lambda ()
+                   (equal? (call-with-values (lambda () (unbox values-box)) list)
+                           '(9 8 7)))
+                 #t)
+  (test-identity "wrong arity is an error"
+                 (lambda ()
+                   (guard (e (#t #t)) (set-box! values-box 1) #f))
+                 #t)
+  (test-identity "srfi 111 shares the interface"
+                 (lambda () (s195:box? (box 1 2)))
+                 #t)
+  (finish-tests "srfi-195"))
+(main)

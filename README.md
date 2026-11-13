@@ -38,12 +38,27 @@ individually; R7RS import sets do not support grouping inside a library name.
 ```
 
 Current extensions include `(npl hashtable)` / `(srfi 125)`,
-`(npl list)` / `(srfi 1)`, `(npl data box)` / `(srfi 111)`,
+`(npl list)` / `(srfi 1)`, `(npl string)` / `(srfi 13)`,
+`(npl string cursor)` / `(srfi 130)`, `(npl string immutable)` / `(srfi 140)`,
+`(npl vector)` / `(srfi 133)`, `(npl data stream)` / `(srfi 41)`,
+`(npl data generator)` / `(srfi 158)`, `(npl data array)` / `(srfi 47)`, `(npl data unifiable-box)` / `(srfi 161)`,
+`(npl data multiple-value-box)` / `(srfi 195)`, `(npl data box)` / `(srfi 111)`,
 `(npl data range)` / `(srfi 196)`, and the SRFI 189 family:
 `(npl data maybe)` and `(npl data either)` are disjoint subsets, while
 `(npl data option)` or `(srfi 189)` provides the complete surface. Canonical
 libraries re-export shared bindings rather than redefining them, so they can
-be imported together with `(scheme base)` without conflicts.
+be imported together with `(scheme base)` without conflicts. Rank-1 array
+literals such as `#1A(1 2)` read as ordinary vectors. Rank-n literals such as
+`#2A((1 2) (3 4))` read as tagged flat vectors
+`#(npl-array-literal-5f8d shape data)` in both `nplc` and `npli`. The tag
+is reserved for literals: a user vector that exactly matches the
+tag/shape/data layout is treated as an array. Arrays made by `make-array`
+are opaque records and therefore are not `vector?`; use `array-ref` to
+compare their contents with a literal. SRFI 140 is the exception: it deliberately gives the R7RS string names istring-returning
+behavior, so import it with `(except (scheme base) ...)` for the names it
+redefines. SRFI 13 and SRFI 130 also overlap, as do SRFI 13 and
+`(scheme char)` for `string-upcase`/`string-downcase`; import one of the
+overlapping libraries, or select the needed names with `only`/`except`.
 
 ## Quick start
 
@@ -99,7 +114,7 @@ supported, and there is no cross-compilation path at this stage.
   [SRFI 125 reference](docs/reference/srfi-125.html)
 
 Deliberate omissions (R7RS-large features, `syntax-case`, keyword arguments,
-record inheritance, SRFI 1/13/113, and separate compilation) are listed in
+record inheritance, SRFI 113, and separate compilation) are listed in
 the [conformance statement](docs/r7rs-conformance.md#deliberately-outside-the-language-stage).
 
 ## Testing

@@ -1,0 +1,3 @@
+; README: canonical libraries re-export base bindings, so this must compile.
+(import (scheme base) (scheme write) (npl string) (srfi 13))
+(display "ok")

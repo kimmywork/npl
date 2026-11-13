@@ -1,0 +1,3 @@
+; SRFI 140 specifies these prefix/suffix procedures.
+(import (scheme base) (scheme write) (only (srfi 140) string-prefix? string-suffix? string-prefix-length string-suffix-length))
+(display "ok")

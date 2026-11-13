@@ -1,0 +1,101 @@
+(import (except (scheme base)
+                string string-append substring list->string vector->string
+                string-map utf8->string)
+        (scheme write)
+        (scheme process-context)
+        (npl string immutable)
+        (prefix (srfi 140) s140:))
+
+(include "framework.npl")
+
+(define (test-string name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (define immutable (string-append "ab" "cd"))
+  (define mutable (string-copy immutable))
+  (test-identity "literal is an istring"
+                 (lambda () (istring? "literal"))
+                 #t)
+  (test-identity "string-append returns an istring"
+                 (lambda () (istring? immutable))
+                 #t)
+  (test-identity "string-copy returns a mutable string"
+                 (lambda () (istring? mutable))
+                 #f)
+  (test-identity "substring returns an istring"
+                 (lambda () (istring? (substring immutable 1 3)))
+                 #t)
+  (test-identity "mutating an istring is an error"
+                 (lambda ()
+                   (guard (e (#t #t))
+                     (string-set! immutable 0 #\x)
+                     #f))
+                 #t)
+  (test-string "string-append"
+               (lambda () immutable)
+               "abcd")
+  (test-string "substring"
+               (lambda () (substring immutable 1 3))
+               "bc")
+  (test-string "string-upcase"
+               (lambda () (string-upcase "abC"))
+               "ABC")
+  (test-string "string-map accepts string results"
+               (lambda () (string-map (lambda (c) "xy") "ab"))
+               "xyxy")
+  (test-string "string-map-index accepts string results"
+               (lambda () (string-map-index (lambda (i) "xy") "ab"))
+               "xyxy")
+  (test-equal "string-skip"
+              (lambda () (string-skip "aaab" (lambda (c) (char=? c #\a))))
+              3)
+  (test-equal "string-skip-right"
+              (lambda () (string-skip-right "baaa" (lambda (c) (char=? c #\a))))
+              0)
+  (test-string "utf16 little-endian BOM"
+               (lambda () (utf16->string #u8(255 254 65 0)))
+               "A")
+  (test-string "utf16 supplementary character"
+               (lambda ()
+                 (utf16->string
+                  (string->utf16 (string (integer->char #x1F600)))))
+               (string (integer->char #x1F600)))
+  (test-string "string-foldcase"
+               (lambda () (string-foldcase "AbC"))
+               "abc")
+  (test-identity "string-split returns istrings"
+                 (lambda ()
+                   (let loop ((items (string-split "a,b" #\,)))
+                     (or (null? items)
+                         (and (istring? (car items)) (loop (cdr items))))))
+                 #t)
+  (test-string "string-repeat"
+               (lambda () (string-repeat "ab" 3))
+               "ababab")
+  (test-string "string-map-index"
+               (lambda ()
+                 (string-map-index
+                  (lambda (i) (integer->char (+ 97 i))) "xyz"))
+               "abc")
+  (test-identity "utf8 round trip"
+                 (lambda ()
+                   (equal? (utf8->string (string->utf8 "héllo")) "héllo"))
+                 #t)
+  (test-string "utf16 round trip"
+               (lambda () (utf16->string (string->utf16 "héllo")))
+               "héllo")
+  (test-string "utf16be round trip"
+               (lambda () (utf16be->string (string->utf16be "héllo")))
+               "héllo")
+  (test-string "utf16le round trip"
+               (lambda () (utf16le->string (string->utf16le "héllo")))
+               "héllo")
+  (test-identity "utf16 result is an istring"
+                 (lambda () (istring? (utf16->string (string->utf16 "ab"))))
+                 #t)
+  (test-string "srfi 140 alias"
+               (lambda () (s140:string-append "a" "b"))
+               "ab")
+  (finish-tests "srfi-140"))
+(main)

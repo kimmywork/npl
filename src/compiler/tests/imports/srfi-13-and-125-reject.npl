@@ -1,0 +1,3 @@
+; SRFI 13 and SRFI 125 both define string-hash; the conflict should be reported (and documented).
+(import (scheme base) (scheme write) (srfi 13) (srfi 125))
+(display "ok")

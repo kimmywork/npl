@@ -54,4 +54,5 @@
 ; identifiers when a platform primitive exists.
 (define (features)
   (list 'r7rs 'npl 'full-unicode 'ratios 'exact-closed 'exact-complex
-        'ieee-float 'posix 'unix))
+        'ieee-float 'posix 'unix
+        (if (npl_little_endian_p) 'little-endian 'big-endian)))

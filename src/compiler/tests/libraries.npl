@@ -123,5 +123,21 @@
                   (full-unicode 42)
                   (else 0)))
               42)
+  (test-identity "endianness feature matches features"
+                 (lambda ()
+                   (if (memq 'little-endian (features))
+                       (cond-expand
+                         (little-endian #t)
+                         (else #f))
+                       (cond-expand
+                         (big-endian #t)
+                         (else #f))))
+                 #t)
+  (test-identity "both endianness features cannot hold"
+                 (lambda ()
+                   (cond-expand
+                     ((and big-endian little-endian) #f)
+                     (else #t)))
+                 #t)
   (finish-tests "libraries"))
 (main)

@@ -1,0 +1,203 @@
+; SRFI 133 vectors, the (scheme base) vector-copy change, and SRFI 47 arrays
+; including #nA literals through both readers (compiler literal and the C
+; reader behind (scheme read)).
+(import (scheme base) (scheme write) (scheme read) (scheme process-context)
+        (prefix (npl vector) v:)
+        (prefix (npl data array) a:))
+
+(include "review-harness.scm")
+
+(define (read-string-datum text) (read (open-input-string text)))
+
+;;;; VB: (scheme base) vector-copy must stay R7RS
+
+(check "VB-01 vector-copy whole" (lambda () (vector-copy #(1 2 3))) #(1 2 3))
+(check "VB-02 vector-copy start" (lambda () (vector-copy #(1 2 3) 1)) #(2 3))
+(check "VB-03 vector-copy start end" (lambda () (vector-copy #(1 2 3) 1 2)) #(2))
+(check "VB-04 vector-copy empty range" (lambda () (vector-copy #(1 2 3) 3 3)) #())
+(check-error "VB-05 vector-copy end past length" (lambda () (vector-copy #(1 2) 0 5)))
+(check-error "VB-06 vector-copy start past length" (lambda () (vector-copy #(1 2) 4 5)))
+(check-error "VB-07 vector-copy start > end" (lambda () (vector-copy #(1 2) 2 1)))
+(check-error "VB-08 vector-copy non-integer" (lambda () (vector-copy #(1 2) 'a)))
+(check "VB-09 vector-copy result is fresh and mutable"
+       (lambda () (let ((v (vector-copy #(1 2)))) (vector-set! v 0 9) v))
+       #(9 2))
+
+;;;; V133: SRFI 133
+
+(check "V133-02 vector-unfold seeds"
+       (lambda () (v:vector-unfold (lambda (i x) (values x (* x 2))) 4 1))
+       #(1 2 4 8))
+(check "V133-03 vector-unfold-right"
+       (lambda () (v:vector-unfold-right (lambda (i) i) 3))
+       #(0 1 2))
+(check "V133-04 vector-reverse-copy range"
+       (lambda () (v:vector-reverse-copy #(5 4 3 2 1 0) 1 5))
+       #(1 2 3 4))
+(check-error "V133-05 vector-reverse-copy bad range"
+             (lambda () (v:vector-reverse-copy #(1 2) 0 5)))
+(check "V133-06 vector-append-subvectors"
+       (lambda () (v:vector-append-subvectors #(a b c d) 1 3 #(x y) 0 1))
+       #(b c x))
+(check "V133-07 vector= multiple"
+       (lambda () (list (v:vector= eq? #(a b) #(a b) #(a b)) (v:vector= eq? #(a) #(a b))))
+       '(#t #f))
+(check "V133-08 vector= no vectors" (lambda () (v:vector= eq?)) #t)
+(check "V133-09 vector-fold multi uses shortest"
+       (lambda () (v:vector-fold (lambda (s a b) (cons (+ a b) s)) '() #(1 2 3) #(10 20)))
+       '(22 11))
+(check "V133-10 vector-fold-right"
+       (lambda () (v:vector-fold-right (lambda (s x) (cons x s)) '() #(1 2 3)))
+       '(1 2 3))
+(check "V133-11 vector-map! multi"
+       (lambda () (let ((v (vector 1 2))) (v:vector-map! + v #(10 20)) v))
+       #(11 22))
+(check "V133-12 vector-count multi"
+       (lambda () (v:vector-count < #(1 5 3) #(2 4 6)))
+       2)
+(check "V133-13 vector-cumulate spec example"
+       (lambda () (v:vector-cumulate + 0 #(3 1 4 1 5 9 2 5 6)))
+       #(3 4 8 9 14 23 25 30 36))
+(check "V133-14 vector-index multi"
+       (lambda () (v:vector-index < #(3 1 4 1) #(2 7 1 8)))
+       1)
+(check "V133-15 vector-index-right multi uses shortest"
+       (lambda () (v:vector-index-right < #(3 1 4 1) #(2 7 1)))
+       1)
+(check "V133-16 vector-skip-right"
+       (lambda () (v:vector-skip-right odd? #(1 2 3 5)))
+       1)
+(check "V133-17 vector-binary-search miss"
+       (lambda () (v:vector-binary-search #(1 3 5) 4 -))
+       #f)
+(check "V133-18 vector-binary-search empty"
+       (lambda () (v:vector-binary-search #() 4 -))
+       #f)
+(check "V133-19 vector-any returns the value"
+       (lambda () (v:vector-any (lambda (x) (and (> x 1) (* x 10))) #(1 2 3)))
+       20)
+(check "V133-20 vector-every returns the last value"
+       (lambda () (v:vector-every (lambda (x) (* x 10)) #(1 2)))
+       20)
+(check "V133-21 vector-every empty" (lambda () (v:vector-every odd? #())) #t)
+(check "V133-22 vector-partition"
+       (lambda () (values->list (lambda () (v:vector-partition odd? #(1 2 3 4)))))
+       '(#(1 3 2 4) 2))
+(check "V133-23 vector-reverse! range"
+       (lambda () (let ((v (vector 1 2 3 4))) (v:vector-reverse! v 1 3) v))
+       #(1 3 2 4))
+(check "V133-24 vector-reverse-copy! into same vector"
+       (lambda () (let ((v (vector 1 2 3 4 5))) (v:vector-reverse-copy! v 1 v 0 3) v))
+       #(1 3 2 1 5))
+(check "V133-25 vector-unfold!"
+       (lambda () (let ((v (vector 0 0 0 0))) (v:vector-unfold! (lambda (i) (* i i)) v 1 3) v))
+       #(0 1 4 0))
+(check "V133-26 vector-unfold-right! seeds"
+       (lambda ()
+         (let ((v (vector 0 0 0)))
+           (v:vector-unfold-right! (lambda (i s) (values s (+ s 1))) v 0 3 10)
+           v))
+       #(12 11 10))
+(check "V133-27 reverse-vector->list range"
+       (lambda () (v:reverse-vector->list #(1 2 3 4) 1 3))
+       '(3 2))
+(check "V133-28 vector-concatenate empty" (lambda () (v:vector-concatenate '())) #())
+(check "V133-29 vector-empty?" (lambda () (list (v:vector-empty? #()) (v:vector-empty? #(1)))) '(#t #f))
+(check "V133-30 vector-swap!"
+       (lambda () (let ((v (vector 1 2 3))) (v:vector-swap! v 0 2) v))
+       #(3 2 1))
+
+;;;; A47: SRFI 47 arrays
+
+(check "A47-01 #1A literal is a rank-1 vector"
+       (lambda () (list (vector? #1A(1 2)) (a:array-rank #1A(1 2)) (vector-length #1A(1 2))))
+       '(#t 1 2))
+(check "A47-02 #1A equals the vector" (lambda () (equal? #1A(1 2) #(1 2))) #t)
+(check "A47-03 #2A rank and dimensions"
+       (lambda () (list (a:array-rank #2A((1 2 3) (4 5 6)))
+                        (a:array-dimensions #2A((1 2 3) (4 5 6)))))
+       '(2 (2 3)))
+(check "A47-04 #2A row-major access"
+       (lambda () (a:array-ref #2A((1 2 3) (4 5 6)) 1 2))
+       6)
+(check "A47-05 #3A access"
+       (lambda () (a:array-ref #3A(((1 2) (3 4)) ((5 6) (7 8))) 1 0 1))
+       6)
+(check "A47-06 lower-case a"
+       (lambda () (a:array-dimensions (read-string-datum "#2a((1) (2))")))
+       '(2 1))
+(check "A47-07 compiler and runtime readers agree"
+       (lambda ()
+         (equal? #2A((1 2) (3 4)) (read-string-datum "#2A((1 2) (3 4))")))
+       #t)
+(check "A47-08 reserved literal tag is an array (documented limitation)"
+       (lambda () (a:array-rank (vector 'npl-array-literal-5f8d (vector 1 2) (vector 7 8))))
+       2)
+(check "A47-09 2-D array is not a vector"
+       (lambda () (vector? (a:make-array #(0) 2 2)))
+       #f)
+(check-error "A47-10 ragged rows" (lambda () (read-string-datum "#2A((1 2) (3))")))
+(check-error "A47-11 rank 0 literal" (lambda () (read-string-datum "#0A(1)")))
+(check-error "A47-12 missing parenthesis" (lambda () (read-string-datum "#2A x")))
+(check-error "A47-13 non-list row" (lambda () (read-string-datum "#2A(1 2)")))
+(check-error "A47-31 tagged datum row" (lambda () (read-string-datum "#2A(#t)")))
+(check-error "A47-14 huge empty rank is rejected"
+             (lambda () (read-string-datum "#100000000A()") 'accepted))
+(check "A47-15 datum label at the old limit still reads"
+       (lambda () (car (read-string-datum "#1099511627776=(a)")))
+       'a)
+(check "A47-16 datum label referencing inside an array row"
+       (lambda () (a:array-ref (read-string-datum "#2A(#0=(1 2) (3 4))") 0 1))
+       2)
+(check-error "A47-17 array-ref vector with no index"
+             (lambda () (a:array-ref (vector 1 2))))
+(check "A47-18 array-ref vector with no index has a SRFI 47 message"
+       (lambda ()
+         (let ((r (review-capture (lambda () (a:array-ref (vector 1 2))))))
+           (and (eq? (car r) 'raised)
+                (string? (cdr r))
+                (not (equal? (cdr r) "cdr: expected a pair")))))
+       #t)
+(check-error "A47-19 too many indices" (lambda () (a:array-ref #2A((1)) 0 0 0)))
+(check-error "A47-20 out-of-bounds set" (lambda () (a:array-set! (a:make-array #(0) 2 2) 1 2 0)))
+(check "A47-21 make-array string prototype"
+       (lambda () (a:make-array "x" 3))
+       "xxx")
+(check "A47-22 shared array transpose"
+       (lambda ()
+         (let* ((m (a:make-array #(0) 2 3))
+                (t (a:make-shared-array m (lambda (i j) (list j i)) 3 2)))
+           (a:array-set! m 5 0 2)
+           (list (a:array-dimensions t) (a:array-ref t 2 0))))
+       '((3 2) 5))
+(check "A47-23 shared of shared"
+       (lambda ()
+         (let* ((v (vector 0 1 2 3 4 5))
+                (s1 (a:make-shared-array v (lambda (i) (list (+ i 1))) 5))
+                (s2 (a:make-shared-array s1 (lambda (i) (list (* i 2))) 3)))
+           (list (a:array-ref s2 0) (a:array-ref s2 2))))
+       '(1 5))
+(check "A47-24 rank-0 array"
+       (lambda () (let ((z (a:make-array #(7)))) (a:array-set! z 8) (list (a:array-rank z) (a:array-ref z))))
+       '(0 8))
+(check "A47-25 array-in-bounds? rejects non-integer"
+       (lambda () (a:array-in-bounds? #(1 2) 0.5))
+       #f)
+(check "A47-26 array-rank of non-array is 0" (lambda () (a:array-rank 'x)) 0)
+(check "A47-27 prototype default fill"
+       (lambda () (a:array-ref (a:make-array (a:ar64) 2) 0))
+       0.0)
+(check "A47-28 at1 prototype fill"
+       (lambda () (a:array-ref (a:make-array (a:at1) 1) 0))
+       #f)
+(check "A47-29 read array with nested vectors keeps them as elements"
+       (lambda () (a:array-ref (read-string-datum "#2A((#(1) 2))") 0 0))
+       #(1))
+(check "A47-30 write/read round trip of a 2-D array"
+       (lambda ()
+         (let ((port (open-output-string)))
+           (write #2A((1 2) (3 4)) port)
+           (equal? (read-string-datum (get-output-string port)) #2A((1 2) (3 4)))))
+       #t)
+
+(review-finish "review-vectors-arrays")

@@ -24,7 +24,28 @@ I1 is implemented on `release/0.1.2`: `(npl list)` / `(srfi 1)`,
 `(npl data maybe)` / `(npl data either)` / `(npl data option)` /
 `(srfi 189)`. The new compiler suites and the `srfi-core` native/npli fixture pass;
 `tools/run_tests.sh --skip-current-fixed-point` is 56/56 PASS; the
-implemented SRFI references are committed. PR: https://github.com/kimmywork/npl/pull/2. I2 (strings) is next.
+implemented SRFI references are committed. PR #2 merged at `c05dd68`.
+
+I2 and part of I3 are implemented on `feature/srfi-i2-i3`:
+
+- I2: `(npl string)` / 13, `(npl string cursor)` / 130,
+  `(npl string immutable)` / 140.
+- I3: `(npl vector)` / 133, `(npl data stream)` / 41,
+  `(npl data generator)` / 158, `(npl data unifiable-box)` / 161,
+  `(npl data multiple-value-box)` / 195, `(npl data array)` / 47.
+- SRFI 111 boxes now store a value list so SRFI 195 shares its bindings.
+- SRFI 47 adds `#2A`/`#nA` array literals to both readers: the NPL compiler
+  reader and the C runtime reader. Rank-1 literals read as ordinary vectors;
+  rank-n literals use a reserved tagged flat vector; `make-array`, shared
+  arrays, and rank-0/prototype values use opaque records.
+- The seed was relayed for the reader change.
+- Review (2026-11-12): all findings are fixed. The spec-derived suites,
+  import cases, and native/npli fixture were merged into
+  `src/compiler/tests/` and `tests/r7rs/fixtures/srfi-i2-i3`; the design note
+  is `.agents/reviews/2026-11-12-srfi-i2-i3-test-design.md`.
+
+Remaining I3: SRFI 113 (with SRFI 128 comparators), 44, 146, 178.
+`check_full_compiler.sh` covers 47 suites.
 
 ## 0.1.1 (2026-11-12)
 
@@ -299,9 +320,9 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 263,408 lines; SHA-256
-  `c143f35900deda45d696bc637d642577f8601950d01ef4e67164eb0502ec5b43`
-  (strict relay, 2026-11-12, 0.1.1 release hardening). The seed calls
+- `bootstrap/current.ssa`: 268,699 lines; SHA-256
+  `a92cd38d3152502f7702612a22b8681effcf74811d72110d78c7e1cb3516f601`
+  (strict relay, 2026-11-13, endianness and tagged array row checks). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

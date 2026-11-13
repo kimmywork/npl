@@ -1,0 +1,233 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (only (scheme char)
+              char-alphabetic? char-whitespace? char-upcase char-downcase)
+        (npl string)
+        (prefix (srfi 13) s13:))
+
+(include "framework.npl")
+
+(define (test-string name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (test-identity "string-null? empty"
+                 (lambda () (string-null? ""))
+                 #t)
+  (test-identity "string-null? non-empty"
+                 (lambda () (string-null? "x"))
+                 #f)
+  (test-identity "string-every"
+                 (lambda () (string-every char-alphabetic? "abc"))
+                 #t)
+  (test-identity "string-any witness"
+                 (lambda () (string-any #\b "abc"))
+                 #t)
+  (test-string "string-tabulate"
+               (lambda ()
+                 (string-tabulate
+                  (lambda (i) (integer->char (+ 65 i))) 3))
+               "ABC")
+  (test-string "string-unfold"
+               (lambda ()
+                 (string-unfold
+                  (lambda (n) (= n 3))
+                  (lambda (n) (integer->char (+ 97 n)))
+                  (lambda (n) (+ n 1))
+                  0))
+               "abc")
+  (test-string "string-unfold-right"
+               (lambda ()
+                 (string-unfold-right
+                  (lambda (n) (= n 3))
+                  (lambda (n) (integer->char (+ 97 n)))
+                  (lambda (n) (+ n 1))
+                  0))
+               "cba")
+  (test-string "reverse-list->string"
+               (lambda () (reverse-list->string '(#\a #\b #\c)))
+               "cba")
+  (test-string "string-join infix"
+               (lambda () (string-join '("a" "b" "c") "-"))
+               "a-b-c")
+  (test-string "string-join prefix"
+               (lambda () (string-join '("a" "b") "-" 'prefix))
+               "-a-b")
+  (test-string "string-join suffix"
+               (lambda () (string-join '("a" "b") "-" 'suffix))
+               "a-b-")
+  (test-string "substring/shared"
+               (lambda () (substring/shared "abcdef" 2))
+               "cdef")
+  (test-string "string-take"
+               (lambda () (string-take "abcdef" 2))
+               "ab")
+  (test-string "string-take-right"
+               (lambda () (string-take-right "abcdef" 2))
+               "ef")
+  (test-string "string-drop"
+               (lambda () (string-drop "abcdef" 2))
+               "cdef")
+  (test-string "string-drop-right"
+               (lambda () (string-drop-right "abcdef" 2))
+               "abcd")
+  (test-string "string-pad"
+               (lambda () (string-pad "325" 5))
+               "  325")
+  (test-string "string-pad truncates"
+               (lambda () (string-pad "8871325" 5))
+               "71325")
+  (test-string "string-pad-right"
+               (lambda () (string-pad-right "325" 5))
+               "325  ")
+  (test-string "string-trim"
+               (lambda () (string-trim "  hi  "))
+               "hi  ")
+  (test-string "string-trim-right"
+               (lambda () (string-trim-right "  hi  "))
+               "  hi")
+  (test-string "string-trim-both"
+               (lambda () (string-trim-both "  hi  "))
+               "hi")
+  (test-identity "string="
+                 (lambda () (string= "abc" "abc"))
+                 #t)
+  (test-identity "string<>"
+                 (lambda () (string<> "abc" "abd"))
+                 #t)
+  (test-identity "string<"
+                 (lambda () (string< "abc" "abd"))
+                 #t)
+  (test-identity "string<="
+                 (lambda () (string<= "abc" "abc"))
+                 #t)
+  (test-identity "string-ci="
+                 (lambda () (string-ci= "AbC" "aBc"))
+                 #t)
+  (test-identity "string-compare"
+                 (lambda ()
+                   (string-compare "abc" "abd"
+                                   (lambda (i) 'less)
+                                   (lambda (i) 'equal)
+                                   (lambda (i) 'greater)))
+                 'less)
+  (test-string "string-upcase"
+               (lambda () (string-upcase "aBc"))
+               "ABC")
+  (test-string "string-downcase"
+               (lambda () (string-downcase "aBc"))
+               "abc")
+  (test-string "string-titlecase"
+               (lambda () (string-titlecase "hello wORLD"))
+               "Hello World")
+  (test-string "string-reverse"
+               (lambda () (string-reverse "abc"))
+               "cba")
+  (test-string "string-reverse!"
+               (lambda ()
+                 (let ((s (string-copy "abc")))
+                   (string-reverse! s)
+                   s))
+               "cba")
+  (test-string "string-concatenate"
+               (lambda () (string-concatenate '("a" "b" "c")))
+               "abc")
+  (test-string "string-append/shared"
+               (lambda () (string-append/shared "a" "b" "c"))
+               "abc")
+  (test-string "string-concatenate-reverse"
+               (lambda () (string-concatenate-reverse '("a" "b") "c"))
+               "bac")
+  (test-string "string-map!"
+               (lambda ()
+                 (let ((s (string-copy "abc")))
+                   (string-map! char-upcase s)
+                   s))
+               "ABC")
+  (test-equal "string-fold"
+              (lambda () (string-fold (lambda (c n) (+ n 1)) 0 "abcd"))
+              4)
+  (test-identity "string-fold-right"
+                 (lambda ()
+                   (equal? (string-fold-right cons '() "abc")
+                           '(#\a #\b #\c)))
+                 #t)
+  (test-equal "string-for-each-index"
+              (lambda ()
+                (let ((sum 0))
+                  (string-for-each-index (lambda (i) (set! sum (+ sum i)))
+                                        "abcd")
+                  sum))
+              6)
+  (test-equal "string-prefix-length"
+              (lambda () (string-prefix-length "abc" "abd"))
+              2)
+  (test-equal "string-prefix-length-ci"
+              (lambda () (string-prefix-length-ci "aBc" "AbD"))
+              2)
+  (test-equal "string-suffix-length"
+              (lambda () (string-suffix-length "xabc" "yabc"))
+              3)
+  (test-identity "string-prefix?"
+                 (lambda () (string-prefix? "ab" "abcdef"))
+                 #t)
+  (test-identity "string-suffix?"
+                 (lambda () (string-suffix? "ef" "abcdef"))
+                 #t)
+  (test-identity "string-prefix-ci?"
+                 (lambda () (string-prefix-ci? "AB" "abcdef"))
+                 #t)
+  (test-equal "string-index"
+              (lambda () (string-index "abc" #\b))
+              1)
+  (test-equal "string-index-right"
+              (lambda () (string-index-right "abcb" #\b))
+              3)
+  (test-equal "string-skip"
+              (lambda () (string-skip "aaab" #\a))
+              3)
+  (test-equal "string-skip-right"
+              (lambda () (string-skip-right "baaa" #\a))
+              0)
+  (test-equal "string-count"
+              (lambda () (string-count "aab" #\a))
+              2)
+  (test-equal "string-contains"
+              (lambda () (string-contains "abcdef" "cd"))
+              2)
+  (test-equal "string-contains-ci"
+              (lambda () (string-contains-ci "abcdef" "CD"))
+              2)
+  (test-identity "string-hash range"
+                 (lambda () (< (string-hash "abc" 100) 100))
+                 #t)
+  (test-string "string-filter"
+               (lambda () (string-filter char-alphabetic? "a1b2"))
+               "ab")
+  (test-string "string-delete"
+               (lambda () (string-delete char-alphabetic? "a1b2"))
+               "12")
+  (test-identity "string-tokenize"
+                 (lambda ()
+                   (equal? (string-tokenize "  a bb  ccc ")
+                           '("a" "bb" "ccc")))
+                 #t)
+  (test-string "xsubstring"
+               (lambda () (xsubstring "abc" 1 7))
+               "bcabca")
+  (test-string "string-xcopy!"
+               (lambda ()
+                 (let ((target (make-string 6 #\-)))
+                   (string-xcopy! target 0 "abc" 1 7)
+                   target))
+               "bcabca")
+  (test-string "string-replace"
+               (lambda ()
+                 (string-replace "The TCL programmer" "perl" 4 7))
+               "The perl programmer")
+  (test-identity "srfi 13 alias"
+                 (lambda () (s13:string-null? ""))
+                 #t)
+  (finish-tests "srfi-13"))
+(main)

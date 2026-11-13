@@ -530,15 +530,101 @@ static NplVal patch_placeholder(NplVal original, NplVal placeholder,
     return original;
 }
 
-/* #n=datum or #n# after the digits of n. */
-static NplVal read_label_datum(NplDatumReader *reader, int first)
+static int array_pair_p(NplVal value)
 {
-    int64_t label = first - '0';
-    int code;
-    while ((code = reader_get(reader)) >= '0' && code <= '9') {
-        if (label > (INT64_C(1) << 40)) read_error("datum label too large");
-        label = label * 10 + (code - '0');
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_PAIR;
+}
+
+static int array_proper_list_p(NplVal list)
+{
+    NplVal slow = list;
+    NplVal fast = list;
+    while (array_pair_p(fast) && array_pair_p(npl_pair_ptr(fast)->cdr)) {
+        slow = npl_pair_ptr(slow)->cdr;
+        fast = npl_pair_ptr(npl_pair_ptr(fast)->cdr)->cdr;
+        if (slow == fast) return 0;
     }
+    while (array_pair_p(list)) list = npl_pair_ptr(list)->cdr;
+    return npl_is_nil(list);
+}
+
+static int shape_equal(NplVal left, NplVal right)
+{
+    while (array_pair_p(left) && array_pair_p(right)) {
+        if (npl_fixnum_value(npl_pair_ptr(left)->car) !=
+            npl_fixnum_value(npl_pair_ptr(right)->car))
+            return 0;
+        left = npl_pair_ptr(left)->cdr;
+        right = npl_pair_ptr(right)->cdr;
+    }
+    return npl_is_nil(left) && npl_is_nil(right);
+}
+
+/* Returns the shape as a list of dimensions and appends the row-major data
+ * to *flat_reversed. */
+static NplVal array_collect(NplVal list, int64_t rank, NplVal *flat_reversed)
+{
+    if (!array_proper_list_p(list))
+        read_error("array literal row is not a proper list");
+    if (rank == 1) {
+        int64_t count = 0;
+        NplVal cursor = list;
+        while (array_pair_p(cursor)) {
+            *flat_reversed =
+                npl_cons(npl_pair_ptr(cursor)->car, *flat_reversed);
+            count++;
+            cursor = npl_pair_ptr(cursor)->cdr;
+        }
+        if (!npl_is_nil(cursor)) read_error("improper array row");
+        return npl_cons(npl_fixnum(count), npl_nil());
+    }
+    int64_t rows = 0;
+    NplVal shape = npl_nil();
+    NplVal cursor = list;
+    while (array_pair_p(cursor)) {
+        NplVal row = npl_pair_ptr(cursor)->car;
+        if (!array_pair_p(row) && !npl_is_nil(row))
+            read_error("array literal row is not a list");
+        NplVal row_shape = array_collect(row, rank - 1, flat_reversed);
+        if (rows == 0)
+            shape = row_shape;
+        else if (!shape_equal(shape, row_shape))
+            read_error("array literal rows differ in shape");
+        rows++;
+        cursor = npl_pair_ptr(cursor)->cdr;
+    }
+    if (!npl_is_nil(cursor)) read_error("improper array list");
+    if (rows == 0) {
+        for (int64_t i = 0; i < rank - 1; i++)
+            shape = npl_cons(npl_fixnum(0), shape);
+    }
+    return npl_cons(npl_fixnum(rows), shape);
+}
+
+/* Build [npl-array-tag shape flat-data] from the list read after #nA. */
+static NplVal array_from_items(NplVal list, int64_t rank)
+{
+    if (rank < 1) read_error("array literal rank must be at least 1");
+    if (rank > 32) read_error("array literal rank is too large");
+    if (rank == 1) {
+        if (!array_proper_list_p(list))
+            read_error("array literal row is not a proper list");
+        return npl_list_to_vector(list);
+    }
+    NplVal flat_reversed = npl_nil();
+    NplVal shape = npl_list_to_vector(array_collect(list, rank, &flat_reversed));
+    NplVal data = npl_list_to_vector(reverse_onto(flat_reversed, npl_nil()));
+    NplVal items[3];
+    items[0] = npl_symbol("npl-array-literal-5f8d", 22);
+    items[1] = shape;
+    items[2] = data;
+    return npl_make_vector(3, items);
+}
+
+/* #n=datum or #n# after the digits of n. */
+static NplVal read_label_after_digits(NplDatumReader *reader, int64_t label,
+                                      int code)
+{
     if (code == '#') {
         NplVal entry = label_entry(reader, label);
         if (npl_is_nil(entry)) read_error("undefined datum label");
@@ -566,7 +652,24 @@ static NplVal read_label_datum(NplDatumReader *reader, int first)
 static NplVal read_hash_datum(NplDatumReader *reader)
 {
     int code = reader_get(reader);
-    if (code >= '0' && code <= '9') return read_label_datum(reader, code);
+    if (code >= '0' && code <= '9') {
+        int64_t rank = code - '0';
+        int next;
+        while ((next = reader_get(reader)) >= '0' && next <= '9') {
+            if (rank > (INT64_C(1) << 40))
+                read_error("datum label too large");
+            rank = rank * 10 + (next - '0');
+        }
+        if (next == 'A' || next == 'a') {
+            if (rank > 32) read_error("array literal rank is too large");
+            reader_skip_space(reader);
+            if (reader_peek(reader) != '(')
+                read_error("array literal requires (...)");
+            (void)reader_get(reader);
+            return array_from_items(read_list_datum(reader), rank);
+        }
+        return read_label_after_digits(reader, rank, next);
+    }
     if (code == 't' || code == 'f') {
         /* #t #f #true #false (R7RS 2.1). */
         const char *rest = code == 't' ? "rue" : "alse";

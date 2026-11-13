@@ -1,0 +1,339 @@
+; SRFI 13, 130, and 140 review cases. Expected values come from the SRFI
+; texts in docs/reference/, not from the implementation.
+(import (scheme base) (scheme write) (scheme char) (scheme process-context)
+        (prefix (npl string) s13:)
+        (prefix (srfi 13) srfi13:)
+        (prefix (npl string cursor) sc:)
+        (prefix (npl string immutable) s140:))
+
+(include "review-harness.scm")
+
+(define (a? c) (char=? c #\a))
+(define (cursor->index s c) (sc:string-cursor->index s c))
+
+;;;; S13: SRFI 13
+
+; Optional arguments and ranges.
+(check "S13-01 concatenate-reverse final+end"
+       (lambda () (s13:string-concatenate-reverse '("c" "b") "xyz" 2))
+       "bcxy")
+(check "S13-02 concatenate-reverse final only"
+       (lambda () (s13:string-concatenate-reverse '("c" "b") "xyz"))
+       "bcxyz")
+(check "S13-03 concatenate-reverse empty list"
+       (lambda () (s13:string-concatenate-reverse '()))
+       "")
+(check "S13-04 string-hash bound 0 means default"
+       (lambda () (exact-integer? (s13:string-hash "abc" 0)))
+       #t)
+(check "S13-05 string-hash bound 1"
+       (lambda () (s13:string-hash "abc" 1))
+       0)
+(check-true "S13-06 string-hash-ci folds case"
+            (lambda () (= (s13:string-hash-ci "AbC") (s13:string-hash-ci "aBc"))))
+(check "S13-07 string-pad range"
+       (lambda () (s13:string-pad "abcde" 4 #\* 1 3))
+       "**bc")
+(check "S13-08 string-pad left-truncates"
+       (lambda () (s13:string-pad "12345" 3))
+       "345")
+(check "S13-09 string-pad-right range"
+       (lambda () (s13:string-pad-right "abcde" 4 #\* 1 3))
+       "bc**")
+(check "S13-10 string-index start"
+       (lambda () (s13:string-index "abcabc" #\a 1))
+       3)
+(check "S13-11 string-index-right range"
+       (lambda () (s13:string-index-right "abcabc" #\a 0 3))
+       0)
+(check "S13-12 string-contains start1"
+       (lambda () (s13:string-contains "abcabc" "ab" 1))
+       3)
+(check "S13-13 string-contains empty pattern"
+       (lambda () (s13:string-contains "abc" "" 2))
+       2)
+(check "S13-14 string-contains-ci"
+       (lambda () (s13:string-contains-ci "xABc" "bC"))
+       2)
+(check "S13-15 string= with four ranges"
+       (lambda () (s13:string= "xabc" "abcy" 1 4 0 3))
+       #t)
+(check "S13-16 string-compare mismatch index"
+       (lambda () (s13:string-compare "abc" "abd" values values values))
+       2)
+(check "S13-17 string-suffix-length"
+       (lambda () (s13:string-suffix-length "xabc" "yabc"))
+       3)
+(check "S13-18 string-prefix? ranges"
+       (lambda () (s13:string-prefix? "zab" "abc" 1 3))
+       #t)
+(check "S13-19 string-upcase range returns the substring"
+       (lambda () (s13:string-upcase "abcde" 1 3))
+       "BC")
+(check "S13-20 string-upcase! range"
+       (lambda () (let ((s (string-copy "abcde"))) (s13:string-upcase! s 1 3) s))
+       "aBCde")
+(check "S13-21 titlecase spec example"
+       (lambda () (s13:string-titlecase "--capitalize tHIS sentence."))
+       "--Capitalize This Sentence.")
+(check "S13-22 titlecase digit example"
+       (lambda () (s13:string-titlecase "3com makes routers."))
+       "3Com Makes Routers.")
+(check "S13-23 string-join empty"
+       (lambda () (s13:string-join '()))
+       "")
+(check-error "S13-24 string-join strict-infix empty"
+             (lambda () (s13:string-join '() "," 'strict-infix)))
+(check "S13-25 string-join suffix"
+       (lambda () (s13:string-join '("a" "b") "," 'suffix))
+       "a,b,")
+(check "S13-26 string-join prefix"
+       (lambda () (s13:string-join '("a" "b") "," 'prefix))
+       ",a,b")
+(check "S13-27 string-tokenize default"
+       (lambda () (s13:string-tokenize "  hello  world "))
+       '("hello" "world"))
+(check "S13-28 xsubstring rotate"
+       (lambda () (s13:xsubstring "abcdef" 2))
+       "cdefab")
+(check "S13-29 xsubstring negative from"
+       (lambda () (s13:xsubstring "abcdef" -4 2))
+       "cdefab")
+(check "S13-30 xsubstring replicate"
+       (lambda () (s13:xsubstring "abc" 0 7))
+       "abcabca")
+(check "S13-31 string-xcopy!"
+       (lambda () (let ((t (make-string 5 #\-))) (s13:string-xcopy! t 1 "ab" 0 3) t))
+       "-aba-")
+(check "S13-32 string-replace spec example"
+       (lambda ()
+         (s13:string-replace "The TCL programmer endured daily ridicule."
+                             "another miserable perl drone" 4 7 8 22))
+       "The miserable perl programmer endured daily ridicule.")
+(check "S13-33 string-unfold base and final"
+       (lambda () (s13:string-unfold null? car cdr '(#\a #\b) "X" (lambda (x) "Y")))
+       "XabY")
+(check "S13-34 string-unfold-right base and final"
+       (lambda () (s13:string-unfold-right null? car cdr '(#\a #\b) "X" (lambda (x) "Y")))
+       "YbaX")
+(check "S13-35 string-fold-right order"
+       (lambda () (s13:string-fold-right cons '() "abc"))
+       '(#\a #\b #\c))
+(check "S13-36 string-fold range"
+       (lambda () (s13:string-fold cons '() "abcd" 1 3))
+       '(#\c #\b))
+(check "S13-37 string-count char"
+       (lambda () (s13:string-count "banana" #\a))
+       3)
+(check "S13-38 string-skip predicate"
+       (lambda () (s13:string-skip "   x" char-whitespace?))
+       3)
+(check "S13-39 string-filter char"
+       (lambda () (s13:string-filter #\a "banana"))
+       "aaa")
+(check "S13-40 string-delete predicate"
+       (lambda () (s13:string-delete a? "banana"))
+       "bnn")
+(check "S13-41 string-trim char criterion"
+       (lambda () (s13:string-trim "xxaxx" #\x))
+       "axx")
+(check "S13-42 string-trim-both range"
+       (lambda () (s13:string-trim-both "  a b  " char-whitespace? 1 6))
+       "a b")
+(check "S13-43 string-reverse range"
+       (lambda () (s13:string-reverse "hello" 1 4))
+       "lle")
+(check "S13-44 reverse-list->string"
+       (lambda () (s13:reverse-list->string '(#\c #\b #\a)))
+       "abc")
+(check "S13-45 substring/shared open end"
+       (lambda () (s13:substring/shared "hello" 1))
+       "ello")
+(check "S13-46 Unicode reverse"
+       (lambda () (s13:string-reverse (string #\a (integer->char #x3BB) #\b)))
+       (string #\b (integer->char #x3BB) #\a))
+(check "S13-47 Unicode index"
+       (lambda () (s13:string-index (string #\a (integer->char #x3BB)) (integer->char #x3BB)))
+       1)
+
+; Errors the SRFI requires or the kernel promises.
+(check-error "S13-50 invalid criterion" (lambda () (s13:string-index "abc" "a")))
+(check-error "S13-51 take past end" (lambda () (s13:string-take "abc" 4)))
+(check-error "S13-52 negative drop" (lambda () (s13:string-drop "abc" -1)))
+(check-error "S13-53 reversed range" (lambda () (s13:string-index "abc" #\a 2 1)))
+(check-error "S13-54 xsubstring empty source"
+             (lambda () (s13:xsubstring "" 0 1)))
+(check-error "S13-55 string-replace bad range"
+             (lambda () (s13:string-replace "abc" "x" 2 1)))
+
+; Binding identity is checked by the imports/ cases: in compiled code a
+; global procedure reference is not eq? to itself, so eq? cannot test it.
+(check "S13-60 alias behaves as canonical"
+       (lambda () (srfi13:string-join '("a" "b") "-"))
+       "a-b")
+
+;;;; SC: SRFI 130
+
+(check "SC-01 index miss returns end cursor"
+       (lambda () (cursor->index "abc" (sc:string-index "abc" #\z)))
+       3)
+(check "SC-02 index-right miss returns start cursor"
+       (lambda () (cursor->index "abc" (sc:string-index-right "abc" #\z 1)))
+       1)
+(check "SC-03 index-right hit returns successor"
+       (lambda () (cursor->index "abca" (sc:string-index-right "abca" #\a)))
+       4)
+(check "SC-04 skip-right"
+       (lambda () (cursor->index "abcc" (sc:string-skip-right "abcc" #\c)))
+       2)
+(check "SC-05 next/prev"
+       (lambda ()
+         (let* ((s "abc")
+                (c (sc:string-cursor-next s (sc:string-cursor-start s))))
+           (list (cursor->index s c)
+                 (cursor->index s (sc:string-cursor-prev s c)))))
+       '(1 0))
+(check "SC-06 contains-right"
+       (lambda () (cursor->index "abcabc" (sc:string-contains-right "abcabc" "bc")))
+       4)
+(check "SC-07 contains-right empty pattern"
+       (lambda () (cursor->index "abc" (sc:string-contains-right "abc" "")))
+       3)
+(check "SC-08 contains miss"
+       (lambda () (sc:string-contains "abc" "zz"))
+       #f)
+(check "SC-09 split keeps empty fields"
+       (lambda () (sc:string-split "a,b,,c" ","))
+       '("a" "b" "" "c"))
+(check "SC-10 split multi-char delimiter"
+       (lambda () (sc:string-split "a::b" "::"))
+       '("a" "b"))
+(check-error "SC-11 split strict-infix empty"
+             (lambda () (sc:string-split "" "," 'strict-infix)))
+(check "SC-12 split prefix grammar"
+       (lambda () (sc:string-split ",a,b" "," 'prefix))
+       '("a" "b"))
+(check "SC-13 split with range"
+       (lambda () (sc:string-split "xa,bx" "," 'infix #f 1 4))
+       '("a" "b"))
+(check "SC-14 for-each-cursor visits indices"
+       (lambda ()
+         (let ((seen '()))
+           (sc:string-for-each-cursor
+            (lambda (c) (set! seen (cons (cursor->index "abc" c) seen)))
+            "abc")
+           (reverse seen)))
+       '(0 1 2))
+(check "SC-15 substring/cursors with integers"
+       (lambda () (sc:substring/cursors "hello" 1 3))
+       "el")
+(check "SC-16 count with cursor bounds"
+       (lambda ()
+         (sc:string-count "banana" #\a (sc:string-index->cursor "banana" 2)))
+       2)
+(check "SC-17 replicate"
+       (lambda () (sc:string-replicate "abc" 1 5))
+       "bcab")
+(check "SC-18 remove"
+       (lambda () (sc:string-remove a? "banana"))
+       "bnn")
+(check-true "SC-19 cursor is not an index"
+            (lambda () (not (sc:string-cursor? 0))))
+(check "SC-20 cursor-diff"
+       (lambda ()
+         (sc:string-cursor-diff "hello" (sc:string-cursor-start "hello")
+                                (sc:string-cursor-end "hello")))
+       5)
+
+;;;; S140: SRFI 140
+
+(check "S140-01 literal is an istring" (lambda () (s140:istring? "abc")) #t)
+(check "S140-02 make-string is mutable" (lambda () (s140:istring? (make-string 2 #\a))) #f)
+(check "S140-03 empty mutable string is not an istring"
+       (lambda () (s140:istring? (make-string 0))) #f)
+(check "S140-04 results are istrings"
+       (lambda ()
+         (map s140:istring?
+              (list (s140:string-take (string-copy "abc") 2)
+                    (s140:string-pad (string-copy "a") 3)
+                    (s140:string-join (list (string-copy "a") "b"))
+                    (s140:string-upcase (string-copy "a"))
+                    (s140:xsubstring (string-copy "ab") 0 3)
+                    (s140:list->string (list #\a))
+                    (s140:vector->string (vector #\a))
+                    (s140:string #\a)
+                    (s140:substring (string-copy "abc") 0 2)
+                    (s140:string-map char-upcase (string-copy "ab")))))
+       '(#t #t #t #t #t #t #t #t #t #t))
+(check "S140-05 string-append does not freeze its argument"
+       (lambda () (let ((m (string-copy "ab"))) (s140:string-append m) (mutable-string? m)))
+       #t)
+(check "S140-06 full substring does not freeze its argument"
+       (lambda () (let ((m (string-copy "ab"))) (s140:substring m 0 2) (mutable-string? m)))
+       #t)
+(check "S140-07 foldcase does not freeze its argument"
+       (lambda () (let ((m (string-copy "ab"))) (s140:string-foldcase m) (mutable-string? m)))
+       #t)
+(check "S140-08 string-repeat character"
+       (lambda () (s140:string-repeat #\a 3))
+       "aaa")
+(check "S140-09 string-repeat string"
+       (lambda () (s140:string-repeat "ab" 2))
+       "abab")
+(check "S140-10 string-index miss is #f"
+       (lambda () (s140:string-index "abc" a? 1))
+       #f)
+(check "S140-11 string-index-right returns the index"
+       (lambda () (s140:string-index-right "abca" a?))
+       3)
+(check "S140-12 string-contains-right returns an index"
+       (lambda () (s140:string-contains-right "abcabc" "bc"))
+       4)
+(check "S140-13 string-contains-right miss"
+       (lambda () (s140:string-contains-right "abc" "zz"))
+       #f)
+(check "S140-14 string-map multiple strings uses the shortest"
+       (lambda () (s140:string-map (lambda (a b) b) "ab" "xyz"))
+       "xy")
+(check "S140-15 utf16 astral round trip"
+       (lambda ()
+         (s140:utf16->string
+          (s140:string->utf16 (string (integer->char #x1F600) #\a))))
+       (string (integer->char #x1F600) #\a))
+(check "S140-16 utf16be keeps a BOM as a character"
+       (lambda () (string-length (s140:utf16be->string (bytevector #xFE #xFF 0 97))))
+       2)
+(check "S140-17 utf16 little-endian BOM"
+       (lambda () (s140:utf16->string (bytevector #xFF #xFE 97 0)))
+       "a")
+(check-error "S140-18 utf16 lone low surrogate"
+             (lambda () (s140:utf16be->string (bytevector #xDC 0))))
+(check-error "S140-19 utf16 odd length"
+             (lambda () (s140:utf16be->string (bytevector 0 97 0))))
+(check "S140-20 string->utf16 BOM matches features endianness"
+       (lambda ()
+         (let ((bom (s140:string->utf16 "")))
+           (if (and (= (bytevector-u8-ref bom 0) #xFE)
+                    (= (bytevector-u8-ref bom 1) #xFF))
+               (if (memq 'big-endian (features)) #t 'bom-big-endian)
+               (if (memq 'little-endian (features)) #t 'bom-little-endian))))
+       #t)
+(check "S140-20b utf16 without BOM uses host endianness"
+       (lambda () (s140:utf16->string (s140:string->utf16 "ab") 2))
+       "ab")
+(check "S140-21 string->utf8 range"
+       (lambda () (s140:string->utf8 "abc" 1 2))
+       (bytevector 98))
+(check "S140-22 string-split istrings"
+       (lambda () (map s140:istring? (s140:string-split "a b" " ")))
+       '(#t #t))
+(check-error "S140-23 string-set! on istring"
+             (lambda () (s140:string-set! (s140:string #\a) 0 #\b)))
+(check "S140-24 string-copy is mutable"
+       (lambda () (mutable-string? (s140:string-copy "abc")))
+       #t)
+(check "S140-25 string-map-index"
+       (lambda () (s140:string-map-index (lambda (i) (if (even? i) #\e "oo")) "abc"))
+       "eooe")
+
+(review-finish "review-strings")

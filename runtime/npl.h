@@ -732,6 +732,7 @@ NplVal npl_char_digit_value(NplVal character);
 NplVal npl_char_case(NplVal character, NplVal kind);
 NplVal npl_char_full_case(NplVal character, NplVal kind);
 NplVal npl_string_full_case(NplVal string, NplVal kind);
+NplVal npl_little_endian_p(void);
 NplVal npl_symbol_fold_internal(NplVal symbol);
 NplVal npl_utf8_to_string(NplVal bytevector, NplVal start, NplVal end);
 void npl_control_init(void);

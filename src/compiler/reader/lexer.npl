@@ -102,7 +102,7 @@
     ((117) (lex-bytevector-open s j acc))
     (else
       (if (lex-cls? (string-byte-ref s j) 6)
-          (lex-datum-label s j acc)
+          (lex-array-or-label s j acc)
           (do-bad-char (string-byte-ref s j))))))
 
 ;; #t / #true and #f / #false (R7RS 2.1).
@@ -124,6 +124,18 @@
     ((if (= (string-byte-ref s i) 35) (= (string-byte-ref s (+ i 1)) 124) #f)
      (skip-block-comment s (+ i 2) (+ depth 1)))
     (else (skip-block-comment s (+ i 1) depth))))
+
+; #<digits>A is the SRFI 47 array literal prefix; #<digits>= and #<digits>#
+; remain datum labels.
+(define (lex-array-or-label s j acc)
+  (let ((end (num-run-end s j)))
+    (if (if (< end (string-length s))
+            (let ((c (string-byte-ref s end)))
+              (if (= c 65) #t (= c 97)))
+            #f)
+        (lex-loop s (+ end 1)
+                  (cons (cons 20 (npl_lex_number s j end)) acc))
+        (lex-datum-label s j acc))))
 
 (define (lex-datum-label s j acc)
   (let ((end (num-run-end s j)))

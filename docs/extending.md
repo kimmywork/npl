@@ -72,7 +72,7 @@ Use the library graph, not directory labels, to keep dependencies acyclic:
 | L0 runtime | `(npl internal primitive)` | nothing |
 | L1 core | `(npl internal frontend)`, `(npl internal repl-io)` | L0 |
 | L2 standard | `(scheme *)` and `(scheme internal *)` | L0, L1, lower `(scheme *)` |
-| L3 extensions | `(npl list)`, `(npl hashtable)`, `(npl data ...)`, `(npl ffi)`, `(npl match)`, `(npl record)`, `(npl process)` | L0-L2, lower L3 |
+| L3 extensions | `(npl list)`, `(npl string)`, `(npl string cursor)`, `(npl string immutable)`, `(npl vector)`, `(npl hashtable)`, `(npl data ...)`, `(npl ffi)`, `(npl match)`, `(npl record)`, `(npl process)` | L0-L2, lower L3 |
 | L4 SRFI aliases | `(srfi *)` | L3 only |
 
 - `(npl internal *)` must not import `(scheme *)`. `(npl internal primitive)`,

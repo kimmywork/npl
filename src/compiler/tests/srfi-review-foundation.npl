@@ -1,0 +1,257 @@
+; PR #2 foundation libraries: SRFI 1 lists, SRFI 189 Maybe/Either, SRFI 196
+; ranges, and SRFI 125 hash tables. These complement the existing happy-path
+; suites with SRFI text examples, multi-list forms, circular/dotted inputs,
+; error cases, and a cross-library smoke test with SRFI 158.
+(import (scheme base) (scheme write) (scheme char) (scheme process-context)
+        (prefix (npl list) l:)
+        (prefix (npl data option) o:)
+        (prefix (npl data range) r:)
+        (prefix (npl hashtable) h:)
+        (prefix (npl data generator) g:))
+
+(include "review-harness.scm")
+
+(define (sorted xs)
+  (let insert-all ((xs xs) (out '()))
+    (if (null? xs)
+        out
+        (insert-all (cdr xs)
+                    (let insert ((x (car xs)) (ys out))
+                      (cond ((null? ys) (list x))
+                            ((< x (car ys)) (cons x ys))
+                            (else (cons (car ys) (insert x (cdr ys))))))))))
+
+;;;; L1: SRFI 1
+
+(check "L1-01 length+ circular" (lambda () (l:length+ (l:circular-list 1 2))) #f)
+(check "L1-02 cons* single" (lambda () (l:cons* 1)) 1)
+(check "L1-03 cons* dotted" (lambda () (l:cons* 1 2 3 4)) '(1 2 3 . 4))
+(check "L1-04 xcons" (lambda () (l:xcons 1 2)) '(2 . 1))
+(check "L1-05 iota negative step" (lambda () (l:iota 5 0 -1)) '(0 -1 -2 -3 -4))
+(check "L1-06 take-right dotted" (lambda () (l:take-right '(1 2 3 . d) 2)) '(2 3 . d))
+(check "L1-07 drop-right dotted" (lambda () (l:drop-right '(1 2 3 . d) 2)) '(1))
+(check "L1-08 last-pair dotted" (lambda () (l:last-pair '(1 2 . 3))) '(2 . 3))
+(check "L1-09 car+cdr" (lambda () (values->list (lambda () (l:car+cdr '(1 . 2))))) '(1 2))
+(check "L1-10 split-at" (lambda () (values->list (lambda () (l:split-at '(a b c d) 1)))) '((a) (b c d)))
+(check "L1-11 take!" (lambda () (l:take! (list 1 2 3) 2)) '(1 2))
+(check "L1-12 append-reverse" (lambda () (l:append-reverse '(3 2 1) '(4 5))) '(1 2 3 4 5))
+(check "L1-13 append! with empty" (lambda () (l:append! (list 1) '() (list 2))) '(1 2))
+(check "L1-14 concatenate" (lambda () (l:concatenate '((1) () (2 3)))) '(1 2 3))
+(check "L1-15 reduce empty" (lambda () (l:reduce + 0 '())) 0)
+(check "L1-16 reduce max" (lambda () (l:reduce max 0 '(3 9 2))) 9)
+(check "L1-17 reduce-right append" (lambda () (l:reduce-right append '() '((1 2) (3)))) '(1 2 3))
+(check "L1-18 fold multi" (lambda () (l:fold l:cons* '() '(a b c) '(1 2 3))) '(c 3 b 2 a 1))
+(check "L1-19 fold-right multi" (lambda () (l:fold-right l:cons* '() '(a b c) '(1 2 3))) '(a 1 b 2 c 3))
+(check "L1-20 fold multi uses shortest" (lambda () (l:fold + 0 '(1 2 3) '(10 20))) 33)
+(check "L1-21 pair-fold" (lambda () (l:pair-fold cons '() '(a b c))) '((c) (b c) (a b c)))
+(check "L1-22 unfold-right" (lambda () (l:unfold-right zero? (lambda (x) (* x x)) (lambda (x) (- x 1)) 5)) '(1 4 9 16 25))
+(check "L1-23 unfold tail-gen" (lambda () (l:unfold null? car cdr '(1 2) (lambda (x) '(end)))) '(1 2 end))
+(check "L1-24 filter-map" (lambda () (l:filter-map (lambda (x) (and (number? x) (* x x))) '(a 1 b 3 c 7))) '(1 9 49))
+(check "L1-25 append-map" (lambda () (l:append-map (lambda (x) (list x (- x))) '(1 3 8))) '(1 -1 3 -3 8 -8))
+(check "L1-26 partition" (lambda () (values->list (lambda () (l:partition symbol? '(one 2 3 four five 6))))) '((one four five) (2 3 6)))
+(check "L1-27 span" (lambda () (values->list (lambda () (l:span even? '(2 18 3 10 22 9))))) '((2 18) (3 10 22 9)))
+(check "L1-28 break" (lambda () (values->list (lambda () (l:break even? '(3 1 4 1 5 9 2 6))))) '((3 1) (4 1 5 9 2 6)))
+(check "L1-29 list-index multi" (lambda () (l:list-index < '(3 1 4 1 5 9 2 5 6) '(2 7 1 8 2))) 1)
+(check "L1-30 count multi" (lambda () (l:count < '(1 2 4 8) '(2 4 6 8 10 12 14 16))) 3)
+(check "L1-31 find-tail" (lambda () (l:find-tail even? '(3 1 37 -8 -5 0 0))) '(-8 -5 0 0))
+(check "L1-32 any/every empty" (lambda () (list (l:any integer? '()) (l:every integer? '()))) '(#f #t))
+(check "L1-33 every returns last value" (lambda () (l:every (lambda (x) (* x 10)) '(1 2))) 20)
+(check "L1-34 delete with predicate order" (lambda () (l:delete 3 '(1 2 3 4 5) <)) '(1 2 3))
+(check "L1-35 delete-duplicates keeps first" (lambda () (l:delete-duplicates '(a b a c a b c z))) '(a b c z))
+(check "L1-36 delete-duplicates custom ="
+       (lambda () (l:delete-duplicates '((a . 3) (b . 7) (a . 9) (c . 1)) (lambda (x y) (eq? (car x) (car y)))))
+       '((a . 3) (b . 7) (c . 1)))
+(check "L1-37 lset-adjoin" (lambda () (l:lset-adjoin eq? '(a b c d c e) 'a 'e 'i 'o 'u)) '(u o i a b c d c e))
+(check "L1-38 lset-union" (lambda () (l:lset-union eq? '(a b c d e) '(a e i o u))) '(u o i a b c d e))
+(check "L1-39 lset-intersection" (lambda () (l:lset-intersection eq? '(a b c d e) '(a e i o u))) '(a e))
+(check "L1-40 lset-difference" (lambda () (l:lset-difference eq? '(a b c d e) '(a e i o u))) '(b c d))
+(check-true "L1-41 lset-xor as a set"
+            (lambda () (l:lset= eq? (l:lset-xor eq? '(a b c d e) '(a e i o u)) '(d c b i o u))))
+(check "L1-42 lset= repeated elements" (lambda () (l:lset= eq? '(b e a) '(a e b) '(e e b a))) #t)
+(check "L1-43 lset-diff+intersection"
+       (lambda () (values->list (lambda () (l:lset-diff+intersection eq? '(a b c) '(b)))))
+       '((a c) (b)))
+(check "L1-44 assoc with =" (lambda () (l:assoc 2.0 '((1 1) (2 4) (3 9)) =)) '(2 4))
+(check "L1-45 member with =" (lambda () (l:member 2.0 '(1 2 3) =)) '(2 3))
+(check "L1-46 map with circular list" (lambda () (l:map + '(1 2 3) (l:circular-list 10))) '(11 12 13))
+(check "L1-47 dotted-list? on atom" (lambda () (l:dotted-list? 3)) #t)
+(check "L1-48 null-list? circular" (lambda () (l:null-list? (l:circular-list 1))) #f)
+(check "L1-49 list= degenerate" (lambda () (list (l:list= eq?) (l:list= eq? '(a)))) '(#t #t))
+(check "L1-50 unzip3"
+       (lambda () (values->list (lambda () (l:unzip3 '((1 a x) (2 b y))))))
+       '((1 2) (a b) (x y)))
+(check "L1-51 alist-copy is fresh"
+       (lambda () (let* ((a (list (cons 'k 1))) (b (l:alist-copy a))) (set-cdr! (car b) 2) (cdar a)))
+       1)
+(check "L1-52 long fold does not grow the stack"
+       (lambda () (l:fold + 0 (l:iota 300000)))
+       44999850000)
+(check "L1-53 long fold-right"
+       (lambda () (length (l:fold-right cons '() (l:iota 300000))))
+       300000)
+(check-error "L1-54 take past end" (lambda () (l:take '(1 2) 3)))
+(check "L1-55 list-tabulate" (lambda () (l:list-tabulate 4 (lambda (i) (* i i)))) '(0 1 4 9))
+
+;;;; O189: SRFI 189
+
+(check "O189-01 maybe-ref failure" (lambda () (o:maybe-ref (o:nothing) (lambda () 'fail))) 'fail)
+(check "O189-02 maybe-ref success multi" (lambda () (o:maybe-ref (o:just 1 2) (lambda () 'fail) list)) '(1 2))
+(check "O189-03 either-ref left failure gets payload"
+       (lambda () (o:either-ref (o:left 1) (lambda (x) (list 'left x)))) '(left 1))
+(check "O189-04 either-swap" (lambda () (o:right? (o:either-swap (o:left 1)))) #t)
+(check "O189-05 maybe-length" (lambda () (list (o:maybe-length (o:just 1 2)) (o:maybe-length (o:nothing)))) '(1 0))
+(check "O189-06 maybe-filter" (lambda () (o:nothing? (o:maybe-filter odd? (o:just 2)))) #t)
+(check "O189-07 maybe-sequence all just"
+       (lambda () (o:maybe-ref (o:maybe-sequence (list (o:just 1) (o:just 2)) map) (lambda () 'none)))
+       '((1) (2)))
+(check "O189-08 maybe-sequence with nothing"
+       (lambda () (o:nothing? (o:maybe-sequence (list (o:just 1) (o:nothing)) map)))
+       #t)
+(check "O189-09 exception->either"
+       (lambda () (o:either-ref (o:exception->either symbol? (lambda () (raise 'boom))) (lambda (x) (list 'left x))))
+       '(left boom))
+(check "O189-10 exception->either passes other exceptions"
+       (lambda () (guard (e ((string? e) e)) (o:exception->either symbol? (lambda () (raise "s")))))
+       "s")
+(check "O189-11 either-guard" (lambda () (o:left? (o:either-guard symbol? (raise 'x)))) #t)
+(check "O189-12 list->maybe" (lambda () (list (o:nothing? (o:list->maybe '())) (o:maybe->list (o:list->maybe '(1 2))))) '(#t (1 2)))
+(check "O189-13 maybe= mixed" (lambda () (o:maybe= eqv? (o:just 1) (o:just 1) (o:nothing))) #f)
+(check "O189-14 maybe->values nothing" (lambda () (values->list (lambda () (o:maybe->values (o:nothing))))) '())
+(check "O189-15 generation->maybe eof" (lambda () (o:nothing? (o:generation->maybe (eof-object)))) #t)
+(check "O189-16 either-let* short-circuits"
+       (lambda () (o:either-ref (o:either-let* ((x (o:right 1)) (y (o:left 'e))) (o:right (+ x y))) (lambda (x) (list 'left x))))
+       '(left e))
+(check "O189-17 tri-not" (lambda () (o:maybe->list (o:tri-not (o:just #f)))) '(#t))
+(check "O189-18 maybe-fold multi payload" (lambda () (o:maybe-fold + 10 (o:just 1 2))) 13)
+(check "O189-19 values->maybe zero values"
+       (lambda () (o:nothing? (o:values->maybe (lambda () (values))))) #t)
+(check "O189-20 maybe-ref/default multiple defaults"
+       (lambda () (values->list (lambda () (o:maybe-ref/default (o:nothing) 1 2))))
+       '(1 2))
+
+;;;; R196: SRFI 196
+
+(check "R196-01 numeric-range step" (lambda () (r:range->list (r:numeric-range 0 10 3))) '(0 3 6 9))
+(check "R196-02 numeric-range rational step" (lambda () (r:range->list (r:numeric-range 0 1 1/2))) '(0 1/2))
+(check "R196-03 numeric-range negative step" (lambda () (r:range->list (r:numeric-range 5 0 -2))) '(5 3 1))
+(check "R196-04 empty numeric-range" (lambda () (r:range-length (r:numeric-range 3 3))) 0)
+(check "R196-05 subrange" (lambda () (r:range->list (r:subrange (r:numeric-range 0 10) 2 5))) '(2 3 4))
+(check "R196-06 range-segment"
+       (lambda () (map r:range->list (r:range-segment (r:numeric-range 0 5) 2)))
+       '((0 1) (2 3) (4)))
+(check "R196-07 range-index-right" (lambda () (r:range-index-right odd? (r:numeric-range 0 6))) 5)
+(check "R196-08 range-drop-while-right"
+       (lambda () (r:range->list (r:range-drop-while-right odd? (r:vector-range #(2 4 5 7)))))
+       '(2 4))
+(check "R196-09 range-take-right" (lambda () (r:range->list (r:range-take-right (r:numeric-range 0 5) 2))) '(3 4))
+(check "R196-10 range-append none" (lambda () (r:range-length (r:range-append))) 0)
+(check "R196-11 range->string" (lambda () (r:range->string (r:string-range "abc"))) "abc")
+(check "R196-12 range=?" (lambda () (r:range=? = (r:numeric-range 0 3) (r:vector-range #(0 1 2)))) #t)
+(check "R196-13 range-count multi" (lambda () (r:range-count < (r:numeric-range 0 4) (r:vector-range #(1 0 5 2)))) 2)
+(check "R196-14 range->generator interoperates with SRFI 158"
+       (lambda () (g:generator->list (r:range->generator (r:numeric-range 0 3))))
+       '(0 1 2))
+(check "R196-15 range-filter-map->list"
+       (lambda () (r:range-filter-map->list (lambda (x) (and (odd? x) (* x x))) (r:numeric-range 0 5)))
+       '(1 9))
+(check-error "R196-16 range-ref out of range" (lambda () (r:range-ref (r:numeric-range 0 3) 3)))
+(check-error "R196-17 subrange reversed" (lambda () (r:subrange (r:numeric-range 0 3) 2 1)))
+(check "R196-18 vector->range is a copy"
+       (lambda () (let* ((v (vector 1 2)) (rg (r:vector->range v))) (vector-set! v 0 9) (r:range-first rg)))
+       1)
+
+;;;; H125: SRFI 125
+
+(define (table . pairs)
+  (let ((t (h:make-hash-table equal?)))
+    (let loop ((ps pairs))
+      (if (pair? ps) (begin (h:hash-table-set! t (car ps) (cadr ps)) (loop (cddr ps)))))
+    t))
+
+(check-error "H125-01 ref missing without failure" (lambda () (h:hash-table-ref (table) 'k)))
+(check "H125-02 ref success proc" (lambda () (h:hash-table-ref (table 'k 1) 'k (lambda () 'no) (lambda (v) (+ v 1)))) 2)
+(check "H125-03 update! with default thunk"
+       (lambda () (let ((t (table))) (h:hash-table-update! t 'k (lambda (v) (+ v 1)) (lambda () 10)) (h:hash-table-ref t 'k)))
+       11)
+(check "H125-04 update!/default"
+       (lambda () (let ((t (table 'k 1))) (h:hash-table-update!/default t 'k (lambda (v) (* v 5)) 0) (h:hash-table-ref/default t 'k #f)))
+       5)
+(check "H125-05 intern! once"
+       (lambda ()
+         (let ((t (table)) (calls 0))
+           (h:hash-table-intern! t 'k (lambda () (set! calls (+ calls 1)) 'v))
+           (list (h:hash-table-intern! t 'k (lambda () (set! calls (+ calls 1)) 'w)) calls)))
+       '(v 1))
+(check-error "H125-06 pop! empty" (lambda () (h:hash-table-pop! (table))))
+(check "H125-07 fold new argument order"
+       (lambda () (h:hash-table-fold (lambda (k v acc) (+ v acc)) 0 (table 'a 1 'b 2)))
+       3)
+(check "H125-08 fold deprecated argument order"
+       (lambda () (h:hash-table-fold (table 'a 1 'b 2) (lambda (k v acc) (+ v acc)) 0))
+       3)
+(check "H125-09 prune!"
+       (lambda () (let ((t (table 1 'a 2 'b 3 'c))) (h:hash-table-prune! (lambda (k v) (odd? k)) t) (h:hash-table-keys t)))
+       '(2))
+(check "H125-10 copy mutable is independent"
+       (lambda () (let* ((t (table 'a 1)) (c (h:hash-table-copy t #t))) (h:hash-table-set! c 'a 2) (h:hash-table-ref t 'a)))
+       1)
+(check-error "H125-11 immutable copy rejects set!"
+             (lambda () (h:hash-table-set! (h:hash-table-copy (table 'a 1) #f) 'a 2)))
+(check "H125-12 union! keeps left values"
+       (lambda ()
+         (let ((a (table 'x 1)) (b (table 'x 2 'y 3)))
+           (h:hash-table-union! a b)
+           (list (h:hash-table-ref a 'x) (h:hash-table-ref a 'y))))
+       '(1 3))
+(check "H125-13 intersection!"
+       (lambda () (let ((a (table 'x 1 'y 2))) (h:hash-table-intersection! a (table 'y 0)) (h:hash-table-keys a)))
+       '(y))
+(check "H125-14 difference!"
+       (lambda () (let ((a (table 'x 1 'y 2))) (h:hash-table-difference! a (table 'y 0)) (h:hash-table-keys a)))
+       '(x))
+(check "H125-15 delete! counts only present keys"
+       (lambda () (h:hash-table-delete! (table 'a 1 'b 2) 'a 'z 'b))
+       2)
+(check "H125-16 set! multiple pairs"
+       (lambda () (let ((t (table))) (h:hash-table-set! t 'a 1 'b 2) (h:hash-table-size t)))
+       2)
+(check "H125-17 string-ci=? table"
+       (lambda () (let ((t (h:make-hash-table string-ci=?))) (h:hash-table-set! t "Key" 1) (h:hash-table-ref/default t "kEY" #f)))
+       1)
+(check "H125-18 custom equivalence with hash"
+       (lambda ()
+         (let ((t (h:make-hash-table (lambda (a b) (= (modulo a 10) (modulo b 10)))
+                                     (lambda (x . bound) (modulo x 10)))))
+           (h:hash-table-set! t 13 'x)
+           (h:hash-table-ref/default t 23 #f)))
+       'x)
+(check-error "H125-19 unknown equivalence without hash"
+             (lambda () (h:make-hash-table (lambda (a b) #t))))
+(check "H125-20 grow, delete, regrow"
+       (lambda ()
+         (let ((t (h:make-hash-table eqv?)))
+           (let loop ((i 0)) (if (< i 20000) (begin (h:hash-table-set! t i i) (loop (+ i 1)))))
+           (let loop ((i 0)) (if (< i 20000) (begin (if (even? i) (h:hash-table-delete! t i)) (loop (+ i 1)))))
+           (list (h:hash-table-size t) (h:hash-table-ref/default t 19999 #f) (h:hash-table-contains? t 2))))
+       '(10000 19999 #f))
+(check "H125-21 entries"
+       (lambda () (values->list (lambda () (h:hash-table-entries (table 'a 1)))))
+       '((a) (1)))
+(check "H125-22 map! and map->list"
+       (lambda ()
+         (let ((t (table 1 10 2 20)))
+           (h:hash-table-map! (lambda (k v) (+ k v)) t)
+           (sorted (h:hash-table-map->list (lambda (k v) v) t))))
+       '(11 22))
+(check "H125-23 find failure" (lambda () (h:hash-table-find (lambda (k v) #f) (table 'a 1) (lambda () 'none))) 'none)
+(check "H125-24 count" (lambda () (h:hash-table-count (lambda (k v) (odd? v)) (table 'a 1 'b 2 'c 3))) 2)
+(check "H125-25 alist->hash-table first wins"
+       (lambda () (h:hash-table-ref (h:alist->hash-table '((a . 1) (a . 2)) eq?) 'a))
+       1)
+(check "H125-26 hash-table-unfold"
+       (lambda ()
+         (h:hash-table-size
+          (h:hash-table-unfold (lambda (i) (= i 5)) (lambda (i) (values i (* i i))) (lambda (i) (+ i 1)) 0 eqv?)))
+       5)
+
+(review-finish "review-foundation")
