@@ -132,6 +132,16 @@
                    (= (comparator-hash default-comparator (make-plain 1))
                       (comparator-hash default-comparator (make-plain 1))))
                  #t)
+  (test-equal "comparator-if<=> evaluates operands once"
+              (lambda ()
+                (let ((count 0))
+                  (comparator-if<=>
+                   real
+                   (begin (set! count (+ count 1)) 1)
+                   (begin (set! count (+ count 1)) 2)
+                   'less 'equal 'greater)
+                  count))
+              2)
   (test-identity "srfi 128 alias"
                  (lambda () (s:comparator? s:default-comparator))
                  #t)
