@@ -535,6 +535,19 @@ static int array_pair_p(NplVal value)
     return npl_is_ptr(value) && npl_header(value)->tag == BOX_PAIR;
 }
 
+static int array_proper_list_p(NplVal list)
+{
+    NplVal slow = list;
+    NplVal fast = list;
+    while (array_pair_p(fast) && array_pair_p(npl_pair_ptr(fast)->cdr)) {
+        slow = npl_pair_ptr(slow)->cdr;
+        fast = npl_pair_ptr(npl_pair_ptr(fast)->cdr)->cdr;
+        if (slow == fast) return 0;
+    }
+    while (array_pair_p(list)) list = npl_pair_ptr(list)->cdr;
+    return npl_is_nil(list);
+}
+
 static int shape_equal(NplVal left, NplVal right)
 {
     while (array_pair_p(left) && array_pair_p(right)) {
@@ -551,6 +564,8 @@ static int shape_equal(NplVal left, NplVal right)
  * to *flat_reversed. */
 static NplVal array_collect(NplVal list, int64_t rank, NplVal *flat_reversed)
 {
+    if (!array_proper_list_p(list))
+        read_error("array literal row is not a proper list");
     if (rank == 1) {
         int64_t count = 0;
         NplVal cursor = list;
@@ -580,7 +595,7 @@ static NplVal array_collect(NplVal list, int64_t rank, NplVal *flat_reversed)
     }
     if (!npl_is_nil(cursor)) read_error("improper array list");
     if (rows == 0) {
-        for (int64_t i = 0; i < rank; i++)
+        for (int64_t i = 0; i < rank - 1; i++)
             shape = npl_cons(npl_fixnum(0), shape);
     }
     return npl_cons(npl_fixnum(rows), shape);

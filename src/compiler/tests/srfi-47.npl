@@ -77,6 +77,21 @@
   (test-list "empty rows keep their shape"
              (lambda () (array-dimensions #2A(() ())))
              '(2 0))
+  (test-list "empty literal keeps its rank"
+             (lambda () (array-dimensions #2A()))
+             '(0 0))
+  (test-list "empty rank-3 literal keeps its rank"
+             (lambda () (array-dimensions #3A(() ())))
+             '(2 0 0))
+  (test-equal "tag-like vectors are rank 1"
+              (lambda () (array-rank (make-array '#(npl-array-tag) 3)))
+              1)
+  (test-identity "cyclic array rows are rejected"
+                 (lambda ()
+                   (guard (e (#t #t))
+                     (read (open-input-string "#2A(#1=(1 . #1#))"))
+                     #f))
+                 #t)
   (test-list "zero-length dimensions are retained"
              (lambda () (array-dimensions (make-array '#(0) 0 3)))
              '(0 3))
