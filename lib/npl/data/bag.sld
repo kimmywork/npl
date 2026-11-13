@@ -28,7 +28,7 @@
       (make-bag table comparator)
       bag?
       (table bag-table)
-      (comparator bag-comparator))
+      (comparator bag-key-comparator))
 
     (define (bag-table-new comparator)
       (make-hash-table
@@ -71,7 +71,7 @@
     (define (bag-member bag element default)
       (if (hash-table-contains? (bag-table bag) element) element default))
 
-    (define (bag-element-comparator bag) (bag-comparator bag))
+    (define (bag-element-comparator bag) (bag-key-comparator bag))
 
     (define (bag-adjoin bag . elements)
       (apply bag-adjoin! (bag-copy bag) elements))
@@ -187,7 +187,7 @@
       (bag-fold
        (lambda (element result)
          (if (predicate element) (bag-adjoin! result element) result))
-       (bag (bag-comparator bag-value))
+       (bag (bag-key-comparator bag-value))
        bag-value))
 
     (define bag-filter! bag-filter)
@@ -199,8 +199,8 @@
     (define bag-partition! bag-partition)
 
     (define (bag-copy bag)
-      (make-bag (bag-copy-table (bag-table bag) (bag-comparator bag))
-                (bag-comparator bag)))
+      (make-bag (bag-copy-table (bag-table bag) (bag-key-comparator bag))
+                (bag-key-comparator bag)))
 
     (define (bag->list bag) (hash-table-keys (bag-table bag)))
 
@@ -213,7 +213,7 @@
             bag elements))
 
     (define (comparable-bags? left right)
-      (if (eq? (bag-comparator left) (bag-comparator right))
+      (if (eq? (bag-key-comparator left) (bag-key-comparator right))
           #t
           (error "can't compare bags with different comparators" left right)))
 
@@ -356,7 +356,7 @@
       (bag-increment! bag element (- count)))
 
     (define (bag->set bag)
-      (let ((result (set (bag-comparator bag))))
+      (let ((result (set (bag-key-comparator bag))))
         (hash-table-for-each
          (lambda (element count) (set-adjoin! result element))
          (bag-table bag))

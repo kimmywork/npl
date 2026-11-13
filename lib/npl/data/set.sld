@@ -25,7 +25,7 @@
       (make-set table comparator)
       set?
       (table set-table)
-      (comparator set-comparator))
+      (comparator set-key-comparator))
 
     (define (set-table-new comparator)
       (make-hash-table
@@ -69,7 +69,7 @@
     (define (set-member set element default)
       (hash-table-ref/default (set-table set) element default))
 
-    (define (set-element-comparator set) (set-comparator set))
+    (define (set-element-comparator set) (set-key-comparator set))
 
     (define (set-adjoin set . elements)
       (apply set-adjoin! (set-copy set) elements))
@@ -162,7 +162,7 @@
       (set-fold
        (lambda (element result)
          (if (predicate element) (set-adjoin! result element) result))
-       (set (set-comparator set-value))
+       (set (set-key-comparator set-value))
        set-value))
 
     (define set-filter! set-filter)
@@ -175,8 +175,8 @@
     (define set-partition! set-partition)
 
     (define (set-copy set)
-      (make-set (set-copy-table (set-table set) (set-comparator set))
-                (set-comparator set)))
+      (make-set (set-copy-table (set-table set) (set-key-comparator set))
+                (set-key-comparator set)))
 
     (define (set->list set) (hash-table-keys (set-table set)))
 
@@ -189,7 +189,7 @@
             set elements))
 
     (define (comparable-sets? left right)
-      (if (eq? (set-comparator left) (set-comparator right))
+      (if (eq? (set-key-comparator left) (set-key-comparator right))
           #t
           (error "can't compare sets with different comparators" left right)))
 

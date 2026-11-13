@@ -18,12 +18,31 @@
             0)
         (pass-register-functions (cdr forms)))))
 
+; Definitions are visible throughout a program body (R7RS 5.1), so a procedure
+; may call a variable that is defined later. Register every top-level
+; variable's global slot before emitting any form; otherwise such a call,
+; whose callee is still unknown, is rejected as an unknown builtin. The slot
+; and its initializer are still emitted with the definition itself.
+(define (global-slot nm) (string-append "$gv_" (sanitize nm 0 "")))
+
+(define (variable-name e) (cdr (car (cdr e))))
+
+(define (pass-register-globals forms)
+  (if (null? forms)
+      0
+      (begin
+        (if (var-def? (car forms))
+            (register-glob (variable-name (car forms))
+                           (global-slot (variable-name (car forms))))
+            0)
+        (pass-register-globals (cdr forms)))))
+
 (define (variable-def e)
   (let ((nm-e (car (cdr e))))
     (let ((init (car (cdr (cdr e)))))
       (if (not (sym-atom? nm-e))
           (fatal "bad define-variable name")
-          (let ((slot (string-append "$gv_" (sanitize (cdr nm-e) 0 ""))))
+          (let ((slot (global-slot (cdr nm-e))))
             (register-glob (cdr nm-e) slot)
             ; Global slots live in the data segment, which the collector does
             ; not scan; register every slot so set! and runtime initializers
@@ -32,7 +51,7 @@
             (emit-global-slot (cdr nm-e) init))))))
 
 (define (emit-global-slot nm init)
-  (let ((slot (string-append "$gv_" (sanitize nm 0 ""))))
+  (let ((slot (global-slot nm)))
     (if (number? init)
         (data-line (string-append slot " = { l "
                                   (integer-literal-op init #t) " }"))
@@ -395,6 +414,7 @@
               (expand-source-program raw-forms (path-dir path)))))
       (direct-calls-analyze! lowered)
       (let ((forms (control-program lowered)))
+        (pass-register-globals forms)
         (pass-register-functions forms)
         (emit-all-forms forms)
         (dump-and-print)))))
