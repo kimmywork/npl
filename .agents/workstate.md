@@ -1,6 +1,18 @@
 # Workstate
 
-## 0.1.2 (planning, 2026-11-12)
+## 0.1.3 (planned, 2026-11-13)
+
+Plan: [0.1.3-ffi-posix-thread](plans/0.1.3-ffi-posix-thread.md). The next
+increment adds FFI C arrays/scalars/structs, then SRFI 19 time, SRFI 170
+POSIX, SRFI 18 threads, SRFI 230 atomics, and finally full SRFI 226.
+The Appendix review of
+[2026-11-12-features-and-roadmap](reviews/2026-11-12-features-and-roadmap.md)
+is the review intake: F3/F4/F5/F6 and the cross-form continuation
+documentation gap are accepted as H1 hardening; F1/F2 and the roadmap's
+version-selector, `syntax-case`, and "fix F1 before threads" entries are not
+adopted. 0.1.2 merged at `d688cac`.
+
+## 0.1.2 (merged, 2026-11-13)
 
 Plan: [0.1.2-srfi](plans/0.1.2-srfi.md). Scope is the SRFI library train
 (requested SRFI-1/13/130/140/133/19/170 plus the data-structure SRFIs) with
