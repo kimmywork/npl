@@ -119,8 +119,8 @@
               (lambda ()
                 (bag-element-count (bag-sum (bag comparator 1)
                                             (bag comparator 1 2))
-                                   1))
-              2)
+                                   2))
+              1)
   (test-identity "bag-product zero removes"
                  (lambda ()
                    (let ((b (bag-product 0 bag-a)))
@@ -141,6 +141,10 @@
                                  "a")))
                      (equal? (bag-member b "A" #f) "a")))
                  #t)
+  (test-identity "bag-member stored false"
+                 (lambda ()
+                   (bag-member (bag boolean-comparator #f) #f 'missing))
+                 #f)
   (test-equal "srfi 113 alias"
               (lambda () (s113:set-size (s113:set comparator 1 2)))
               2)

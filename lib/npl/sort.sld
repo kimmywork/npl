@@ -15,7 +15,10 @@
     vector-find-median vector-find-median!
     vector-select! vector-separate!
     sorted? merge merge! sort sort!)
-  (import (scheme base) (scheme char) (npl list))
+  (import (scheme base) (scheme char) (npl list)
+          (only (npl hashtable)
+                make-hash-table hash-table-ref/default hash-table-set!
+                hash-table-contains?))
   (begin
     (define (keyed key value)
       (if key (cons (key value) value) (cons value value)))
@@ -54,14 +57,15 @@
 
     ; SRFI 95 allows at most one key call per element.
     (define (key-cache key)
-      (let ((cache '()))
-        (lambda (element)
-          (let ((hit (assq element cache)))
-            (if hit
-                (cdr hit)
-                (let ((value (if key (key element) element)))
-                  (set! cache (cons (cons element value) cache))
-                  value))))))
+      (if (not key)
+          (lambda (element) element)
+          (let ((cache (make-hash-table eq?)))
+            (lambda (element)
+              (if (hash-table-contains? cache element)
+                  (hash-table-ref/default cache element #f)
+                  (let ((value (key element)))
+                    (hash-table-set! cache element value)
+                    value))))))
 
     (define (list-sort-range less? items key)
       (values-of (merge-sort less? (decorate-list key items))))

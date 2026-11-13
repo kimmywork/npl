@@ -25,7 +25,7 @@
   (import (scheme base) (scheme char)
           (only (scheme inexact) finite?)
           (only (npl hashtable)
-                string-hash string-ci-hash hash-by-identity))
+                string-hash string-ci-hash hash hash-by-identity hash-by-eqv))
   (begin
     (define-record-type comparator-type
       (make-comparator-record type-test equality ordering hash)
@@ -120,8 +120,17 @@
           (error "comparator-register-default!: expected a comparator"
                  comparator)))
 
+    (define (registered-rank value)
+      (let loop ((items registered-default-comparators) (rank 9))
+        (cond ((null? items) #f)
+              (((comparator-type-test-predicate (car items)) value) rank)
+              (else (loop (cdr items) (+ rank 1))))))
+
     (define (default-type-rank value)
-      (cond ((null? value) 0)
+      (let ((rank (registered-rank value)))
+        (if rank
+            rank
+            (cond ((null? value) 0)
             ((boolean? value) 1)
             ((char? value) 2)
             ((number? value) 3)
@@ -129,8 +138,8 @@
             ((symbol? value) 5)
             ((pair? value) 6)
             ((vector? value) 7)
-            ((bytevector? value) 8)
-            (else 9)))
+                  ((bytevector? value) 8)
+                  (else 1000)))))
 
     (define (default-equal? left right)
       (let ((registered (registered-comparator-for left right)))
@@ -217,14 +226,19 @@
                                      (default-less? (vector-ref left index)
                                                     (vector-ref right index))))))))
                     ((bytevector? left)
-                     (let loop ((index 0))
-                       (cond ((= index (bytevector-length left)) #f)
-                             ((= (bytevector-u8-ref left index)
-                                 (bytevector-u8-ref right index))
-                              (loop (+ index 1)))
-                             (else
-                              (< (bytevector-u8-ref left index)
-                                 (bytevector-u8-ref right index))))))
+                     (cond ((< (bytevector-length left)
+                               (bytevector-length right)) #t)
+                           ((> (bytevector-length left)
+                               (bytevector-length right)) #f)
+                           (else
+                            (let loop ((index 0))
+                              (cond ((= index (bytevector-length left)) #f)
+                                    ((= (bytevector-u8-ref left index)
+                                        (bytevector-u8-ref right index))
+                                     (loop (+ index 1)))
+                                    (else
+                                     (< (bytevector-u8-ref left index)
+                                        (bytevector-u8-ref right index))))))))
                     (else #f))))))
 
     (define (default-hash value . rest)
@@ -272,10 +286,10 @@
                        (lambda (value) (hash-by-identity value))))
     (define (make-eqv-comparator)
       (make-comparator (lambda (value) #t) eqv? #f
-                       (lambda (value) (hash-by-identity value))))
+                       (lambda (value) (hash-by-eqv value))))
     (define (make-equal-comparator)
       (make-comparator (lambda (value) #t) equal? #f
-                       (lambda (value) (default-hash value))))
+                       (lambda (value) (hash value))))
 
     (define eq-comparator (make-eq-comparator))
     (define eqv-comparator (make-eqv-comparator))

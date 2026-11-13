@@ -7,6 +7,11 @@
 
 (include "framework.npl")
 
+(define-record-type tag
+  (make-tag value)
+  tag?
+  (value tag-value))
+
 (define (main)
   (define real (make-comparator real? = < number-hash))
   (test-identity "comparator?" (lambda () (comparator? real)) #t)
@@ -100,12 +105,14 @@
                  (lambda ()
                    (comparator-register-default!
                     (make-comparator
-                     (lambda (value) (and (pair? value) (eq? (car value) 'tag)))
-                     (lambda (left right) (equal? (cdr left) (cdr right)))
-                     (lambda (left right) (< (cdr left) (cdr right)))
+                     tag?
+                     (lambda (left right)
+                       (= (tag-value left) (tag-value right)))
+                     (lambda (left right)
+                       (< (tag-value left) (tag-value right)))
                      (lambda (value) 5)))
-                   (and (=? default-comparator '(tag . 1) '(tag . 1))
-                        (<? default-comparator '(tag . 1) '(tag . 2))))
+                   (and (=? default-comparator (make-tag 1) (make-tag 1))
+                        (<? default-comparator (make-tag 1) (make-tag 2))))
                  #t)
   (test-identity "srfi 128 alias"
                  (lambda () (s:comparator? s:default-comparator))

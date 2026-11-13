@@ -60,7 +60,7 @@ I3 completion is on `feature/0.1.2-i3-remaining` (PR #5):
   `set-comparator`/`bag-comparator` values so the forward pre-registration
   cannot turn accessor calls into variable calls.
 - New suites: `forward-references` 4, `srfi-44` 43, `srfi-146` 38,
-  `srfi-178` 39; `srfi-128` 31, `srfi-113` 36, `srfi-132` 27.
+  `srfi-178` 39; `srfi-128` 31, `srfi-113` 37, `srfi-132` 27.
   `check_full_compiler.sh` covers 54 suites and 78 negative checks.
 
 The 2026-11-13 review pass corrected SRFI 128 default/composite comparator

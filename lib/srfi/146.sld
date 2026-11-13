@@ -32,7 +32,7 @@
     mapping-key-predecessor mapping-key-successor
     mapping-range= mapping-range< mapping-range> mapping-range<= mapping-range>=
     mapping-range=! mapping-range<! mapping-range>! mapping-range<=! mapping-range>=!
-    mapping-split
+    mapping-split mapping-split!
     mapping-catenate mapping-catenate!
     mapping-map/monotone mapping-map/monotone!
     mapping-fold/reverse

@@ -51,7 +51,10 @@
   (import (except (scheme base)
                   list-ref vector-ref string-ref list-copy list-set!
                   vector-set! string-set! make-list)
-          (rename (only (scheme base) vector-set! string-set! make-list)
+          (rename (only (scheme base) vector-ref string-ref
+                                     vector-set! string-set! make-list)
+                  (vector-ref base-vector-ref)
+                  (string-ref base-string-ref)
                   (vector-set! base-vector-set!)
                   (string-set! base-string-set!)
                   (make-list base-make-list)))
@@ -177,17 +180,17 @@
                     (apply values next)))))))
 
     (define (collection-fold-keys-right value function . seeds)
-      (let ((items (collection->list value)))
-        (let loop ((index (- (length items) 1)) (state seeds))
-          (if (< index 0)
-              (apply values state)
-              (call-with-values
-                (lambda () (apply function index
-                                  (car (list-tail items index)) state))
-                (lambda (proceed . next)
-                  (if proceed
-                      (loop (- index 1) next)
-                      (apply values next))))))))
+      (let loop ((items (reverse (collection->list value)))
+                 (index (- (collection-size value) 1))
+                 (state seeds))
+        (if (< index 0)
+            (apply values state)
+            (call-with-values
+              (lambda () (apply function index (car items) state))
+              (lambda (proceed . next)
+                (if proceed
+                    (loop (cdr items) (- index 1) next)
+                    (apply values next)))))))
 
 ;;;; Lists
 
@@ -375,7 +378,7 @@
       (if (if (exact-integer? index)
               (if (<= 0 index) (< index (vector-length value)) #f)
               #f)
-          (car (list-tail (vector->list value) index))
+          (base-vector-ref value index)
           (absence-value rest)))
 
     (define (vector-contains? value element)
@@ -464,7 +467,7 @@
       (if (if (exact-integer? index)
               (if (<= 0 index) (< index (string-length value)) #f)
               #f)
-          (car (list-tail (string->list value) index))
+          (base-string-ref value index)
           (absence-value rest)))
 
     (define (string-contains? value character)

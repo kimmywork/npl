@@ -205,8 +205,9 @@
 
 (define (tree-for-each proc tree)
   (tree-fold (lambda (key value acc)
-           (proc key value))
-         #f tree))
+               (proc key value)
+               #f)
+             #f tree))
 
 (define (tree-generator tree)
   (make-coroutine-generator
@@ -296,9 +297,10 @@
       ((black)
        (black-leaf))
       ((node c a x b)
-       (receive (key value)
-       (proc (item-key x) (item-value x))
-     (node c (loop a) (make-item key value) (loop b)))))))
+       (let ((left (loop a)))
+         (receive (key value)
+             (proc (item-key x) (item-value x))
+           (node c left (make-item key value) (loop b))))))))
 
 
 (define (tree-catenate tree1 pivot-key pivot-value tree2)

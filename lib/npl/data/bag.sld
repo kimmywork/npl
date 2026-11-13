@@ -68,19 +68,18 @@
                   (bag-table left)
                   (lambda () #f))))))
 
+    (define bag-missing (list 'bag-missing))
+
     (define (stored-element bag element)
-      (hash-table-find (lambda (key value)
-                         (if ((comparator-equality-predicate
-                               (bag-key-comparator bag))
-                              key element)
-                             key
-                             #f))
-                       (bag-table bag)
-                       (lambda () #f)))
+      (let ((same? (comparator-equality-predicate (bag-key-comparator bag))))
+        (let loop ((keys (hash-table-keys (bag-table bag))))
+          (cond ((null? keys) bag-missing)
+                ((same? (car keys) element) (car keys))
+                (else (loop (cdr keys)))))))
 
     (define (bag-member bag element default)
       (let ((stored (stored-element bag element)))
-        (if stored stored default)))
+        (if (eq? stored bag-missing) default stored)))
 
     (define (bag-element-comparator bag) (bag-key-comparator bag))
 
@@ -419,5 +418,17 @@
     (define bag-comparator
       (make-comparator bag? bag=? #f
                        (lambda (value)
-                         (default-hash (bag->alist value)))) ))
+                         (let ((comparator (bag-element-comparator value))
+                               (bound (hash-bound)))
+                           (modulo
+                            (bag-fold-unique
+                             (lambda (element count total)
+                               (+ total
+                                  (modulo (+ (comparator-hash comparator
+                                                              element)
+                                             count)
+                                          bound)))
+                             0 value)
+                            bound)))))
+)
 )

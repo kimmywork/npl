@@ -127,7 +127,8 @@
   (assume (comparator? comparator))
   (assume (mapping? mapping1))
   (assume (mapping? mapping2))
-  (not (%mapping<? comparator mapping1 mapping2)))
+  (and (%mapping<=? comparator mapping2 mapping1)
+       (not (%mapping<=? comparator mapping1 mapping2))))
 
 ;; Set theory operations
 
@@ -416,3 +417,5 @@
 (define mapping-comparator (make-mapping-comparator (make-default-comparator)))
 
 (comparator-register-default! mapping-comparator)
+
+(define (mapping-split! mapping obj) (mapping-split mapping obj))

@@ -572,13 +572,17 @@
         result))
 
     (define (bitvector->string bvec)
-      (let loop ((index 0) (result "#*"))
-        (if (>= index (bitvector-length bvec))
-            result
-            (loop (+ index 1)
-                  (string-append result
-                                 (if (= 1 (bitvector-ref/int bvec index))
-                                     "1" "0"))))))
+      (list->string
+       (cons #\#
+             (cons #\*
+                   (let loop ((index (bitvector-length bvec)) (result '()))
+                     (if (zero? index)
+                         result
+                         (loop (- index 1)
+                               (cons (if (= 1 (bitvector-ref/int bvec
+                                                                 (- index 1)))
+                                         #\1 #\0)
+                                     result))))))))
 
     (define (string->bitvector string)
       (if (if (>= (string-length string) 2)
@@ -598,15 +602,13 @@
           #f))
 
     (define (bitvector->integer bvec)
-      (let loop ((index 0)
-                 (result 0)
-                 (power 1))
+      (let loop ((index 0) (result 0))
         (if (>= index (bitvector-length bvec))
             result
             (loop (+ index 1)
-                  (+ result
-                     (if (= 1 (bitvector-ref/int bvec index)) power 0))
-                  (* power 2)))))
+                  (if (= 1 (bitvector-ref/int bvec index))
+                      (+ result (expt 2 index))
+                      result)))))
 
     (define (bitvector-integer-length integer)
       (let loop ((value integer) (length 0))

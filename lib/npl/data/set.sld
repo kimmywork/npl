@@ -267,6 +267,15 @@
     (define set-comparator
       (make-comparator set? set=? #f
                        (lambda (value)
-                         (default-hash (set-fold cons '() value)))))
+                         (let ((comparator (set-element-comparator value))
+                               (bound (hash-bound)))
+                           (modulo
+                            (set-fold
+                             (lambda (element total)
+                               (+ total
+                                  (modulo (comparator-hash comparator element)
+                                          bound)))
+                             0 value)
+                            bound)))))
 )
 )
