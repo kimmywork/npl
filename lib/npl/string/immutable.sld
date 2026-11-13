@@ -329,6 +329,9 @@
                (%freeze (%utf16-decode "utf16->string" bytes
                                        (+ start 2) end #f)))
               (else
-               (%freeze (%utf16-decode "utf16->string" bytes
-                                       start end #t))))))
+               (let ((little-endian? (and (memq 'little-endian (features))
+                                          #t)))
+                 (%freeze (%utf16-decode "utf16->string" bytes
+                                         start end
+                                         (not little-endian?))))))))
 ))

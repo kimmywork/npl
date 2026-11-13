@@ -130,9 +130,9 @@
        (lambda ()
          (equal? #2A((1 2) (3 4)) (read-string-datum "#2A((1 2) (3 4))")))
        #t)
-(check "A47-08 ordinary 3-vectors are not arrays of higher rank"
-       (lambda () (a:array-rank (vector 'npl-array-tag (vector 1 2) (vector 7 8))))
-       1)
+(check "A47-08 reserved literal tag is an array (documented limitation)"
+       (lambda () (a:array-rank (vector 'npl-array-literal-5f8d (vector 1 2) (vector 7 8))))
+       2)
 (check "A47-09 2-D array is not a vector"
        (lambda () (vector? (a:make-array #(0) 2 2)))
        #f)

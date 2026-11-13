@@ -235,8 +235,10 @@
                                   (if (string=? name "unix")
                                       #t
                                       (if (string=? name "little-endian")
-                                          #t
-                                          (string=? name "big-endian"))))))))))))
+                                          (npl_little_endian_p)
+                                          (if (string=? name "big-endian")
+                                              (not (npl_little_endian_p))
+                                              #f))))))))))))
 
 (define (library-feature? requirement)
   (if (datum-symbol? requirement)

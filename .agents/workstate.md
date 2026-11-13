@@ -45,7 +45,7 @@ I2 and part of I3 are implemented on `feature/srfi-i2-i3`:
   is `.agents/reviews/2026-11-12-srfi-i2-i3-test-design.md`.
 
 Remaining I3: SRFI 113 (with SRFI 128 comparators), 44, 146, 178.
-`check_full_compiler.sh` covers 43 suites.
+`check_full_compiler.sh` covers 47 suites.
 
 ## 0.1.1 (2026-11-12)
 
@@ -320,9 +320,9 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 265,343 lines; SHA-256
-  `c1212d190d7506a475805d67508bc520ec5cee748b037d3eda47f27f18f8b342`
-  (strict relay, 2026-11-13, review fixes and endianness feature). The seed calls
+- `bootstrap/current.ssa`: 265,370 lines; SHA-256
+  `d6efa07cdbaac095501306a8de2aff40faeb8adc78ec463baff9c683860594f5`
+  (strict relay, 2026-11-13, host endianness in cond-expand). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

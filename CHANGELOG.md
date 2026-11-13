@@ -61,8 +61,9 @@ behavior).
 - The R7RS `(scheme base)` `vector-copy` remains strict; SRFI 133's optional
   fill extension is not provided, so the binding can be shared with
   `(scheme base)`.
-- `(features)` now reports `little-endian` or `big-endian`, and
-  `string->utf16` writes the matching byte order.
+- `(features)` and `cond-expand` report exactly one of `little-endian` or
+  `big-endian`, from the host; `string->utf16` writes that byte order and
+  BOM-less `utf16->string` decodes it.
 - Both readers accept `#nA(...)` array literals: the NPL reader used by
   `nplc` and `(npl internal frontend)`, and the C reader used by
   `(scheme read)`, `load`, and the `npli` REPL. `#1A` reads as an ordinary

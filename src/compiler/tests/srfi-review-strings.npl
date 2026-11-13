@@ -318,6 +318,9 @@
                (if (memq 'big-endian (features)) #t 'bom-big-endian)
                (if (memq 'little-endian (features)) #t 'bom-little-endian))))
        #t)
+(check "S140-20b utf16 without BOM uses host endianness"
+       (lambda () (s140:utf16->string (s140:string->utf16 "ab") 2))
+       "ab")
 (check "S140-21 string->utf8 range"
        (lambda () (s140:string->utf8 "abc" 1 2))
        (bytevector 98))
