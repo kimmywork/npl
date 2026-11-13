@@ -15,6 +15,7 @@
     mapping-search mapping-search!
     mapping-size mapping-find mapping-count mapping-any? mapping-every?
     mapping-keys mapping-values mapping-entries
+    mapping-min-entry mapping-max-entry
     mapping-map mapping-map->list mapping-for-each mapping-fold
     mapping-filter mapping-filter!
     mapping-remove mapping-remove!

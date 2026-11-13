@@ -303,25 +303,33 @@
 
 (define (tree-catenate tree1 pivot-key pivot-value tree2)
   (let ((pivot (make-item pivot-key pivot-value))
-    (height1 (black-height tree1))
-    (height2 (black-height tree2)))
+        (height1 (black-height tree1))
+        (height2 (black-height tree2)))
     (cond
-     ((= height1 height2)
-      (black tree1 pivot tree2))
-     ((< height1 height2)
-      (blacken
-       (let loop ((tree tree2) (depth (- height2 height1)))
-     (if (zero? depth)
-         (balance (red tree1 pivot tree))
-         (balance
-          (node (color tree) (loop (left tree) (- depth 1)) (item tree) (right tree)))))))
-     (else
-      (blacken
-       (let loop ((tree tree1) (depth (- height1 height2)))
-     (if (zero? depth)
-         (balance (red tree pivot tree2))
-         (balance
-          (node (color tree) (left tree) (item tree) (loop (right tree) (- depth 1)))))))))))
+      ((= height1 height2)
+       (black tree1 pivot tree2))
+      ((< height1 height2)
+       (blacken
+        (let loop ((tree tree2) (depth (- height2 height1)))
+          (if (zero? depth)
+              (balance (red tree1 pivot tree))
+              (balance
+               (node (color tree)
+                     (loop (left tree)
+                           (if (black? tree) (- depth 1) depth))
+                     (item tree)
+                     (right tree)))))))
+      (else
+       (blacken
+        (let loop ((tree tree1) (depth (- height1 height2)))
+          (if (zero? depth)
+              (balance (red tree pivot tree2))
+              (balance
+               (node (color tree)
+                     (left tree)
+                     (item tree)
+                     (loop (right tree)
+                           (if (black? tree) (- depth 1) depth)))))))))))
 
 (define (tree-split comparator tree obj)
   (let loop ((tree1 (black-leaf))
@@ -371,9 +379,9 @@
     (tree-match tree
       ((black)
        0)
-      ((node red a x b)
+      ((red a x b)
        (loop b))
-      ((node black a x b)
+      ((black a x b)
        (+ 1 (loop b))))))
 
 (define (left-tree tree depth)

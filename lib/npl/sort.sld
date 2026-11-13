@@ -52,6 +52,17 @@
     (define (values-of items)
       (if (null? items) '() (cons (cdr (car items)) (values-of (cdr items)))))
 
+    ; SRFI 95 allows at most one key call per element.
+    (define (key-cache key)
+      (let ((cache '()))
+        (lambda (element)
+          (let ((hit (assq element cache)))
+            (if hit
+                (cdr hit)
+                (let ((value (if key (key element) element)))
+                  (set! cache (cons (cons element value) cache))
+                  value))))))
+
     (define (list-sort-range less? items key)
       (values-of (merge-sort less? (decorate-list key items))))
 
@@ -99,15 +110,6 @@
     (define (list-stable-sort! less? items)
       (list-sort! less? items))
 
-    (define (vector-sort-range who less? vector rest key)
-      (let* ((start (if (pair? rest) (car rest) 0))
-             (end (if (and (pair? rest) (pair? (cdr rest)))
-                      (car (cdr rest)) (vector-length vector)))
-             (range (vector-range who vector start end))
-             (sorted (merge-sort
-                      less? (decorate-vector vector key (car range) (cdr range)))))
-        (values-of sorted)))
-
     (define (vector-sort less? vector . rest)
       (list->vector
        (values-of
@@ -146,18 +148,31 @@
                             (decorate-list #f right))))
 
     (define (list-merge! less? left right)
-      (list-merge less? left right))
+      (cond ((null? left) right)
+            ((null? right) left)
+            ((less? (car right) (car left))
+             (let ((next (cdr right)))
+               (set-cdr! right (list-merge! less? left next))
+               right))
+            (else
+             (let ((next (cdr left)))
+               (set-cdr! left (list-merge! less? next right))
+               left))))
 
     (define (vector-merge less? left right . rest)
-      (let* ((lend (if (and (pair? rest) (pair? (cdr rest)))
+      (let* ((lstart (if (pair? rest) (car rest) 0))
+             (lend (if (and (pair? rest) (pair? (cdr rest)))
                        (car (cdr rest)) (vector-length left)))
+             (rstart (if (and (pair? rest) (pair? (cdr rest))
+                              (pair? (cdr (cdr rest))))
+                         (car (cdr (cdr rest))) 0))
              (rend (if (and (pair? rest) (pair? (cdr rest))
                             (pair? (cdr (cdr rest)))
                             (pair? (cdr (cdr (cdr rest)))))
                        (car (cdr (cdr (cdr rest))))
                        (vector-length right)))
-             (llist (decorate-vector left #f 0 lend))
-             (rlist (decorate-vector right #f 0 rend)))
+             (llist (decorate-vector left #f lstart lend))
+             (rlist (decorate-vector right #f rstart rend)))
         (list->vector (values-of (merge-two less? llist rlist)))))
 
     (define (vector-merge! less? target left right . rest)
@@ -193,7 +208,14 @@
                    (loop (cdr items) (car items) (cons (car items) result)))))))
 
     (define (list-delete-neighbor-dups! same? items)
-      (list-delete-neighbor-dups same? items))
+      (if (null? items)
+          '()
+          (let loop ((previous items) (rest (cdr items)))
+            (cond ((null? rest) items)
+                  ((same? (car previous) (car rest))
+                   (set-cdr! previous (cdr rest))
+                   (loop previous (cdr rest)))
+                  (else (loop rest (cdr rest)))))))
 
     (define (vector-delete-neighbor-dups same? vector . rest)
       (let* ((start (if (pair? rest) (car rest) 0))
@@ -257,12 +279,6 @@
 
 ;;;; SRFI 95 generic procedures
 
-    (define (sequence-kind value)
-      (cond ((list? value) 'list)
-            ((vector? value) 'vector)
-            ((string? value) 'string)
-            (else #f)))
-
     (define (sorted? sequence less? . rest)
       (let ((key (if (pair? rest) (car rest) #f)))
         (let ((items (cond ((list? sequence) sequence)
@@ -270,13 +286,14 @@
                            ((string? sequence) (string->list sequence))
                            (else (error "sorted?: expected a sequence"
                                         sequence)))))
-          (let loop ((items items))
-            (cond ((null? items) #t)
-                  ((null? (cdr items)) #t)
-                  ((less? (if key (key (car (cdr items))) (car (cdr items)))
-                          (if key (key (car items)) (car items)))
-                   #f)
-                  (else (loop (cdr items))))))))
+          (let ((key-of (key-cache key)))
+            (let loop ((items items))
+              (cond ((null? items) #t)
+                    ((null? (cdr items)) #t)
+                    ((less? (key-of (car (cdr items)))
+                            (key-of (car items)))
+                     #f)
+                    (else (loop (cdr items)))))))))
 
     (define (sort sequence less? . rest)
       (let ((key (if (pair? rest) (car rest) #f)))
@@ -321,5 +338,19 @@
                               (decorate-list key left)
                               (decorate-list key right)))))
 
+    (define (merge-keyed-lists! less? key-of left right)
+      (cond ((null? left) right)
+            ((null? right) left)
+            ((less? (key-of (car right)) (key-of (car left)))
+             (let ((next (cdr right)))
+               (set-cdr! right (merge-keyed-lists! less? key-of left next))
+               right))
+            (else
+             (let ((next (cdr left)))
+               (set-cdr! left (merge-keyed-lists! less? key-of next right))
+               left))))
+
     (define (merge! left right less? . rest)
-      (apply merge left right less? rest))))
+      (merge-keyed-lists! less?
+                          (key-cache (if (pair? rest) (car rest) #f))
+                          left right))))

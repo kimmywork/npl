@@ -125,15 +125,16 @@
                      (bitvector->list/bool a)
                      (bitvector->list/int (list->bitvector '(1 0 1)))
                      (bitvector->list/int (reverse-list->bitvector '(1 0 1)))))
-             '((1 0 1 1 0) (1 0 1 1 0) (#t #f #t #t #f) (1 0 1) (1 0 1)))
+             '((1 0 1 1 0) (0 1 1 0 1) (#t #f #t #t #f) (1 0 1) (1 0 1)))
   (test-list "bitvector vector conversions"
              (lambda ()
                (list (bitvector->vector/int a)
                      (bitvector->vector/bool a)
                      (bitvector->list/int (vector->bitvector '#(1 0 1)))
                      (bitvector->list/int
-                      (reverse-vector->bitvector '#(1 0 1)))))
-             '(#(1 0 1 1 0) #(#t #f #t #t #f) (1 0 1) (1 0 1)))
+                      (reverse-vector->bitvector '#(1 0 1)))
+                     (bitvector->list/int (vector->bitvector '#(9 1 0 9) 1 3))))
+             '(#(1 0 1 1 0) #(#t #f #t #t #f) (1 0 1) (1 0 1) (1 0)))
   (test-list "bitvector string conversions"
              (lambda ()
                (list (bitvector->string a)
@@ -156,7 +157,7 @@
                      (bitvector->list/int (bitvector-andc1 a b))
                      (bitvector->list/int (bitvector-orc2 a b))))
              '((0 1 0 0 1) (0 0 1 0 0) (1 1 1 1 1) (1 1 0 1 1)
-               (0 0 1 0 0) (1 1 0 1 1) (1 1 0 1 1)))
+               (0 0 1 0 0) (0 1 0 0 1) (1 0 1 1 0)))
   (test-list "bitvector-logical-shift"
              (lambda ()
                (list (bitvector->list/int (bitvector-logical-shift a 2 0))
@@ -198,6 +199,49 @@
                      (bools (make-bitvector/bool-generator a)))
                  (list (ints) (ints) (bools) (bools))))
              '(1 0 #t #f))
+  (test-equal "bitvector->integer weights index zero"
+              (lambda () (bitvector->integer (bitvector 1 0 1 1)))
+              13)
+  (test-equal "bitvector integer roundtrip"
+              (lambda () (bitvector->integer (integer->bitvector 6)))
+              6)
+  (test-identity "bitvector=? zero or one argument"
+                 (lambda () (and (bitvector=?) (bitvector=? a)))
+                 #t)
+  (test-list "bitvector variadic bitwise"
+             (lambda ()
+               (bitvector->list/int
+                (bitvector-and a b (bitvector 1 1 1 1 1))))
+             '(0 0 1 0 0))
+  (test-identity "bitvector-segment rejects zero"
+                 (lambda ()
+                   (guard (e (#t #t)) (bitvector-segment a 0) #f))
+                 #t)
+  (test-list "bitvector-copy! overlapping range"
+             (lambda ()
+               (let ((value (bitvector 1 0 1 0)))
+                 (bitvector-copy! value 1 value 0 3)
+                 (bitvector->list/int value)))
+             '(1 1 0 1))
+  (test-list "bitvector accumulator"
+             (lambda ()
+               (let ((accumulate (make-bitvector-accumulator)))
+                 (accumulate 1)
+                 (accumulate #f)
+                 (accumulate 1)
+                 (bitvector->list/int (accumulate (eof-object)))))
+             '(1 0 1))
+  (test-list "bitvector-map/bool accepts integer bits"
+             (lambda ()
+               (bitvector->list/int
+                (bitvector-map/bool (lambda (bit) 0) (bitvector 1))))
+             '(0))
+  (test-list "bitvector-field-replace! overlapping field"
+             (lambda ()
+               (let ((value (bitvector 1 0 1 1 0)))
+                 (bitvector-field-replace! value value 1 3)
+                 (bitvector->list/int value)))
+             '(1 1 0 1 0))
   (test-equal "srfi 178 alias"
               (lambda () (bitvector-length (s178:bitvector 1 0 1)))
               3)

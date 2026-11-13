@@ -18,6 +18,7 @@
     mapping-search mapping-search!
     mapping-size mapping-find mapping-count mapping-any? mapping-every?
     mapping-keys mapping-values mapping-entries
+    mapping-min-entry mapping-max-entry
     mapping-map mapping-map->list mapping-for-each mapping-fold
     mapping-filter mapping-filter!
     mapping-remove mapping-remove!
@@ -41,4 +42,5 @@
     comparator?)
   (import (scheme base) (scheme case-lambda) (npl list)
           (npl comparator) (npl data generator))
-  (include "map/prelude.scm" "map/rbtree.scm" "map/mapping.scm"))
+  (include "map/prelude.scm" "map/rbtree.scm" "map/mapping.scm"
+           "map/submapping.scm"))

@@ -76,7 +76,8 @@
 
     (define (set-adjoin! set . elements)
       (for-each (lambda (element)
-                  (hash-table-set! (set-table set) element element))
+                  (if (not (hash-table-contains? (set-table set) element))
+                      (hash-table-set! (set-table set) element element)))
                 elements)
       set)
 
@@ -264,8 +265,8 @@
             (set-remove (lambda (element) (set-contains? set1 element)) set2))))
 
     (define set-comparator
-      (make-comparator set? set=? set<?
-                       (lambda (value . rest)
-                         (default-hash (set-size value)
-                                       (if (pair? rest) (car rest) (hash-bound)))))))
+      (make-comparator set? set=? #f
+                       (lambda (value)
+                         (default-hash (set-fold cons '() value)))))
+)
 )

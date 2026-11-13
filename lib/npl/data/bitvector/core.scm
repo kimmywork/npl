@@ -1,8 +1,7 @@
     (define-record-type bitvector-type
-      (make-bitvector-record store offset length)
+      (make-bitvector-record store length)
       bitvector?
       (store bitvector-store)
-      (offset bitvector-offset)
       (length bitvector-record-length))
 
     (define (bitvector-length bvec) (bitvector-record-length bvec))
@@ -47,19 +46,16 @@
       (quotient (+ length 7) bits-per-byte))
 
     (define (make-empty store length)
-      (make-bitvector-record store 0 length))
+      (make-bitvector-record store length))
 
     (define (allocate length)
       (make-empty (make-bytevector (byte-count length) 0) length))
 
-    (define (store-bit-index bvec index)
-      (+ (bitvector-offset bvec) index))
-
     (define (bit-byte-index bvec index)
-      (quotient (store-bit-index bvec index) bits-per-byte))
+      (quotient index bits-per-byte))
 
     (define (bit-within-byte bvec index)
-      (remainder (store-bit-index bvec index) bits-per-byte))
+      (remainder index bits-per-byte))
 
     (define (bit-mask bvec index)
       (let loop ((remaining (bit-within-byte bvec index)) (mask 1))
@@ -199,18 +195,21 @@
       (check-bitvector "bitvector-empty?" bvec)
       (zero? (bitvector-length bvec)))
 
-    (define (bitvector=? left right . rest)
-      (if (not (= (bitvector-length left) (bitvector-length right)))
-          #f
-          (let loop ((index 0))
-            (cond ((= index (bitvector-length left))
-                   (if (pair? rest)
-                       (apply bitvector=? right rest)
-                       #t))
-                  ((= (bitvector-ref/int left index)
-                      (bitvector-ref/int right index))
-                   (loop (+ index 1)))
-                  (else #f)))))
+    (define (bitvector=? . vectors)
+      (cond ((null? vectors) #t)
+            ((null? (cdr vectors)) #t)
+            (else
+             (let ((left (car vectors))
+                   (right (car (cdr vectors))))
+               (if (not (= (bitvector-length left) (bitvector-length right)))
+                   #f
+                   (let loop ((index 0))
+                     (cond ((= index (bitvector-length left))
+                            (apply bitvector=? (cdr vectors)))
+                           ((= (bitvector-ref/int left index)
+                               (bitvector-ref/int right index))
+                            (loop (+ index 1)))
+                           (else #f))))))))
 
     (define (bitvector-take bvec count)
       (check-bitvector "bitvector-take" bvec)
@@ -236,6 +235,9 @@
       (bitvector-copy bvec 0 (- (bitvector-length bvec) count)))
 
     (define (bitvector-segment bvec size)
+      (if (if (exact-integer? size) (positive? size) #f)
+          #f
+          (error "bitvector-segment" "positive size required" size))
       (let loop ((start 0) (result '()))
         (if (>= start (bitvector-length bvec))
             (reverse result)
@@ -303,10 +305,10 @@
           (if (< index (bitvector-length bvec))
               (begin
                 (bitvector-set! result index
-                  (if (apply mapper
-                             (map (lambda (value) (= value 1))
-                                  (elements-at bvecs index)))
-                      1 0))
+                  (check-bit "bitvector-map/bool"
+                             (apply mapper
+                                    (map (lambda (value) (= value 1))
+                                         (elements-at bvecs index)))))
                 (loop (+ index 1)))))
         result))
 
@@ -326,10 +328,10 @@
           (if (< index (bitvector-length bvec))
               (begin
                 (bitvector-set! bvec index
-                  (if (apply mapper
-                             (map (lambda (value) (= value 1))
-                                  (elements-at bvecs index)))
-                      1 0))
+                  (check-bit "bitvector-map!/bool"
+                             (apply mapper
+                                    (map (lambda (value) (= value 1))
+                                         (elements-at bvecs index)))))
                 (loop (+ index 1)))))))
 
     (define (bitvector-map->list/int mapper bvec . rest)
@@ -459,23 +461,25 @@
              (end (if (if (pair? rest) (pair? (cdr rest)) #f)
                       (car (cdr rest))
                       (bitvector-length source)))
-             (range (check-range "bitvector-copy!" source start end)))
-        (copy-into! target at source (range-start range)
-                    (- (range-end range) (range-start range)))))
+             (range (check-range "bitvector-copy!" source start end))
+             (snapshot (bitvector-copy source (range-start range)
+                                       (range-end range))))
+        (copy-into! target at snapshot 0 (bitvector-length snapshot))))
 
     (define (bitvector-reverse-copy! target at source . rest)
       (let* ((start (if (pair? rest) (car rest) 0))
              (end (if (if (pair? rest) (pair? (cdr rest)) #f)
                       (car (cdr rest))
                       (bitvector-length source)))
-             (range (check-range "bitvector-reverse-copy!" source start end)))
-        (let loop ((index (range-start range)) (target-index at))
-          (if (< index (range-end range))
+             (range (check-range "bitvector-reverse-copy!" source start end))
+             (snapshot (bitvector-copy source (range-start range)
+                                       (range-end range))))
+        (let loop ((index 0) (target-index at))
+          (if (< index (bitvector-length snapshot))
               (begin
                 (bitvector-set! target target-index
                                 (bitvector-ref/int
-                                 source (- (range-end range) 1
-                                           (- index (range-start range)))))
+                                 snapshot (- (bitvector-length snapshot) 1 index)))
                 (loop (+ index 1) (+ target-index 1)))))))
 
     (define (bitvector->list/int bvec . rest)
@@ -494,11 +498,7 @@
       (map (lambda (bit) (= bit 1)) (apply bitvector->list/int bvec rest)))
 
     (define (reverse-range->list bvec start end)
-      (let loop ((index (- end 1)) (result '()))
-        (if (< index start)
-            result
-            (loop (- index 1)
-                  (cons (bitvector-ref/int bvec index) result)))))
+      (reverse (bitvector->list/int bvec start end)))
 
     (define (reverse-bitvector->list/int bvec . rest)
       (let* ((start (if (pair? rest) (car rest) 0))
@@ -540,11 +540,36 @@
     (define (reverse-bitvector->vector/bool bvec . rest)
       (bits->vector-conversion 'bool (apply reverse-bitvector->list/int bvec rest)))
 
-    (define (vector->bitvector vector)
-      (apply bitvector (vector->list vector)))
+    (define (vector->bitvector vector . rest)
+      (let* ((start (if (pair? rest) (car rest) 0))
+             (end (if (if (pair? rest) (pair? (cdr rest)) #f)
+                      (car (cdr rest))
+                      (vector-length vector)))
+             (result (allocate (- end start))))
+        (let loop ((offset 0))
+          (if (< offset (- end start))
+              (begin
+                (bitvector-set! result offset
+                                (check-bit "vector->bitvector"
+                                           (vector-ref vector (+ start offset))))
+                (loop (+ offset 1)))))
+        result))
 
-    (define (reverse-vector->bitvector vector)
-      (apply bitvector (reverse (vector->list vector))))
+    (define (reverse-vector->bitvector vector . rest)
+      (let* ((start (if (pair? rest) (car rest) 0))
+             (end (if (if (pair? rest) (pair? (cdr rest)) #f)
+                      (car (cdr rest))
+                      (vector-length vector)))
+             (result (allocate (- end start))))
+        (let loop ((offset 0))
+          (if (< offset (- end start))
+              (begin
+                (bitvector-set! result offset
+                                (check-bit "reverse-vector->bitvector"
+                                           (vector-ref vector
+                                                       (- end 1 offset))))
+                (loop (+ offset 1)))))
+        result))
 
     (define (bitvector->string bvec)
       (let loop ((index 0) (result "#*"))
@@ -573,12 +598,12 @@
           #f))
 
     (define (bitvector->integer bvec)
-      (let loop ((index (- (bitvector-length bvec) 1))
+      (let loop ((index 0)
                  (result 0)
                  (power 1))
-        (if (< index 0)
+        (if (>= index (bitvector-length bvec))
             result
-            (loop (- index 1)
+            (loop (+ index 1)
                   (+ result
                      (if (= 1 (bitvector-ref/int bvec index)) power 0))
                   (* power 2)))))
@@ -619,3 +644,14 @@
                  (begin (yield (bitvector-ref/bool bvec index))
                         (set! index (+ index 1))
                         (loop))))))))
+
+    (define (make-bitvector-accumulator)
+      (let ((bits '()))
+        (lambda (value)
+          (if (eof-object? value)
+              (apply bitvector (reverse bits))
+              (begin
+                (set! bits (cons (check-bit "make-bitvector-accumulator"
+                                            value)
+                                 bits))
+                (if #f #f))))))

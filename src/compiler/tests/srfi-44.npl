@@ -40,6 +40,11 @@
                    (c:collection-count '#(1 2 1) 1)
                    (c:collection-count "aba" #\a)))
               6)
+  (test-identity "collection equivalence is eqv?"
+                 (lambda ()
+                   (and (zero? (c:collection-count '(1.0) 1))
+                        (not (c:list-contains? '(1.0) 1))))
+                 #t)
   (test-list "collection-get-any"
              (lambda ()
                (list (c:collection-get-any '(1 2))
@@ -50,6 +55,13 @@
                (list (c:collection->list '(1)) (c:collection->list '#(1))
                      (c:collection->list "a")))
              '((1) (1) (#\a)))
+  (test-identity "collection->list copies the spine"
+                 (lambda ()
+                   (let* ((value (list 1 2))
+                          (copy (c:collection->list value)))
+                     (set-car! copy 9)
+                     (equal? value '(1 2))))
+                 #t)
   (test-list "collection-copy"
              (lambda ()
                (list (c:collection-copy '(1)) (c:collection-copy '#(1))
@@ -80,14 +92,43 @@
                      0))
                   (lambda (total) total)))
               60)
-  (test-identity "collection predicates"
+  (test-list "collection-fold-keys-left"
+             (lambda ()
+               (call-with-values
                  (lambda ()
-                   (and (c:ordered-collection? '(1))
-                        (c:sequence? '#(1))
+                   (c:collection-fold-keys-left
+                    "ab"
+                    (lambda (index value keys)
+                      (values #t (cons (cons index value) keys)))
+                    '()))
+                 (lambda (keys) (reverse keys))))
+             '((0 . #\a) (1 . #\b)))
+  (test-list "collection-fold-keys-right"
+             (lambda ()
+               (call-with-values
+                 (lambda ()
+                   (c:collection-fold-keys-right
+                    '#(10 20)
+                    (lambda (index value keys)
+                      (values #t (cons (cons index value) keys)))
+                    '()))
+                 (lambda (keys) keys)))
+             '((0 . 10) (1 . 20)))
+  (test-identity "collection classifications"
+                 (lambda ()
+                   (and (not (c:ordered-collection? '(1)))
+                        (c:directional-collection? '#(1))
+                        (c:bag? "a")
+                        (not (c:limited-collection? '(1)))
+                        (c:limited-collection? '#(1))
+                        (c:purely-mutable-collection? "a")
+                        (not (c:purely-mutable-collection? '(1)))
                         (c:flexible-sequence? '(1))
-                        (not (c:flexible-sequence? '#(1)))
-                        (c:directional-collection? '(1))))
+                        (not (c:flexible-sequence? '#(1)))))
                  #t)
+  (test-equal "make-list without arguments"
+              (lambda () (c:list-size (c:make-list)))
+              0)
   (test-list "list-size and access"
              (lambda ()
                (list (c:list-size '(1 2)) (c:list-empty? '())
@@ -95,6 +136,13 @@
                      (c:list-get-any '(1 2)) (c:list-get-left '(1 2))
                      (c:list-get-right '(1 2))))
              '(2 #t #t 2 1 1 2))
+  (test-identity "list-ref absence thunk"
+                 (lambda ()
+                   (equal? (c:list-ref '() 0 (lambda () 'missing)) 'missing))
+                 #t)
+  (test-list "list-copy range"
+             (lambda () (c:list-copy '(10 20 30) 1 3))
+             '(20 30))
   (test-equal "list-count"
               (lambda () (c:list-count '(1 2 1) 1))
               2)
@@ -106,6 +154,12 @@
                (list (c:list-add '(1) 2) (c:list-add! '(1) 2)
                      (c:list-set '(1 2) 1 9)))
              '((1 2) (1 2) (1 9)))
+  (test-list "list-set! returns the list"
+             (lambda ()
+               (let ((value (list 1 2)))
+                 (c:list-set! value 0 9)
+                 value))
+             '(9 2))
   (test-list "list insertion"
              (lambda ()
                (list (c:list-insert-left '(1) 0)
@@ -116,10 +170,18 @@
              (lambda ()
                (list (c:list-delete '(1 2 1) 1)
                      (c:list-delete-all '(1 2 1) 1)
-                     (c:list-delete-left '(1 2))
-                     (c:list-delete-right '(1 2))
                      (c:list-delete-at '(1 2) 0)))
-             '((2 1) (2) (2) (1) (2)))
+             '((2 1) (2) (2)))
+  (test-list "list-delete-left returns two values"
+             (lambda ()
+               (call-with-values (lambda () (c:list-delete-left '(1 2)))
+                 list))
+             '((2) 1))
+  (test-list "list-delete-right returns two values"
+             (lambda ()
+               (call-with-values (lambda () (c:list-delete-right '(1 2)))
+                 list))
+             '((1) 2))
   (test-list "list-replace-from"
              (lambda () (c:list-replace-from '(1 2 3) 1 '(8 9)))
              '(1 8 9))
@@ -132,11 +194,28 @@
                      (c:vector-get-left '#(1 2))
                      (c:vector-get-right '#(1 2))))
              '(2 #t #t 2 2 1 2))
+  (test-identity "vector-ref absence thunk"
+                 (lambda ()
+                   (equal? (c:vector-ref '#() 0 (lambda () 'missing))
+                           'missing))
+                 #t)
   (test-list "vector-set and replace"
              (lambda ()
                (list (c:vector-set '#(1 2) 0 9)
                      (c:vector-replace-from '#(1 2 3) 1 '#(8 9))))
              '(#(9 2) #(1 8 9)))
+  (test-list "vector-set! returns the vector"
+             (lambda ()
+               (let ((value (vector 1 2)))
+                 (c:vector-set! value 0 9)
+                 value))
+             '#(9 2))
+  (test-list "vector-replace-from! returns and snapshots"
+             (lambda ()
+               (let ((value (vector 'a 'b 'c)))
+                 (c:vector-replace-from! value 1 value 0 2)
+                 value))
+             '#(a a b))
   (test-identity "vector="
                  (lambda () (c:vector= = '#(1 2) '#(1 2)))
                  #t)
@@ -149,11 +228,27 @@
                      (c:string-get-left "ab")
                      (c:string-get-right "ab")))
              '(2 #t #t 2 #\b #\a #\b))
+  (test-identity "string-ref absence thunk"
+                 (lambda ()
+                   (equal? (c:string-ref "" 0 (lambda () 'missing)) 'missing))
+                 #t)
   (test-list "string-set and replace"
              (lambda ()
                (list (c:string-set "ab" 0 #\z)
                      (c:string-replace-from "abc" 1 "89")))
              '("zb" "a89"))
+  (test-list "string-set! returns the string"
+             (lambda ()
+               (let ((value (string-copy "ab")))
+                 (c:string-set! value 0 #\z)
+                 value))
+             "zb")
+  (test-list "string-replace-from! returns and snapshots"
+             (lambda ()
+               (let ((value (string-copy "abc")))
+                 (c:string-replace-from! value 1 value 0 2)
+                 value))
+             "aab")
   (test-identity "string="
                  (lambda () (c:string= char=? "ab" "ab"))
                  #t)

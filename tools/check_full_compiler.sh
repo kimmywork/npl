@@ -151,12 +151,12 @@ run_suite srfi-47 "PASS srfi-47 34"
 run_suite srfi-158 "PASS srfi-158 38"
 run_suite srfi-161 "PASS srfi-161 10"
 run_suite srfi-195 "PASS srfi-195 7"
-run_suite srfi-128 "PASS srfi-128 20"
-run_suite srfi-113 "PASS srfi-113 22"
-run_suite srfi-132 "PASS srfi-132 22"
-run_suite srfi-44 "PASS srfi-44 27"
-run_suite srfi-146 "PASS srfi-146 33"
-run_suite srfi-178 "PASS srfi-178 30"
+run_suite srfi-128 "PASS srfi-128 31"
+run_suite srfi-113 "PASS srfi-113 36"
+run_suite srfi-132 "PASS srfi-132 27"
+run_suite srfi-44 "PASS srfi-44 43"
+run_suite srfi-146 "PASS srfi-146 38"
+run_suite srfi-178 "PASS srfi-178 39"
 run_suite srfi-review-foundation "PASS review-foundation 119"
 run_suite srfi-review-strings "PASS review-strings 100"
 run_suite srfi-review-vectors-arrays "PASS review-vectors-arrays 69"
@@ -561,6 +561,8 @@ reject_compile macro-errors/force-arity.npl \
     force-arity "macro use does not match any syntax rule: force"
 reject_compile macro-errors/delay-arity.npl \
     delay-arity "macro use does not match any syntax rule: delay"
+reject_compile contracts/duplicate-definition.npl \
+    duplicate-definition "duplicate top-level definition"
 
 python3 "$ROOT/tools/check_srfi_exports.py"
 

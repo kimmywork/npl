@@ -64,8 +64,11 @@ behavior, so import it with `(except (scheme base) ...)` for the names it
 redefines. SRFI 13 and SRFI 130 also overlap, as do SRFI 13 and
 `(scheme char)` for `string-upcase`/`string-downcase`; import one of the
 overlapping libraries, or select the needed names with `only`/`except`.
-SRFI 44 covers lists, vectors, and strings; its remaining names are
-re-exported from `(scheme base)` and can be imported together with it.
+SRFI 44 covers lists, vectors, and strings. Its `list-ref`, `vector-ref`,
+`string-ref`, `list-copy`, `list-set!`, `vector-set!`, `string-set!`, and
+`make-list` add SRFI 44 absence, range, and return-value behavior, so import
+`(srfi 44)` with `only`/`except`/`prefix` when it shares those names with
+`(scheme base)`.
 
 ## Quick start
 
@@ -121,7 +124,7 @@ supported, and there is no cross-compilation path at this stage.
   [SRFI 125 reference](docs/reference/srfi-125.html)
 
 Deliberate omissions (R7RS-large features, `syntax-case`, keyword arguments,
-record inheritance, SRFI 113, and separate compilation) are listed in
+record inheritance, and separate compilation) are listed in
 the [conformance statement](docs/r7rs-conformance.md#deliberately-outside-the-language-stage).
 
 ## Testing

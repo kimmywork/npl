@@ -3,15 +3,16 @@
 ;
 ; The reference SRFI 44 specifies a generic dispatch layer over many
 ; collection types. This library implements the part the 0.1.2 plan calls for:
-; lists, vectors, and strings are collections, ordered collections, limited
-; collections, and sequences; lists are additionally flexible and directional.
-; Bags, sets, maps, and dictionaries are not part of this subset.
+; lists, vectors, and strings are collections, directional collections, bags,
+; and sequences. Vectors and strings are limited and purely mutable
+; collections; lists are flexible sequences. Sets, maps, and dictionaries are
+; not part of this subset.
 ;
-; The procedures named like their (scheme base) counterparts are re-exported
-; with their standard identity, so a combined import with (scheme base) stays
-; valid. Consequently the SRFI 44 optional absence and range arguments to
-; list-ref, vector-ref, string-ref, and list-copy are not provided; use the
-; collection accessors for absence handling.
+; The SRFI 44 forms of list-ref, vector-ref, string-ref, list-copy,
+; list-set!, vector-set!, string-set!, and make-list accept optional absence
+; and range arguments or return the updated collection, so they are defined
+; here rather than re-exported from (scheme base). A combined import with
+; (scheme base) therefore needs only/except/prefix for those names.
 (define-library (npl data collection)
   (export
     collection? collection-name
@@ -47,7 +48,13 @@
     string-fold-left string-fold-right string-equivalence-function
 
     sequence-ref sequence-size sequence-get-left sequence-get-right)
-  (import (scheme base))
+  (import (except (scheme base)
+                  list-ref vector-ref string-ref list-copy list-set!
+                  vector-set! string-set! make-list)
+          (rename (only (scheme base) vector-set! string-set! make-list)
+                  (vector-set! base-vector-set!)
+                  (string-set! base-string-set!)
+                  (make-list base-make-list)))
   (begin
     (define (collection-kind value)
       (cond ((list? value) 'list)
@@ -61,19 +68,34 @@
       (let ((kind (collection-kind value)))
         (if kind kind (error "collection-name" "not a collection" value))))
 
-    (define (ordered-collection? value) (collection? value))
-    (define (limited-collection? value) (collection? value))
-    (define (directional-collection? value) (eq? (collection-kind value) 'list))
-    (define (purely-mutable-collection? value) #f)
+    ; SRFI 44 classifies sequences as directional bags, not as ordered
+    ; collections. Vectors and strings are limited and purely mutable; lists
+    ; are unbounded flexible sequences.
+    (define (ordered-collection? value) #f)
+    (define (limited-collection? value)
+      (let ((kind (collection-kind value)))
+        (if (if kind (not (eq? kind 'list)) #f) #t #f)))
+    (define (directional-collection? value) (collection? value))
+    (define (purely-mutable-collection? value)
+      (let ((kind (collection-kind value)))
+        (if (if kind (not (eq? kind 'list)) #f) #t #f)))
     (define (sequence? value) (collection? value))
     (define (flexible-sequence? value) (eq? (collection-kind value) 'list))
-    (define (bag? value) #f)
+    (define (bag? value) (collection? value))
     (define (set? value) #f)
     (define (map? value) #f)
     (define (dictionary? value) #f)
 
+    (define (list-range-copy value start end)
+      (let loop ((items (list-tail value start))
+                 (remaining (- end start))
+                 (result '()))
+        (if (or (null? items) (<= remaining 0))
+            (reverse result)
+            (loop (cdr items) (- remaining 1) (cons (car items) result)))))
+
     (define (collection->list value)
-      (cond ((list? value) value)
+      (cond ((list? value) (list-range-copy value 0 (length value)))
             ((vector? value) (vector->list value))
             ((string? value) (string->list value))
             (else (error "collection->list" "not a collection" value))))
@@ -87,7 +109,7 @@
     (define (collection-empty? value) (zero? (collection-size value)))
 
     (define (collection-equivalence value)
-      (if (eq? (collection-kind value) 'string) char=? equal?))
+      (if (eq? (collection-kind value) 'string) char=? eqv?))
 
     (define (collection-count value element)
       (let ((same? (collection-equivalence value)))
@@ -105,7 +127,7 @@
         (if (null? items) (absence-value rest) (car items))))
 
     (define (collection-copy value)
-      (cond ((list? value) (list-copy value))
+      (cond ((list? value) (collection->list value))
             ((vector? value) (vector-copy value))
             ((string? value) (string-copy value))
             (else (error "collection-copy" "not a collection" value))))
@@ -117,10 +139,9 @@
             (else (error "collection-clear" "not a collection" value))))
 
     (define (collection-clear! value)
-      (if (eq? (collection-kind value) 'vector)
-          (vector-fill! value 0)
-          (error "collection-clear!" "only vectors can be cleared in place"))
-      (if #f #f))
+      (if (eq? (collection-kind value) 'list)
+          '()
+          (error "collection-clear!" "limited collection cannot be cleared")))
 
     ; SRFI 44 folds pass the collection value first and the seeds after it.
     ; The fold function returns a proceed flag followed by the next seeds.
@@ -143,25 +164,63 @@
     (define (collection-fold-right value function . seeds)
       (fold-right-values (collection->list value) function seeds))
 
+    ; Sequence keys are indices, paired with the element at that index.
     (define (collection-fold-keys-left value function . seeds)
-      (apply collection-fold-left value function seeds))
+      (let loop ((items (collection->list value)) (index 0) (state seeds))
+        (if (null? items)
+            (apply values state)
+            (call-with-values
+              (lambda () (apply function index (car items) state))
+              (lambda (proceed . next)
+                (if proceed
+                    (loop (cdr items) (+ index 1) next)
+                    (apply values next)))))))
 
     (define (collection-fold-keys-right value function . seeds)
-      (apply collection-fold-right value function seeds))
+      (let ((items (collection->list value)))
+        (let loop ((index (- (length items) 1)) (state seeds))
+          (if (< index 0)
+              (apply values state)
+              (call-with-values
+                (lambda () (apply function index
+                                  (car (list-tail items index)) state))
+                (lambda (proceed . next)
+                  (if proceed
+                      (loop (- index 1) next)
+                      (apply values next))))))))
 
 ;;;; Lists
 
-    (define (list->list value) value)
+    (define (make-list . rest)
+      (if (null? rest) '() (apply base-make-list rest)))
+
+    (define (list->list value) (collection->list value))
 
     (define (list-size value) (length value))
     (define (list-empty? value) (null? value))
-    (define (list-equivalence-function value) equal?)
-    (define (list-contains? value element) (if (member element value) #t #f))
+    (define (list-equivalence-function value) eqv?)
+    (define (list-contains? value element)
+      (if (memv element value) #t #f))
 
-    (define (nth-item items index)
-      (if (null? items)
-          #f
-          (if (zero? index) (car items) (nth-item (cdr items) (- index 1)))))
+    (define (list-ref value index . rest)
+      (if (if (exact-integer? index)
+              (if (<= 0 index) (< index (length value)) #f)
+              #f)
+          (car (list-tail value index))
+          (absence-value rest)))
+
+    (define (list-copy value . rest)
+      (let* ((start (if (pair? rest) (car rest) 0))
+             (end (if (if (pair? rest) (pair? (cdr rest)) #f)
+                      (car (cdr rest))
+                      (length value))))
+        (if (if (exact-integer? start)
+                (if (exact-integer? end)
+                    (if (<= 0 start end) (<= end (length value)) #f)
+                    #f)
+                #f)
+            (list-range-copy value start end)
+            (error "list-copy" "invalid range" start end))))
 
     (define (list-get-any value . rest) (apply collection-get-any value rest))
     (define (list-get-left value . rest)
@@ -210,6 +269,15 @@
           (copy-list-with-index value index replacement)
           (error "list-set" "index out of range" index)))
 
+    (define (list-set! value index replacement)
+      (if (if (exact-integer? index)
+              (if (<= 0 index) (< index (length value)) #f)
+              #f)
+          (let ((cell (list-tail value index)))
+            (set-car! cell replacement)
+            value)
+          (error "list-set!" "index out of range" index)))
+
     (define (list-insert-left value element) (cons element value))
     (define (list-insert-left! value element) (cons element value))
     (define (list-insert-right value element) (append value (list element)))
@@ -228,21 +296,31 @@
             (else (cons (car items)
                         (delete-all same? (cdr items) element)))))
 
-    (define (list-delete value element) (delete-first equal? value element))
-    (define (list-delete! value element) (delete-first equal? value element))
-    (define (list-delete-all value element) (delete-all equal? value element))
-    (define (list-delete-all! value element) (delete-all equal? value element))
+    (define (list-delete value element) (delete-first eqv? value element))
+    (define (list-delete! value element) (delete-first eqv? value element))
+    (define (list-delete-all value element) (delete-all eqv? value element))
+    (define (list-delete-all! value element) (delete-all eqv? value element))
 
-    (define (list-delete-left value) (if (null? value) '() (cdr value)))
-    (define (list-delete-left! value) (if (null? value) '() (cdr value)))
-    (define (list-delete-right value)
+    (define (list-delete-left value)
       (if (null? value)
-          '()
-          (reverse (cdr (reverse value)))))
-    (define (list-delete-right! value)
+          (values '() #f)
+          (values (cdr value) (car value))))
+    (define list-delete-left! list-delete-left)
+
+    (define (delete-right value)
       (if (null? value)
-          '()
-          (reverse (cdr (reverse value)))))
+          (values '() #f)
+          (if (null? (cdr value))
+              (values '() (car value))
+              (let loop ((items value))
+                (if (null? (cdr (cdr items)))
+                    (let ((removed (car (cdr items))))
+                      (set-cdr! items '())
+                      (values value removed))
+                    (loop (cdr items)))))))
+
+    (define (list-delete-right value) (delete-right (list-range-copy value 0 (length value))))
+    (define list-delete-right! delete-right)
 
     (define (list-clear value) '())
     (define (list-clear! value) '())
@@ -287,22 +365,21 @@
     (define (list-replace-from! value start source . rest)
       (apply list-replace-from value start source rest))
 
-    (define (list-range-copy value start end)
-      (let loop ((items (list-tail value start))
-                 (remaining (- end start))
-                 (result '()))
-        (if (or (null? items) (<= remaining 0))
-            (reverse result)
-            (loop (cdr items) (- remaining 1) (cons (car items) result)))))
-
 ;;;; Vectors
 
     (define (vector-size value) (vector-length value))
     (define (vector-empty? value) (zero? (vector-length value)))
-    (define (vector-equivalence-function value) equal?)
+    (define (vector-equivalence-function value) eqv?)
+
+    (define (vector-ref value index . rest)
+      (if (if (exact-integer? index)
+              (if (<= 0 index) (< index (vector-length value)) #f)
+              #f)
+          (car (list-tail (vector->list value) index))
+          (absence-value rest)))
 
     (define (vector-contains? value element)
-      (if (member element (vector->list value)) #t #f))
+      (if (memv element (vector->list value)) #t #f))
     (define (vector-count value element) (collection-count value element))
     (define (vector-get-any value . rest) (apply collection-get-any value rest))
     (define (vector-get-left value . rest)
@@ -322,12 +399,12 @@
         (cond ((null? rest) #t)
               ((null? (cdr rest)) #t)
               ((= (vector-length (car rest)) (vector-length (car (cdr rest))))
-               (if (let pair-loop ((index 0))
+               (if (let position-loop ((index 0))
                      (if (>= index (vector-length (car rest)))
                          #t
                          (if (same? (vector-ref (car rest) index)
                                     (vector-ref (car (cdr rest)) index))
-                             (pair-loop (+ index 1))
+                             (position-loop (+ index 1))
                              #f)))
                    (loop (cdr rest))
                    #f))
@@ -335,8 +412,12 @@
 
     (define (vector-set value index replacement)
       (let ((result (vector-copy value)))
-        (vector-set! result index replacement)
+        (base-vector-set! result index replacement)
         result))
+
+    (define (vector-set! value index replacement)
+      (base-vector-set! value index replacement)
+      value)
 
     (define (vector-replace-from value start source . rest)
       (let* ((source-start (if (pair? rest) (car rest) 0))
@@ -348,8 +429,8 @@
         (let loop ((offset 0))
           (if (< offset count)
               (begin
-                (vector-set! result (+ start offset)
-                             (vector-ref source (+ source-start offset)))
+                (base-vector-set! result (+ start offset)
+                                  (vector-ref source (+ source-start offset)))
                 (loop (+ offset 1)))))
         result))
 
@@ -357,19 +438,34 @@
       (let* ((source-start (if (pair? rest) (car rest) 0))
              (source-end (if (if (pair? rest) (pair? (cdr rest)) #f)
                              (car (cdr rest))
-                             (vector-length source))))
-        (let loop ((offset 0))
-          (if (< offset (- source-end source-start))
+                             (vector-length source)))
+             (count (- source-end source-start))
+             (snapshot (let loop ((offset 0) (result '()))
+                         (if (>= offset count)
+                             (reverse result)
+                             (loop (+ offset 1)
+                                   (cons (vector-ref source
+                                                     (+ source-start offset))
+                                         result))))))
+        (let loop ((offset 0) (items snapshot))
+          (if (< offset count)
               (begin
-                (vector-set! value (+ start offset)
-                             (vector-ref source (+ source-start offset)))
-                (loop (+ offset 1)))))))
+                (base-vector-set! value (+ start offset) (car items))
+                (loop (+ offset 1) (cdr items)))))
+        value))
 
 ;;;; Strings
 
     (define (string-size value) (string-length value))
     (define (string-empty? value) (zero? (string-length value)))
     (define (string-equivalence-function value) char=?)
+
+    (define (string-ref value index . rest)
+      (if (if (exact-integer? index)
+              (if (<= 0 index) (< index (string-length value)) #f)
+              #f)
+          (car (list-tail (string->list value) index))
+          (absence-value rest)))
 
     (define (string-contains? value character)
       (if (memv character (string->list value)) #t #f))
@@ -405,8 +501,12 @@
 
     (define (string-set value index replacement)
       (let ((result (string-copy value)))
-        (string-set! result index replacement)
+        (base-string-set! result index replacement)
         result))
+
+    (define (string-set! value index replacement)
+      (base-string-set! value index replacement)
+      value)
 
     (define (string-replace-from value start source . rest)
       (let* ((source-start (if (pair? rest) (car rest) 0))
@@ -418,8 +518,8 @@
         (let loop ((offset 0))
           (if (< offset count)
               (begin
-                (string-set! result (+ start offset)
-                             (string-ref source (+ source-start offset)))
+                (base-string-set! result (+ start offset)
+                                  (string-ref source (+ source-start offset)))
                 (loop (+ offset 1)))))
         result))
 
@@ -427,13 +527,21 @@
       (let* ((source-start (if (pair? rest) (car rest) 0))
              (source-end (if (if (pair? rest) (pair? (cdr rest)) #f)
                              (car (cdr rest))
-                             (string-length source))))
-        (let loop ((offset 0))
-          (if (< offset (- source-end source-start))
+                             (string-length source)))
+             (count (- source-end source-start))
+             (snapshot (let loop ((offset 0) (result '()))
+                         (if (>= offset count)
+                             (reverse result)
+                             (loop (+ offset 1)
+                                   (cons (string-ref source
+                                                     (+ source-start offset))
+                                         result))))))
+        (let loop ((offset 0) (items snapshot))
+          (if (< offset count)
               (begin
-                (string-set! value (+ start offset)
-                             (string-ref source (+ source-start offset)))
-                (loop (+ offset 1)))))))
+                (base-string-set! value (+ start offset) (car items))
+                (loop (+ offset 1) (cdr items)))))
+        value))
 
 ;;;; Generic sequences
 

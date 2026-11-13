@@ -112,6 +112,35 @@
                  (mapping-catenate keys (mapping keys 1 10) 2 20
                                    (mapping keys 3 30))))
               3)
+  (test-list "mapping-min-entry"
+             (lambda ()
+               (call-with-values (lambda () (mapping-min-entry m)) list))
+             '(1 10))
+  (test-list "mapping-max-entry"
+             (lambda ()
+               (call-with-values (lambda () (mapping-max-entry m)) list))
+             '(3 30))
+  (test-list "alist->mapping! keeps existing associations"
+             (lambda ()
+               (mapping->alist
+                (alist->mapping! m '((1 . 99) (9 . 90)))))
+             '((1 . 10) (2 . 20) (3 . 30) (9 . 90)))
+  (test-identity "mapping>? is proper containment"
+                 (lambda ()
+                   (not (mapping>? value-comparator
+                                   (mapping keys 1 10)
+                                   (mapping keys 2 20))))
+                 #t)
+  (test-list "mapping-map->list callback order"
+             (lambda ()
+               (let ((seen '()))
+                 (mapping-map->list
+                  (lambda (key value)
+                    (set! seen (cons key seen))
+                    value)
+                  m)
+                 (reverse seen)))
+             '(1 2 3))
   (test-equal "srfi 146 alias"
               (lambda () (s146:mapping-ref (s146:mapping keys 1 10) 1))
               10)

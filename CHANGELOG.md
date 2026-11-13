@@ -40,7 +40,18 @@ behavior).
 - Forward references to value-defined procedures now compile: a procedure
   may call a global that is defined later with `(define name (lambda ...))`
   or `(define name (case-lambda ...))`, as R7RS library and program bodies
-  require. `bootstrap/current.ssa` was relayed for this fix.
+  require. Duplicate top-level definitions are rejected at compile time.
+  `bootstrap/current.ssa` was relayed for these fixes.
+- Corrected SRFI 128 default/composite comparator ordering and hashing,
+  single-argument hash functions, variadic comparison predicates, and the
+  five-argument `comparator-if<=>` form.
+- Corrected SRFI 113 bag multiplicity, relations, search/replace results,
+  `bag->list`, product/sum, and set/bag comparator ordering.
+- Corrected SRFI 132 destructive merges and neighbor deduplication, vector
+  merge subranges, and `sorted?` key caching.
+- Corrected SRFI 178 integer conversion, reverse conversions, overlapping
+  copies, variadic logic operations, boolean maps, accumulator, and vector
+  conversion ranges.
 - SRFI 47 arrays as `(npl data array)` / `(srfi 47)`, including
   `#nA(...)` literals. Rank-1 arrays are vectors and strings; rank-1
   literals read as ordinary vectors. Rank-n literals read as tagged flat

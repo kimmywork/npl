@@ -1,5 +1,6 @@
 (import (scheme base)
         (scheme write)
+        (scheme char)
         (scheme process-context)
         (npl comparator)
         (npl data set)
@@ -67,6 +68,78 @@
               3)
   (test-identity "bag->set"
                  (lambda () (set? (bag->set bag-a)))
+                 #t)
+  (test-identity "set comparator is unordered"
+                 (lambda () (not (comparator-ordered? set-comparator)))
+                 #t)
+  (test-identity "set-adjoin keeps stored member"
+                 (lambda ()
+                   (let ((s (set (make-comparator string? string-ci=?
+                                                  string-ci<? string-ci-hash)
+                                 "a")))
+                     (equal? (set-member (set-adjoin s "A") "a" #f) "a")))
+                 #t)
+  (test-equal "bag->list multiplicity"
+              (lambda () (length (bag->list bag-a)))
+              3)
+  (test-identity "bag=? compares multiplicities"
+                 (lambda ()
+                   (not (bag=? (bag comparator 1 1 2)
+                               (bag comparator 1 2 2))))
+                 #t)
+  (test-identity "bag<=? compares multiplicities"
+                 (lambda ()
+                   (not (bag<=? (bag comparator 1 1)
+                                (bag comparator 1 2))))
+                 #t)
+  (test-identity "bag<? strict subbag"
+                 (lambda () (bag<? (bag comparator 1 1)
+                                   (bag comparator 1 1 2)))
+                 #t)
+  (test-identity "bag-search returns stored element"
+                 (lambda ()
+                   (let ((b (bag (make-comparator string? string-ci=?
+                                                  string-ci<? string-ci-hash)
+                                 "a" "a")))
+                     (equal? (bag-search! b "A"
+                                          (lambda (ignore replace delete)
+                                            #f)
+                                          (lambda (found replace delete)
+                                            found))
+                             "a")))
+                 #t)
+  (test-equal "bag-replace keeps count"
+              (lambda ()
+                (bag-element-count (bag-replace (bag comparator 1 1 1) 1) 1))
+              3)
+  (test-equal "set->bag"
+              (lambda () (bag-size (set->bag (set comparator 1 2))))
+              2)
+  (test-equal "bag-sum missing element"
+              (lambda ()
+                (bag-element-count (bag-sum (bag comparator 1)
+                                            (bag comparator 1 2))
+                                   1))
+              2)
+  (test-identity "bag-product zero removes"
+                 (lambda ()
+                   (let ((b (bag-product 0 bag-a)))
+                     (and (zero? (bag-size b))
+                          (zero? (bag-unique-size b))
+                          (not (bag-contains? b 1)))))
+                 #t)
+  (test-identity "bag-increment returns bag"
+                 (lambda () (bag? (bag-increment! (bag comparator 1) 2 1)))
+                 #t)
+  (test-identity "bag-decrement returns bag"
+                 (lambda () (bag? (bag-decrement! (bag comparator 1 1) 1 1)))
+                 #t)
+  (test-identity "bag-member stored element"
+                 (lambda ()
+                   (let ((b (bag (make-comparator string? string-ci=?
+                                                  string-ci<? string-ci-hash)
+                                 "a")))
+                     (equal? (bag-member b "A" #f) "a")))
                  #t)
   (test-equal "srfi 113 alias"
               (lambda () (s113:set-size (s113:set comparator 1 2)))

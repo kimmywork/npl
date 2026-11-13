@@ -59,8 +59,18 @@ I3 completion is on `feature/0.1.2-i3-remaining` (PR #5):
 - Set/bag internal accessors were renamed away from the exported
   `set-comparator`/`bag-comparator` values so the forward pre-registration
   cannot turn accessor calls into variable calls.
-- New suites: `forward-references` 4, `srfi-44` 27, `srfi-146` 33,
-  `srfi-178` 30. `check_full_compiler.sh` covers 54 suites.
+- New suites: `forward-references` 4, `srfi-44` 43, `srfi-146` 38,
+  `srfi-178` 39; `srfi-128` 31, `srfi-113` 36, `srfi-132` 27.
+  `check_full_compiler.sh` covers 54 suites and 78 negative checks.
+
+The 2026-11-13 review pass corrected SRFI 128 default/composite comparator
+ordering and hashing, SRFI 113 bag multiplicities/relations/search/replace,
+SRFI 132 destructive merges and vector subranges, SRFI 44 collection
+range/absence/setter/key-fold contracts, SRFI 146 concatenation and
+containment, and SRFI 178 integer/copy/logic/accumulator semantics.
+Duplicate top-level definitions are now a compile-time error. The seed was
+relayed again: 269,003 lines, SHA-256
+`ac9676d39c21683d18b40c3bb42aa3be2e6673c8c4f6b85ba103dbad8d2f27d2`.
 - SRFI 44 is documented as the lists/vectors/strings subset; bags, sets,
   maps, and dictionaries remain outside this increment.
 

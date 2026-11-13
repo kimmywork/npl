@@ -1,0 +1,4 @@
+(import (scheme base))
+(define (duplicate) 1)
+(define duplicate (lambda () 2))
+(duplicate)

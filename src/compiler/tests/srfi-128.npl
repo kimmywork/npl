@@ -1,4 +1,5 @@
 (import (scheme base)
+        (scheme char)
         (scheme write)
         (scheme process-context)
         (npl comparator)
@@ -13,16 +14,37 @@
   (test-identity "hashable?" (lambda () (comparator-hashable? real)) #t)
   (test-identity "test type" (lambda () (comparator-test-type real 1)) #t)
   (test-identity "check type failure"
-                 (lambda () (guard (e (#t #t)) (comparator-check-type real 'x)))
+                 (lambda ()
+                   (guard (e (#t #t))
+                     (comparator-check-type real 'x)
+                     #f))
                  #t)
   (test-identity "=? " (lambda () (=? real 1 1)) #t)
   (test-identity "<? " (lambda () (<? real 1 2)) #t)
   (test-identity ">? " (lambda () (>? real 2 1)) #t)
   (test-identity "<=?" (lambda () (<=? real 2 2)) #t)
   (test-identity ">=?" (lambda () (>=? real 2 1)) #t)
-  (test-equal "comparator-hash"
-              (lambda () (comparator-hash real 10))
-              10)
+  (test-identity "variadic comparisons"
+                 (lambda ()
+                   (and (=? real 1 1 1)
+                        (<? real 1 2 3)
+                        (<=? real 1 1 2)
+                        (>=? real 3 2 1)))
+                 #t)
+  (test-identity "number hash exactness"
+                 (lambda ()
+                   (= (comparator-hash real 1)
+                      (comparator-hash real 1.0)))
+                 #t)
+  (test-identity "single-argument hash function"
+                 (lambda ()
+                   (= 7 (comparator-hash
+                         (make-comparator integer? = < (lambda (value) 7))
+                         3)))
+                 #t)
+  (test-identity "number-hash infinity"
+                 (lambda () (exact-integer? (number-hash +inf.0)))
+                 #t)
   (test-equal "comparator-max"
               (lambda () (comparator-max real 1 3 2))
               3)
@@ -36,19 +58,54 @@
                  (lambda ()
                    (comparator-if<=> real 1 2 'less 'equal 'greater))
                  'less)
+  (test-identity "comparator-if<=> default comparator"
+                 (lambda () (comparator-if<=> 1 2 'less 'equal 'greater))
+                 'less)
+  (test-identity "default comparator ordering"
+                 (lambda () (<? (make-default-comparator) 1 2))
+                 #t)
+  (test-identity "default comparator number equality"
+                 (lambda () (=? (make-default-comparator) 1 1.0))
+                 #t)
   (test-identity "list comparator"
                  (lambda ()
                    (=? list-comparator '(1 2) '(1 2)))
                  #t)
+  (test-identity "list comparator ordering"
+                 (lambda () (<? list-comparator '(1 2) '(1 3)))
+                 #t)
   (test-identity "vector comparator"
                  (lambda ()
                    (=? vector-comparator '#(1 2) '#(1 2)))
+                 #t)
+  (test-identity "vector comparator ordering"
+                 (lambda () (<? vector-comparator '#(1) '#(1 2)))
+                 #t)
+  (test-identity "pair comparator ordering"
+                 (lambda ()
+                   (<? (make-pair-comparator real real) '(1 . 2) '(1 . 3)))
+                 #t)
+  (test-identity "pair comparator type test"
+                 (lambda ()
+                   (not (comparator-test-type
+                         (make-pair-comparator real real) '(1 . x))))
                  #t)
   (test-identity "string comparator"
                  (lambda () (=? string-comparator "ab" "ab"))
                  #t)
   (test-identity "default comparator"
                  (lambda () (=? default-comparator '(1 2) '(1 2)))
+                 #t)
+  (test-identity "registered default comparator"
+                 (lambda ()
+                   (comparator-register-default!
+                    (make-comparator
+                     (lambda (value) (and (pair? value) (eq? (car value) 'tag)))
+                     (lambda (left right) (equal? (cdr left) (cdr right)))
+                     (lambda (left right) (< (cdr left) (cdr right)))
+                     (lambda (value) 5)))
+                   (and (=? default-comparator '(tag . 1) '(tag . 1))
+                        (<? default-comparator '(tag . 1) '(tag . 2))))
                  #t)
   (test-identity "srfi 128 alias"
                  (lambda () (s:comparator? s:default-comparator))

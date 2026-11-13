@@ -68,8 +68,19 @@
                   (bag-table left)
                   (lambda () #f))))))
 
+    (define (stored-element bag element)
+      (hash-table-find (lambda (key value)
+                         (if ((comparator-equality-predicate
+                               (bag-key-comparator bag))
+                              key element)
+                             key
+                             #f))
+                       (bag-table bag)
+                       (lambda () #f)))
+
     (define (bag-member bag element default)
-      (if (hash-table-contains? (bag-table bag) element) element default))
+      (let ((stored (stored-element bag element)))
+        (if stored stored default)))
 
     (define (bag-element-comparator bag) (bag-key-comparator bag))
 
@@ -89,10 +100,11 @@
       (bag-replace! (bag-copy bag) element))
 
     (define (bag-replace! bag element)
-      (if (hash-table-contains? (bag-table bag) element)
-          (begin
-            (hash-table-delete! (bag-table bag) element)
-            (hash-table-set! (bag-table bag) element 1)))
+      (let ((count (hash-table-ref/default (bag-table bag) element 0)))
+        (if (positive? count)
+            (begin
+              (hash-table-delete! (bag-table bag) element)
+              (hash-table-set! (bag-table bag) element count))))
       bag)
 
     (define (bag-delete bag . elements) (bag-delete-all bag elements))
@@ -125,7 +137,7 @@
                    (values bag object))
                  (lambda (object) (values bag object)))
                 (success
-                 found
+                 (stored-element bag element)
                  (lambda (new-element object)
                    (hash-table-delete! (bag-table bag) element)
                    (bag-adjoin! bag new-element)
@@ -202,7 +214,18 @@
       (make-bag (bag-copy-table (bag-table bag) (bag-key-comparator bag))
                 (bag-key-comparator bag)))
 
-    (define (bag->list bag) (hash-table-keys (bag-table bag)))
+    (define (bag->list bag)
+      (let loop ((entries (hash-table->alist (bag-table bag))) (result '()))
+        (if (null? entries)
+            (reverse result)
+            (let ((element (car (car entries)))
+                  (count (cdr (car entries))))
+              (loop (cdr entries)
+                    (let repeat ((remaining count) (result result))
+                      (if (zero? remaining)
+                          result
+                          (repeat (- remaining 1)
+                                  (cons element result)))))))))
 
     (define (list->bag comparator elements)
       (fold (lambda (element result) (bag-adjoin! result element))
@@ -217,29 +240,42 @@
           #t
           (error "can't compare bags with different comparators" left right)))
 
+    (define (bag-subset? left right strict)
+      (and (comparable-bags? left right)
+           (let ((left-table (bag-table left))
+                 (right-table (bag-table right)))
+             (and (hash-table-fold
+                   left-table
+                   (lambda (element count result)
+                     (and result
+                          (let ((other
+                                 (hash-table-ref/default right-table
+                                                         element 0)))
+                            (if strict
+                                (<= count other)
+                                (<= count other)))))
+                   #t)
+                  (if strict
+                      (< (bag-size left) (bag-size right))
+                      #t)))))
+
     (define (bag=? bag1 . bags)
       (or (null? bags)
           (and (comparable-bags? bag1 (car bags))
                (= (bag-size bag1) (bag-size (car bags)))
-               (bag-every? (lambda (element) (bag-contains? bag1 element))
-                           (car bags))
+               (bag-subset? bag1 (car bags) #f)
+               (bag-subset? (car bags) bag1 #f)
                (apply bag=? bags))))
 
     (define (bag<? bag1 . bags)
       (or (null? bags)
-          (and (comparable-bags? bag1 (car bags))
-               (< (bag-size bag1) (bag-size (car bags)))
-               (bag-every? (lambda (element) (bag-contains? (car bags) element))
-                           bag1)
+          (and (bag-subset? bag1 (car bags) #t)
                (apply bag<? bags))))
 
     (define (bag>? . bags) (apply bag<? (reverse bags)))
     (define (bag<=? bag1 . bags)
       (or (null? bags)
-          (and (comparable-bags? bag1 (car bags))
-               (<= (bag-size bag1) (bag-size (car bags)))
-               (bag-every? (lambda (element) (bag-contains? (car bags) element))
-                           bag1)
+          (and (bag-subset? bag1 (car bags) #f)
                (apply bag<=? bags))))
     (define (bag>=? . bags) (apply bag<=? (reverse bags)))
 
@@ -323,7 +359,7 @@
                   (lambda (element count)
                     (hash-table-update!/default
                      (bag-table bag1) element
-                     (lambda (old) (+ old count)) count))
+                     (lambda (old) (+ old count)) 0))
                   (bag-table (car bags)))
                  (apply bag-sum! bag1 (cdr bags))))))
 
@@ -331,11 +367,14 @@
       (bag-product! count (bag-copy bag)))
 
     (define (bag-product! count bag)
-      (for-each
-       (lambda (element)
-         (hash-table-update! (bag-table bag) element
-                             (lambda (old) (* count old))))
-       (hash-table-keys (bag-table bag)))
+      (let ((table (bag-table bag)))
+        (for-each
+         (lambda (element)
+           (let ((product (* count (hash-table-ref/default table element 0))))
+             (if (positive? product)
+                 (hash-table-set! table element product)
+                 (hash-table-delete! table element))))
+         (hash-table-keys table)))
       bag)
 
     (define (bag-unique-size bag) (hash-table-size (bag-table bag)))
@@ -351,7 +390,8 @@
              (count2 (+ count (hash-table-ref/default table element 0))))
         (if (positive? count2)
             (hash-table-set! table element count2)
-            (hash-table-delete! table element))))
+            (hash-table-delete! table element))
+        bag))
     (define (bag-decrement! bag element count)
       (bag-increment! bag element (- count)))
 
@@ -363,7 +403,7 @@
         result))
 
     (define (set->bag set-value)
-      (set->bag! (bag (set-comparator set-value)) set-value))
+      (set->bag! (bag (set-element-comparator set-value)) set-value))
     (define (set->bag! bag set-value)
       (set-for-each (lambda (element) (bag-adjoin! bag element)) set-value)
       bag)
@@ -377,8 +417,7 @@
         result))
 
     (define bag-comparator
-      (make-comparator bag? bag=? bag<?
-                       (lambda (value . rest)
-                         (default-hash (bag-size value)
-                                       (if (pair? rest) (car rest) (hash-bound)))))))
+      (make-comparator bag? bag=? #f
+                       (lambda (value)
+                         (default-hash (bag->alist value)))) ))
 )

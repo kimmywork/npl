@@ -7,14 +7,28 @@
 
 (define (defined-name e) (cdr (car (car (cdr e)))))
 
+(define (duplicate-definition name)
+  (fatal (string-append "duplicate top-level definition: " name)))
+
+; R7RS makes it an error to define the same identifier twice in a body. A
+; duplicate would otherwise produce a call that silently mixes a function and
+; a variable binding, so reject it during registration.
+(define (check-new-function name)
+  (if (> (string-length (lookup-func name)) 0)
+      (duplicate-definition name)
+      (if (> (string-length (lookup-glob name)) 0)
+          (duplicate-definition name))))
+
 (define (pass-register-functions forms)
   (if (null? forms)
       0
       (begin
         (if (fun-def? (car forms))
-            (register-func
-              (defined-name (car forms))
-              (parameter-arity (cdr (car (cdr (car forms))))))
+            (begin
+              (check-new-function (defined-name (car forms)))
+              (register-func
+                (defined-name (car forms))
+                (parameter-arity (cdr (car (cdr (car forms)))))))
             0)
         (pass-register-functions (cdr forms)))))
 
@@ -32,8 +46,12 @@
       0
       (begin
         (if (var-def? (car forms))
-            (register-glob (variable-name (car forms))
-                           (global-slot (variable-name (car forms))))
+            (let ((name (variable-name (car forms))))
+              (if (> (string-length (lookup-glob name)) 0)
+                  (duplicate-definition name)
+                  (if (> (string-length (lookup-func name)) 0)
+                      (duplicate-definition name)))
+              (register-glob name (global-slot name)))
             0)
         (pass-register-globals (cdr forms)))))
 

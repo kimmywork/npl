@@ -33,6 +33,7 @@
     vector->bitvector reverse-vector->bitvector
     bitvector->string string->bitvector
     bitvector->integer integer->bitvector
+    make-bitvector-accumulator
     make-bitvector/int-generator make-bitvector/bool-generator
     bitvector-not bitvector-not!
     bitvector-and bitvector-and! bitvector-ior bitvector-ior!
