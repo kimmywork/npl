@@ -1,0 +1,8 @@
+(define-syntax make-definer
+  (syntax-rules ()
+    ((_ definer body ...)
+     (let ((secret 'inner))
+       (define-syntax definer (syntax-rules () ((_ n) (define (n) secret))))
+       body ...))))
+(define secret 'outer)
+(write (make-definer def (def get) (get)))
