@@ -1,0 +1,127 @@
+; Surface coverage for the SRFI 44 collection exports. The semantic suite is
+; srfi-44.npl; this file exercises the remaining conversion, setter, fold, and
+; predicate names.
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (prefix (npl data collection) c:))
+
+(include "framework.npl")
+
+(define (test-list name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (test-identity "collection predicates"
+                 (lambda ()
+                   (and (c:list? '(1))
+                        (c:vector? '#(1))
+                        (c:string? "a")
+                        (c:sequence? '(1))
+                        (not (c:set? '(1)))
+                        (not (c:map? '(1)))
+                        (not (c:dictionary? '(1)))))
+                 #t)
+  (test-list "list conversions and clearing"
+             (lambda ()
+               (list (c:list->list '(1 2))
+                     (c:list-clear '(1))
+                     (c:list-clear! '(1))))
+             '((1 2) () ()))
+  (test-list "list destructive operations"
+             (lambda ()
+               (list (c:list-delete! (list 1 2) 1)
+                     (c:list-delete-all! (list 1 1 2) 1)
+                     (c:list-delete-at! (list 1 2) 0)
+                     (call-with-values
+                       (lambda () (c:list-delete-left! (list 1 2)))
+                       list)
+                     (call-with-values
+                       (lambda () (c:list-delete-right! (list 1 2)))
+                       list)))
+             '((2) (2) (2) ((2) 1) ((1) 2)))
+  (test-identity "list equivalence predicate"
+                 (lambda () (procedure? (c:list-equivalence-function '(1))))
+                 #t)
+  (test-list "list folds"
+             (lambda ()
+               (list (call-with-values
+                       (lambda ()
+                         (c:list-fold-left '(1 2)
+                                           (lambda (value total)
+                                             (values #t (+ value total)))
+                                           0))
+                       list)
+                     (call-with-values
+                       (lambda ()
+                         (c:list-fold-right '(1 2)
+                                            (lambda (value total)
+                                              (values #t (+ (* value 10) total)))
+                                            0))
+                       list)))
+             '((3) (30)))
+  (test-list "list insertion"
+             (lambda ()
+               (list (c:list-insert! (list 1 3) 1 2)
+                     (c:list-insert-left! '(1) 0)
+                     (c:list-insert-right! '(1) 2)))
+             '((1 2 3) (0 1) (1 2)))
+  (test-list "list replacement"
+             (lambda () (c:list-replace-from! '(1 2 3) 1 '(8 9)))
+             '(1 8 9))
+  (test-list "vector surface"
+             (lambda ()
+               (list (c:make-vector 2 0)
+                     (c:vector->list '#(1 2))
+                     (c:vector-copy '#(1 2))
+                     (c:vector-get-any '#(1 2))
+                     (call-with-values
+                       (lambda ()
+                         (c:vector-fold-left '#(1 2)
+                                             (lambda (value total)
+                                               (values #t (+ value total)))
+                                             0))
+                       list)
+                     (call-with-values
+                       (lambda ()
+                         (c:vector-fold-right '#(1 2)
+                                              (lambda (value total)
+                                                (values #t (+ (* value 10) total)))
+                                              0))
+                       list)))
+             '(#(0 0) (1 2) #(1 2) 1 (3) (30)))
+  (test-identity "vector equivalence predicate"
+                 (lambda () (procedure? (c:vector-equivalence-function '#())))
+                 #t)
+  (test-list "string surface"
+             (lambda ()
+               (list (c:make-string 2 #\a)
+                     (c:string->list "ab")
+                     (c:string-get-any "ab")
+                     (call-with-values
+                       (lambda ()
+                         (c:string-fold-left "ab"
+                                             (lambda (value total)
+                                               (values #t (cons value total)))
+                                             '()))
+                       list)
+                     (call-with-values
+                       (lambda ()
+                         (c:string-fold-right "ab"
+                                              (lambda (value total)
+                                                (values #t (cons value total)))
+                                              '()))
+                       list)))
+             '("aa" (#\a #\b) #\a ((#\b #\a)) ((#\a #\b))))
+  (test-identity "string equivalence predicate"
+                 (lambda () (procedure? (c:string-equivalence-function "")))
+                 #t)
+  (test-identity "collection-clear! accepts lists only"
+                 (lambda ()
+                   (and (null? (c:collection-clear! '(1 2)))
+                        (guard (condition (#t #t))
+                          (c:collection-clear! '#(1))
+                          #f)))
+                 #t)
+  (finish-tests "srfi-44-surface"))
+(main)

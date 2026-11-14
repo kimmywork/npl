@@ -44,8 +44,41 @@ I2 and part of I3 are implemented on `feature/srfi-i2-i3`:
   `src/compiler/tests/` and `tests/r7rs/fixtures/srfi-i2-i3`; the design note
   is `.agents/reviews/2026-11-12-srfi-i2-i3-test-design.md`.
 
-Remaining I3: SRFI 113 (with SRFI 128 comparators), 44, 146, 178.
-`check_full_compiler.sh` covers 47 suites.
+I3 completion is on `feature/0.1.2-i3-remaining` (PR #5):
+
+- `(npl comparator)` / 128, `(npl data set)` + `(npl data bag)` / 113,
+  and `(npl sort)` / 132 + 95.
+- `(npl data collection)` / 44 (lists, vectors, strings),
+  `(npl data map)` / 146 (persistent red-black tree), and
+  `(npl data bitvector)` / 178.
+- Compiler fix: a procedure may call a global defined later with
+  `(define name (lambda ...))` or `(define name (case-lambda ...))`
+  (R7RS 5.1). This fixed the SRFI 146 port. The seed was relayed;
+  `bootstrap/current.ssa` is 269,201 lines,
+  SHA-256 `68ceaee686e21ffaa836fe93df46ca95600523c34c81381bf5a7eba71ed13d6a`.
+- Set/bag internal accessors were renamed away from the exported
+  `set-comparator`/`bag-comparator` values so the forward pre-registration
+  cannot turn accessor calls into variable calls.
+- New suites: `forward-references` 4, `srfi-44` 43 plus surface 12,
+  `srfi-146` 38 plus surface 17, `srfi-178` 39 plus surface 8;
+  `srfi-128` 38, `srfi-113` 44, `srfi-132` 36.
+  `check_full_compiler.sh` covers 57 suites and 78 negative checks, and
+  `check_library_test_coverage.py` requires every new export to appear in a
+  test.
+
+The 2026-11-13 review pass corrected SRFI 128 default/composite comparator
+ordering and hashing, SRFI 113 bag multiplicities/relations/search/replace,
+SRFI 132 destructive merges and vector subranges, SRFI 44 collection
+range/absence/setter/key-fold contracts, SRFI 146 concatenation and
+containment, and SRFI 178 integer/copy/logic/accumulator semantics.
+Duplicate top-level definitions are now a compile-time error. The seed was
+relayed again: 269,003 lines, SHA-256
+`ac9676d39c21683d18b40c3bb42aa3be2e6673c8c4f6b85ba103dbad8d2f27d2`.
+- SRFI 44 is documented as the lists/vectors/strings subset; bags, sets,
+  maps, and dictionaries remain outside this increment.
+
+I3 is complete. Remaining 0.1.2 work: I4 time/POSIX, I5 SRFI-226
+evaluation, and the D1 diagnostics items.
 
 ## 0.1.1 (2026-11-12)
 
@@ -338,6 +371,14 @@ want it while it is deferred.
 - 0.1.1 review follow-ups: [state review](reviews/2026-11-12-0.1.0-state-review.md).
   Highest-value next work is source spans and stack traces, a unified
   uncaught-error exit status, SRFI 1/13/113, and separate compilation.
+- Macro/reader follow-ups: [syntax-rules review](reviews/2026-11-14-syntax-rules-ellipsis-and-lambda-shorthand.md)
+  and [macro system review](reviews/2026-11-14-macro-system-review.md).
+  Fix first: M1 (macro-produced single `define` not bound in bodies; nplc
+  rejects or miscompiles) and M2 (depth-0 pattern variables in ellipsis
+  templates). Then M3 hygiene, M5 body macro order, and decisions on M4
+  (top-level introduced definitions), M6 (core syntax exports), and N1
+  (multiple same-level ellipses). syntax-case stays deferred; SRFI 211
+  er/ir macros come first if procedural macros are needed.
 - `(sqrt -1.0-0.0i)` branch convention: follow IEEE signed-zero convention
   (Guile and Racket precedent) when sqrt is implemented. Not blocking.
 - Operand evaluation order differs between native and npli: in

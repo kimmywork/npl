@@ -74,6 +74,10 @@
       (delay 42)
       (delay-force (differential-promise-chain (- count 1)))))
 
+(define (differential-forward-call) (differential-forward-later 41))
+
+(define differential-forward-later (lambda (value) (+ value 1)))
+
 (define (differential-results)
   (list
     (+ 20 22)
@@ -93,4 +97,5 @@
     (differential-raise-wind)
     (differential-promise-memoization)
     (differential-promise-parameter)
-    (force (differential-promise-chain 1000))))
+    (force (differential-promise-chain 1000))
+    (differential-forward-call)))

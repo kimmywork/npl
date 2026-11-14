@@ -268,10 +268,16 @@
 
 ; The optional second argument of the SRFI 69 hash functions is ignored.
 (define (hash object . bound) (npl_hash_value 2 object))
-(define (string-hash string . bound) (npl_hash_value 3 string))
+(define (bounded-hash hash . bound)
+  (if (pair? bound) (modulo hash (car bound)) hash))
+(define (string-hash string . bound)
+  (apply bounded-hash (npl_hash_value 3 string) bound))
 (define (string-ci-hash string . bound)
-  (npl_hash_value 3 (string-foldcase string)))
-(define (hash-by-identity object . bound) (npl_hash_value 0 object))
+  (apply bounded-hash (npl_hash_value 3 (string-foldcase string)) bound))
+(define (hash-by-identity object . bound)
+  (apply bounded-hash (npl_hash_value 0 object) bound))
+(define (hash-by-eqv object . bound)
+  (apply bounded-hash (npl_hash_value 1 object) bound))
 
 (define (hash-table-equivalence-function table) (npl_hash_table_info table 1))
 

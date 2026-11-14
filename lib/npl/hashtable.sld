@@ -27,7 +27,7 @@
     hash-table-copy hash-table-empty-copy hash-table->alist
     hash-table-union! hash-table-merge! hash-table-intersection!
     hash-table-difference! hash-table-xor!
-    hash string-hash string-ci-hash hash-by-identity
+    hash string-hash string-ci-hash hash-by-identity hash-by-eqv
     hash-table-equivalence-function hash-table-hash-function)
   (import (scheme base) (scheme char)
           (only (npl internal primitive)

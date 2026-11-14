@@ -1,0 +1,249 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl data bitvector)
+        (prefix (srfi 178) s178:))
+
+(include "framework.npl")
+
+(define (test-list name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (define a (bitvector 1 0 1 1 0))
+  (define b (bitvector 0 1 1 0 1))
+  (test-equal "bitvector-length" (lambda () (bitvector-length a)) 5)
+  (test-list "bitvector-ref"
+             (lambda ()
+               (list (bitvector-ref/int a 0) (bitvector-ref/bool a 1)))
+             '(1 #f))
+  (test-identity "bitvector-empty?"
+                 (lambda () (bitvector-empty? (bitvector)))
+                 #t)
+  (test-identity "bitvector=?"
+                 (lambda ()
+                   (and (bitvector=? a (bitvector 1 0 1 1 0))
+                        (not (bitvector=? a b))))
+                 #t)
+  (test-list "bitvector-copy"
+             (lambda ()
+               (list (bitvector->list/int (bitvector-copy a 1 4))
+                     (bitvector->list/int (bitvector-reverse-copy a))))
+             '((0 1 1) (0 1 1 0 1)))
+  (test-list "bitvector-append"
+             (lambda ()
+               (list (bitvector->list/int
+                      (bitvector-append (bitvector 1) (bitvector 0 1)))
+                     (bitvector->list/int
+                      (bitvector-concatenate
+                       (list (bitvector 1) (bitvector 0))))))
+             '((1 0 1) (1 0)))
+  (test-list "bitvector-append-subbitvectors"
+             (lambda ()
+               (bitvector->list/int
+                (bitvector-append-subbitvectors
+                 (bitvector 1 0 1 1) 1 3 (bitvector 0 0) 1 2)))
+             '(0 1 0))
+  (test-list "bitvector-take and drop"
+             (lambda ()
+               (list (bitvector->list/int (bitvector-take a 2))
+                     (bitvector->list/int (bitvector-take-right a 2))
+                     (bitvector->list/int (bitvector-drop a 2))
+                     (bitvector->list/int (bitvector-drop-right a 2))))
+             '((1 0) (1 0) (1 1 0) (1 0 1)))
+  (test-list "bitvector-segment"
+             (lambda ()
+               (map bitvector->list/int (bitvector-segment a 2)))
+             '((1 0) (1 1) (0)))
+  (test-list "bitvector-fold"
+             (lambda ()
+               (list (bitvector-fold/int
+                      (lambda (total bit) (+ (* total 2) bit)) 0 a)
+                     (bitvector-fold-right/int
+                      (lambda (total bit) (+ (* total 2) bit)) 0 a)
+                     (bitvector-fold/bool
+                      (lambda (total bit) (if bit (+ total 1) total)) 0 a)))
+             '(22 13 3))
+  (test-list "bitvector-map"
+             (lambda ()
+               (list (bitvector->list/int
+                      (bitvector-map/int (lambda (bit) (- 1 bit)) a))
+                     (bitvector->list/bool
+                      (bitvector-map/bool (lambda (bit) (not bit)) a))
+                     (bitvector-map->list/int (lambda (bit) bit) a)))
+             '((0 1 0 0 1) (#f #t #f #f #t) (1 0 1 1 0)))
+  (test-equal "bitvector-for-each"
+              (lambda ()
+                (let ((total 0))
+                  (bitvector-for-each/int
+                   (lambda (bit) (set! total (+ total bit))) a)
+                  total))
+              3)
+  (test-list "bitvector-prefix and suffix"
+             (lambda ()
+               (list (bitvector-prefix-length a (bitvector 1 0 0))
+                     (bitvector-suffix-length a (bitvector 0))
+                     (bitvector-prefix? (bitvector 1 0) a)
+                     (bitvector-suffix? (bitvector 1 0) a)))
+             '(2 1 #t #t))
+  (test-list "bitvector-pad"
+             (lambda ()
+               (list (bitvector->list/int (bitvector-pad 1 a 7))
+                     (bitvector->list/int (bitvector-pad-right 1 a 7))))
+             '((1 1 1 0 1 1 0) (1 0 1 1 0 1 1)))
+  (test-list "bitvector-trim"
+             (lambda ()
+               (list (bitvector->list/int (bitvector-trim 0 a))
+                     (bitvector->list/int (bitvector-trim-right 0 a))
+                     (bitvector->list/int
+                      (bitvector-trim-both 0 (bitvector 0 1 0)))))
+             '((1 0 1 1 0) (1 0 1 1) (1)))
+  (test-list "bitvector mutators"
+             (lambda ()
+               (let ((copy (bitvector 0 0 0)))
+                 (bitvector-set! copy 1 1)
+                 (bitvector-swap! copy 0 2)
+                 (bitvector-reverse! copy)
+                 (bitvector->list/int copy)))
+             '(0 1 0))
+  (test-list "bitvector copy!"
+             (lambda ()
+               (let ((copy (bitvector 0 0 0 0 0)))
+                 (bitvector-copy! copy 1 a 0 3)
+                 (bitvector->list/int copy)))
+             '(0 1 0 1 0))
+  (test-list "bitvector reverse-copy!"
+             (lambda ()
+               (let ((copy (bitvector 0 0 0 0 0)))
+                 (bitvector-reverse-copy! copy 0 a)
+                 (bitvector->list/int copy)))
+             '(0 1 1 0 1))
+  (test-list "bitvector conversions"
+             (lambda ()
+               (list (bitvector->list/int a)
+                     (reverse-bitvector->list/int a)
+                     (bitvector->list/bool a)
+                     (bitvector->list/int (list->bitvector '(1 0 1)))
+                     (bitvector->list/int (reverse-list->bitvector '(1 0 1)))))
+             '((1 0 1 1 0) (0 1 1 0 1) (#t #f #t #t #f) (1 0 1) (1 0 1)))
+  (test-list "bitvector vector conversions"
+             (lambda ()
+               (list (bitvector->vector/int a)
+                     (bitvector->vector/bool a)
+                     (bitvector->list/int (vector->bitvector '#(1 0 1)))
+                     (bitvector->list/int
+                      (reverse-vector->bitvector '#(1 0 1)))
+                     (bitvector->list/int (vector->bitvector '#(9 1 0 9) 1 3))))
+             '(#(1 0 1 1 0) #(#t #f #t #t #f) (1 0 1) (1 0 1) (1 0)))
+  (test-list "bitvector string conversions"
+             (lambda ()
+               (list (bitvector->string a)
+                     (bitvector->list/int (string->bitvector "#*101"))
+                     (string->bitvector "101")))
+             '("#*10110" (1 0 1) #f))
+  (test-list "bitvector integer conversions"
+             (lambda ()
+               (list (bitvector->integer (bitvector 1 0 1))
+                     (bitvector->list/int (integer->bitvector 5))
+                     (bitvector->list/int (integer->bitvector 5 5))))
+             '(5 (1 0 1) (1 0 1 0 0)))
+  (test-list "bitvector bitwise"
+             (lambda ()
+               (list (bitvector->list/int (bitvector-not a))
+                     (bitvector->list/int (bitvector-and a b))
+                     (bitvector->list/int (bitvector-ior a b))
+                     (bitvector->list/int (bitvector-xor a b))
+                     (bitvector->list/int (bitvector-eqv a b))
+                     (bitvector->list/int (bitvector-andc1 a b))
+                     (bitvector->list/int (bitvector-orc2 a b))))
+             '((0 1 0 0 1) (0 0 1 0 0) (1 1 1 1 1) (1 1 0 1 1)
+               (0 0 1 0 0) (0 1 0 0 1) (1 0 1 1 0)))
+  (test-list "bitvector-logical-shift"
+             (lambda ()
+               (list (bitvector->list/int (bitvector-logical-shift a 2 0))
+                     (bitvector->list/int (bitvector-logical-shift a -2 1))))
+             '((1 1 0 0 0) (1 1 1 0 1)))
+  (test-list "bitvector-count and first-bit"
+             (lambda ()
+               (list (bitvector-count 1 a)
+                     (bitvector-count-run 1 a 2)
+                     (bitvector-first-bit 1 a)
+                     (bitvector-first-bit 0 a)))
+             '(3 2 0 1))
+  (test-list "bitvector-if"
+             (lambda () (bitvector->list/int (bitvector-if a b a)))
+             '(0 0 1 0 0))
+  (test-list "bitvector-unfold"
+             (lambda ()
+               (bitvector->list/int
+                (bitvector-unfold
+                 (lambda (index seed)
+                   (values (if (even? index) 1 0) seed))
+                 5 0)))
+             '(1 0 1 0 1))
+  (test-list "bitvector fields"
+             (lambda ()
+               (list (bitvector-field-any? a 0 2)
+                     (bitvector-field-every? a 0 2)
+                     (bitvector->list/int (bitvector-field-clear a 1 3))
+                     (bitvector->list/int (bitvector-field-set a 1 3))
+                     (bitvector->list/int
+                      (bitvector-field-replace (bitvector 0 0 0 0 0) a 1 4))
+                     (bitvector->list/int (bitvector-field-rotate a 1 0 5))
+                     (bitvector->list/int (bitvector-field-flip a 1 3))))
+             '(#t #f (1 0 0 1 0) (1 1 1 1 0) (0 1 0 1 0)
+               (0 1 1 0 1) (1 1 0 1 0)))
+  (test-list "bitvector generators"
+             (lambda ()
+               (let ((ints (make-bitvector/int-generator a))
+                     (bools (make-bitvector/bool-generator a)))
+                 (list (ints) (ints) (bools) (bools))))
+             '(1 0 #t #f))
+  (test-equal "bitvector->integer weights index zero"
+              (lambda () (bitvector->integer (bitvector 1 0 1 1)))
+              13)
+  (test-equal "bitvector integer roundtrip"
+              (lambda () (bitvector->integer (integer->bitvector 6)))
+              6)
+  (test-identity "bitvector=? zero or one argument"
+                 (lambda () (and (bitvector=?) (bitvector=? a)))
+                 #t)
+  (test-list "bitvector variadic bitwise"
+             (lambda ()
+               (bitvector->list/int
+                (bitvector-and a b (bitvector 1 1 1 1 1))))
+             '(0 0 1 0 0))
+  (test-identity "bitvector-segment rejects zero"
+                 (lambda ()
+                   (guard (e (#t #t)) (bitvector-segment a 0) #f))
+                 #t)
+  (test-list "bitvector-copy! overlapping range"
+             (lambda ()
+               (let ((value (bitvector 1 0 1 0)))
+                 (bitvector-copy! value 1 value 0 3)
+                 (bitvector->list/int value)))
+             '(1 1 0 1))
+  (test-list "bitvector accumulator"
+             (lambda ()
+               (let ((accumulate (make-bitvector-accumulator)))
+                 (accumulate 1)
+                 (accumulate #f)
+                 (accumulate 1)
+                 (bitvector->list/int (accumulate (eof-object)))))
+             '(1 0 1))
+  (test-list "bitvector-map/bool accepts integer bits"
+             (lambda ()
+               (bitvector->list/int
+                (bitvector-map/bool (lambda (bit) 0) (bitvector 1))))
+             '(0))
+  (test-list "bitvector-field-replace! overlapping field"
+             (lambda ()
+               (let ((value (bitvector 1 0 1 1 0)))
+                 (bitvector-field-replace! value value 1 3)
+                 (bitvector->list/int value)))
+             '(1 1 0 1 0))
+  (test-equal "srfi 178 alias"
+              (lambda () (bitvector-length (s178:bitvector 1 0 1)))
+              3)
+  (finish-tests "srfi-178"))
+(main)

@@ -27,6 +27,31 @@ behavior).
 - SRFI 195 multiple-value boxes as `(npl data multiple-value-box)` /
   `(srfi 195)`; they share the `box`/`unbox`/`set-box!` bindings with
   `(npl data box)`.
+- SRFI 128 comparators as `(npl comparator)` / `(srfi 128)`.
+- SRFI 113 sets and bags as `(npl data set)` and `(npl data bag)` /
+  `(srfi 113)`; they use `(npl comparator)`.
+- SRFI 132 sort libraries as `(npl sort)` / `(srfi 132)`, including the
+  SRFI 95 generic `sorted?`/`merge`/`sort` names with optional keys.
+- SRFI 44 collections over lists, vectors, and strings as
+  `(npl data collection)` / `(srfi 44)`.
+- SRFI 146 mappings as `(npl data map)` / `(srfi 146)`, backed by a
+  persistent red-black tree.
+- SRFI 178 bitvectors as `(npl data bitvector)` / `(srfi 178)`.
+- Forward references to value-defined procedures now compile: a procedure
+  may call a global that is defined later with `(define name (lambda ...))`
+  or `(define name (case-lambda ...))`, as R7RS library and program bodies
+  require. Duplicate top-level definitions are rejected at compile time.
+  `bootstrap/current.ssa` was relayed for these fixes.
+- Corrected SRFI 128 default/composite comparator ordering and hashing,
+  single-argument hash functions, variadic comparison predicates, and the
+  five-argument `comparator-if<=>` form.
+- Corrected SRFI 113 bag multiplicity, relations, search/replace results,
+  `bag->list`, product/sum, and set/bag comparator ordering.
+- Corrected SRFI 132 destructive merges and neighbor deduplication, vector
+  merge subranges, and `sorted?` key caching.
+- Corrected SRFI 178 integer conversion, reverse conversions, overlapping
+  copies, variadic logic operations, boolean maps, accumulator, and vector
+  conversion ranges.
 - SRFI 47 arrays as `(npl data array)` / `(srfi 47)`, including
   `#nA(...)` literals. Rank-1 arrays are vectors and strings; rank-1
   literals read as ordinary vectors. Rank-n literals read as tagged flat

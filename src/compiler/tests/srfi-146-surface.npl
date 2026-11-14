@@ -1,0 +1,236 @@
+; Surface coverage for the SRFI 146 mapping exports. The semantic suite is
+; srfi-146.npl; this file exercises the remaining constructor, updater, range,
+; fold, and set-theory names.
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl comparator)
+        (npl data map))
+
+(include "framework.npl")
+
+(define (test-list name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define keys (make-comparator integer? = < number-hash))
+(define value-comparator (make-default-comparator))
+(define base (mapping keys 1 'a 2 'b 3 'c))
+
+(define (main)
+  (test-identity "mapping constructors and comparators"
+                 (lambda ()
+                   (and (mapping? base)
+                        (mapping? (mapping/ordered keys 1 'a))
+                        (mapping? (mapping-unfold/ordered
+                                   (lambda (n) (> n 1))
+                                   (lambda (n) (values n (* n 10)))
+                                   (lambda (n) (+ n 1)) 1 keys))
+                        (mapping? (alist->mapping/ordered keys '((1 . a))))
+                        (mapping? (alist->mapping/ordered!
+                                   (mapping keys) '((1 . a))))
+                        (comparator? (make-mapping-comparator
+                                      (make-default-comparator)))
+                        (comparator? mapping-comparator)
+                        (procedure? mapping-search!)))
+                 #t)
+  (test-identity "mapping updaters"
+                 (lambda ()
+                   (and (= 4 (mapping-size (mapping-adjoin base 4 'd)))
+                        (= 2 (mapping-size
+                              (mapping-adjoin! (mapping keys 1 'a) 4 'd)))
+                        (eq? 'b (mapping-ref/default
+                                 (mapping-set! (mapping keys 1 'a) 2 'b)
+                                 2 #f))
+                        (= 3 (mapping-size
+                              (mapping-replace base 1 'z)))
+                        (= 3 (mapping-size
+                              (mapping-replace! (mapping-copy base) 1 'z)))
+                        (= 2 (mapping-size (mapping-delete! (mapping-copy base)
+                                                            1)))
+                        (= 1 (mapping-size (mapping-delete-all base '(1 2))))
+                        (= 1 (mapping-size
+                              (mapping-delete-all! (mapping-copy base)
+                                                   '(1 2))))
+                        (equal? (call-with-values
+                                  (lambda ()
+                                    (mapping-intern! (mapping-copy base) 4
+                                                     (lambda () 'd)))
+                                  (lambda (result value)
+                                    (list (mapping-size result) value)))
+                                '(4 d))
+                        (eq? 'a (mapping-ref
+                                (mapping-update! (mapping-copy base) 1
+                                                 (lambda (value) value))
+                                1))
+                        (= 4 (mapping-size
+                              (mapping-update/default base 4
+                                                      (lambda (value) value)
+                                                      'd)))
+                        (eq? 'd (mapping-ref
+                                 (mapping-update!/default
+                                  (mapping-copy base) 4
+                                  (lambda (value) value)
+                                  'd)
+                                 4))
+                        (equal? (call-with-values
+                                  (lambda () (mapping-pop! (mapping-copy base)))
+                                  (lambda (result key value)
+                                    (list key value (mapping-size result))))
+                                '(1 a 2))
+                        (not (mapping-disjoint? base (mapping keys 2 'b)))
+                        (not (mapping-empty? base))
+                        (mapping-empty? (mapping keys))
+                        (mapping-any? (lambda (key value) (= key 2)) base)
+                        (mapping-every? (lambda (key value) (positive? key)) base)
+                        (= 1 (mapping-count (lambda (key value) (= key 2)) base))
+                        (= 3 (mapping-size (mapping-copy base)))))
+                 #t)
+  (test-equal "mapping for-each"
+              (lambda ()
+                (let ((seen '()))
+                  (mapping-for-each
+                   (lambda (key value) (set! seen (cons key seen))) base)
+                  (length seen)))
+              3)
+  (test-equal "mapping fold and reverse fold"
+              (lambda ()
+                (+ (mapping-fold (lambda (key value acc) (+ key acc)) 0 base)
+                   (mapping-fold/reverse
+                    (lambda (key value acc) (+ key acc)) 0 base)))
+              12)
+  (test-list "mapping find"
+             (lambda ()
+               (call-with-values
+                 (lambda ()
+                   (mapping-find (lambda (key value) (= key 2)) base
+                                 (lambda () (values #f #f))))
+                 list))
+             '(2 b))
+  (test-equal "mapping monotone map sizes"
+              (lambda ()
+                (+ (mapping-size
+                    (mapping-map/monotone
+                     (lambda (key value) (values key value)) keys base))
+                   (mapping-size
+                    (mapping-map/monotone!
+                     (lambda (key value) (values key value)) keys base))))
+              6)
+  (test-equal "mapping filter and remove sizes"
+              (lambda ()
+                (+ (mapping-size
+                    (mapping-filter! (lambda (key value) (even? key))
+                                     (mapping-copy base)))
+                   (mapping-size
+                    (mapping-remove! (lambda (key value) (odd? key))
+                                     (mapping-copy base)))))
+              2)
+  (test-list "mapping partition sizes"
+             (lambda ()
+               (call-with-values
+                 (lambda ()
+                   (mapping-partition (lambda (key value) (even? key)) base))
+                 (lambda (yes no)
+                   (list (mapping-size yes) (mapping-size no)))))
+             '(1 2))
+  (test-list "mapping partition! sizes"
+             (lambda ()
+               (call-with-values
+                 (lambda ()
+                   (mapping-partition! (lambda (key value) (even? key)) base))
+                 (lambda (yes no)
+                   (list (mapping-size yes) (mapping-size no)))))
+             '(1 2))
+  (test-equal "mapping union!"
+              (lambda ()
+                (mapping-size
+                 (mapping-union! (mapping keys 1 'a)
+                                 (mapping keys 2 'b 3 'c))))
+              3)
+  (test-equal "mapping intersection!"
+              (lambda ()
+                (mapping-size
+                 (mapping-intersection! (mapping-copy base)
+                                        (mapping keys 2 'b))))
+              1)
+  (test-equal "mapping difference!"
+              (lambda ()
+                (mapping-size
+                 (mapping-difference! (mapping-copy base)
+                                      (mapping keys 1 'a))))
+              2)
+  (test-equal "mapping xor!"
+              (lambda ()
+                (mapping-size
+                 (mapping-xor! (mapping keys 1 'a 2 'b)
+                               (mapping keys 2 'b 3 'c))))
+              2)
+  (test-identity "mapping<=?"
+                 (lambda () (mapping<=? value-comparator (mapping keys 1 'a) base))
+                 #t)
+  (test-identity "mapping>=?"
+                 (lambda () (mapping>=? value-comparator base (mapping keys 1 'a)))
+                 #t)
+  (test-identity "mapping ranges and values"
+                 (lambda ()
+                   (and (= 1 (mapping-size (mapping-range=! base 2)))
+                        (= 1 (mapping-size (mapping-range<! base 2)))
+                        (= 1 (mapping-size (mapping-range>! base 2)))
+                        (= 2 (mapping-size (mapping-range<=! base 2)))
+                        (= 2 (mapping-size (mapping-range>=! base 2)))
+                        (equal? (call-with-values
+                                  (lambda () (mapping-split base 2))
+                                  (lambda (a b c d e)
+                                    (list (mapping-size a) (mapping-size b)
+                                          (mapping-size c) (mapping-size d)
+                                          (mapping-size e))))
+                                '(1 2 1 2 1))
+                        (equal? (call-with-values
+                                  (lambda () (mapping-split! base 2))
+                                  (lambda (a b c d e)
+                                    (list (mapping-size a) (mapping-size b)
+                                          (mapping-size c) (mapping-size d)
+                                          (mapping-size e))))
+                                '(1 2 1 2 1))
+                        (= 4 (mapping-size
+                              (mapping-catenate! keys (mapping keys 1 'a) 2 'b
+                                                 (mapping keys 3 'c 4 'd))))
+                        (eqv? 'c (mapping-max-value base))
+                        (not (mapping-contains? (mapping-remove (lambda (key value) (even? key)) base) 2))
+                        (not (mapping-contains? (mapping-remove! (lambda (key value) (even? key))
+                                                                 (mapping-copy base))
+                                                2))))
+                 #t)
+  (test-identity "mapping remaining surface"
+                 (lambda ()
+                   (and (eq? keys (mapping-key-comparator base))
+                        (= 1 (mapping-size (mapping-range= base 2)))
+                        (= 2 (mapping-size (mapping-range<= base 2)))
+                        (= 1 (mapping-size (mapping-range> base 2)))
+                        (= 2 (mapping-size
+                              (mapping-xor (mapping keys 1 'a 2 'b)
+                                           (mapping keys 2 'b 3 'c))))
+                        (= 1 (mapping-size
+                              (mapping-unfold (lambda (n) (> n 1))
+                                              (lambda (n) (values n (* n 10)))
+                                              (lambda (n) (+ n 1)) 1 keys)))
+                        (eq? 'found
+                             (call-with-values
+                               (lambda ()
+                                 (mapping-search
+                                  base 2
+                                  (lambda (insert ignore) (ignore #f))
+                                  (lambda (key value update remove)
+                                    (update key value 'found))))
+                               (lambda (mapping found) found)))
+                        (eq? 'found
+                             (call-with-values
+                               (lambda ()
+                                 (mapping-search!
+                                  base 2
+                                  (lambda (insert ignore) (ignore #f))
+                                  (lambda (key value update remove)
+                                    (update key value 'found))))
+                               (lambda (mapping found) found)))))
+                 #t)
+  (finish-tests "srfi-146-surface"))
+(main)

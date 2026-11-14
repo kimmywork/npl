@@ -1,0 +1,41 @@
+; Definitions are visible throughout a body (R7RS 5.1): a procedure may call a
+; variable that is defined later. When that variable holds a procedure, the
+; call goes through the global slot.
+(define-library (forward libraries)
+  (export library-forward library-case-forward)
+  (import (scheme base) (scheme case-lambda))
+  (begin
+    (define (library-forward) (later-procedure 1))
+    (define later-procedure (lambda (value) (+ value 1)))
+    (define (library-case-forward) (later-case 20 22))
+    (define later-case (case-lambda ((left right) (+ left right))))))
+
+(import (scheme base)
+        (scheme case-lambda)
+        (scheme process-context)
+        (scheme write)
+        (forward libraries))
+
+(include "framework.npl")
+
+(define (program-forward) (later 41))
+(define later (lambda (value) (+ value 1)))
+
+(define (program-case-forward) (later-case 40 2))
+(define later-case (case-lambda ((left right) (+ left right))))
+
+(define (main)
+  (test-equal "top-level forward lambda"
+              (lambda () (program-forward))
+              42)
+  (test-equal "top-level forward case-lambda"
+              (lambda () (program-case-forward))
+              42)
+  (test-equal "library forward lambda"
+              (lambda () (library-forward))
+              2)
+  (test-equal "library forward case-lambda"
+              (lambda () (library-case-forward))
+              42)
+  (finish-tests "forward-references"))
+(main)

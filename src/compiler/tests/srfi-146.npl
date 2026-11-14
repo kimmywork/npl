@@ -1,0 +1,148 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl comparator)
+        (npl data map)
+        (prefix (srfi 146) s146:))
+
+(include "framework.npl")
+
+(define (test-list name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+(define (main)
+  (define keys (make-comparator integer? = < number-hash))
+  (define value-comparator (make-default-comparator))
+  (define m (mapping keys 1 10 2 20 3 30))
+  (test-identity "mapping?" (lambda () (mapping? m)) #t)
+  (test-equal "mapping-size" (lambda () (mapping-size m)) 3)
+  (test-equal "mapping-ref" (lambda () (mapping-ref m 2)) 20)
+  (test-identity "mapping-ref failure"
+                 (lambda ()
+                   (equal? (mapping-ref m 9 (lambda () 'missing)) 'missing))
+                 #t)
+  (test-identity "mapping-contains?" (lambda () (mapping-contains? m 3)) #t)
+  (test-list "mapping-keys" (lambda () (mapping-keys m)) '(1 2 3))
+  (test-list "mapping-values" (lambda () (mapping-values m)) '(10 20 30))
+  (test-list "mapping-entries"
+             (lambda ()
+               (call-with-values (lambda () (mapping-entries m)) list))
+             '((1 2 3) (10 20 30)))
+  (test-equal "mapping-min-key" (lambda () (mapping-min-key m)) 1)
+  (test-equal "mapping-max-key" (lambda () (mapping-max-key m)) 3)
+  (test-equal "mapping-min-value" (lambda () (mapping-min-value m)) 10)
+  (test-equal "mapping-set" (lambda () (mapping-ref (mapping-set m 4 40) 4)) 40)
+  (test-identity "mapping-delete"
+                 (lambda ()
+                   (equal? (mapping-ref (mapping-delete m 1) 1
+                                        (lambda () 'gone))
+                           'gone))
+                 #t)
+  (test-equal "mapping-update"
+              (lambda () (mapping-ref (mapping-update m 2 (lambda (v) (+ v 1))) 2))
+              21)
+  (test-list "mapping-intern"
+             (lambda ()
+               (call-with-values (lambda () (mapping-intern m 9 (lambda () 90)))
+                 (lambda (result value) (list value (mapping-size result)))))
+             '(90 4))
+  (test-list "mapping-pop"
+             (lambda ()
+               (call-with-values (lambda () (mapping-pop m))
+                 (lambda (result key value)
+                   (list key value (mapping-size result)))))
+             '(1 10 2))
+  (test-list "mapping-alist"
+             (lambda () (mapping->alist m))
+             '((1 . 10) (2 . 20) (3 . 30)))
+  (test-equal "alist->mapping"
+              (lambda () (mapping-size (alist->mapping keys '((1 . 10) (2 . 20)))))
+              2)
+  (test-list "mapping-fold"
+             (lambda () (mapping-fold (lambda (key value acc) (+ key acc)) 0 m))
+             6)
+  (test-list "mapping-map"
+             (lambda ()
+               (mapping->alist
+                (mapping-map (lambda (key value) (values key (* value 2)))
+                             keys m)))
+             '((1 . 20) (2 . 40) (3 . 60)))
+  (test-list "mapping-filter"
+             (lambda ()
+               (mapping->alist (mapping-filter (lambda (key value) (even? key)) m)))
+             '((2 . 20)))
+  (test-equal "mapping-count"
+              (lambda () (mapping-count (lambda (key value) (even? key)) m))
+              1)
+  (test-list "mapping-union"
+             (lambda ()
+               (mapping->alist (mapping-union (mapping keys 2 99 4 40) m)))
+             '((1 . 10) (2 . 99) (3 . 30) (4 . 40)))
+  (test-list "mapping-intersection"
+             (lambda ()
+               (mapping->alist (mapping-intersection m (mapping keys 2 0 9 0))))
+             '((2 . 20)))
+  (test-list "mapping-difference"
+             (lambda ()
+               (mapping->alist (mapping-difference m (mapping keys 1 0))))
+             '((2 . 20) (3 . 30)))
+  (test-identity "mapping=? value-comparator"
+                 (lambda ()
+                   (mapping=? value-comparator (mapping keys 1 10 2 20)
+                              (mapping keys 2 20 1 10)))
+                 #t)
+  (test-identity "mapping<?"
+                 (lambda () (mapping<? value-comparator (mapping keys 1 10) m))
+                 #t)
+  (test-list "mapping-range<"
+             (lambda () (mapping->alist (mapping-range< m 3)))
+             '((1 . 10) (2 . 20)))
+  (test-list "mapping-range>="
+             (lambda () (mapping->alist (mapping-range>= m 3)))
+             '((3 . 30)))
+  (test-equal "mapping-key-predecessor"
+              (lambda () (mapping-key-predecessor m 3 (lambda () 'none)))
+              2)
+  (test-equal "mapping-key-successor"
+              (lambda () (mapping-key-successor m 1 (lambda () 'none)))
+              2)
+  (test-equal "mapping-catenate"
+              (lambda ()
+                (mapping-size
+                 (mapping-catenate keys (mapping keys 1 10) 2 20
+                                   (mapping keys 3 30))))
+              3)
+  (test-list "mapping-min-entry"
+             (lambda ()
+               (call-with-values (lambda () (mapping-min-entry m)) list))
+             '(1 10))
+  (test-list "mapping-max-entry"
+             (lambda ()
+               (call-with-values (lambda () (mapping-max-entry m)) list))
+             '(3 30))
+  (test-list "alist->mapping! keeps existing associations"
+             (lambda ()
+               (mapping->alist
+                (alist->mapping! m '((1 . 99) (9 . 90)))))
+             '((1 . 10) (2 . 20) (3 . 30) (9 . 90)))
+  (test-identity "mapping>? is proper containment"
+                 (lambda ()
+                   (not (mapping>? value-comparator
+                                   (mapping keys 1 10)
+                                   (mapping keys 2 20))))
+                 #t)
+  (test-list "mapping-map->list callback order"
+             (lambda ()
+               (let ((seen '()))
+                 (mapping-map->list
+                  (lambda (key value)
+                    (set! seen (cons key seen))
+                    value)
+                  m)
+                 (reverse seen)))
+             '(1 2 3))
+  (test-equal "srfi 146 alias"
+              (lambda () (s146:mapping-ref (s146:mapping keys 1 10) 1))
+              10)
+  (finish-tests "srfi-146"))
+(main)
