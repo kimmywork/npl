@@ -1,5 +1,23 @@
 # Workstate
 
+
+## 0.1.3 macro foundation (M0a, 2026-11-16)
+
+M0a is implemented on `feature/0.1.3-ffi`:
+
+- syntax-rules fixes: M1 single-define splicing, M2 depth-0 variables under
+  ellipsis, M5 two-pass body syntax installation, M7 definition-time template
+  depth validation, N1 same-level multiple-ellipsis rejection.
+- template-introduced top-level definitions use per-expansion emitted names
+  (M4), matching Guile/npli hygiene in nplc too.
+- reader N2: bare `\` is rejected by both readers; nplc reports location.
+- seed relayed: `bootstrap/current.ssa` SHA-256
+  `be5c7ba70126d76603e2e52f6b4e9b88bb4f2f141a99e4d5c738cad4a0526e74`.
+- `macro-conformance` 7, `libraries` 24; gate is 58 suites / 81 negative
+  checks.
+- Deferred to later increments: M3 mark-history hygiene, M6 core-syntax
+  imports, SRFI 46/149 (M0b), syntax-case (M1/M2).
+
 ## 0.1.3 (planned, 2026-11-13)
 
 Plan: [0.1.3-ffi-posix-thread](plans/0.1.3-ffi-posix-thread.md). The next

@@ -307,7 +307,22 @@
      (validate-pattern-list pattern literals ellipsis depth variables))
     (else variables)))
 
+(define (count-active-ellipsis patterns ellipsis literals count)
+  (if (null? patterns)
+      count
+      (if (syntax-atomic? patterns)
+          count
+          (if (pair? patterns)
+              (count-active-ellipsis
+                (cdr patterns) ellipsis literals
+                (if (active-ellipsis? (car patterns) ellipsis literals)
+                    (+ count 1)
+                    count))
+              count))))
+
 (define (validate-pattern-list patterns literals ellipsis depth variables)
+  (if (> (count-active-ellipsis patterns ellipsis literals 0) 1)
+      (fatal "misplaced ellipsis in pattern"))
   (if (null? patterns)
       variables
       (if (syntax-atomic? patterns)
@@ -339,9 +354,102 @@
     (let ((variables
             (validate-pattern-list (cdr pattern)
                                    literals ellipsis 0 ())))
+      (cell-set! TEMPLATE-BUDGET 2000)
+      (validate-template (car (cdr rule)) variables ellipsis literals 0)
       (cons pattern
         (cons (car (cdr rule))
           (cons variables ()))))))
+
+(define (escaped-template-tail? template ellipsis literals)
+  (if (syntax-atomic? template)
+      #f
+  (if (not (pair? template))
+      #f
+      (if (not (active-ellipsis? (car template) ellipsis literals))
+          #f
+          (if (not (pair? (cdr template)))
+              #f
+              (null? (cdr (cdr template))))))))
+
+(define (template-driver? template variables ellipsis literals depth)
+  (cond
+    ((datum-symbol? template)
+     (let ((descriptor
+             (variable-descriptor (pattern-key template) variables)))
+       (if (null? descriptor) #f (> (cdr descriptor) depth))))
+    ((datum-vector? template)
+     (template-list-driver? (datum-vector-items template)
+                            variables ellipsis literals depth))
+    ((pair? template)
+     (if (escaped-template-tail? template ellipsis literals)
+         (template-driver? (car (cdr template)) variables ellipsis literals
+                           depth)
+         (if (template-driver? (car template) variables ellipsis literals depth)
+             #t
+             (template-driver? (cdr template) variables ellipsis literals
+                               depth))))
+    (else #f)))
+
+(define (template-list-driver? templates variables ellipsis literals depth)
+  (if (null? templates)
+      #f
+      (if (syntax-atomic? templates)
+          (template-driver? templates variables ellipsis literals depth)
+          (if (pair? templates)
+              (if (template-driver? (car templates) variables ellipsis literals
+                                    depth)
+                  #t
+                  (template-list-driver? (cdr templates) variables ellipsis
+                                         literals depth))
+              (template-driver? templates variables ellipsis literals depth)))))
+
+(define TEMPLATE-BUDGET (cell 0))
+
+(define (validate-template template variables ellipsis literals depth)
+  (if (<= (cell-get TEMPLATE-BUDGET) 0)
+      #t
+      (begin
+        (cell-set! TEMPLATE-BUDGET (- (cell-get TEMPLATE-BUDGET) 1))
+  (cond
+    ((datum-symbol? template)
+     (let ((descriptor
+             (variable-descriptor (pattern-key template) variables)))
+       (if (null? descriptor)
+           #t
+           (if (> (cdr descriptor) depth)
+               (fatal "pattern variable used at wrong ellipsis depth")
+               #t))))
+    ((datum-vector? template)
+     (validate-template-list (datum-vector-items template)
+                             variables ellipsis literals depth))
+    ((pair? template)
+     (validate-template-list template variables ellipsis literals depth))
+    (else #t)))))
+
+(define (validate-template-list templates variables ellipsis literals depth)
+  (if (escaped-template-tail? templates ellipsis literals)
+      (validate-template (car (cdr templates)) variables ellipsis literals
+                         depth)
+  (if (null? templates)
+      #t
+      (if (syntax-atomic? templates)
+          (validate-template templates variables ellipsis literals depth)
+          (if (pair? templates)
+              (if (if (pair? (cdr templates))
+                      (active-ellipsis? (car (cdr templates))
+                                        ellipsis literals)
+                      #f)
+                  (begin
+                    (validate-template (car templates) variables ellipsis
+                                       literals (+ depth 1))
+                    (validate-template-list (cdr (cdr templates))
+                                            variables ellipsis literals depth))
+                  (begin
+                    (validate-template (car templates) variables ellipsis
+                                       literals depth)
+                    (validate-template-list (cdr templates)
+                                            variables ellipsis literals depth)))
+              (validate-template templates variables ellipsis literals depth))))))
 
 (define (validate-rules rules literals ellipsis)
   (if (null? rules)
@@ -453,6 +561,11 @@
 
 (define (path-length path)
   (if (null? path) 0 (+ 1 (path-length (cdr path)))))
+
+(define (path-take path count)
+  (if (= count 0)
+      ()
+      (cons (car path) (path-take (cdr path) (- count 1)))))
 
 (define (capture-exact name path captures)
   (if (null? captures)
@@ -683,10 +796,13 @@
              (let ((copy (datum-symbol (datum-symbol-name template))))
                (set-identifier-mark! copy mark)
                copy))
-           (if (not (= (cdr descriptor) (path-length path)))
+           (if (> (cdr descriptor) (path-length path))
                (fatal "pattern variable used at wrong ellipsis depth")
                (let ((capture
-                       (capture-exact (car descriptor) path captures)))
+                       (capture-exact
+                         (car descriptor)
+                         (path-take path (cdr descriptor))
+                         captures)))
                  (if (null? capture)
                      (fatal "missing pattern capture")
                      (capture-value capture)))))))

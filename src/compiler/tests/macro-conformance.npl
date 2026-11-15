@@ -1,0 +1,86 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context))
+
+(include "framework.npl")
+
+(define (test-list name thunk expected)
+  (test-identity name (lambda () (equal? (thunk) expected)) #t))
+
+; M1: a macro that expands to one define must introduce a body binding.
+(define-syntax define-one
+  (syntax-rules ()
+    ((_ name value) (define name value))))
+(define-syntax define-procedure
+  (syntax-rules ()
+    ((_ name) (define (name) 'inner))))
+
+; M2: a depth-0 pattern variable may occur in a repeated template.
+(define-syntax map-call
+  (syntax-rules ()
+    ((_ function (item ...)) (list (function item) ...))))
+(define-syntax quote-with
+  (syntax-rules ()
+    ((_ tag (item ...)) '((tag item) ...))))
+
+; M4: template-introduced top-level definitions are renamed per expansion.
+(define-syntax define-getter
+  (syntax-rules ()
+    ((_ name value)
+     (begin
+       (define hidden value)
+       (define (name) hidden)))))
+
+; M5: a macro defined later in a body is visible in an earlier lambda body.
+(define (later-internal-macro)
+  (define (get) (answer))
+  (define-syntax answer
+    (syntax-rules ()
+      ((_) 42)))
+  (get))
+
+(define (single-define-body)
+  (let ()
+    (define-one local-value 41)
+    (+ local-value 1)))
+
+(define (single-procedure-body)
+  (let ()
+    (define-procedure generated)
+    (generated)))
+
+(define (definition-value-body)
+  (define base 40)
+  (define-syntax add-base
+    (syntax-rules ()
+      ((_ value) (+ base value))))
+  (let ((base 1))
+    (add-base 2)))
+
+(define-getter first-getter 1)
+(define-getter second-getter 2)
+
+(define (main)
+  (test-equal "macro single define in body"
+              (lambda () (single-define-body))
+              42)
+  (test-identity "macro single procedure define in body"
+                 (lambda () (equal? (single-procedure-body) 'inner))
+                 #t)
+  (test-list "depth-0 variable in repeated template"
+              (lambda () (map-call - (1 2 3)))
+              '(-1 -2 -3))
+  (test-list "depth-0 variable with quote template"
+              (lambda () (quote-with tag (1 2)))
+              '((tag 1) (tag 2)))
+  (test-list "top-level macro definitions are hygienic"
+              (lambda () (list (first-getter) (second-getter)))
+              '(1 2))
+  (test-equal "later internal macro in earlier lambda body"
+              (lambda () (later-internal-macro))
+              42)
+  (test-equal "internal macro sees outer body binding"
+              (lambda () (definition-value-body))
+              42)
+  (finish-tests "macro-conformance"))
+(main)

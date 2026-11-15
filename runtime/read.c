@@ -297,6 +297,8 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
         barred = 1;
         read_bar_symbol_part(reader, &buffer, &length, &capacity);
     } else {
+        if (first == '\\')
+            read_error("backslash is not a valid identifier character");
         buffer_push(&buffer, &length, &capacity, first);
     }
     /* A |...| part may continue the token, and vice versa (abc|d e|f). */
@@ -309,6 +311,9 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
         } else if (datum_delimiter(code)) {
             break;
         } else {
+            if (code == '\\' && !barred)
+                read_buffer_error(buffer,
+                    "backslash is not a valid identifier character");
             buffer_push(&buffer, &length, &capacity, reader_get(reader));
         }
     }
