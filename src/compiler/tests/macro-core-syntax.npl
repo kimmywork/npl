@@ -1,0 +1,27 @@
+(import (except (scheme base) if)
+        (scheme write)
+        (scheme process-context)
+        (rename (only (scheme base) if) (if renamed-if))
+        (prefix (scheme base) b:))
+
+(include "framework.npl")
+
+(define (main)
+  (test-identity "renamed core syntax"
+                 (lambda () (eq? (renamed-if #t 'yes 'no) 'yes))
+                 #t)
+  (test-identity "prefixed core syntax"
+                 (lambda () (eq? (b:if #t 'yes 'no) 'yes))
+                 #t)
+  (test-identity "only-imported core begin and let"
+                 (lambda ()
+                   (let ((value 1))
+                     (begin value)))
+                 1)
+  (test-identity "value binding shadows excluded core syntax"
+                 (lambda ()
+                   (let ((if (lambda (test yes no) 'procedure)))
+                     (if #t 1 2)))
+                 'procedure)
+  (finish-tests "macro-core-syntax"))
+(main)

@@ -39,6 +39,19 @@
       ((_) 42)))
   (get))
 
+(define-syntax with-tmp
+  (syntax-rules ()
+    ((_ body) (let ((tmp 'inner)) body))))
+(define tmp 'outer)
+(define-syntax make-getter
+  (syntax-rules ()
+    ((_ getter body ...)
+     (let ((secret 'inner))
+       (let-syntax ((getter
+                      (syntax-rules ()
+                        ((_) secret))))
+         body ...)))))
+
 (define (single-define-body)
   (let ()
     (define-one local-value 41)
@@ -79,6 +92,16 @@
   (test-equal "later internal macro in earlier lambda body"
               (lambda () (later-internal-macro))
               42)
+  (test-identity "hygiene: user identifier in nested macro sees outer binding"
+                 (lambda ()
+                   (equal? (with-tmp
+                            (let-syntax ((m (syntax-rules () ((_) tmp))))
+                              (m)))
+                           'outer))
+                 #t)
+  (test-identity "hygiene: macro-introduced binding is visible in body"
+                 (lambda () (equal? (make-getter g (g)) 'inner))
+                 #t)
   (test-equal "internal macro sees outer body binding"
               (lambda () (definition-value-body))
               42)

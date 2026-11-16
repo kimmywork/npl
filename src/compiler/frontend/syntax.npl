@@ -2,6 +2,8 @@
 
 ; Syntax marks: an eq hash table from identifier to mark, 0 when absent.
 (define SYNTAX-MARKS (cell (npl_make_hash_table 0 #f #f 0)))
+; The mark of the template identifier a transcription copy came from.
+(define SYNTAX-SOURCE-MARKS (cell (npl_make_hash_table 0 #f #f 0)))
 
 (define (new-mark-table) (npl_make_hash_table 0 #f #f 0))
 (define SYNTAX-NEXT-MARK (cell 0))
@@ -14,6 +16,21 @@
 (define MATCH-FAIL '(_syntax_match_fail_))
 (define CURRENT-PATTERN-VARIABLES (cell ()))
 (define NO-REPEAT-COUNT 1000000000)
+(define CORE-SYNTAX-PREFIX "_core_syntax_")
+
+(define (make-core-syntax name)
+  (datum-symbol (string-append CORE-SYNTAX-PREFIX name)))
+(define (core-syntax-value? value)
+  (if (datum-symbol? value)
+      (let ((name (datum-symbol-name value)))
+        (if (>= (string-length name) (string-length CORE-SYNTAX-PREFIX))
+            (string=? (substring name 0 (string-length CORE-SYNTAX-PREFIX))
+                      CORE-SYNTAX-PREFIX)
+            #f))
+      #f))
+(define (core-syntax-value-name value)
+  (substring (datum-symbol-name value) (string-length CORE-SYNTAX-PREFIX)
+             (string-length (datum-symbol-name value))))
 (define CURRENT-REPEAT-DRIVER-DEPTH (cell 1000000000))
 (define UNINITIALIZED-SYNTAX '(_uninitialized_syntax_))
 
@@ -35,6 +52,13 @@
 (define (identifier-mark identifier)
   (npl_hash_table_ref (cell-get SYNTAX-MARKS) identifier 0))
 
+(define (identifier-source-mark identifier)
+  (npl_hash_table_ref (cell-get SYNTAX-SOURCE-MARKS) identifier
+                      (identifier-mark identifier)))
+
+(define (set-identifier-source-mark! identifier mark)
+  (npl_hash_table_set (cell-get SYNTAX-SOURCE-MARKS) identifier mark))
+
 (define (set-identifier-mark! identifier mark)
   (npl_hash_table_set (cell-get SYNTAX-MARKS) identifier mark))
 
@@ -44,12 +68,13 @@
 
 (define (lookup-value-binding identifier environment)
   (let ((name (datum-symbol-name identifier))
-        (mark (identifier-mark identifier)))
-    (let ((binding (lookup-value-binding-key name mark environment)))
+        (mark (identifier-mark identifier))
+        (source (identifier-source-mark identifier)))
+    (let ((binding (lookup-value-binding-key name mark source environment)))
       (if (> (string-length binding) 0)
           binding
           (lookup-value-binding-key
-            name mark (cell-get TRANSCRIPTION-ALIASES))))))
+            name mark source (cell-get TRANSCRIPTION-ALIASES))))))
 
 ; Compute the lookup key once, not once per environment entry.
 ; An entry is (name mark emitted); an alias layer (#f mark definition-env)
@@ -57,7 +82,7 @@
 ; name in definition-env, innermost first; or a global layer (#f #f table)
 ; (value-binding-layer): a string hash table from name to its
 ; ((mark . emitted) ...), innermost first, standing for that many entries.
-(define (lookup-value-binding-key name mark environment)
+(define (lookup-value-binding-key name mark source environment)
   (if (null? environment)
       ""
       (let ((entry (car environment)))
@@ -66,19 +91,21 @@
                     (= mark (car (cdr entry)))
                     #f)
                 (car (cdr (cdr entry)))
-                (lookup-value-binding-key name mark (cdr environment)))
+                (lookup-value-binding-key name mark source
+                                          (cdr environment)))
             (let ((found
                     (if (car (cdr entry))
                         (if (= mark (car (cdr entry)))
-                            (lookup-value-binding-any-mark
-                              name (car (cdr (cdr entry))))
+                            (lookup-value-binding-key
+                              name source source (car (cdr (cdr entry))))
                             "")
                         (layer-binding-with-mark
                           (npl_hash_table_ref (car (cdr (cdr entry))) name ())
                           mark))))
               (if (> (string-length found) 0)
                   found
-                  (lookup-value-binding-key name mark (cdr environment))))))))
+                  (lookup-value-binding-key name mark source
+                                            (cdr environment))))))))
 
 (define (lookup-value-binding-any-mark name environment)
   (if (null? environment)
@@ -810,6 +837,7 @@
                  (fatal "misplaced ellipsis in template"))
              (let ((copy (datum-symbol (datum-symbol-name template))))
                (set-identifier-mark! copy mark)
+               (set-identifier-source-mark! copy (identifier-mark template))
                copy))
            (if (> (cdr descriptor) (path-length path))
                (fatal "pattern variable used at wrong ellipsis depth")

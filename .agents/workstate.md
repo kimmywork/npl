@@ -18,8 +18,12 @@ M0a is implemented on `feature/0.1.3-ffi`:
 - M0b is implemented: SRFI 46 tail patterns/custom ellipsis and SRFI 149
   template extensions; `srfi-46`, `srfi-149`, and `srfi-149-compatible`
   features; `(srfi 149)` feature-detection library.
-- Deferred to later increments: M3 mark-history hygiene, M6 core-syntax
-  imports, syntax-case (M1/M2).
+- M3 is fixed with per-copy source marks: user identifiers in nested macro
+  definitions resolve to their definition-site binding, while
+  macro-introduced bindings remain visible in the same expansion.
+- M6 is implemented: core syntax forms participate in `(scheme base)` export
+  sets, including `only`, `except`, `rename`, and `prefix`.
+- Deferred: full syntax-object/mark-history model and `syntax-case` (M1/M2).
 
 ## 0.1.3 (planned, 2026-11-13)
 

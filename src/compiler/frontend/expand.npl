@@ -150,6 +150,14 @@
                 (if (head-value-bound? head value-env)
                     ()
                     (lookup-macro-binding head macro-env))))
+          (if (if (not (null? transformer))
+                  (core-syntax-value? transformer)
+                  #f)
+              (expand-keyword-or-application
+                (cons (datum-symbol (core-syntax-value-name transformer))
+                      (cdr expression))
+                (core-syntax-value-name transformer)
+                value-env macro-env)
           (if (not (null? transformer))
               (begin
                 (if (if (string=? (datum-symbol-name head) "case")
@@ -166,7 +174,7 @@
                   (expand-application expression value-env macro-env)
                   (expand-keyword-or-application
                     expression (datum-symbol-name head)
-                    value-env macro-env))))
+                    value-env macro-env)))))
         (expand-application expression value-env macro-env))))
 
 (define (expand-keyword-or-application form name value-env macro-env)
