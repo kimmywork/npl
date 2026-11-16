@@ -61,7 +61,8 @@ static int reader_peek(NplDatumReader *reader)
 
 static int datum_delimiter(int code)
 {
-    return code == EOF || code == '(' || code == ')' || code == '"' ||
+    return code == EOF || code == '(' || code == ')' ||
+           code == '[' || code == ']' || code == '"' ||
            code == ';' || code == '\'' || code == '`' || code == ',' ||
            code == '|' || code == ' ' || code == '\t' || code == '\n' ||
            code == '\r' || code == '\f';
@@ -356,7 +357,7 @@ static NplVal read_list_datum(NplDatumReader *reader)
         reader_skip_space(reader);
         int code = reader_peek(reader);
         if (code == EOF) read_error("unexpected EOF in list");
-        if (code == ')') {
+        if (code == ')' || code == ']') {
             (void)reader_get(reader);
             return reverse_onto(reversed, npl_nil());
         }
@@ -365,10 +366,12 @@ static NplVal read_list_datum(NplDatumReader *reader)
         if (!bar && symbol_named(value, ".")) {
             if (npl_is_nil(reversed)) read_error("misplaced dot");
             reader_skip_space(reader);
-            if (reader_peek(reader) == ')') read_error("missing datum after dot");
+            if (reader_peek(reader) == ')' || reader_peek(reader) == ']')
+                read_error("missing datum after dot");
             NplVal tail = read_datum_inner(reader, 0);
             reader_skip_space(reader);
-            if (reader_get(reader) != ')')
+            int close = reader_get(reader);
+            if (close != ')' && close != ']')
                 read_error("expected ) after dotted datum");
             return reverse_onto(reversed, tail);
         }
@@ -710,8 +713,8 @@ static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof)
         if (allow_eof) return npl_port_eof_internal();
         read_error("unexpected EOF");
     }
-    if (code == '(') return read_list_datum(reader);
-    if (code == ')') read_error("unexpected )");
+    if (code == '(' || code == '[') return read_list_datum(reader);
+    if (code == ')' || code == ']') read_error("unexpected )");
     if (code == '"') return read_string_datum(reader);
     if (code == '\'') return quoted_datum(read_datum_inner(reader, 0));
     if (code == '`')

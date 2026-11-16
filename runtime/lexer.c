@@ -23,8 +23,8 @@ NplVal npl_lex_class_w(NplVal cT, NplVal wantT) {
     int cls;
     if (c == 32 || c == 9 || c == 10 || c == 13)      cls = 0; /* ws    */
     else if (c == ';')                                 cls = 1;
-    else if (c == '(')                                 cls = 2;
-    else if (c == ')')                                 cls = 3;
+    else if (c == '(' || c == '[')                     cls = 2;
+    else if (c == ')' || c == ']')                     cls = 3;
     else if (c == '\'')                                cls = 4;
     else if (c == '"')                                 cls = 5;
     else if (c >= '0' && c <= '9')                     cls = 6; /* digit */

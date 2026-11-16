@@ -23,7 +23,12 @@ M0a is implemented on `feature/0.1.3-ffi`:
   macro-introduced bindings remain visible in the same expansion.
 - M6 is implemented: core syntax forms participate in `(scheme base)` export
   sets, including `only`, `except`, `rename`, and `prefix`.
-- Deferred: full syntax-object/mark-history model and `syntax-case` (M1/M2).
+- Declarative `syntax-case` subset is implemented by lowering
+  `(lambda (stx) (syntax-case stx (literal ...) [pattern (syntax template)]
+  ...))` to syntax-rules; bracketed `[...]` syntax is supported by both
+  readers.
+- Deferred: procedural syntax-case transformers, syntax helper procedures,
+  full syntax objects, `begin-for-syntax`, `(for-syntax ...)`.
 
 ## 0.1.3 (planned, 2026-11-13)
 
