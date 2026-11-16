@@ -37,6 +37,9 @@ behavior).
 - SRFI 146 mappings as `(npl data map)` / `(srfi 146)`, backed by a
   persistent red-black tree.
 - SRFI 178 bitvectors as `(npl data bitvector)` / `(srfi 178)`.
+- SRFI 46/149 syntax-rules extensions, core syntax exports, and the
+  declarative `syntax-case` subset.
+- `(npl lambda)` with `λ` and `fn` shorthand.
 - Forward references to value-defined procedures now compile: a procedure
   may call a global that is defined later with `(define name (lambda ...))`
   or `(define name (case-lambda ...))`, as R7RS library and program bodies

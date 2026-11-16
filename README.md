@@ -45,7 +45,7 @@ Current extensions include `(npl hashtable)` / `(srfi 125)`,
 `(npl comparator)` / `(srfi 128)`, `(npl data set)` and `(npl data bag)` /
 `(srfi 113)`, `(npl sort)` / `(srfi 132)` and `(srfi 95)`,
 `(npl data collection)` / `(srfi 44)`, `(npl data map)` / `(srfi 146)`,
-`(npl data bitvector)` / `(srfi 178)`,
+`(npl data bitvector)` / `(srfi 178)`, `(npl lambda)` (`λ` and `fn`),
 `(npl data unifiable-box)` / `(srfi 161)`,
 `(npl data multiple-value-box)` / `(srfi 195)`, `(npl data box)` / `(srfi 111)`,
 `(npl data range)` / `(srfi 196)`, and the SRFI 189 family:

@@ -27,8 +27,11 @@ M0a is implemented on `feature/0.1.3-ffi`:
   `(lambda (stx) (syntax-case stx (literal ...) [pattern (syntax template)]
   ...))` to syntax-rules; bracketed `[...]` syntax is supported by both
   readers.
+- `(npl lambda)` provides `λ` and `fn`; the arrow form supports one `=>`
+  segment, with explicit nested lambdas for currying.
 - Deferred: procedural syntax-case transformers, syntax helper procedures,
-  full syntax objects, `begin-for-syntax`, `(for-syntax ...)`.
+  full syntax objects, `begin-for-syntax`, `(for-syntax ...)`, and library
+  migration.
 
 ## 0.1.3 (planned, 2026-11-13)
 
