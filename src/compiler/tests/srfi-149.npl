@@ -1,0 +1,42 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (srfi 149))
+
+(include "framework.npl")
+
+(define-syntax flatten
+  (syntax-rules ()
+    ((_ (item ...) ...) '(item ... ...))))
+(define-syntax lift
+  (syntax-rules ()
+    ((_ (head item ...) ...) '(((head item) ...) ...))))
+(define-syntax repeat-inner
+  (syntax-rules ()
+    ((_ (item ...) ...) '((item ...) ...))))
+(define-syntax depth-extra
+  (syntax-rules ()
+    ((_ item ...) '((item ...) ...))))
+
+(define (main)
+  (test-identity "SRFI 149 feature"
+                 (lambda ()
+                   (cond-expand (srfi-149-compatible #t) (else #f)))
+                 #t)
+  (test-identity "flatten adjacent ellipses"
+                 (lambda () (equal? (flatten (1 2 3) (4 5 6))
+                                    '(1 2 3 4 5 6)))
+                 #t)
+  (test-identity "lifted template"
+                 (lambda ()
+                   (equal? (lift (bar 1 2) (baz 3 4))
+                           '(((bar 1) (bar 2)) ((baz 3) (baz 4)))))
+                 #t)
+  (test-identity "nested template repeats"
+                 (lambda () (equal? (repeat-inner (1 2) (3)) '((1 2) (3))))
+                 #t)
+  (test-identity "extra ellipsis repeats capture"
+                 (lambda () (equal? (depth-extra 1 2) '((1) (2))))
+                 #t)
+  (finish-tests "srfi-149"))
+(main)

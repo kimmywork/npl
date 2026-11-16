@@ -234,11 +234,17 @@
                                   #t
                                   (if (string=? name "unix")
                                       #t
-                                      (if (string=? name "little-endian")
+                                      (if (string=? name "srfi-46")
+                                          #t
+                                          (if (string=? name "srfi-149")
+                                              #t
+                                              (if (string=? name "srfi-149-compatible")
+                                                  #t
+                                                  (if (string=? name "little-endian")
                                           (npl_little_endian_p)
                                           (if (string=? name "big-endian")
                                               (not (npl_little_endian_p))
-                                              #f))))))))))))
+                                              #f)))))))))))))))
 
 (define (library-feature? requirement)
   (if (datum-symbol? requirement)

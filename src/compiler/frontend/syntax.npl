@@ -426,6 +426,18 @@
      (validate-template-list template variables ellipsis literals depth))
     (else #t)))))
 
+(define (ellipsis-count-from templates ellipsis literals count)
+  (if (pair? templates)
+      (if (active-ellipsis? (car templates) ellipsis literals)
+          (ellipsis-count-from (cdr templates) ellipsis literals (+ count 1))
+          count)
+      count))
+
+(define (drop-forms forms count)
+  (if (= count 0)
+      forms
+      (drop-forms (cdr forms) (- count 1))))
+
 (define (validate-template-list templates variables ellipsis literals depth)
   (if (escaped-template-tail? templates ellipsis literals)
       (validate-template (car (cdr templates)) variables ellipsis literals
@@ -439,11 +451,14 @@
                       (active-ellipsis? (car (cdr templates))
                                         ellipsis literals)
                       #f)
-                  (begin
+                  (let ((levels
+                          (ellipsis-count-from (cdr templates)
+                                               ellipsis literals 0)))
                     (validate-template (car templates) variables ellipsis
-                                       literals (+ depth 1))
-                    (validate-template-list (cdr (cdr templates))
-                                            variables ellipsis literals depth))
+                                       literals (+ depth levels))
+                    (validate-template-list
+                      (drop-forms (cdr templates) levels)
+                      variables ellipsis literals depth))
                   (begin
                     (validate-template (car templates) variables ellipsis
                                        literals depth)
@@ -823,6 +838,26 @@
                               mark path enabled)))
     (else template)))
 
+(define (clone-repeated-template-levels template levels transformer captures
+                                        mark path enabled)
+  (if (= levels 0)
+      (cons (clone-template template transformer captures mark path enabled) ())
+      (let ((count (template-repeat-count template transformer captures path)))
+        (let ((count (if (= count NO-REPEAT-COUNT)
+                         (if (> (path-length path) 0)
+                             1
+                             (fatal "ellipsis template has no repeated pattern variable"))
+                         count)))
+          (let loop ((index 0) (result '()))
+            (if (= index count)
+                result
+                (loop (+ index 1)
+                      (append-forms
+                        result
+                        (clone-repeated-template-levels
+                          template (- levels 1) transformer captures mark
+                          (path-append-index path index) enabled)))))))))
+
 (define (clone-repeated-template template count index transformer captures
                                  mark path enabled)
   (if (= index count)
@@ -847,18 +882,18 @@
                             (transformer-literals transformer))
                           #f)
                       #f)
-                  (let ((count
-                          (template-repeat-count (car templates)
-                                                 transformer captures path)))
-                    (if (= count NO-REPEAT-COUNT)
-                        (fatal "ellipsis template has no repeated pattern variable"))
+                  (let ((levels
+                          (ellipsis-count-from
+                            (cdr templates)
+                            (transformer-ellipsis transformer)
+                            (transformer-literals transformer) 0)))
                     (append-forms
-                      (clone-repeated-template
-                        (car templates) count 0 transformer captures
+                      (clone-repeated-template-levels
+                        (car templates) levels transformer captures
                         mark path enabled)
                       (clone-template-list
-                        (cdr (cdr templates)) transformer captures
-                        mark path enabled)))
+                        (drop-forms (cdr templates) levels)
+                        transformer captures mark path enabled)))
                   (cons
                     (clone-template (car templates) transformer captures
                                     mark path enabled)
