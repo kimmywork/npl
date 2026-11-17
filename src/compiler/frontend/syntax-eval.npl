@@ -1,0 +1,548 @@
+; Compile-time evaluator for procedural syntax transformers
+; (frontend/syntax.npl procedural-transformer) and phase-1 definitions
+; (begin-for-syntax / for-syntax).
+;
+; Transformer programs run over the same datum representation as the rest of
+; the frontend: symbols, strings, chars, vectors, and bytevectors stay
+; tagged, pairs are ordinary lists, and booleans are datum-true/datum-false.
+; That makes quote, syntax, and syntax->datum one representation, and lets
+; template expansion reuse clone-template from syntax.npl.
+;
+; Reuse boundaries:
+;   - patterns: validate-pattern / match-pattern and captures
+;   - templates: clone-template (ellipsis depth, SRFI 46/149, hygiene marks)
+;   - definitions: parse-syntax-rules already returns procedural-transformer
+; The evaluator below only supplies the missing compile-time procedure layer:
+; lexical frames, core forms, primitives, and the syntax-case/with-syntax
+; clause environments.
+
+(define SYNTAX-EVAL-DEFINITION-ENV (cell ()))
+(define SYNTAX-EVAL-DEFINITION-MACRO-ENV (cell ()))
+(define SYNTAX-EVAL-USE-ENV (cell ()))
+(define SYNTAX-EVAL-MARK (cell 0))
+; (transformer captures variables) for the innermost syntax-case clause.
+(define SYNTAX-EVAL-CONTEXT (cell ()))
+(define PHASE-VALUE-ENV (cell ()))
+(define SYNTAX-EVAL-UNSPECIFIED (cons '(_syntax_eval_unspecified_) ()))
+(define SYNTAX-EVAL-PRIMITIVES (cell ()))
+
+(define-record-type syntax-closure
+  (make-syntax-closure formals body env) syntax-closure?
+  (formals syntax-closure-formals)
+  (body syntax-closure-body)
+  (env syntax-closure-env))
+
+; ---------------- boolean and equality helpers ----------------
+
+(define (syntax-eval-true) (datum-true))
+(define (syntax-eval-false) (datum-false))
+(define (syntax-eval-boolean value) (if value (datum-true) (datum-false)))
+(define (syntax-eval-false? value)
+  (if (datum-false? value) #t (eq? value #f)))
+
+(define (syntax-eval-symbol? value) (datum-symbol? value))
+(define (syntax-eval-string? value) (datum-string? value))
+
+(define (syntax-eval-atom-eq? left right)
+  (cond
+    ((if (number? left) (number? right) #f) (= left right))
+    ((if (datum-symbol? left) (datum-symbol? right) #f)
+     (string=? (datum-symbol-name left) (datum-symbol-name right)))
+    ((if (datum-string? left) (datum-string? right) #f)
+     (string=? (datum-string-text left) (datum-string-text right)))
+    ((if (datum-char? left) (datum-char? right) #f)
+     (= (datum-char-code left) (datum-char-code right)))
+    ((if (datum-true? left) (datum-true? right) #f) #t)
+    ((if (datum-false? left) (datum-false? right) #f) #t)
+    (else (eq? left right))))
+
+(define (syntax-eval-equal? left right)
+  (cond
+    ((if (null? left) (null? right) #f) #t)
+    ((if (datum-vector? left) (datum-vector? right) #f)
+     (syntax-eval-equal? (datum-vector-items left)
+                         (datum-vector-items right)))
+    ((syntax-eval-atom-eq? left right) #t)
+    ((if (pair? left) (pair? right) #f)
+     (if (syntax-eval-equal? (car left) (car right))
+         (syntax-eval-equal? (cdr left) (cdr right))
+         #f))
+    (else #f)))
+
+; ---------------- lexical frames ----------------
+
+; An environment is a list of frames, innermost first. A frame is an alist of
+; (key . value); key is a pattern-key string so marked identifiers keep the
+; lexical identity they were written with.
+(define (syntax-env-push env) (cons () env))
+
+(define (syntax-env-bind env key value)
+  (cons (cons (cons key value) (car env)) (cdr env)))
+
+(define (syntax-env-entry key entries)
+  (if (null? entries)
+      ()
+      (if (string=? key (car (car entries)))
+          (car entries)
+          (syntax-env-entry key (cdr entries)))))
+
+(define (syntax-env-lookup key env)
+  (if (null? env)
+      ()
+      (let ((entry (syntax-env-entry key (car env))))
+        (if (null? entry) (syntax-env-lookup key (cdr env)) entry))))
+
+(define (syntax-env-set! env key value)
+  (let ((entry (syntax-env-entry key (car env))))
+    (if (null? entry)
+        (set-car! env (cons (cons key value) (car env)))
+        (set-cdr! entry value))))
+
+(define (syntax-phase-lookup name)
+  (let ((env (cell-get PHASE-VALUE-ENV)))
+    (if (null? env) () (syntax-env-lookup name env))))
+
+(define (syntax-eval-lookup identifier env)
+  (let ((entry (syntax-env-lookup (pattern-key identifier) env)))
+    (if (not (null? entry))
+        (cdr entry)
+        (let ((fallback
+                (syntax-env-lookup (datum-symbol-name identifier) env)))
+          (if (not (null? fallback))
+              (cdr fallback)
+              (let ((phase (syntax-phase-lookup (datum-symbol-name identifier))))
+                (if (not (null? phase))
+                    (cdr phase)
+                    (let ((primitive
+                            (syntax-primitive-lookup
+                              (datum-symbol-name identifier))))
+                      (if (not (null? primitive))
+                          (cdr primitive)
+                          (fatal
+                            (string-append
+                              "unbound transformer identifier: "
+                              (datum-symbol-name identifier))))))))))))
+
+; ---------------- list helpers ----------------
+
+(define (syntax-list? value)
+  (if (null? value) #t
+      (if (pair? value) (syntax-list? (cdr value)) #f)))
+
+(define (syntax-length values)
+  (if (null? values) 0 (+ 1 (syntax-length (cdr values)))))
+
+(define (syntax-append left right)
+  (if (null? left) right
+      (if (pair? left)
+          (cons (car left) (syntax-append (cdr left) right))
+          (fatal "append: expected a proper list"))))
+
+(define (syntax-reverse values)
+  (let loop ((items values) (result ()))
+    (if (null? items)
+        result
+        (loop (cdr items) (cons (car items) result)))))
+
+(define (syntax-list-ref values index)
+  (if (= index 0)
+      (car values)
+      (syntax-list-ref (cdr values) (- index 1))))
+
+(define (syntax-list-tail values index)
+  (if (= index 0) values (syntax-list-tail (cdr values) (- index 1))))
+
+(define (syntax-list-set! values index value)
+  (if (= index 0)
+      (set-car! values value)
+      (syntax-list-set! (cdr values) (- index 1) value)))
+
+(define (syntax-bind-formal-list formals args bindings)
+  (cond
+    ((null? formals)
+     (if (null? args) bindings (fatal "too many transformer arguments")))
+    ((datum-symbol? formals)
+     (cons (cons (pattern-key formals) args) bindings))
+    ((pair? formals)
+     (if (null? args)
+         (fatal "too few transformer arguments")
+         (syntax-bind-formal-list (cdr formals) (cdr args)
+           (cons (cons (pattern-key (car formals)) (car args)) bindings))))
+    (else (fatal "malformed transformer formals"))))
+
+(define (syntax-bind-formals formals args env)
+  (cons (syntax-bind-formal-list formals args ()) env))
+
+; ---------------- syntax procedures ----------------
+
+; Strip lexical marks: syntax->datum returns an ordinary datum.
+(define (syntax-strip value)
+  (cond
+    ((datum-symbol? value) (datum-symbol (datum-symbol-name value)))
+    ((datum-vector? value)
+     (datum-vector (syntax-strip-list (datum-vector-items value))))
+    ((datum-bytevector? value) value)
+    ((syntax-atomic? value) value)
+    ((pair? value) (cons (syntax-strip (car value))
+                         (syntax-strip (cdr value))))
+    (else value)))
+
+(define (syntax-strip-list values)
+  (if (null? values)
+      ()
+      (cons (syntax-strip (car values)) (syntax-strip-list (cdr values)))))
+
+; Copy the lexical context of template onto datum. This is the common
+; datum->syntax shape: symbols that do not yet carry the template's context
+; are re-marked with it.
+(define (syntax-context-mark template)
+  (if (datum-symbol? template) (identifier-mark template) 0))
+
+(define (syntax-context-source template)
+  (if (datum-symbol? template) (identifier-source-mark template) 0))
+
+(define (syntax-apply-context value mark source)
+  (cond
+    ((datum-symbol? value)
+     (let ((copy (datum-symbol (datum-symbol-name value))))
+       (set-identifier-mark! copy mark)
+       (set-identifier-source-mark! copy source)
+       copy))
+    ((datum-vector? value)
+     (datum-vector (syntax-apply-context-list
+                     (datum-vector-items value) mark source)))
+    ((datum-bytevector? value) value)
+    ((syntax-atomic? value) value)
+    ((pair? value)
+     (cons (syntax-apply-context (car value) mark source)
+           (syntax-apply-context (cdr value) mark source)))
+    (else value)))
+
+(define (syntax-apply-context-list values mark source)
+  (if (null? values)
+      ()
+      (cons (syntax-apply-context (car values) mark source)
+            (syntax-apply-context-list (cdr values) mark source))))
+
+(define (syntax-fresh-identifier name)
+  (let ((identifier (datum-symbol name)))
+    (set-identifier-mark! identifier (fresh-syntax-mark))
+    identifier))
+
+(define (syntax-generate-temporaries items)
+  (if (null? items)
+      ()
+      (let ((name (string-append "_tmp_" (number->string (cell-get SYNTAX-NEXT-MARK)))))
+        (cons (syntax-fresh-identifier name)
+              (syntax-generate-temporaries (cdr items))))))
+
+(define (syntax-identifier= left right)
+  (if (if (datum-symbol? left) (datum-symbol? right) #f)
+      (string=? (pattern-key left) (pattern-key right))
+      (syntax-eval-equal? left right)))
+
+(define (syntax-error-text args)
+  (if (null? args)
+      "syntax-violation"
+      (if (datum-string? (car args))
+          (datum-string-text (car args))
+          "syntax-violation")))
+
+; ---------------- core forms ----------------
+
+(define (syntax-eval expression env)
+  (cond
+    ((datum-symbol? expression) (syntax-eval-lookup expression env))
+    ((syntax-atomic? expression) expression)
+    ((pair? expression) (syntax-eval-pair expression env))
+    ((null? expression) (fatal "empty transformer application"))
+    (else expression)))
+
+(define (syntax-eval-pair expression env)
+  (let ((head (car expression)))
+    (if (datum-symbol? head)
+        (let ((name (datum-symbol-name head)))
+          (cond
+            ((string=? name "quote") (car (cdr expression)))
+            ((string=? name "quasiquote")
+             (syntax-eval-quasiquote (car (cdr expression)) env 1))
+            ((string=? name "if") (syntax-eval-if expression env))
+            ((string=? name "begin")
+             (syntax-eval-body (cdr expression) env (cell-get SYNTAX-EVAL-CONTEXT)))
+            ((string=? name "lambda") (syntax-eval-lambda expression env))
+            ((string=? name "let") (syntax-eval-let expression env))
+            ((string=? name "let*") (syntax-eval-let* expression env))
+            ((string=? name "letrec") (syntax-eval-letrec expression env))
+            ((string=? name "letrec*") (syntax-eval-letrec expression env))
+            ((string=? name "cond")
+             (syntax-eval-cond (cdr expression) env))
+            ((string=? name "case") (syntax-eval-case expression env))
+            ((string=? name "and") (syntax-eval-and (cdr expression) env))
+            ((string=? name "or") (syntax-eval-or (cdr expression) env))
+            ((string=? name "when") (syntax-eval-when expression env #t))
+            ((string=? name "unless") (syntax-eval-when expression env #f))
+            ((string=? name "set!") (syntax-eval-set! expression env))
+            ((string=? name "define")
+             (syntax-eval-define expression env))
+            ((string=? name "syntax") (syntax-eval-syntax expression env))
+            ((string=? name "quasisyntax")
+             (syntax-eval-quasisyntax expression env))
+            ((string=? name "syntax-case")
+             (syntax-eval-syntax-case expression env))
+            ((string=? name "with-syntax")
+             (syntax-eval-with-syntax expression env))
+            ((string=? name "for-syntax")
+             (syntax-eval-body (cdr expression) env
+                               (cell-get SYNTAX-EVAL-CONTEXT)))
+            (else (syntax-eval-application expression env))))
+        (syntax-eval-application expression env))))
+
+(define (syntax-eval-if form env)
+  (let ((test (syntax-eval (car (cdr form)) env)))
+    (if (syntax-eval-false? test)
+        (if (pair? (cdr (cdr (cdr form))))
+            (syntax-eval (car (cdr (cdr (cdr form)))) env)
+            SYNTAX-EVAL-UNSPECIFIED)
+        (syntax-eval (car (cdr (cdr form))) env))))
+
+(define (syntax-eval-lambda form env)
+  (make-syntax-closure (car (cdr form)) (cdr (cdr form)) env))
+
+(define (syntax-binding-names bindings)
+  (if (null? bindings)
+      ()
+      (cons (car (car bindings)) (syntax-binding-names (cdr bindings)))))
+
+(define (syntax-binding-inits bindings)
+  (if (null? bindings)
+      ()
+      (cons (car (cdr (car bindings)))
+            (syntax-binding-inits (cdr bindings)))))
+
+(define (syntax-eval-bindings bindings env frame)
+  (if (null? bindings)
+      frame
+      (let ((binding (car bindings)))
+        (syntax-eval-bindings
+          (cdr bindings) env
+          (syntax-env-bind frame (pattern-key (car binding))
+            (syntax-eval (car (cdr binding)) env))))))
+
+(define (syntax-eval-let form env)
+  (let ((bindings (car (cdr form)))
+        (body (cdr (cdr form))))
+    (if (datum-symbol? bindings)
+        (syntax-eval-named-let bindings (car (cdr form)) body env)
+        (syntax-eval-body body
+          (syntax-eval-bindings bindings env (syntax-env-push env))
+          (cell-get SYNTAX-EVAL-CONTEXT)))))
+
+(define (syntax-eval-named-let name bindings body env)
+  (let* ((frame (syntax-env-push env))
+         (closure (make-syntax-closure
+                    (syntax-binding-names bindings) body frame))
+         (arguments
+           (syntax-eval-arguments (syntax-binding-inits bindings) env)))
+    (syntax-env-set! frame (pattern-key name) closure)
+    (syntax-eval-call closure arguments)))
+
+(define (syntax-eval-let* form env)
+  (let ((bindings (car (cdr form)))
+        (body (cdr (cdr form))))
+    (let ((frame (syntax-env-push env)))
+      (let loop ((items bindings))
+        (if (null? items)
+            (syntax-eval-body body frame (cell-get SYNTAX-EVAL-CONTEXT))
+            (let ((binding (car items)))
+              (syntax-env-set! frame (pattern-key (car binding))
+                (syntax-eval (car (cdr binding)) frame))
+              (loop (cdr items))))))))
+
+(define (syntax-eval-letrec-bindings bindings frame)
+  (if (null? bindings)
+      frame
+      (syntax-eval-letrec-bindings
+        (cdr bindings)
+        (syntax-env-bind frame (pattern-key (car (car bindings)))
+          SYNTAX-EVAL-UNSPECIFIED))))
+
+(define (syntax-eval-letrec-inits bindings frame)
+  (if (null? bindings)
+      frame
+      (let ((binding (car bindings)))
+        (syntax-env-set! frame (pattern-key (car binding))
+          (syntax-eval (car (cdr binding)) frame))
+        (syntax-eval-letrec-inits (cdr bindings) frame))))
+
+(define (syntax-eval-letrec form env)
+  (let ((bindings (car (cdr form)))
+        (body (cdr (cdr form))))
+    (let ((frame (syntax-eval-letrec-bindings bindings (syntax-env-push env))))
+      (syntax-eval-letrec-inits bindings frame)
+      (syntax-eval-body body frame (cell-get SYNTAX-EVAL-CONTEXT)))))
+
+(define (syntax-else-clause? clause)
+  (if (pair? clause)
+      (if (datum-symbol? (car clause))
+          (string=? (datum-symbol-name (car clause)) "else")
+          #f)
+      #f))
+
+(define (syntax-eval-cond clauses env)
+  (if (null? clauses)
+      SYNTAX-EVAL-UNSPECIFIED
+      (let ((clause (car clauses)))
+        (if (syntax-else-clause? clause)
+            (syntax-eval-body (cdr clause) (syntax-env-push env)
+                              (cell-get SYNTAX-EVAL-CONTEXT))
+            (let ((test (syntax-eval (car clause) env)))
+              (if (syntax-eval-false? test)
+                  (syntax-eval-cond (cdr clauses) env)
+                  (if (null? (cdr clause))
+                      test
+                      (if (raw-form? (car (cdr clause)) "=>")
+                          (syntax-eval-call
+                            (syntax-eval (car (cdr (cdr clause))) env)
+                            (cons test ()))
+                          (syntax-eval-body (cdr clause)
+                                            (syntax-env-push env)
+                                            (cell-get SYNTAX-EVAL-CONTEXT))))))))))
+
+(define (syntax-case-datum=? datum key)
+  (syntax-eval-equal? datum key))
+
+(define (syntax-case-datums-member? datums key)
+  (if (null? datums)
+      #f
+      (if (syntax-case-datum=? (car datums) key)
+          #t
+          (syntax-case-datums-member? (cdr datums) key))))
+
+(define (syntax-eval-case-clauses clauses key env)
+  (if (null? clauses)
+      SYNTAX-EVAL-UNSPECIFIED
+      (let ((clause (car clauses)))
+        (if (syntax-else-clause? clause)
+            (syntax-eval-body (cdr clause) (syntax-env-push env)
+                              (cell-get SYNTAX-EVAL-CONTEXT))
+            (if (syntax-case-datums-member? (car clause) key)
+                (syntax-eval-body (cdr clause) (syntax-env-push env)
+                                  (cell-get SYNTAX-EVAL-CONTEXT))
+                (syntax-eval-case-clauses (cdr clauses) key env))))))
+
+(define (syntax-eval-case form env)
+  (syntax-eval-case-clauses
+    (cdr (cdr form))
+    (syntax-eval (car (cdr form)) env)
+    env))
+
+(define (syntax-eval-and forms env)
+  (if (null? forms)
+      (syntax-eval-true)
+      (if (null? (cdr forms))
+          (syntax-eval (car forms) env)
+          (let ((value (syntax-eval (car forms) env)))
+            (if (syntax-eval-false? value)
+                value
+                (syntax-eval-and (cdr forms) env))))))
+
+(define (syntax-eval-or forms env)
+  (if (null? forms)
+      (syntax-eval-false)
+      (let ((value (syntax-eval (car forms) env)))
+        (if (syntax-eval-false? value)
+            (if (null? (cdr forms))
+                value
+                (syntax-eval-or (cdr forms) env))
+            value))))
+
+(define (syntax-eval-when form env wanted)
+  (let ((test (syntax-eval (car (cdr form)) env)))
+    (if (if wanted
+            (syntax-eval-false? test)
+            (not (syntax-eval-false? test)))
+        SYNTAX-EVAL-UNSPECIFIED
+        (syntax-eval-body (cdr (cdr form)) env
+                          (cell-get SYNTAX-EVAL-CONTEXT)))))
+
+(define (syntax-eval-set! form env)
+  (let ((identifier (car (cdr form)))
+        (value (syntax-eval (car (cdr (cdr form))) env)))
+    (let ((entry (syntax-env-lookup (pattern-key identifier) env)))
+      (if (null? entry)
+          (fatal (string-append "set! of unbound transformer variable: "
+                                (datum-symbol-name identifier)))
+          (set-cdr! entry value)))
+    SYNTAX-EVAL-UNSPECIFIED))
+
+(define (syntax-eval-define form env)
+  (let ((target (car (cdr form))))
+    (if (datum-symbol? target)
+        (begin
+          (syntax-env-set! env (pattern-key target)
+            (if (pair? (cdr (cdr form)))
+                (syntax-eval (car (cdr (cdr form))) env)
+                SYNTAX-EVAL-UNSPECIFIED))
+          SYNTAX-EVAL-UNSPECIFIED)
+        (if (pair? target)
+            (begin
+              (syntax-env-set! env (pattern-key (car target))
+                (make-syntax-closure (cdr target) (cdr (cdr form)) env))
+              SYNTAX-EVAL-UNSPECIFIED)
+            (fatal "malformed transformer define")))))
+
+(define (syntax-eval-predeclare forms env)
+  (if (null? forms)
+      ()
+      (begin
+        (if (raw-form? (car forms) "define")
+            (let ((target (car (cdr (car forms)))))
+              (if (datum-symbol? target)
+                  (syntax-env-set! env (pattern-key target)
+                                   SYNTAX-EVAL-UNSPECIFIED)
+                  (if (pair? target)
+                      (syntax-env-set! env (pattern-key (car target))
+                                       SYNTAX-EVAL-UNSPECIFIED))))
+            ())
+        (syntax-eval-predeclare (cdr forms) env))))
+
+(define (syntax-eval-body-loop forms env context)
+  (if (null? forms)
+      SYNTAX-EVAL-UNSPECIFIED
+      (if (null? (cdr forms))
+          (if (raw-form? (car forms) "define")
+              (syntax-eval-define (car forms) env)
+              (syntax-eval (car forms) env))
+          (begin
+            (if (raw-form? (car forms) "define")
+                (syntax-eval-define (car forms) env)
+                (syntax-eval (car forms) env))
+            (syntax-eval-body-loop (cdr forms) env context)))))
+
+(define (syntax-eval-body forms env context)
+  (syntax-eval-predeclare forms env)
+  (syntax-eval-body-loop forms env context))
+
+(define (syntax-eval-arguments expressions env)
+  (if (null? expressions)
+      ()
+      (cons (syntax-eval (car expressions) env)
+            (syntax-eval-arguments (cdr expressions) env))))
+
+(define (syntax-eval-application expression env)
+  (syntax-eval-call (syntax-eval (car expression) env)
+                    (syntax-eval-arguments (cdr expression) env)))
+
+(define (syntax-eval-call procedure arguments)
+  (if (syntax-closure? procedure)
+      (let ((env
+              (syntax-bind-formals (syntax-closure-formals procedure)
+                                   arguments
+                                   (syntax-env-push
+                                     (syntax-closure-env procedure)))))
+        (syntax-eval-body (syntax-closure-body procedure) env
+                          (cell-get SYNTAX-EVAL-CONTEXT)))
+      (if (procedure? procedure)
+          (apply procedure arguments)
+          (fatal "transformer: attempt to call a non-procedure"))))
+

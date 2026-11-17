@@ -1,0 +1,433 @@
+; ---------------- primitive procedures ----------------
+
+(define (syntax-eval-sum values total)
+  (if (null? values) total
+      (syntax-eval-sum (cdr values) (+ total (car values)))))
+
+(define (syntax-eval-product values total)
+  (if (null? values) total
+      (syntax-eval-product (cdr values) (* total (car values)))))
+
+(define (syntax-eval-subtract values)
+  (if (null? (cdr values))
+      (- (car values))
+      (syntax-eval-difference (cdr values) (car values))))
+
+(define (syntax-eval-difference values total)
+  (if (null? values) total
+      (syntax-eval-difference (cdr values) (- total (car values)))))
+
+(define (syntax-eval-divide values)
+  (if (null? (cdr values))
+      (npl_number_div 1 (car values))
+      (syntax-eval-quotient (cdr values) (car values))))
+
+(define (syntax-eval-quotient values total)
+  (if (null? values) total
+      (syntax-eval-quotient (cdr values) (npl_number_div total (car values)))))
+
+(define (syntax-eval-compare values compare)
+  (if (or2 (null? values) (null? (cdr values)))
+      (datum-true)
+      (if (compare (car values) (car (cdr values)))
+          (syntax-eval-compare (cdr values) compare)
+          (datum-false))))
+
+(define (syntax-eval-minimum values current)
+  (if (null? values) current
+      (syntax-eval-minimum (cdr values)
+        (if (< (car values) current) (car values) current))))
+
+(define (syntax-eval-maximum values current)
+  (if (null? values) current
+      (syntax-eval-maximum (cdr values)
+        (if (> (car values) current) (car values) current))))
+
+(define (syntax-eval-remainder left right)
+  (npl_number_remainder left right))
+
+(define (syntax-eval-modulo left right)
+  (let ((value (npl_number_remainder left right)))
+    (if (if (< value 0) (> right 0) (if (> value 0) (< right 0) #f))
+        (+ value right)
+        value)))
+
+(define (syntax-eval-list-map procedure values)
+  (if (null? values)
+      ()
+      (cons (syntax-eval-call procedure (cons (car values) ()))
+            (syntax-eval-list-map procedure (cdr values)))))
+
+(define (syntax-eval-list-for-each procedure values)
+  (if (null? values)
+      SYNTAX-EVAL-UNSPECIFIED
+      (begin
+        (syntax-eval-call procedure (cons (car values) ()))
+        (syntax-eval-list-for-each procedure (cdr values)))))
+
+(define (syntax-eval-list-filter predicate values)
+  (cond
+    ((null? values) ())
+    ((syntax-eval-false?
+       (syntax-eval-call predicate (cons (car values) ())))
+     (syntax-eval-list-filter predicate (cdr values)))
+    (else
+     (cons (car values)
+           (syntax-eval-list-filter predicate (cdr values))))))
+
+(define (syntax-eval-member values key equal)
+  (cond
+    ((null? values) (datum-false))
+    ((equal key (car values)) values)
+    (else (syntax-eval-member (cdr values) key equal))))
+
+(define (syntax-eval-assoc values key equal)
+  (cond
+    ((null? values) (datum-false))
+    ((equal key (car (car values))) (car values))
+    (else (syntax-eval-assoc (cdr values) key equal))))
+
+(define (syntax-eval-apply procedure arguments)
+  (if (null? arguments)
+      (fatal "apply needs an argument list")
+      (syntax-eval-call procedure
+        (syntax-append (syntax-butlast arguments)
+                       (car (syntax-last arguments))))))
+
+(define (syntax-last values)
+  (if (null? (cdr values)) values (syntax-last (cdr values))))
+
+(define (syntax-butlast values)
+  (if (null? (cdr values))
+      ()
+      (cons (car values) (syntax-butlast (cdr values)))))
+
+(define (syntax-eval-string-append texts)
+  (if (null? texts)
+      (datum-string "")
+      (datum-string
+        (string-append (datum-string-text (car texts))
+                       (syntax-eval-string-append-text (cdr texts))))))
+
+(define (syntax-eval-string-append-text texts)
+  (if (null? texts)
+      ""
+      (string-append (datum-string-text (car texts))
+                     (syntax-eval-string-append-text (cdr texts)))))
+
+(define (syntax-eval-string-length text)
+  (string-length (datum-string-text text)))
+
+(define (syntax-eval-substring text start end)
+  (datum-string (substring (datum-string-text text) start end)))
+
+(define (syntax-eval-make-string count char)
+  (let ((code (if (datum-char? char) (datum-char-code char) 0)))
+    (let loop ((index 0) (text ""))
+      (if (= index count)
+          (datum-string text)
+          (loop (+ index 1) (string-append text (int->string code)))))))
+
+(define (syntax-eval-string->list text)
+  (let loop ((index 0) (result ()))
+    (if (= index (string-length (datum-string-text text)))
+        (syntax-reverse result)
+        (loop (+ index 1)
+              (cons (datum-char
+                      (char->integer
+                        (string-ref (datum-string-text text) index)))
+                    result)))))
+
+(define (syntax-eval-list->string chars)
+  (let loop ((items chars) (text ""))
+    (if (null? items)
+        (datum-string text)
+        (loop (cdr items)
+              (string-append
+                text
+                (npl_make_string 1 (integer->char (datum-char-code (car items)))))))))
+
+(define (syntax-eval-vector->list value)
+  (datum-vector-items value))
+
+(define (syntax-eval-list->vector values)
+  (datum-vector values))
+
+(define (syntax-eval-make-vector count fill)
+  (let loop ((index 0) (items ()))
+    (if (= index count)
+        (datum-vector (syntax-reverse items))
+        (loop (+ index 1) (cons fill items)))))
+
+(define (syntax-eval-vector-set! value index item)
+  (syntax-list-set! (datum-vector-items value) index item)
+  SYNTAX-EVAL-UNSPECIFIED)
+
+(define (syntax-eval-char->integer value)
+  (datum-char-code value))
+
+(define (syntax-eval-integer->char value)
+  (datum-char value))
+
+(define (syntax-eval-string->number text)
+  (let ((value (npl_number_from_string (datum-string-text text))))
+    (if value value (datum-false))))
+
+(define (syntax-eval-number->string value)
+  (datum-string (number->string value)))
+
+(define (syntax-eval-syntax->datum value)
+  (syntax-strip value))
+
+(define (syntax-eval-datum->syntax template datum)
+  (syntax-apply-context datum (syntax-context-mark template)
+                        (syntax-context-source template)))
+
+(define (syntax-eval-syntax->list value)
+  (if (syntax-list? value) value (datum-false)))
+
+(define (syntax-eval-syntax-e value)
+  value)
+
+(define (syntax-eval-gensym)
+  (syntax-fresh-identifier
+    (string-append "_gensym_" (number->string (cell-get SYNTAX-NEXT-MARK)))))
+
+(define (syntax-eval-void) SYNTAX-EVAL-UNSPECIFIED)
+
+(define (syntax-eval-procedure? value)
+  (if (syntax-closure? value) #t (procedure? value)))
+
+(define (syntax-eval-listing . arguments) arguments)
+
+(define (syntax-eval-primitive-bindings)
+  (syntax-eval-listing
+    (cons "car" (lambda (pair) (car pair)))
+    (cons "cdr" (lambda (pair) (cdr pair)))
+    (cons "cons" (lambda (head tail) (cons head tail)))
+    (cons "set-car!" (lambda (pair value) (set-car! pair value)))
+    (cons "set-cdr!" (lambda (pair value) (set-cdr! pair value)))
+    (cons "null?" (lambda (value) (syntax-eval-boolean (null? value))))
+    (cons "pair?" (lambda (value) (syntax-eval-boolean (pair? value))))
+    (cons "list?" (lambda (value) (syntax-eval-boolean (syntax-list? value))))
+    (cons "list"
+          (lambda arguments arguments))
+    (cons "length" (lambda (values) (syntax-length values)))
+    (cons "append"
+          (lambda arguments (syntax-eval-append-all arguments)))
+    (cons "reverse" (lambda (values) (syntax-reverse values)))
+    (cons "list-ref" (lambda (values index) (syntax-list-ref values index)))
+    (cons "list-tail" (lambda (values index) (syntax-list-tail values index)))
+    (cons "list-copy" (lambda (values) (syntax-append values ())))
+    (cons "vector"
+          (lambda arguments (datum-vector arguments)))
+    (cons "make-vector"
+          (lambda (count fill) (syntax-eval-make-vector count fill)))
+    (cons "vector?"
+          (lambda (value) (syntax-eval-boolean (datum-vector? value))))
+    (cons "vector-length"
+          (lambda (value) (syntax-length (datum-vector-items value))))
+    (cons "vector-ref"
+          (lambda (value index)
+            (syntax-list-ref (datum-vector-items value) index)))
+    (cons "vector-set!"
+          (lambda (value index item)
+            (syntax-eval-vector-set! value index item)))
+    (cons "vector->list"
+          (lambda (value) (syntax-eval-vector->list value)))
+    (cons "list->vector"
+          (lambda (values) (syntax-eval-list->vector values)))
+    (cons "bytevector?"
+          (lambda (value) (syntax-eval-boolean (datum-bytevector? value))))
+    (cons "bytevector-length"
+          (lambda (value)
+            (syntax-length (datum-bytevector-items value))))
+    (cons "bytevector-u8-ref"
+          (lambda (value index)
+            (syntax-list-ref (datum-bytevector-items value) index)))
+    (cons "symbol?"
+          (lambda (value)
+            (syntax-eval-boolean (syntax-eval-symbol? value))))
+    (cons "symbol->string"
+          (lambda (value) (datum-string (datum-symbol-name value))))
+    (cons "string->symbol"
+          (lambda (value) (datum-symbol (datum-string-text value))))
+    (cons "string?"
+          (lambda (value)
+            (syntax-eval-boolean (syntax-eval-string? value))))
+    (cons "string-length"
+          (lambda (value) (syntax-eval-string-length value)))
+    (cons "string-ref"
+          (lambda (value index)
+            (datum-char
+              (char->integer
+                (string-ref (datum-string-text value) index)))))
+    (cons "substring"
+          (lambda (value start end)
+            (syntax-eval-substring value start end)))
+    (cons "string-append"
+          (lambda arguments (syntax-eval-string-append arguments)))
+    (cons "string=?"
+          (lambda (left right)
+            (syntax-eval-boolean
+              (string=? (datum-string-text left)
+                        (datum-string-text right)))))
+    (cons "string->list"
+          (lambda (value) (syntax-eval-string->list value)))
+    (cons "list->string"
+          (lambda (values) (syntax-eval-list->string values)))
+    (cons "make-string"
+          (lambda (count char) (syntax-eval-make-string count char)))
+    (cons "string->number"
+          (lambda (value) (syntax-eval-string->number value)))
+    (cons "number->string"
+          (lambda (value) (syntax-eval-number->string value)))
+    (cons "char?"
+          (lambda (value) (syntax-eval-boolean (datum-char? value))))
+    (cons "char->integer"
+          (lambda (value) (syntax-eval-char->integer value)))
+    (cons "integer->char"
+          (lambda (value) (syntax-eval-integer->char value)))
+    (cons "char=?"
+          (lambda (left right)
+            (syntax-eval-boolean
+              (= (datum-char-code left) (datum-char-code right)))))
+    (cons "number?"
+          (lambda (value) (syntax-eval-boolean (number? value))))
+    (cons "integer?"
+          (lambda (value) (syntax-eval-boolean (npl_integer_p value))))
+    (cons "exact?"
+          (lambda (value) (syntax-eval-boolean (npl_integer_p value))))
+    (cons "inexact?"
+          (lambda (value) (syntax-eval-boolean (npl_inexact_p value))))
+    (cons "+" (lambda arguments (syntax-eval-sum arguments 0)))
+    (cons "*" (lambda arguments (syntax-eval-product arguments 1)))
+    (cons "-" (lambda arguments (syntax-eval-subtract arguments)))
+    (cons "/" (lambda arguments (syntax-eval-divide arguments)))
+    (cons "quotient"
+          (lambda (left right) (npl_number_quotient left right)))
+    (cons "remainder"
+          (lambda (left right) (syntax-eval-remainder left right)))
+    (cons "modulo"
+          (lambda (left right) (syntax-eval-modulo left right)))
+    (cons "abs" (lambda (value) (if (< value 0) (- value) value)))
+    (cons "min"
+          (lambda (first . rest) (syntax-eval-minimum rest first)))
+    (cons "max"
+          (lambda (first . rest) (syntax-eval-maximum rest first)))
+    (cons "="
+          (lambda arguments
+            (syntax-eval-compare arguments (lambda (a b) (= a b)))))
+    (cons "<"
+          (lambda arguments
+            (syntax-eval-compare arguments (lambda (a b) (< a b)))))
+    (cons ">"
+          (lambda arguments
+            (syntax-eval-compare arguments (lambda (a b) (> a b)))))
+    (cons "<="
+          (lambda arguments
+            (syntax-eval-compare arguments (lambda (a b) (<= a b)))))
+    (cons ">="
+          (lambda arguments
+            (syntax-eval-compare arguments (lambda (a b) (>= a b)))))
+    (cons "zero?" (lambda (value) (syntax-eval-boolean (= value 0))))
+    (cons "positive?" (lambda (value) (syntax-eval-boolean (> value 0))))
+    (cons "negative?" (lambda (value) (syntax-eval-boolean (< value 0))))
+    (cons "even?"
+          (lambda (value)
+            (syntax-eval-boolean (= (syntax-eval-modulo value 2) 0))))
+    (cons "odd?"
+          (lambda (value)
+            (syntax-eval-boolean (not (= (syntax-eval-modulo value 2) 0)))))
+    (cons "not"
+          (lambda (value)
+            (syntax-eval-boolean (syntax-eval-false? value))))
+    (cons "boolean?"
+          (lambda (value)
+            (syntax-eval-boolean
+              (if (datum-true? value) #t (datum-false? value)))))
+    (cons "eq?" (lambda (left right)
+                  (syntax-eval-boolean
+                    (syntax-eval-atom-eq? left right))))
+    (cons "eqv?" (lambda (left right)
+                   (syntax-eval-boolean
+                     (syntax-eval-equal? left right))))
+    (cons "equal?" (lambda (left right)
+                     (syntax-eval-boolean
+                       (syntax-eval-equal? left right))))
+    (cons "procedure?" (lambda (value)
+                         (syntax-eval-boolean
+                           (syntax-eval-procedure? value))))
+    (cons "map"
+          (lambda (procedure values)
+            (syntax-eval-list-map procedure values)))
+    (cons "for-each"
+          (lambda (procedure values)
+            (syntax-eval-list-for-each procedure values)))
+    (cons "filter"
+          (lambda (predicate values)
+            (syntax-eval-list-filter predicate values)))
+    (cons "member"
+          (lambda (key values)
+            (syntax-eval-member values key syntax-eval-equal?)))
+    (cons "memq"
+          (lambda (key values)
+            (syntax-eval-member values key syntax-eval-atom-eq?)))
+    (cons "assq"
+          (lambda (key values)
+            (syntax-eval-assoc values key syntax-eval-atom-eq?)))
+    (cons "assoc"
+          (lambda (key values)
+            (syntax-eval-assoc values key syntax-eval-equal?)))
+    (cons "apply"
+          (lambda (procedure . arguments)
+            (syntax-eval-apply procedure arguments)))
+    (cons "identifier?"
+          (lambda (value)
+            (syntax-eval-boolean (datum-symbol? value))))
+    (cons "syntax->datum"
+          (lambda (value) (syntax-eval-syntax->datum value)))
+    (cons "datum->syntax"
+          (lambda (template datum)
+            (syntax-eval-datum->syntax template datum)))
+    (cons "syntax-e"
+          (lambda (value) (syntax-eval-syntax-e value)))
+    (cons "syntax->list"
+          (lambda (value) (syntax-eval-syntax->list value)))
+    (cons "free-identifier=?"
+          (lambda (left right)
+            (syntax-eval-boolean (syntax-identifier= left right))))
+    (cons "bound-identifier=?"
+          (lambda (left right)
+            (syntax-eval-boolean (syntax-identifier= left right))))
+    (cons "generate-temporaries"
+          (lambda (values) (syntax-generate-temporaries values)))
+    (cons "syntax-violation"
+          (lambda (who message . irritants)
+            (fatal (string-append
+                     (if (datum-string? message)
+                         (datum-string-text message)
+                         "syntax-violation")
+                     (if (datum-symbol? who)
+                         (string-append " in " (datum-symbol-name who))
+                         "")))))
+    (cons "error"
+          (lambda (message . irritants)
+            (fatal (syntax-error-text (cons message irritants)))))
+    (cons "gensym" (lambda () (syntax-eval-gensym)))
+    (cons "void" (lambda () (syntax-eval-void)))))
+
+(define (syntax-eval-append-all values)
+  (if (null? values)
+      ()
+      (if (null? (cdr values))
+          (car values)
+          (syntax-append (car values)
+                         (syntax-eval-append-all (cdr values))))))
+
+(define (syntax-primitive-lookup name)
+  (if (null? (cell-get SYNTAX-EVAL-PRIMITIVES))
+      (cell-set! SYNTAX-EVAL-PRIMITIVES
+                 (syntax-eval-primitive-bindings))
+      ())
+  (syntax-env-entry name (cell-get SYNTAX-EVAL-PRIMITIVES)))

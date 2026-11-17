@@ -29,9 +29,14 @@ M0a is implemented on `feature/0.1.3-ffi`:
   readers.
 - `(npl lambda)` provides `λ` and `fn`; the arrow form supports one `=>`
   segment, with explicit nested lambdas for currying.
-- Deferred: procedural syntax-case transformers, syntax helper procedures,
-  full syntax objects, `begin-for-syntax`, `(for-syntax ...)`, and library
-  migration.
+- Procedural syntax-case is implemented in `frontend/syntax-eval*.npl`:
+  transformer bodies run in a compile-time evaluator with lexical frames,
+  core forms, primitives, `syntax-case`/`with-syntax` clause environments,
+  `syntax`/`quasisyntax`, and the standard syntax helpers.
+- `begin-for-syntax` and `(for-syntax ...)` populate a phase-1 value
+  environment consulted by later transformers.
+- Deferred: full syntax-object mark histories, local phase-1 macros, library
+  migration, and multi-arrow `λ` currying.
 
 ## 0.1.3 (planned, 2026-11-13)
 

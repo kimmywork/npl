@@ -140,6 +140,19 @@
         (cell-set! TOP-VALUE-ENVIRONMENT value-env)
         (cons (rev acc) macro-env))
       (let ((form (car forms)))
+        ; Phase-1 definitions and expressions are evaluated while expanding.
+        (if (if (raw-form? form "begin-for-syntax")
+                (head-is-core? form "begin-for-syntax" value-env macro-env)
+                #f)
+            (begin
+              (syntax-eval-phase-definitions (cdr form))
+              (expand-top-sequence (cdr forms) value-env macro-env acc))
+        (if (if (raw-form? form "for-syntax")
+                (head-is-core? form "for-syntax" value-env macro-env)
+                #f)
+            (begin
+              (syntax-eval-for-syntax (cdr form))
+              (expand-top-sequence (cdr forms) value-env macro-env acc))
         ; A top-level begin splices its forms (R7RS 5.6.1), including
         ; syntax definitions, before any expansion.
         (if (if (raw-form? form "begin")
@@ -200,7 +213,7 @@
                         (predeclare-spliced-globals
                           (direct-defined-identifiers expanded) value-env)
                         macro-env
-                        (cons expanded acc))))))))))))
+                        (cons expanded acc))))))))))))))
 
 ; Top-level names defined by spliced macro output: unbound ones become
 ; globals named like direct definitions (with the library prefix inside a

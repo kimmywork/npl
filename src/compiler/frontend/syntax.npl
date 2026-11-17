@@ -539,18 +539,48 @@
   (definition-env transformer-definition-env)
   (definition-macro-env transformer-definition-macro-env))
 
-(define (syntax-case-transformer? specification)
+(define-record-type procedural-transformer
+  (make-procedural-transformer specification definition-env
+                                definition-macro-env)
+  procedural-transformer?
+  (specification procedural-transformer-specification)
+  (definition-env procedural-transformer-definition-env)
+  (definition-macro-env procedural-transformer-definition-macro-env))
+
+(define (lambda-transformer? specification)
+  (if (raw-form? specification "lambda")
+      (let ((formals (car (cdr specification))))
+        (if (datum-symbol? formals) #t (pair? formals)))
+      #f))
+
+(define (declarative-clause? clause)
+  (if (pair? clause)
+      (if (pair? (cdr clause))
+          (raw-form? (car (cdr clause)) "syntax")
+          #f)
+      #f))
+
+(define (declarative-clauses? clauses)
+  (if (null? clauses)
+      #t
+      (if (declarative-clause? (car clauses))
+          (declarative-clauses? (cdr clauses))
+          #f)))
+
+; A syntax-case whose every clause is (pattern (syntax template)) is lowered
+; to syntax-rules. Anything else in a lambda transformer is procedural and
+; evaluated by frontend/syntax-eval.npl.
+(define (declarative-syntax-case? specification)
   (if (raw-form? specification "lambda")
       (let ((body (cdr (cdr specification))))
         (if (pair? body)
-            (raw-form? (car body) "syntax-case")
+            (let ((form (car body)))
+              (if (raw-form? form "syntax-case")
+                  (declarative-clauses? (cdr (cdr (cdr form))))
+                  #f))
             #f))
       #f))
 
-; Declarative syntax-case subset: (lambda (stx) (syntax-case stx (lit ...)
-; [pattern (syntax template)] ...)) is lowered to the existing syntax-rules
-; matcher and hygienic template transcriber. Procedural transformers that
-; apply procedures to pattern variables remain a later increment.
 (define (parse-syntax-case specification definition-env definition-macro-env)
   (let* ((lambda-body (car (cdr (cdr specification))))
          (parts (cdr lambda-body)))
@@ -578,31 +608,39 @@
                                  (validate-rules rules literals "...")
                                  definition-env definition-macro-env)))))
 
+(define (parse-syntax-rules-form specification definition-env
+                                  definition-macro-env)
+  (let ((parts (cdr specification)))
+    (if (null? parts) (fatal "syntax-rules needs literals and rules"))
+    (let ((ellipsis
+            (if (datum-symbol? (car parts))
+                (datum-symbol-name (car parts))
+                "...")))
+      (let ((after-ellipsis
+              (if (datum-symbol? (car parts)) (cdr parts) parts)))
+        (if (null? after-ellipsis)
+            (fatal "syntax-rules needs literals and rules"))
+        (let ((literals (car after-ellipsis)))
+          (let ((rules (cdr after-ellipsis)))
+            (validate-literals literals)
+            (if (null? rules) (fatal "syntax-rules needs a rule"))
+            (let ((annotated-rules
+                    (validate-rules rules literals ellipsis)))
+              (make-syntax-transformer ellipsis literals annotated-rules
+                                       definition-env
+                                       definition-macro-env))))))))
+
 (define (parse-syntax-rules specification definition-env definition-macro-env)
-  (if (syntax-case-transformer? specification)
-      (parse-syntax-case specification definition-env definition-macro-env)
-      (if (not (raw-form? specification "syntax-rules"))
-          (fatal "transformer must be syntax-rules or syntax-case")
-          (let ((parts (cdr specification)))
-            (if (null? parts) (fatal "syntax-rules needs literals and rules"))
-            (let ((ellipsis
-                    (if (datum-symbol? (car parts))
-                        (datum-symbol-name (car parts))
-                        "...")))
-              (let ((after-ellipsis
-                      (if (datum-symbol? (car parts)) (cdr parts) parts)))
-                (if (null? after-ellipsis)
-                    (fatal "syntax-rules needs literals and rules"))
-                (let ((literals (car after-ellipsis)))
-                  (let ((rules (cdr after-ellipsis)))
-                    (validate-literals literals)
-                    (if (null? rules) (fatal "syntax-rules needs a rule"))
-                    (let ((annotated-rules
-                            (validate-rules rules literals ellipsis)))
-                      (make-syntax-transformer ellipsis literals
-                                               annotated-rules
-                                               definition-env
-                                               definition-macro-env))))))))))
+  (if (raw-form? specification "syntax-rules")
+      (parse-syntax-rules-form specification definition-env
+                               definition-macro-env)
+      (if (lambda-transformer? specification)
+          (if (declarative-syntax-case? specification)
+              (parse-syntax-case specification definition-env
+                                 definition-macro-env)
+              (make-procedural-transformer specification definition-env
+                                           definition-macro-env))
+          (fatal "transformer must be syntax-rules or lambda"))))
 
 ; A pattern variable's binding: its name, the ellipsis path it was matched
 ; at, and the matched input.
