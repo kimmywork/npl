@@ -1,0 +1,38 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context))
+
+(include "framework.npl")
+
+(define-syntax list-tail-pattern
+  (syntax-rules ()
+    ((_ item ... last) (list last item ...))))
+(define-syntax vector-tail-pattern
+  (syntax-rules ()
+    ((_ #(item ... last)) (list last item ...))))
+(define-syntax custom-list
+  (syntax-rules ::: ()
+    ((_ item :::) (list item :::))))
+(define-syntax custom-tail
+  (syntax-rules ::: ()
+    ((_ item ::: last) (list last item :::))))
+
+(define (main)
+  (test-identity "SRFI 46 feature"
+                 (lambda ()
+                   (cond-expand (srfi-46 #t) (else #f)))
+                 #t)
+  (test-identity "list tail pattern"
+                 (lambda () (equal? (list-tail-pattern 1 2 3) '(3 1 2)))
+                 #t)
+  (test-identity "vector tail pattern"
+                 (lambda () (equal? (vector-tail-pattern #(1 2 3)) '(3 1 2)))
+                 #t)
+  (test-identity "custom ellipsis"
+                 (lambda () (equal? (custom-list 1 2 3) '(1 2 3)))
+                 #t)
+  (test-identity "custom ellipsis with tail"
+                 (lambda () (equal? (custom-tail 1 2 3) '(3 1 2)))
+                 #t)
+  (finish-tests "srfi-46"))
+(main)

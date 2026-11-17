@@ -1,0 +1,13 @@
+(define-syntax fn
+  (syntax-rules (=>)
+    ((_ "params" (arg ...) => form ...) (fn "body" (arg ...) form ...))
+    ((_ "params" (arg ...) next more ...) (fn "params" (arg ... next) more ...))
+    ((_ "body" formals form ... => more ...)
+     (syntax-error "fn: only one => is allowed" form ... => more ...))
+    ((_ "body" formals form ...) (lambda formals form ...))
+    ((_ => form ...) (fn "body" () form ...))
+    ((_ () => form ...) (fn "body" () form ...))
+    ((_ (arg0 arg ... . rest) => form ...) (fn "body" (arg0 arg ... . rest) form ...))
+    ((_ arg0 more ...) (fn "params" (arg0) more ...))))
+(write ((fn x y => (+ x y)) 1 2)) (newline)
+(write ((fn x => y => (+ x y)) 1)) (newline)

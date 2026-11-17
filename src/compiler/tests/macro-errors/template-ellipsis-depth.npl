@@ -1,0 +1,4 @@
+(import (scheme base))
+(define-syntax bad
+  (syntax-rules ()
+    ((_ item ...) (list item))))

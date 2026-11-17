@@ -1,6 +1,56 @@
 # Workstate
 
-## 0.1.2 (planning, 2026-11-12)
+
+## 0.1.3 macro foundation (M0a, 2026-11-16)
+
+M0a is implemented on `feature/0.1.3-ffi`:
+
+- syntax-rules fixes: M1 single-define splicing, M2 depth-0 variables under
+  ellipsis, M5 two-pass body syntax installation, M7 definition-time template
+  depth validation, N1 same-level multiple-ellipsis rejection.
+- template-introduced top-level definitions use per-expansion emitted names
+  (M4), matching Guile/npli hygiene in nplc too.
+- reader N2: bare `\` is rejected by both readers; nplc reports location.
+- seed relayed: `bootstrap/current.ssa` SHA-256
+  `be5c7ba70126d76603e2e52f6b4e9b88bb4f2f141a99e4d5c738cad4a0526e74`.
+- `macro-conformance` 7, `libraries` 24; gate is 58 suites / 81 negative
+  checks.
+- M0b is implemented: SRFI 46 tail patterns/custom ellipsis and SRFI 149
+  template extensions; `srfi-46`, `srfi-149`, and `srfi-149-compatible`
+  features; `(srfi 149)` feature-detection library.
+- M3 is fixed with per-copy source marks: user identifiers in nested macro
+  definitions resolve to their definition-site binding, while
+  macro-introduced bindings remain visible in the same expansion.
+- M6 is implemented: core syntax forms participate in `(scheme base)` export
+  sets, including `only`, `except`, `rename`, and `prefix`.
+- Declarative `syntax-case` subset is implemented by lowering
+  `(lambda (stx) (syntax-case stx (literal ...) [pattern (syntax template)]
+  ...))` to syntax-rules; bracketed `[...]` syntax is supported by both
+  readers.
+- `(npl lambda)` provides `λ` and `fn`; the arrow form supports one `=>`
+  segment, with explicit nested lambdas for currying.
+- Procedural syntax-case is implemented in `frontend/syntax-eval*.npl`:
+  transformer bodies run in a compile-time evaluator with lexical frames,
+  core forms, primitives, `syntax-case`/`with-syntax` clause environments,
+  `syntax`/`quasisyntax`, and the standard syntax helpers.
+- `begin-for-syntax` and `(for-syntax ...)` populate a phase-1 value
+  environment consulted by later transformers.
+- Deferred: full syntax-object mark histories, local phase-1 macros, library
+  migration, and multi-arrow `λ` currying.
+
+## 0.1.3 (planned, 2026-11-13)
+
+Plan: [0.1.3-ffi-posix-thread](plans/0.1.3-ffi-posix-thread.md). The next
+increment adds FFI C arrays/scalars/structs, then SRFI 19 time, SRFI 170
+POSIX, SRFI 18 threads, SRFI 230 atomics, and finally full SRFI 226.
+The Appendix review of
+[2026-11-12-features-and-roadmap](reviews/2026-11-12-features-and-roadmap.md)
+is the review intake: F3/F4/F5/F6 and the cross-form continuation
+documentation gap are accepted as H1 hardening; F1/F2 and the roadmap's
+version-selector, `syntax-case`, and "fix F1 before threads" entries are not
+adopted. 0.1.2 merged at `d688cac`.
+
+## 0.1.2 (merged, 2026-11-13)
 
 Plan: [0.1.2-srfi](plans/0.1.2-srfi.md). Scope is the SRFI library train
 (requested SRFI-1/13/130/140/133/19/170 plus the data-structure SRFIs) with

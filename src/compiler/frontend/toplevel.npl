@@ -140,6 +140,19 @@
         (cell-set! TOP-VALUE-ENVIRONMENT value-env)
         (cons (rev acc) macro-env))
       (let ((form (car forms)))
+        ; Phase-1 definitions and expressions are evaluated while expanding.
+        (if (if (raw-form? form "begin-for-syntax")
+                (head-is-core? form "begin-for-syntax" value-env macro-env)
+                #f)
+            (begin
+              (syntax-eval-phase-definitions (cdr form))
+              (expand-top-sequence (cdr forms) value-env macro-env acc))
+        (if (if (raw-form? form "for-syntax")
+                (head-is-core? form "for-syntax" value-env macro-env)
+                #f)
+            (begin
+              (syntax-eval-for-syntax (cdr form))
+              (expand-top-sequence (cdr forms) value-env macro-env acc))
         ; A top-level begin splices its forms (R7RS 5.6.1), including
         ; syntax definitions, before any expansion.
         (if (if (raw-form? form "begin")
@@ -200,7 +213,7 @@
                         (predeclare-spliced-globals
                           (direct-defined-identifiers expanded) value-env)
                         macro-env
-                        (cons expanded acc))))))))))))
+                        (cons expanded acc))))))))))))))
 
 ; Top-level names defined by spliced macro output: unbound ones become
 ; globals named like direct definitions (with the library prefix inside a
@@ -213,6 +226,23 @@
     (cell-set! TOP-VALUE-ENVIRONMENT result)
     result))
 
+; A marked identifier was introduced by a macro template. Give it a
+; per-expansion emitted name so two expansions that both introduce `tmp` do
+; not share or duplicate a top-level global. Identifiers supplied by the
+; macro caller keep their mark and remain visible by their own name.
+(define (spliced-global-name identifier)
+  (let ((name (datum-symbol-name identifier))
+        (prefix (cell-get TOP-DEFINITION-PREFIX))
+        (mark (identifier-mark identifier)))
+    (let ((base
+            (if (> mark 0)
+                (string-append name "__syntax__" (number->string mark))
+                name)))
+      (string-append prefix
+        (if (= (string-length prefix) 0)
+            base
+            (sanitize base 0 ""))))))
+
 (define (predeclare-spliced-loop identifiers environment)
   (if (null? identifiers)
       environment
@@ -223,8 +253,5 @@
                  0)
               environment
               (add-value-binding identifier
-                (string-append (cell-get TOP-DEFINITION-PREFIX)
-                  (if (= (string-length (cell-get TOP-DEFINITION-PREFIX)) 0)
-                      (datum-symbol-name identifier)
-                      (sanitize (datum-symbol-name identifier) 0 "")))
+                (spliced-global-name identifier)
                 environment))))))

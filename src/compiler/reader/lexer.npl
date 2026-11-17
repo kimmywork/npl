@@ -86,7 +86,7 @@
      (if (lex-cls? (string-byte-ref s i) 7)
          (push-symbol s i acc)
          (push-number s i acc)))
-    (else (do-bad-char (string-byte-ref s i)))))
+    (else (do-bad-char s i))))
 
 (define (lex-hash s j acc)
   (if (not (< j (string-length s))) (fatal "bad # syntax"))
@@ -103,7 +103,7 @@
     (else
       (if (lex-cls? (string-byte-ref s j) 6)
           (lex-array-or-label s j acc)
-          (do-bad-char (string-byte-ref s j))))))
+          (do-bad-char s j)))))
 
 ;; #t / #true and #f / #false (R7RS 2.1).
 (define (lex-boolean s j long kind acc)
@@ -153,7 +153,7 @@
               #f)
           #f)
       (lex-loop s (+ j 3) (cons (cons 15 ()) acc))
-      (do-bad-char (string-byte-ref s j))))
+      (do-bad-char s j)))
 
 (define (hex-digit-value code)
   (cond ((if (< 47 code) (< code 58) #f) (- code 48))
@@ -441,8 +441,20 @@
     (newline (current-error-port))
     (exit 20)))
 
-(define (do-bad-char c)
-  (begin (display "nplc: bad character byte " (current-error-port))
-         (display c (current-error-port))
-         (newline (current-error-port))
-         (exit 20)))
+(define (bad-char-position s index line col)
+  (if (>= index (string-length s))
+      (cons line (cons col ()))
+      (if (= (string-byte-ref s index) 10)
+          (bad-char-position s (+ index 1) (+ line 1) 1)
+          (bad-char-position s (+ index 1) line (+ col 1)))))
+
+(define (do-bad-char s index)
+  (let ((position (bad-char-position s 0 1 1)))
+    (display "nplc: bad character byte " (current-error-port))
+    (display (string-byte-ref s index) (current-error-port))
+    (display " at line " (current-error-port))
+    (display (car position) (current-error-port))
+    (display " col " (current-error-port))
+    (display (car (cdr position)) (current-error-port))
+    (newline (current-error-port))
+    (exit 20)))

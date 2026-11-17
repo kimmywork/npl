@@ -98,7 +98,7 @@
     (else form)))
 
 (define (resolve-marked-identifier form name definition-env definition-macros)
-  (let ((binding (lookup-value-binding-key name 0 definition-env))
+  (let ((binding (lookup-value-binding-key name 0 0 definition-env))
         (keyword (lookup-macro-cell-key name 0 definition-macros)))
     (cond
       ((> (string-length binding) 0)
@@ -118,6 +118,7 @@
   (let ((alias (datum-symbol (datum-symbol-name form)))
         (alias-mark (fresh-syntax-mark)))
     (set-identifier-mark! alias alias-mark)
+    (set-identifier-source-mark! alias (identifier-mark form))
     (cell-set! table
       (cons (cons (datum-symbol-name form) (cons alias-mark (cons meaning ())))
             (cell-get table)))

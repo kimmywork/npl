@@ -2,6 +2,8 @@
 
 ; Syntax marks: an eq hash table from identifier to mark, 0 when absent.
 (define SYNTAX-MARKS (cell (npl_make_hash_table 0 #f #f 0)))
+; The mark of the template identifier a transcription copy came from.
+(define SYNTAX-SOURCE-MARKS (cell (npl_make_hash_table 0 #f #f 0)))
 
 (define (new-mark-table) (npl_make_hash_table 0 #f #f 0))
 (define SYNTAX-NEXT-MARK (cell 0))
@@ -14,6 +16,21 @@
 (define MATCH-FAIL '(_syntax_match_fail_))
 (define CURRENT-PATTERN-VARIABLES (cell ()))
 (define NO-REPEAT-COUNT 1000000000)
+(define CORE-SYNTAX-PREFIX "_core_syntax_")
+
+(define (make-core-syntax name)
+  (datum-symbol (string-append CORE-SYNTAX-PREFIX name)))
+(define (core-syntax-value? value)
+  (if (datum-symbol? value)
+      (let ((name (datum-symbol-name value)))
+        (if (>= (string-length name) (string-length CORE-SYNTAX-PREFIX))
+            (string=? (substring name 0 (string-length CORE-SYNTAX-PREFIX))
+                      CORE-SYNTAX-PREFIX)
+            #f))
+      #f))
+(define (core-syntax-value-name value)
+  (substring (datum-symbol-name value) (string-length CORE-SYNTAX-PREFIX)
+             (string-length (datum-symbol-name value))))
 (define CURRENT-REPEAT-DRIVER-DEPTH (cell 1000000000))
 (define UNINITIALIZED-SYNTAX '(_uninitialized_syntax_))
 
@@ -35,6 +52,13 @@
 (define (identifier-mark identifier)
   (npl_hash_table_ref (cell-get SYNTAX-MARKS) identifier 0))
 
+(define (identifier-source-mark identifier)
+  (npl_hash_table_ref (cell-get SYNTAX-SOURCE-MARKS) identifier
+                      (identifier-mark identifier)))
+
+(define (set-identifier-source-mark! identifier mark)
+  (npl_hash_table_set (cell-get SYNTAX-SOURCE-MARKS) identifier mark))
+
 (define (set-identifier-mark! identifier mark)
   (npl_hash_table_set (cell-get SYNTAX-MARKS) identifier mark))
 
@@ -44,12 +68,13 @@
 
 (define (lookup-value-binding identifier environment)
   (let ((name (datum-symbol-name identifier))
-        (mark (identifier-mark identifier)))
-    (let ((binding (lookup-value-binding-key name mark environment)))
+        (mark (identifier-mark identifier))
+        (source (identifier-source-mark identifier)))
+    (let ((binding (lookup-value-binding-key name mark source environment)))
       (if (> (string-length binding) 0)
           binding
           (lookup-value-binding-key
-            name mark (cell-get TRANSCRIPTION-ALIASES))))))
+            name mark source (cell-get TRANSCRIPTION-ALIASES))))))
 
 ; Compute the lookup key once, not once per environment entry.
 ; An entry is (name mark emitted); an alias layer (#f mark definition-env)
@@ -57,7 +82,7 @@
 ; name in definition-env, innermost first; or a global layer (#f #f table)
 ; (value-binding-layer): a string hash table from name to its
 ; ((mark . emitted) ...), innermost first, standing for that many entries.
-(define (lookup-value-binding-key name mark environment)
+(define (lookup-value-binding-key name mark source environment)
   (if (null? environment)
       ""
       (let ((entry (car environment)))
@@ -66,19 +91,21 @@
                     (= mark (car (cdr entry)))
                     #f)
                 (car (cdr (cdr entry)))
-                (lookup-value-binding-key name mark (cdr environment)))
+                (lookup-value-binding-key name mark source
+                                          (cdr environment)))
             (let ((found
                     (if (car (cdr entry))
                         (if (= mark (car (cdr entry)))
-                            (lookup-value-binding-any-mark
-                              name (car (cdr (cdr entry))))
+                            (lookup-value-binding-key
+                              name source source (car (cdr (cdr entry))))
                             "")
                         (layer-binding-with-mark
                           (npl_hash_table_ref (car (cdr (cdr entry))) name ())
                           mark))))
               (if (> (string-length found) 0)
                   found
-                  (lookup-value-binding-key name mark (cdr environment))))))))
+                  (lookup-value-binding-key name mark source
+                                            (cdr environment))))))))
 
 (define (lookup-value-binding-any-mark name environment)
   (if (null? environment)
@@ -307,7 +334,22 @@
      (validate-pattern-list pattern literals ellipsis depth variables))
     (else variables)))
 
+(define (count-active-ellipsis patterns ellipsis literals count)
+  (if (null? patterns)
+      count
+      (if (syntax-atomic? patterns)
+          count
+          (if (pair? patterns)
+              (count-active-ellipsis
+                (cdr patterns) ellipsis literals
+                (if (active-ellipsis? (car patterns) ellipsis literals)
+                    (+ count 1)
+                    count))
+              count))))
+
 (define (validate-pattern-list patterns literals ellipsis depth variables)
+  (if (> (count-active-ellipsis patterns ellipsis literals 0) 1)
+      (fatal "misplaced ellipsis in pattern"))
   (if (null? patterns)
       variables
       (if (syntax-atomic? patterns)
@@ -339,9 +381,117 @@
     (let ((variables
             (validate-pattern-list (cdr pattern)
                                    literals ellipsis 0 ())))
+      (cell-set! TEMPLATE-BUDGET 2000)
+      (validate-template (car (cdr rule)) variables ellipsis literals 0)
       (cons pattern
         (cons (car (cdr rule))
           (cons variables ()))))))
+
+(define (escaped-template-tail? template ellipsis literals)
+  (if (syntax-atomic? template)
+      #f
+  (if (not (pair? template))
+      #f
+      (if (not (active-ellipsis? (car template) ellipsis literals))
+          #f
+          (if (not (pair? (cdr template)))
+              #f
+              (null? (cdr (cdr template))))))))
+
+(define (template-driver? template variables ellipsis literals depth)
+  (cond
+    ((datum-symbol? template)
+     (let ((descriptor
+             (variable-descriptor (pattern-key template) variables)))
+       (if (null? descriptor) #f (> (cdr descriptor) depth))))
+    ((datum-vector? template)
+     (template-list-driver? (datum-vector-items template)
+                            variables ellipsis literals depth))
+    ((pair? template)
+     (if (escaped-template-tail? template ellipsis literals)
+         (template-driver? (car (cdr template)) variables ellipsis literals
+                           depth)
+         (if (template-driver? (car template) variables ellipsis literals depth)
+             #t
+             (template-driver? (cdr template) variables ellipsis literals
+                               depth))))
+    (else #f)))
+
+(define (template-list-driver? templates variables ellipsis literals depth)
+  (if (null? templates)
+      #f
+      (if (syntax-atomic? templates)
+          (template-driver? templates variables ellipsis literals depth)
+          (if (pair? templates)
+              (if (template-driver? (car templates) variables ellipsis literals
+                                    depth)
+                  #t
+                  (template-list-driver? (cdr templates) variables ellipsis
+                                         literals depth))
+              (template-driver? templates variables ellipsis literals depth)))))
+
+(define TEMPLATE-BUDGET (cell 0))
+
+(define (validate-template template variables ellipsis literals depth)
+  (if (<= (cell-get TEMPLATE-BUDGET) 0)
+      #t
+      (begin
+        (cell-set! TEMPLATE-BUDGET (- (cell-get TEMPLATE-BUDGET) 1))
+  (cond
+    ((datum-symbol? template)
+     (let ((descriptor
+             (variable-descriptor (pattern-key template) variables)))
+       (if (null? descriptor)
+           #t
+           (if (> (cdr descriptor) depth)
+               (fatal "pattern variable used at wrong ellipsis depth")
+               #t))))
+    ((datum-vector? template)
+     (validate-template-list (datum-vector-items template)
+                             variables ellipsis literals depth))
+    ((pair? template)
+     (validate-template-list template variables ellipsis literals depth))
+    (else #t)))))
+
+(define (ellipsis-count-from templates ellipsis literals count)
+  (if (pair? templates)
+      (if (active-ellipsis? (car templates) ellipsis literals)
+          (ellipsis-count-from (cdr templates) ellipsis literals (+ count 1))
+          count)
+      count))
+
+(define (drop-forms forms count)
+  (if (= count 0)
+      forms
+      (drop-forms (cdr forms) (- count 1))))
+
+(define (validate-template-list templates variables ellipsis literals depth)
+  (if (escaped-template-tail? templates ellipsis literals)
+      (validate-template (car (cdr templates)) variables ellipsis literals
+                         depth)
+  (if (null? templates)
+      #t
+      (if (syntax-atomic? templates)
+          (validate-template templates variables ellipsis literals depth)
+          (if (pair? templates)
+              (if (if (pair? (cdr templates))
+                      (active-ellipsis? (car (cdr templates))
+                                        ellipsis literals)
+                      #f)
+                  (let ((levels
+                          (ellipsis-count-from (cdr templates)
+                                               ellipsis literals 0)))
+                    (validate-template (car templates) variables ellipsis
+                                       literals (+ depth levels))
+                    (validate-template-list
+                      (drop-forms (cdr templates) levels)
+                      variables ellipsis literals depth))
+                  (begin
+                    (validate-template (car templates) variables ellipsis
+                                       literals depth)
+                    (validate-template-list (cdr templates)
+                                            variables ellipsis literals depth)))
+              (validate-template templates variables ellipsis literals depth))))))
 
 (define (validate-rules rules literals ellipsis)
   (if (null? rules)
@@ -389,9 +539,77 @@
   (definition-env transformer-definition-env)
   (definition-macro-env transformer-definition-macro-env))
 
-(define (parse-syntax-rules specification definition-env definition-macro-env)
-  (if (not (raw-form? specification "syntax-rules"))
-      (fatal "transformer must be syntax-rules"))
+(define-record-type procedural-transformer
+  (make-procedural-transformer specification definition-env
+                                definition-macro-env)
+  procedural-transformer?
+  (specification procedural-transformer-specification)
+  (definition-env procedural-transformer-definition-env)
+  (definition-macro-env procedural-transformer-definition-macro-env))
+
+(define (lambda-transformer? specification)
+  (if (raw-form? specification "lambda")
+      (let ((formals (car (cdr specification))))
+        (if (datum-symbol? formals) #t (pair? formals)))
+      #f))
+
+(define (declarative-clause? clause)
+  (if (pair? clause)
+      (if (pair? (cdr clause))
+          (raw-form? (car (cdr clause)) "syntax")
+          #f)
+      #f))
+
+(define (declarative-clauses? clauses)
+  (if (null? clauses)
+      #t
+      (if (declarative-clause? (car clauses))
+          (declarative-clauses? (cdr clauses))
+          #f)))
+
+; A syntax-case whose every clause is (pattern (syntax template)) is lowered
+; to syntax-rules. Anything else in a lambda transformer is procedural and
+; evaluated by frontend/syntax-eval.npl.
+(define (declarative-syntax-case? specification)
+  (if (raw-form? specification "lambda")
+      (let ((body (cdr (cdr specification))))
+        (if (pair? body)
+            (let ((form (car body)))
+              (if (raw-form? form "syntax-case")
+                  (declarative-clauses? (cdr (cdr (cdr form))))
+                  #f))
+            #f))
+      #f))
+
+(define (parse-syntax-case specification definition-env definition-macro-env)
+  (let* ((lambda-body (car (cdr (cdr specification))))
+         (parts (cdr lambda-body)))
+    (if (null? parts) (fatal "syntax-case needs an expression"))
+    (let ((literals (car (cdr parts)))
+          (clauses (cdr (cdr parts))))
+      (validate-literals literals)
+      (if (null? clauses) (fatal "syntax-case needs a clause"))
+      (let ((rules
+              (let loop ((items clauses) (result ()))
+                (if (null? items)
+                    (rev result)
+                    (let ((clause (car items)))
+                      (if (not (pair? clause))
+                          (fatal "malformed syntax-case clause"))
+                      (let ((pattern (car clause))
+                            (body (car (cdr clause))))
+                        (if (not (raw-form? body "syntax"))
+                            (fatal "syntax-case template must use syntax"))
+                        (loop (cdr items)
+                              (cons (cons pattern
+                                          (cons (car (cdr body)) ()))
+                                    result))))))))
+        (make-syntax-transformer "..." literals
+                                 (validate-rules rules literals "...")
+                                 definition-env definition-macro-env)))))
+
+(define (parse-syntax-rules-form specification definition-env
+                                  definition-macro-env)
   (let ((parts (cdr specification)))
     (if (null? parts) (fatal "syntax-rules needs literals and rules"))
     (let ((ellipsis
@@ -411,6 +629,18 @@
               (make-syntax-transformer ellipsis literals annotated-rules
                                        definition-env
                                        definition-macro-env))))))))
+
+(define (parse-syntax-rules specification definition-env definition-macro-env)
+  (if (raw-form? specification "syntax-rules")
+      (parse-syntax-rules-form specification definition-env
+                               definition-macro-env)
+      (if (lambda-transformer? specification)
+          (if (declarative-syntax-case? specification)
+              (parse-syntax-case specification definition-env
+                                 definition-macro-env)
+              (make-procedural-transformer specification definition-env
+                                           definition-macro-env))
+          (fatal "transformer must be syntax-rules or lambda"))))
 
 ; A pattern variable's binding: its name, the ellipsis path it was matched
 ; at, and the matched input.
@@ -453,6 +683,11 @@
 
 (define (path-length path)
   (if (null? path) 0 (+ 1 (path-length (cdr path)))))
+
+(define (path-take path count)
+  (if (= count 0)
+      ()
+      (cons (car path) (path-take (cdr path) (- count 1)))))
 
 (define (capture-exact name path captures)
   (if (null? captures)
@@ -682,11 +917,15 @@
                  (fatal "misplaced ellipsis in template"))
              (let ((copy (datum-symbol (datum-symbol-name template))))
                (set-identifier-mark! copy mark)
+               (set-identifier-source-mark! copy (identifier-mark template))
                copy))
-           (if (not (= (cdr descriptor) (path-length path)))
+           (if (> (cdr descriptor) (path-length path))
                (fatal "pattern variable used at wrong ellipsis depth")
                (let ((capture
-                       (capture-exact (car descriptor) path captures)))
+                       (capture-exact
+                         (car descriptor)
+                         (path-take path (cdr descriptor))
+                         captures)))
                  (if (null? capture)
                      (fatal "missing pattern capture")
                      (capture-value capture)))))))
@@ -706,6 +945,26 @@
          (clone-template-list template transformer captures
                               mark path enabled)))
     (else template)))
+
+(define (clone-repeated-template-levels template levels transformer captures
+                                        mark path enabled)
+  (if (= levels 0)
+      (cons (clone-template template transformer captures mark path enabled) ())
+      (let ((count (template-repeat-count template transformer captures path)))
+        (let ((count (if (= count NO-REPEAT-COUNT)
+                         (if (> (path-length path) 0)
+                             1
+                             (fatal "ellipsis template has no repeated pattern variable"))
+                         count)))
+          (let loop ((index 0) (result '()))
+            (if (= index count)
+                result
+                (loop (+ index 1)
+                      (append-forms
+                        result
+                        (clone-repeated-template-levels
+                          template (- levels 1) transformer captures mark
+                          (path-append-index path index) enabled)))))))))
 
 (define (clone-repeated-template template count index transformer captures
                                  mark path enabled)
@@ -731,18 +990,18 @@
                             (transformer-literals transformer))
                           #f)
                       #f)
-                  (let ((count
-                          (template-repeat-count (car templates)
-                                                 transformer captures path)))
-                    (if (= count NO-REPEAT-COUNT)
-                        (fatal "ellipsis template has no repeated pattern variable"))
+                  (let ((levels
+                          (ellipsis-count-from
+                            (cdr templates)
+                            (transformer-ellipsis transformer)
+                            (transformer-literals transformer) 0)))
                     (append-forms
-                      (clone-repeated-template
-                        (car templates) count 0 transformer captures
+                      (clone-repeated-template-levels
+                        (car templates) levels transformer captures
                         mark path enabled)
                       (clone-template-list
-                        (cdr (cdr templates)) transformer captures
-                        mark path enabled)))
+                        (drop-forms (cdr templates) levels)
+                        transformer captures mark path enabled)))
                   (cons
                     (clone-template (car templates) transformer captures
                                     mark path enabled)

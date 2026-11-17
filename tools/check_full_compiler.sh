@@ -108,6 +108,13 @@ run_suite reader-datum "PASS reader-datum 24"
 run_suite macros-basic "PASS macros-basic 10"
 run_suite macro-ellipsis "PASS macro-ellipsis 11"
 run_suite macro-scopes "PASS macro-scopes 10"
+run_suite macro-conformance "PASS macro-conformance 9"
+run_suite macro-core-syntax "PASS macro-core-syntax 4"
+run_suite srfi-46 "PASS srfi-46 5"
+run_suite srfi-149 "PASS srfi-149 5"
+run_suite syntax-case "PASS syntax-case 4"
+run_suite syntax-case-procedural "PASS syntax-case-procedural 14"
+run_suite npl-lambda "PASS npl-lambda 5"
 run_suite derived-forms "PASS derived-forms 17"
 run_suite explicit-control "PASS explicit-control 2"
 run_suite multiple-values "PASS multiple-values 13"
@@ -117,7 +124,7 @@ run_suite exceptions "PASS exceptions 6"
 run_suite guard "PASS guard 9"
 run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
-run_suite libraries "PASS libraries 23"
+run_suite libraries "PASS libraries 24"
 run_suite forward-references "PASS forward-references 4"
 run_suite eval "PASS eval 14"
 run_load() {
@@ -564,6 +571,11 @@ reject_compile macro-errors/force-arity.npl \
     force-arity "macro use does not match any syntax rule: force"
 reject_compile macro-errors/delay-arity.npl \
     delay-arity "macro use does not match any syntax rule: delay"
+reject_compile macro-errors/multiple-ellipsis-pattern.npl \
+    multiple-ellipsis-pattern "misplaced ellipsis in pattern"
+reject_compile macro-errors/template-ellipsis-depth.npl \
+    template-ellipsis-depth "pattern variable used at wrong ellipsis depth"
+reject_reader backslash-identifier "bad character byte 92"
 reject_compile contracts/duplicate-definition.npl \
     duplicate-definition "duplicate top-level definition"
 

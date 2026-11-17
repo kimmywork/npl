@@ -234,11 +234,17 @@
                                   #t
                                   (if (string=? name "unix")
                                       #t
-                                      (if (string=? name "little-endian")
+                                      (if (string=? name "srfi-46")
+                                          #t
+                                          (if (string=? name "srfi-149")
+                                              #t
+                                              (if (string=? name "srfi-149-compatible")
+                                                  #t
+                                                  (if (string=? name "little-endian")
                                           (npl_little_endian_p)
                                           (if (string=? name "big-endian")
                                               (not (npl_little_endian_p))
-                                              #f))))))))))))
+                                              #f)))))))))))))))
 
 (define (library-feature? requirement)
   (if (datum-symbol? requirement)
@@ -349,6 +355,26 @@
 (define (library-binding-kind binding) (car (cdr binding)))
 (define (library-binding-payload binding) (car (cdr (cdr binding))))
 
+(define (core-syntax-name? name)
+  (if (string=? name "quote") #t
+  (if (string=? name "quasiquote") #t
+  (if (string=? name "unquote") #t
+  (if (string=? name "unquote-splicing") #t
+  (if (string=? name "lambda") #t
+  (if (string=? name "define") #t
+  (if (string=? name "set!") #t
+  (if (string=? name "if") #t
+  (if (string=? name "begin") #t
+  (if (string=? name "let") #t
+  (if (string=? name "let*") #t
+  (if (string=? name "letrec") #t
+  (if (string=? name "letrec*") #t
+  (if (string=? name "let-syntax") #t
+  (if (string=? name "letrec-syntax") #t
+  (if (string=? name "let-values") #t
+  (if (string=? name "define-values") #t
+  (if (string=? name "syntax-rules") #t #f)))))))))))))))))))
+
 (define (library-export-binding spec value-env macro-env)
   (let ((internal
           (if (datum-symbol? spec)
@@ -366,6 +392,9 @@
                 (car (cdr (cdr spec))))))
       (if (not (datum-symbol? external))
           (fatal "export rename needs identifiers"))
+      (if (core-syntax-name? (datum-symbol-name internal))
+          (library-binding (datum-symbol-name external) 2
+            (cell (make-core-syntax (datum-symbol-name internal))))
       (let ((value (lookup-value-binding internal value-env)))
         (if (> (string-length value) 0)
             (begin
@@ -379,7 +408,7 @@
                   (fatal (string-append "unknown export: "
                            (datum-symbol-name internal)))
                   (library-binding
-                    (datum-symbol-name external) 2 macro))))))))
+                    (datum-symbol-name external) 2 macro)))))))))
 
 (define (library-export-bindings specs value-env macro-env)
   (if (null? specs)
@@ -558,8 +587,17 @@
         (let ((existing
                 (lookup-macro-cell identifier (car (cdr bundle)))))
           (if (not (null? existing))
-              (if (not (eq? existing
-                         (library-binding-payload binding)))
+              (if (not (if (eq? existing (library-binding-payload binding))
+                           #t
+                           (if (if (core-syntax-value? (cell-get existing))
+                                   (core-syntax-value?
+                                     (cell-get (library-binding-payload binding)))
+                                   #f)
+                               (string=? (core-syntax-value-name
+                                           (cell-get existing))
+                                         (core-syntax-value-name
+                                           (cell-get (library-binding-payload binding))))
+                               #f)))
                   (fatal "conflicting imported syntax")))
           (if (not (null? existing))
               bundle

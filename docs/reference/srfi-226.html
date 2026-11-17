@@ -1,0 +1,3971 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>SRFI 226: Control Features</title>
+    <link href="/favicon.png" rel="icon" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="https://srfi.schemers.org/srfi.css" type="text/css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body
+      {
+	  counter-reset: section;
+	  font-family: serif;
+      }
+      h2
+      {
+	  counter-reset: subsection;
+      }
+      h2::before
+      {
+	  counter-increment: section;
+	  content: counter(section) " ";
+      }
+      h3
+      {
+	  counter-reset: subsubsection;
+      }
+      h3::before
+      {
+	  counter-increment: subsection;
+	  content: counter(section) "." counter(subsection) " ";
+      }
+      h4::before
+      {
+	  counter-increment: subsubsection;
+	  content: counter(section) "." counter(subsection) "." counter(subsubsection) " ";
+      }
+      span.token
+      {
+          font-family: serif;
+      }
+      span.token::before
+      {
+          content: "⟨";
+      }
+      span.token::after
+      {
+          content: "⟩";
+      }
+      dl.entries dt
+      {
+	  background-color: lightgrey;
+      }
+      dl.entries dd
+      {
+	  margin-left: 0;
+      }
+      dl.entries > dt.condition-type::after
+      {
+	  float: right;
+	  content: "condition type";
+      }
+      dl.entries > dt.record-type::after
+      {
+	  float: right;
+	  content: "record type";
+      }
+      dl.entries > dt.procedure::after
+      {
+	  float: right;
+	  content: "procedure";
+      }
+      dl.entries > dt.thread-parameter::after
+      {
+	  float: right;
+	  content: "thread parameter";
+      }
+      dl.entries > dt.syntax::after
+      {
+	  float: right;
+	  content: "syntax";
+      }
+      dt.entry > span.type
+      {
+	  float: right;
+      }
+      pre, code
+      {
+	  font-size: smaller;
+      }
+      pre.example
+      {
+	  margin-left: 1em;
+	  margin-right: 1em;
+      }
+      pre.example > span.result
+      {
+	  float: right;
+      }
+      pre.example > span.result::before
+      {
+	  padding-left: 1em;
+	  padding-right: 1em;
+	  content: "⟹";
+      }
+      sup
+      {
+	  display: inline-block;
+      }
+      </style>
+  </head>
+  <body>
+    <h1><a href="https://srfi.schemers.org/"><img class="srfi-logo" src="https://srfi.schemers.org/srfi-logo.svg" alt="SRFI surfboard logo" /></a>226: Control Features</h1>
+
+    <p>by Marc Nieper-Wißkirchen</p>
+
+    <h2 id="status">Status</h2>
+
+    <p>This SRFI is currently in <em>final</em> status.  Here is <a href="https://srfi.schemers.org/srfi-process.html">an explanation</a> of each status that a SRFI can hold.  To provide input on this SRFI, please send email to <code><a href="mailto:srfi+minus+226+at+srfi+dotschemers+dot+org">srfi-226@<span class="antispam">nospam</span>srfi.schemers.org</a></code>.  To subscribe to the list, follow <a href="https://srfi.schemers.org/srfi-list-subscribe.html">these instructions</a>.  You can access previous messages via the mailing list <a href="https://srfi-email.schemers.org/srfi-226">archive</a>.</p>
+    <ul>
+      <li>Received: 2021-08-06</li>
+      <li>Draft #1 published: 2021-08-12</li>
+      <li>Draft #2 published: 2022-09-09</li>
+      <li>Draft #3 published: 2022-11-03</li>
+      <li>Draft #4 published: 2022-11-15</li>
+      <li>Draft #5 published: 2023-02-27</li>
+      <li>Draft #6 published: 2023-02-28</li>
+      <li>Draft #7 published: 2023-03-14</li>
+      <li>Draft #8 published: 2023-03-18</li>
+      <li>Finalized: 2023-04-25</li>
+      <li>Revised to fix errata:
+      <ul>
+        <li>2023-05-23 (Fixed typo in
+        identifier <code>continuation-mark-set-first</code> as listed
+        in <a href="#continuation-marks-library"><code>continuation-marks</code></a>
+        library.)</li>
+        <li>2023-06-10 (<a href="#conditions-3">Removed</a> incorrect
+          <var>obj</var> arguments to <code>make-thread-condition</code>,
+          <code>make-thread-already-terminated-condition</code>,
+          <code>make-thread-timeout-condition</code>,
+          and <code>make-thread-abandoned-mutex-condition</code>.)</li>
+        <li>2025-08-01 (Fix <a href="#errata-3">example</a>.)</li>
+        <li>2026-07-29 (Fix <a href="#errata-4">example</a>.)</li>
+        <li>2026-09-03 (Fix <a href="#errata-5">typo in library specification.</a>)</li>
+      </ul></li>
+      <li>On 2023-06-29,
+        SRFIs <a href="https://srfi.schemers.org/srfi-154/">154</a>,
+        <a href="https://srfi.schemers.org/srfi-155/">155</a>,
+        and <a href="https://srfi.schemers.org/srfi-157/">157</a> were
+        withdrawn, with the author's (Marc's) permission, in favor of
+        this SRFI.</li>
+    </ul>
+
+    <h2>Table of contents</h2>
+    <ul>
+      <li>
+        <a href="#rationale">Rationale</a>
+        <ul>
+          <li>
+            <a href="#overview">Overview</a>
+            <ul>
+              <li><a href="#continuations-and-prompts">Continuations and Prompts</a></li>
+              <li><a href="#composable-and-non-composable-continuations">Composable and Non-Composable Continuations</a></li>
+              <li><a href="#continuation-marks">Continuation Marks</a></li>
+              <li><a href="#continuations-and-threads">Continuations and Threads</a></li>
+              <li><a href="#parameter-objects">Parameter Objects</a></li>
+              <li><a href="#fluids">Fluids</a></li>
+              <li><a href="#thread-locals">Thread locals</a></li>
+              <li><a href="#promises">Promises</a></li>
+            </ul>
+          </li>
+          <li><a href="#relation-to-other-standards">Relation to Other Standards</a></li>
+          <li><a href="#relation-to-other-srfis">Relation to Other SRFIs</a></li>
+          <li><a href="#why-this-proposal-should-be-incorporated-as-a-standard-feature-in-scheme-implementations">Why this Proposal should be Incorporated as a Standard Feature
+              in Scheme Implementations</a></li>
+          <li><a href="#implementation">Implementation</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#specification">Specification</a>
+        <ul>
+          <li><a href="#libraries">Libraries</a></li>
+          <li><a href="#entry-format">Entry format</a></li>
+          <li><a href="#iterators">Iterators</a></li>
+          <li><a href="#safety">Safety</a></li>
+          <li>
+            <a href="#continuation-prompts">Continuation Prompts</a>
+            <ul>
+              <li><a href="#conditions">Conditions</a></li>
+              <li><a href="#prompt-tags">Prompt Tags</a></li>
+              <li><a href="#continuation-prompts-2">Continuation Prompts</a></li>
+            </ul>
+          </li>
+          <li><a href="#continuations">Continuations</a></li>
+          <li><a href="#shift-and-reset">Shift and Reset</a></li>
+          <li><a href="#inspection">Inspection</a></li>
+          <li>
+            <a href="#continuation-marks-2">Continuation Marks</a>
+            <ul>
+              <li><a href="#continuation-marks-3">Continuation Marks</a></li>
+              <li><a href="#mark-keys">Mark Keys</a></li>
+            </ul>
+          </li>
+          <li><a href="#parameter-objects-2">Parameter Objects</a></li>
+          <li><a href="#fluids-2">Fluids</a></li>
+          <li><a href="#initial-continuations">Initial Continuations</a></li>
+          <li><a href="#promises-2">Promises</a></li>
+          <li><a href="#exceptions">Exceptions</a></li>
+          <li><a href="#conditions-2">Conditions</a></li>
+          <li><a href="#time-objects">Time Objects</a></li>
+          <li>
+            <a href="#threads">Threads</a>
+            <ul>
+              <li><a href="#conditions-3">Conditions</a></li>
+              <li><a href="#threads-2">Threads</a></li>
+              <li><a href="#mutexes">Mutexes</a></li>
+              <li><a href="#condition-variables">Condition variables</a></li>
+              <li><a href="#thread-locals-2">Thread locals</a></li>
+              <li><a href="#interrupts">Interrupts</a></li>
+            </ul>
+          </li>
+        </ul>
+      </li>
+      <li>
+        <a href="#implementation-2">Implementation</a>
+        <ul>
+          <li><a href="#portability">Portability</a></li>
+          <li><a href="#sample-implementation">Sample Implementation</a></li>
+          <li><a href="#other-implementations">Other Implementations</a></li>
+        </ul>
+      </li>
+      <li><a href="#acknowledgements">Acknowledgements</a></li>
+      <li><a href="#references">References</a></li>
+    </ul>
+
+    <h2 id="abstract">Abstract</h2>
+
+    <p>Whenever an expression is evaluated during the run of a Scheme program,
+    there is a continuation awaiting the values of the expression. It is a
+    distinguishing property of the Scheme programming language to offer a
+    procedure (named <code>call/cc</code>) that captures the current
+    continuation as a procedure, which, when called, aborts the then-current
+    continuation and reinstates the captured one.</p>
+
+    <p>One can visualize a continuation as a list of (continuation) frames
+      where a non-tail call adds a frame to the top of the list and where the return
+      from a non-tail call removes the appropriate frame.</p>
+
+    <p>Moreover, each expression is evaluated in a dynamic environment that
+      conceptually holds the values of parameters like the current output port
+      and the dynamic-wind stack at the point of evaluation.  As the dynamic
+      environment is captured and reinstated along the continuation when the
+      <code>call/cc</code> machinery is used, we can view it conceptually as
+      part of the continuation.</p>
+
+    <p>The libraries defined in this SRFI are all concerned with continuations
+      in a wider sense. More specifically, the topics are as follows:</p>
+
+    <dl>
+
+    <dt>Continuation Prompts</dt><dd> A continuation prompt is a special
+    continuation frame that is tagged with a so-called prompt tag. Procedures
+    to install continuation prompts and to abort the current continuation and
+    escape back to a previously installed continuation prompt are
+    provided. Moreover, continuation prompts are equipped with handlers that
+    are invoked when a continuation is aborted to them.</dd>
+
+    <dt>Continuations</dt><dd> When continuations are captured, the list of
+    captured continuation frames is always delimited by some continuation
+    prompt. This extends the semantics of Scheme’s
+    <code>call-with-current-continuation</code>.  Moreover, a
+    procedure to capture so-called composable continuations is
+    provided. As opposed to continuations captured
+    by <code>call-with-current-continuation</code>, invoking a
+    composable continuation does not abort the then-current
+    continuation, so composable continuations behave like ordinary
+    procedures.  Together with continuation prompts, composable
+    continuations allow one to implement the various proposed sets of
+    control operators for delimited continuations. Finally, a
+    primitive (<code>call-in-continuation</code>) is provided that
+    allows calling a procedure in a given continuation instead of just
+    delivering values to it.</dd>
+
+    <dt>Continuation Marks</dt><dd> Continuation marks are a provided feature
+      that allows one to attach arbitrary information to continuation frames
+      that is captured and reinstated along with the rest of the
+      continuation. Conceptually, exception handlers and parameters are
+      implemented in terms of continuation marks, but the syntax and procedures
+      defined in this SRFI allow the user to use them in more general
+      ways. Moreover, they reify the notion of a tail call, allowing one, for
+      example, to test for tail context.</dd>
+
+    <dt>Exceptions</dt><dd> The exception mechanism
+    of <a href="#sperber"><cite>R6RS</cite></a>
+    and <a href="#shinn"><cite>R7RS</cite></a> is reinterpreted with
+    respect to the concepts introduced in this SRFI.  (Here, and in what follows
+    we mean the so-called small language when we speak about <cite>R7RS</cite>.)
+    Moreover, the
+    <code>with-exception-handler</code> procedure and the <code>guard</code>
+    syntax gain additional tail-context guarantees.</dd>
+
+    <dt>Parameters</dt><dd> The parameter object mechanism
+    of <a href="#feeley2"><cite>SRFI 39</cite></a>
+    and <cite>R7RS</cite> is reinterpreted with respect to the
+    concepts introduced in this SRFI.  Procedures to retrieve the
+    current parameterization and to reinstall it later are
+    provided. Moreover, the <code>parameterize</code> syntax gains an
+    additional tail-context guarantee.  To support an alternative
+    model of parameters that is linked to the dynamic extent and not
+    to the current parameterization, the notion of a parameter-like
+    object and the <code>temporarily</code> syntax are introduced.</dd>
+
+    <dt>Fluids</dt><dd> Fluids are a syntactic reinterpretation of parameter
+      objects.</dd>
+
+    <dt>Delayed evaluation</dt><dd> The syntax and procedures on delayed
+      evaluation of <cite>R7RS</cite> are revisited and redefined to handle the
+      following satisfactorily: the parameterization of the delayed expression
+      being forced, the treatment of exceptions raised during forcing of
+      delayed expressions, and iterative lazy algorithms. Moreover, their
+      semantics are detailed with respect to the concepts introduced in this
+      SRFI, and promises can naturally deliver an arbitrary number of values
+      when being forced. Finally, the initial continuation of a delayed
+      expression being forced is defined in a way that makes it interchangeable
+      with the initial continuation of a thread.</dd>
+
+    <dt>Threads</dt><dd> The thread mechanism
+      of <a href="#feeley1"><cite>SRFI 18</cite></a> is detailed with
+      respect to the concepts introduced in this SRFI.  In particular,
+      mutation of parameter objects in multi-threaded applications is
+      specified.  In order to support timeout arguments in a type-safe
+      way, a minimal API on time objects is included as well.</dd></dl>
+
+    <p>Large parts of this SRFI have been inspired by the control operators
+      provided by <a href="#racket"><cite>Racket</cite></a>.
+
+    <h2 id="rationale">Rationale</h2>
+
+    <p>The aim of this SRFI is to provide a consistent set of control
+      operators and related syntax and procedures that vastly extend the
+      scope of the venerable pair of <code>call/cc</code>
+      and <code>dynamic-wind</code>.  The procedures and syntax in
+      this SRFI can be provided as
+      <a href="#sperber"><cite>R<sup>6</sup>RS</cite></a> or as
+      <a href="#shinn"><cite>R<sup>7</sup>RS</cite></a> libraries.
+      Although a portable implementation is not possible, it is
+      demonstrated by the sample implementation that
+      a <a href="#sample-implementation">small set of primitives</a>,
+      which can easily be provided by any Scheme implementation,
+      suffices to implement the rich operators in this SRFI.</p>
+
+    <p>The theoretical concepts behind the operators described in this
+      specification are well understood and not new.  The author of this SRFI
+      does not claim any originality for any idea presented here, but is lucky
+      to be able to stand on the shoulders of giants.  (See the various
+      references in <a href="#dybvig"><cite>A Monadic Framework for Delimited
+      Continuations</cite></a>, for example.)</p>
+
+    <p>Whenever this document refers to just <cite>R<sup>7</sup>RS</cite>,
+      the small language is meant, as the large language is still a work in
+      progress as the time of writing of this SRFI.</p>
+
+    <h3 id="overview">Overview</h3>
+
+    <p>In detail, the contributions of this SRFI are the following:</p>
+
+    <h4 id="continuations-and-prompts">Continuations and Prompts</h4>
+
+    <p>As explained in <cite>R<sup>6</sup>RS</cite> and
+      <cite>R<sup>7</sup>RS</cite>, whenever a Scheme expression is evaluated,
+       there is a <dfn>continuation</dfn> wanting the result of the expression.
+       We can view a continuation as a sequence of active procedure calls.
+       Evaluation steps alter the current continuation.  Calls add an active
+       procedure call to the current continuation, while returns remove an
+       active procedure call.
+    </p>
+
+    <p>Certain control operations can change the current continuation
+      more radically.  The Scheme procedure <code>call/cc</code>
+      allows capturing the current continuation and reifying it into a
+      procedure that, when later called, abandons the then-current
+      continuation and replaces it with the captured one.</p>
+
+    <p>Conceptually, only an end segment of the current continuation is ever
+      replaced.  For example, when running a Scheme program, running a thread,
+      or evaluating an expression at the REPL prompt, the old and the new
+      current continuation always share an initial segment at least up to the
+      point when the program was started, the thread was started, or the
+      expression was sent to the REPL.</p>
+
+    <p>Therefore, <code>call/cc</code> never has to, nor actually does,
+      capture the whole current continuation, but only an end segment.
+      Reinstating the captured continuation means to replace the end
+      segment of the then-current continuation.</p>
+
+    <p>With <code>call/cc</code> alone, the programmer has no control over the
+      size of this end segment.  This SRFI offers operators to do exactly this.
+      With these operators, the programmer can install <dfn>continuation
+      prompts</dfn> identified by <dfn>prompt tags</dfn> in the current
+      continuation.  When a continuation is later captured, it is delimited by
+      the nearest continuation prompt with a given prompt tag.  Default prompts
+      are installed at the start of each program, the start of each thread, and
+      when promises are forced.</p>
+
+    <p>The reason that continuation prompts are called <i>prompts</i>
+      is that ​a continuation as we know from Scheme is usually
+      delimited at the <i>prompt</i> of the REPL.  In a strict sense,
+      an undelimited continuation does not return by definition.  But
+      this is not true for an actual continuation returned by even the
+      venerable <code>call/cc</code>.  When it is invoked, it will
+      deliver value at the REPL prompt.  (And when the program may not
+      have been running from a REPL, the prompt is that of the shell
+      or some HALT instruction.)  A <i>prompt</i> as defined by this
+      document just extends this scenario.</p>
+
+    <h4 id="composable-and-non-composable-continuations">Composable and Non-Composable Continuations</h4>
+
+    <p>When a continuation captured
+      with <code>call-with-current-continuation</code> is later
+      invoked, the invocation never returns to this call's
+      continuation.  In this sense, such a continuation procedure is
+      far from being a function in the mathematical sense, as it
+      doesn't deliver any values.  In particular, it cannot be
+      composed.  For that reason, continuations captured
+      by <code>call-with-current-continuation</code> are also
+      called <dfn>non-composable continuations</dfn>.</p>
+
+    <p>This SRFI offers an
+      operator <code>call-with-composable-continuation</code> that also captures
+      the current continuation, but reifies it into a different type of
+      continuation, a <dfn>composable continuation</dfn>.  Contrary to
+      non-composable continuations, a composable continuation, when invoked,
+      does not abort any active procedure call, but just extends the then-current
+      continuation.  In particular, it delivers values to the
+      continuation of the call to it.  A composable continuation therefore
+      behaves like an ordinary procedure.</p>
+
+    <h4 id="continuation-marks">Continuation Marks</h4>
+
+    <p><dfn>Continuation marks</dfn> are a feature that allows attaching
+      information in the form of key-value pairs to individual continuation
+      frames, which are maximal segments of continuations of a number of active
+      tail calls followed by at most one active non-tail call.  The set of
+      continuation marks of the continuation frames of a continuation belongs
+      to this continuation and is thus also captured
+      by <code>call-with-current-continuation</code>
+      and <code>call-with-composable-continuation</code>.</p>
+
+    <p>Continuation marks can be used to implement exception handlers,
+      parameter objects, and an implementation of <code>delay</code>
+      and <code>force</code> of <a href="#kelsey1"><cite>R<sup>5</sup>RS</cite></a>
+      that supports iterative lazy algorithms.</p>
+
+    <p>A crucial feature of continuation marks is that they allow one
+      to attach marks to the most recent continuation frame without
+      creating active non-tail calls.  This allows one to implement
+      a <code>parameterize</code> form where the last expression in
+      its body is in tail context when the <code>parameterize</code>
+      form is in tail position.  Similarly, it becomes possible to
+      implement <code>with-exception-handler</code> in a way so that
+      its thunk is called in tail context if the call
+      to <code>with-exception-handler</code> is in tail context.
+      The latter is not guaranteed by <cite>R<sup>6</sup>RS</cite>
+      and <cite>R<sup>7</sup>RS</cite> (but should have been, according to
+      the author of this SRFI).</p>
+
+    <p>In fact, with continuation marks, the concept of tail calls becomes
+      operationally observable.</p>
+
+    <h4 id="continuations-and-threads">Continuations and Threads</h4>
+
+    <p>The concept of threads and the semantics of multi-threaded
+      programs are deeply linked with the concepts that are involved
+      in this specification.  For example, each thread possesses an
+      initial continuation that contains a continuation prompt with a
+      handler that has to be described.  For that, this specification
+      contains a specification of a thread system mostly
+      API-compatible with <cite>SRFI 18</cite> (and that exists
+      alongside <cite>SRFI 18</cite>).  This helps making the
+      existence of multiple threads, continuations, continuation
+      prompts, and parameterizations mutually compatible.</p>
+
+    <p>SRFI 226 can replace SRFI 18 because it also exports the mutex
+      and condition variable interface of SRFI 18.  Beyond SRFI 18,
+      SRFI 226 defines the concept of interrupts.  The only way of
+      asynchronously interacting with another thread that SRFI 18
+      provides is forcefully terminating the other thread.  With
+      interrupts, it is now also possible to raise exceptions
+      asynchronously in the other thread.  This allows, for example, for a
+      more graceful termination of the other thread because it has the
+      chance to react to the raised exception.</p>
+
+    <h4 id="parameter-objects">Parameter Objects</h4>
+
+    <p>Parameter objects are a tool to provide dynamically scoped variables to
+      the Scheme language in a clean way.  As a definition of parameter objects
+      in terms of continuation marks is possible, and as an implementation in
+      terms of them allows rich operations like capturing the current
+      parameterization to later reinstall it, this SRFI provides both.</p>
+
+    <p>Moreover, this specification makes a decision on the behavior
+      of mutable ordinary parameter objects with respect to multiple
+      threads.  If a parameter that is inherited by a newly created
+      thread and has not been re-parameterized is mutated by one of
+      the threads, the mutation will also (eventually) be observed by
+      the other thread.  These are clear semantics because this is the
+      same behavior as implemented by lexical variables.  If this is
+      not the desired behavior for some application, thread parameter
+      objects, which are also provided, can be used instead.</p>
+
+    <p>A different model of parameters exist, the main difference
+      being the scope of the reparameterization.  This SRFI also
+      supports this different model through the notion of
+      parameter-like objects and the <code>temporarily</code> syntax,
+      where the reparameterization is bound to the dynamic extent of
+      the <code>temporarily</code> form's body.</p>
+
+    <h4 id="fluids">Fluids</h4>
+
+    <p>Parameter objects behave like (dynamic) variables except that
+      they are procedures that have to be called to retrieve the
+      stored value or to replace it.  In some (syntactic) contexts, it
+      may be preferable to have syntactic entities, the fluids, that
+      behave like parameter objects but for which the syntax to reference or
+      assign their values is equivalent to the corresponding syntax
+      for variables.</p>
+
+    <p>Fluids have been proposed by <a href="#hansen"><cite>SRFI
+          15</cite></a>.  That SRFI was withdrawn.  This SRFI addresses all
+      concerns that were raised on the mailing list of <cite>SRFI
+        15</cite> about the behavior of fluids and <code>fluid-let</code>
+      with respect to multi-threaded environments.</p>
+
+    <h4 id="thread-locals">Thread locals</h4>
+
+    <p>Although they have been proposed for this application,
+      parameter objects are unsuited to providing thread-local cells.  The
+      main reason is that the current parameterization is part of the
+      current continuation.  As the current continuation can be captured
+      and reinstated in any thread, the parameterization cannot be a
+      per-thread entity.</p>
+
+    <p>Instead, this specification defines first-class thread locals
+      akin to thread-specific storage in the <a href="#c17"><cite>C
+      programming language</cite></a> and to thread-specific data keys
+      in <cite>POSIX</cite>.  In particular, the former can be
+      efficiently implemented in terms of the latter.  Thread locals
+      can be <i>inheritable</i> or not (called <i>preserved</i> in
+      Racket).  Inheritable thread locals take their initial values
+      from the creator thread.</p>
+
+    <h4 id="promises">Promises</h4>
+
+    <p>A naive implementation of <code>delay</code> and <code>force</code> does
+      not support iterative lazy algorithms as was observed, for example,
+      in <a href="#van-tonder"><cite>SRFI 45</cite></a>.  That SRFI
+      and <cite>R<sup>7</sup>RS</cite> solve the problem by providing another
+      primitive, <code>delay-force</code> (called <code>lazy</code>
+      in <cite>SRFI 45</cite>).  When continuation marks are available,
+      however, such an irksome primitive is not needed;
+      see <a href="#nieper2">SRFI 155</a>.  Consequently, this specification
+      defines <dfn>promises</dfn> in a way that makes <code>delay-force</code>
+      superfluous.</p>
+
+    <p>Moreover, this specification amends <cite>R<sup>7</sup>RS</cite> in a
+      way that defines the continuation in which the values of promises are
+      forced in such a way that it has the same semantics as executing a
+      thread.  This makes the overall system pleasantly coherent.  The sample
+      implementation shows how everything can be implemented efficiently.</p>
+
+    <p>Finally, promises as defined in this specification can deliver multiple
+      values when forced, an extension too natural to ignore, and it is
+      clearly specified what happens when an exception is raised during the
+      forcing of a promise.</p>
+
+    <h3 id="relation-to-other-standards">Relation to Other Standards</h3>
+
+    <p>This specification is meant to be applicable to both
+      standards, <cite>R<sup>6</sup>RS</cite>
+      and <cite>R<sup>7</sup>RS</cite>.  The former standard allows
+      the use of square brackets synonymous with parentheses in the
+      syntax.  In its non-normative appendix C, advice is given about in
+      which places in the syntactic forms specified in the report they
+      should be used.  In order to document in which places square
+      brackets should be used in the syntactic forms described in this
+      specification, this document uses them in the appropriate
+      places.  When this specification is applied
+      to <cite>R<sup>7</sup>RS</cite>, the square brackets should be
+      read as parentheses.</p>
+
+    <p>Some of the procedures and syntax defined in this specification
+      have the same names as procedures and syntax
+      of <cite>R<sup>6</sup>RS</cite>
+      and <cite>R<sup>7</sup>RS</cite>.  In case a definition of such
+      a procedure or syntax here does not conflict with the
+      corresponding definition in a Scheme report, the procedure or
+      syntax should be the same whether exported by the relevant
+      standard libraries or one of the libraries described below.</p>
+
+    <h3 id="relation-to-other-srfis">Relation to Other SRFIs</h3>
+
+    <p>This SRFI supersedes <cite>SRFI 15</cite>, <a href="#kelsey2"><cite>SRFI
+	  34</cite></a>, <cite>SRFI
+	  39</cite>, <a href="#nieper1"><cite>SRFI
+	  154</cite></a>, <cite>SRFI
+	  155</cite>, and <a href="#nieper3"><cite>SRFI
+	  157</cite></a>.</p>
+
+    <p>The programming model defined by <cite>SRFI 18</cite> is
+    extended.</p>
+
+    <h3 id="why-this-proposal-should-be-incorporated-as-a-standard-feature-in-scheme-implementations">Why this Proposal should be Incorporated as a Standard Feature
+      in Scheme Implementations</h3>
+
+    <ul>
+      <li><p>In many if not most cases, <code>call/cc</code> (as
+	  defined in previous standards and without continuation
+	  prompts) is the wrong abstraction, a fact that has been well
+	  known for a long time (see <a href="#kiselyov"><cite>An
+	  argument against call/cc</cite></a>).  The
+	  procedure <code>call/cc</code>, which captures undelimited
+	  continuations, is usually advertised as the hammer that can
+	  be used to implement all other control operations.  However,
+	  this is not true.  <i>Delimited continuations</i>, on the
+	  other hand, can be used to implement all other control
+	  operations (see <a href="#filinski"><cite>Representing
+	  Monads</cite></a>).  So it is actually delimited
+	  continuations that are needed in practice.  Now everything
+	  would be fine if delimited control operators could be
+	  expressed in terms of <code>call/cc</code>.  This, however,
+	  is not faithfully possible, especially not without space
+	  leaks, as <code>call/cc</code> will capture parts of the
+	  continuation that will never be reached after reinstating
+	  (see <a href="#gasbichler"><cite>Final Shift for Call/cc:
+	  Direct implementation of Shift and Reset</cite></a>).  Thus,
+	  in hindsight Scheme should have always offered delimited
+	  control operators instead of
+	  <code>call/cc</code>.  Implementing this SRFI remedies that.</p></li>
+      <li><p>By implementing this SRFI, even <code>call/cc</code>
+	  becomes a delimited control operator thanks to the concept
+	  of continuation prompts and the fact that one is available
+	  at the start of each thread, including the primordial thread.</p></li>
+      <li><p>In the literature, many sets of delimited control
+	  operators can be found, with varying expressiveness.
+	  Instead of primarily providing some or all of these, it makes
+	  more sense to provide abstractions on top of which all these,
+	  like <code>reset</code> and <code>shift</code>, can be built.
+	  This SRFI offers these abstractions to Scheme
+	  implementations.</p></li>
+      <li><p>The continuation marks as defined in this SRFI can be
+	  used, just to give an example, to write high-level debugging
+	  tools and can more generally be used to inspect and attach
+	  data to continuations.  Moreover, they make the concept of
+	  tail calls operationally visible to Scheme.  Finally, they
+	  enable some higher-order procedures to tail-call their
+	  argument; a good example for this
+	  is <code>with-exception-handler</code>, which should
+	  tail-call its thunk.  Continuation marks enable one to write
+	  such a version.</p></li>
+      <li><p>Consequently, this SRFI provides versions of exception
+	  handlers with improved tail-call guarantees.  The issue
+	  is not academic as the right tail-call guarantees are
+	  crucial for writing iterative algorithms in Scheme.</p></li>
+      <li><p>Similarly, the <code>parameterize</code> form is defined
+	  in this SRFI so that its body's last expression is in tail
+	  context (if the whole form is).  This is semantically the
+	  correct thing because parameters are substitutes for
+	  implicit lexical parameters and so the usual tail-call
+	  guarantees should apply as well.</p></li>
+      <li><p>Using continuation marks, this SRFI makes
+	  the <code>delay-force</code> form superfluous, and writing
+	  iterative lazy algorithms becomes natural.  Moreover,
+	  forcing promises is defined in such a way as to make it fully
+	  similar to running threads.</p></li>
+      <li><p>Finally, the initial continuation of threads is carefully
+	  defined so that this SRFI offers clear semantics of
+	  continuations and continuation prompts with respect to
+	  multi-threaded programs.</p></li>
+      <li><p>The interactions between the various features in this
+	  proposal (continuation prompts, continuations, exceptions,
+	  parameter objects, threads) have been carefully considered,
+	  and their semantics have been designed accordingly.
+	  Incorporating these features (or a suitable subset of these)
+          as defined in a Scheme implementation guarantees
+	  consistency and coherence.</p></li>
+      <li><p>As the sample implementation shows, the features defined
+	  in this SRFI are not hard to implement in a Scheme
+	  implementation, which must already
+	  implement <code>call/cc</code> anyway.</p></li>
+    </ul>
+
+    <h3 id="implementation">Implementation</h3>
+
+    <p>The accompanying sample implementation does not implement the libraries
+      defined in this specification, but it demonstrates how they can be as soon
+      as a small set of easily implementable primitives are provided by the
+      Scheme implementation.</p>
+
+    <p>The sample implementation provides versions of all procedures and syntax
+      described in this specification, and allows playing with them.  A runnable
+      test suite is also provided.</p>
+
+    <p>The sample implementation is written in the Scheme dialect
+      of <cite>R<sup>6</sup>RS</cite> because it is supposed to be run
+      on <a href="#chezscheme"><cite>Chez Scheme</cite></a>, an implementation
+      of that Scheme dialect.  However, the code should be easily adaptable to
+      any other Scheme dialect.  In fact, the goal of the sample implementation
+      is to enable Scheme implementers to add the procedures and syntax defined
+      in this SRFI to their Scheme implementations with little effort.</p>
+
+    <h2 id="specification">Specification</h2>
+
+    <h3 id="libraries">Libraries</h3>
+
+    <p>The syntax and procedures defined below are provided by
+      sublibraries within <code>(srfi :226 control)</code>
+      (see <a href="#van-horn"><cite>SRFI 97</cite></a>).</p>
+
+    <p>The <code>(srfi :226)</code> and <code>(srfi :226
+      control)</code> library is a composite of the sublibraries
+      described in this specification.</p>
+
+    <p id="errata-5">In an implementation of <cite>R<sup>7</sup>RS</cite>, the
+      composite library is named <code>(srfi 226)</code> instead, and
+      the component libraries are within the namespace <code>(srfi
+      226)</code> instead of <code>(srfi :226 control)</code>.
+      Moreover, the library name parts are in the singular where
+      applicable.</p>
+
+    <p>It is expected that a future Scheme standard building on the
+      procedures and syntax defined in this document will choose a
+      different packaging into libraries, possibly fewer ones.</p>
+
+    <p>These are the individual libraries that are defined in this
+      SRFI with all exported identifiers:</p>
+
+    <dl>
+      <dt>Library <code>(srfi :226 control prompts)</code></dt>
+      <dd>
+        <ul>
+          <li><code>&amp;continuation</code></li>
+          <li><code>make-continuation-violation</code></li>
+          <li><code>continuation-violation?</code></li>
+          <li><code>continuation-violation-prompt-tag</code></li>
+          <li><code>make-continuation-prompt-tag</code></li>
+          <li><code>default-continuation-prompt-tag</code></li>
+          <li><code>continuation-prompt-tag?</code></li>
+          <li><code>call-with-continuation-prompt</code></li>
+          <li><code>abort-current-continuation</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control continuations)</code></dt>
+      <dd>
+        <ul>
+          <li><code>&amp;continuation</code></li>
+          <li><code>make-continuation-violation</code></li>
+          <li><code>continuation-violation?</code></li>
+          <li><code>continuation-violation-prompt-tag</code></li>
+          <li><code>call-with-non-composable-continuation</code></li>
+          <li><code>call-with-current-continuation</code></li>
+          <li><code>call/cc</code></li>
+          <li><code>call-with-composable-continuation</code></li>
+          <li><code>call-in-continuation</code></li>
+          <li><code>call-in</code></li>
+          <li><code>return-to</code></li>
+          <li><code>call-with-continuation-barrier</code></li>
+          <li><code>continuation-prompt-available?</code></li>
+          <li><code>dynamic-wind</code></li>
+          <li><code>unwind-protect</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control shift-reset)</code></dt>
+      <dd>
+        <ul>
+          <li><code>reset-at</code></li>
+          <li><code>shift-at</code></li>
+          <li><code>reset</code></li>
+          <li><code>shift</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control inspection)</code></dt>
+      <dd>
+        <ul>
+          <li><code>continuation?</code></li>
+          <li><code>non-composable-continuation?</code></li>
+        </ul>
+      </dd>
+      <dt id="continuation-marks-library">Library <code>(srfi :226 control continuation-marks)</code></dt>
+      <dd>
+        <ul>
+          <li><code>&amp;continuation</code></li>
+          <li><code>make-continuation-violation</code></li>
+          <li><code>continuation-violation?</code></li>
+          <li><code>continuation-violation-prompt-tag</code></li>
+          <li><code>with-continuation-mark</code></li>
+          <li><code>with-continuation-marks</code></li>
+          <li><code>call-with-immediate-continuation-mark</code></li>
+          <li><code>continuation-marks</code></li>
+          <li><code>current-continuation-marks</code></li>
+          <li><code>continuation-mark-set?</code></li>
+          <li><code>continuation-mark-set-&gt;list</code></li>
+          <li><code>continuation-mark-set-&gt;list*</code></li>
+          <li><code>continuation-mark-set-&gt;iterator</code></li>
+          <li><code>continuation-mark-set-first</code></li>
+          <li><code>make-continuation-mark-key</code></li>
+          <li><code>continuation-mark-key?</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control parameters)</code></dt>
+      <dd>
+        <ul>
+          <li><code>make-parameter</code></li>
+          <li><code>make-thread-parameter</code></li>
+          <li><code>parameter?</code></li>
+          <li><code>parameterize</code></li>
+          <li><code>current-parameterization</code></li>
+          <li><code>parameterization?</code></li>
+          <li><code>call-with-parameterization</code></li>
+          <li><code>temporarily</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control fluids)</code></dt>
+      <dd>
+        <ul>
+          <li><code>set!</code></li>
+          <li><code>define-fluid</code></li>
+          <li><code>define-thread-fluid</code></li>
+          <li><code>define-fluidified</code></li>
+          <li><code>fluid-let</code></li>
+          <li><code>fluid-let*</code></li>
+        </ul>
+      </dd>
+
+      <dt>Library <code>(srfi :226 control call-in-initial-continuation)</code></dt>
+      <dd>
+        <ul>
+          <li><code>&amp;uncaught-exception</code></li>
+          <li><code>make-uncaught-exception-condition</code></li>
+          <li><code>uncaught-exception-condition?</code></li>
+          <li><code>uncaught-exception-condition-reason</code></li>
+          <li><code>call-in-initial-continuation</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control promises)</code></dt>
+      <dd>
+        <ul>
+          <li><code>&amp;uncaught-exception</code></li>
+          <li><code>make-uncaught-exception-condition</code></li>
+          <li><code>uncaught-exception-condition?</code></li>
+          <li><code>uncaught-exception-condition-reason</code></li>
+          <li><code>delay</code></li>
+          <li><code>make-promise</code></li>
+          <li><code>promise?</code></li>
+          <li><code>force</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control exceptions)</code></dt>
+      <dd>
+        <ul>
+          <li><code>with-exception-handler</code></li>
+          <li><code>exception-handler-stack</code></li>
+          <li><code>raise</code></li>
+          <li><code>raise-continuable</code></li>
+          <li><code>guard</code></li>
+          <li><code>=&gt;</code></li>
+          <li><code>else</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control conditions)</code></dt>
+      <dd>
+        <ul>
+          <li><code>&amp;parameterization</code></li>
+          <li><code>make-parameterization-condition</code></li>
+          <li><code>parameterization-condition?</code></li>
+          <li><code>condition-parameterization</code></li>
+          <li><code>&amp;continuation-marks</code></li>
+          <li><code>make-continuation-marks-condition</code></li>
+          <li><code>continuation-marks-condition?</code></li>
+          <li><code>condition-continuation-marks</code></li>
+          <li><code>&amp;exception-handler-stack</code></li>
+          <li><code>make-exception-handler-stack-condition</code></li>
+          <li><code>exception-handler-stack-condition?</code></li>
+          <li><code>condition-exception-handler-stack</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control times)</code></dt>
+      <dd>
+        <ul>
+          <li><code>time?</code></li>
+          <li><code>current-time</code></li>
+          <li><code>seconds+</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control threads)</code></dt>
+      <dd>
+        <ul>
+          <li><code>&amp;thread</code></li>
+          <li><code>make-thread-condition</code></li>
+          <li><code>thread-condition?</code></li>
+          <li><code>&amp;uncaught-exception</code></li>
+          <li><code>make-uncaught-exception-condition</code></li>
+          <li><code>uncaught-exception-condition?</code></li>
+          <li><code>uncaught-exception-condition-reason</code></li>
+          <li><code>&amp;thread-already-terminated</code></li>
+          <li><code>make-thread-already-terminated-condition</code></li>
+          <li><code>thread-already-terminated-condition?</code></li>
+          <li><code>&amp;thread-timeout</code></li>
+          <li><code>make-thread-timeout-condition</code></li>
+          <li><code>thread-timeout-condition?</code></li>
+          <li><code>&amp;thread-abandoned-mutex</code></li>
+          <li><code>make-thread-abandoned-mutex-condition</code></li>
+          <li><code>thread-abandoned-mutex-condition?</code></li>
+          <li><code>&amp;concurrent-modification</code></li>
+          <li><code>make-concurrent-modification-violation</code></li>
+          <li><code>concurrent-modification-violation?</code></li>
+          <li><code>thread</code></li>
+          <li><code>make-thread</code></li>
+          <li><code>thread?</code></li>
+          <li><code>current-thread</code></li>
+          <li><code>thread-start!</code></li>
+          <li><code>thread-yield!</code></li>
+          <li><code>thread-terminate!</code></li>
+          <li><code>thread-schedule-terminate!</code></li>
+          <li><code>thread-join!</code></li>
+          <li><code>make-mutex</code></li>
+          <li><code>mutex?</code></li>
+          <li><code>mutex-state</code></li>
+          <li><code>mutex-lock!</code></li>
+          <li><code>mutex-unlock!</code></li>
+          <li><code>make-condition-variable</code></li>
+          <li><code>condition-variable?</code></li>
+          <li><code>condition-variable-signal!</code></li>
+          <li><code>condition-variable-broadcast!</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control thread-locals)</code></dt>
+      <dd>
+        <ul>
+          <li><code>make-thread-local</code></li>
+          <li><code>thread-local?</code></li>
+          <li><code>tlref</code></li>
+          <li><code>tlset!</code></li>
+        </ul>
+      </dd>
+      <dt>Library <code>(srfi :226 control interrupts)</code></dt>
+      <dd>
+        <ul>
+          <li><code>current-interrupt-level</code></li>
+          <li><code>disable-interrupts!</code></li>
+          <li><code>enable-interrupts!</code></li>
+          <li><code>with-interrupts-disabled</code></li>
+          <li><code>with-interrupts-enabled</code></li>
+          <li><code>thread-interrupt!</code></li>
+        </ul>
+      </dd>
+    </dl>
+
+    <h3 id="entry-format">Entry format</h3>
+
+    <p>The following naming conventions imply type restrictions:</p>
+
+    <dl>
+      <dt><code><var>obj</var></code>, <code><var>key</var></code></dt>
+      <dd>any objects</dd>
+      <dt><code><var>name</var></code></dt>
+      <dd>symbol</dd>
+      <dt><code><var>list</var></code></dt>
+      <dd>list</dd>
+      <dt><code><var>thunk</var></code>, <code><var>pre-thunk</var></code>, <code><var>post-thunk</var></code></dt>
+      <dd>zero-argument procedures</dd>
+      <dt><code><var>cont</var></code></dt>
+      <dd>continuation</dd>
+      <dt><code><var>prompt-tag</var></code></dt>
+      <dd>prompt tag</dd>
+      <dt><code><var>mark-set</var></code></dt>
+      <dd>continuation mark set or <code>#f</code></dd>
+      <dt><code><var>parameterization</var></code></dt>
+      <dd>parameterization</dd>
+      <dt><code><var>promise</var></code></dt>
+      <dd>promise</dd>
+      <dt><code><var>handler</var></code></dt>
+      <dd>procedure or <code>#f</code></dd>
+      <dt><code><var>k</var></code></dt>
+      <dd>undelimited continuation</dd>
+      <dt><code><var>tl</var></code></dt>
+      <dd>thread local</dd>
+      <dt><code><var>time</var></code></dt>
+      <dd><code>time object</code></dd>
+      <dt><code><var>timeout</var></code></dt>
+      <dd>time object or <code>#f</code></dd>
+      <dt><code><var>thread</var></code></dt>
+      <dd>thread</dd>
+      <dt><code><var>owner-thread</var></code></dt>
+      <dd>thread or <code>#f</code></dd>
+      <dt><code><var>mutex</var></code></dt>
+      <dd>mutex</dd>
+      <dt><code><var>condition-variable</var></code></dt>
+      <dd>condition variable</dd>
+    </dl>
+
+    <h3 id="iterators">Iterators</h3>
+
+    <p>An <dfn>iterator</dfn> for a list in the sense of this
+      specification is a zero-argument procedure that returns two
+      values on each invocation.  An iterator for the empty list
+      returns <code>#f</code> and a thunk that raises an exception of
+      type <code>&amp;assertion-violation</code> when invoked.  An
+      iterator for a non-empty list returns the head of the list and
+      an iterator for its tail.  Note that this particular iterator
+      protocol is unsuitable for lists that potentially
+      contain <code>#f</code>.</p>
+
+    <h3 id="safety">Safety</h3>
+
+    <p>The libraries described by this SRFI are <i>safe libraries</i>
+      in the sense of <cite>R<sup>6</sup>RS</cite>.  In particular, in
+      the presence of multiple threads, concurrent reading and writing
+      to a location must not threaten system integrity in ways that
+      might result in execution that is inconsistent with the
+      semantics described in the Scheme reports and in this document.
+      All modifications to single locations in the store must appear
+      atomic to each thread.</p>
+
+    <h3 id="continuation-prompts">Continuation Prompts</h3>
+
+    <p>This section describes the <code>(srfi :226 control prompts)</code> library.</p>
+
+    <h4 id="conditions">Conditions</h4>
+
+    <p><i>Note:</i> If this SRFI is implemented in a system that does not
+      support the condition system of <cite>R6RS</cite>, the respective parts
+      of this specification should be applied <i>mutatis mutandis</i>.  We
+      follow the presentation style of <cite>R6RS</cite> for the condition
+      types defined in this and the other libraries.</p>
+
+    <dl class="entries">
+      <dt class="entry"><code>&amp;continuation</code><span class="type">condition-type</span></dt>
+      <dt class="procedure"><code>(make-continuation-violation <var>obj</var></code>)</dt>
+      <dt class="procedure"><code>(continuation-violation? <var>obj</var></code>)</dt>
+      <dt class="procedure"><code>(continuation-violation-prompt-tag <var>condition</var></code>)</dt>
+      <dd>
+	<p>This condition type could be defined by</p>
+	<pre>(define-condition-type &amp;continuation &amp;violation
+  make-continuation-violation continuation-violation?
+  (prompt-tag continuation-violation-prompt-tag))</pre>
+	<p>This condition type describes violations that occurred
+	  during non-local control
+	  operations.  <code><var>Prompt-tag</var></code> should be
+	  the tag of the delimiting prompt.</p>
+      </dd>
+    </dl>
+
+    <h4 id="prompt-tags">Prompt Tags</h4>
+
+    <p>Continuation prompts are tagged with <dfn>prompt tags</dfn>,
+      which are opaque values.  A distinguished prompt tag is
+      the <dfn>default prompt tag</dfn>.</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(make-continuation-prompt-tag)</code></dt>
+      <dt class="procedure"><code>(make-continuation-prompt-tag <var>name</var>)</code></dt>
+      <dd>
+	<p>Returns a prompt tag that is not <code>equal?</code> to any
+	  prior or future results
+	  from <code>make-continuation-prompt-tag</code>
+	  or <code>default-continuation-prompt-tag</code>.
+	</p>
+	<p>
+	  The optional <code><var>name</var></code> argument may be
+	  used by the implementation for printing the prompt tag.
+	</p>
+      </dd>
+
+      <dt class="procedure"><code>(default-continuation-prompt-tag)</code></dt>
+      <dd>
+	<p>Returns the default prompt tag.</p>
+      </dd>
+
+      <dt class="procedure"><code>(continuation-prompt-tag? <var>obj</var>)</code></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a
+	  prompt tag, and <code>#f</code> otherwise.</p>
+      </dd>
+    </dl>
+
+    <pre class="example">(continuation-prompt-tag? (default-continuation-prompt-tag))<span class="result">#t</span>
+(eq? (default-continuation-prompt-tag) (default-continuation-prompt-tag))<span class="result">#t</span>
+(continuation-prompt-tag? (make-continuation-prompt-tag))<span class="result">#t</span>
+(equal? (make-continuation-prompt-tag) (default-continuation-prompt-tag))<span class="result">#f</span>
+(equal? (make-continuation-prompt-tag) (make-continuation-prompt-tag))<span class="result">#f</span></pre>
+
+    <h4 id="continuation-prompts-2">Continuation Prompts</h4>
+
+    <p>We identify a <dfn>continuation</dfn> with a sequence of active
+      procedure calls, beginning with the most recent call.  A
+      continuation can be uniquely partitioned into
+      <dfn>continuation frames</dfn>, which are maximal subsequences
+      of active procedure calls containing an arbitrary number of
+      active tail calls followed by at most one active non-tail call.</p>
+
+    <p>A <dfn>continuation prompt</dfn> is a type of continuation
+      frame such that when values are delivered to a continuation
+      extended by such a continuation frame, the values are
+      effectively delivered to the non-extended continuation.
+      Moreover, each continuation prompt is tagged with a
+      prompt tag and records a <dfn>prompt handler</dfn>, which
+      is a procedure.</p>
+
+    <p>A continuation prompt with a given prompt tag
+      is <dfn>available</dfn> in a continuation if a continuation
+      prompt with the given tag is contained in the continuation's
+      sequence of continuation frames.</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(call-with-continuation-prompt <var>thunk</var>)</code></dt>
+      <dt class="procedure"><code>(call-with-continuation-prompt <var>thunk</var> <var>prompt-tag</var>)</code></dt>
+      <dt class="procedure"><code>(call-with-continuation-prompt <var>thunk</var> <var>prompt-tag</var> <var>abort-handler</var>)</code></dt>
+      <dd>
+	<p>If not supplied, <code><var>prompt-tag</var></code>
+	  defaults to the default prompt tag,
+	  and <code><var>abort-handler</var></code> defaults
+	  to <code>#f</code>.</p>
+
+	<p>The <code>call-with-continuation-prompt</code> procedure
+	  installs a continuation prompt that is tagged
+	  with <code><var>prompt-tag</var></code> and
+	  records <code><var>abort-handler</var></code> in the continuation
+	  to its call.  Finally, <code><var>thunk</var></code> is
+	  called with no arguments in the resulting continuation.</p>
+
+	<p>If <code><var>abort-handler</var></code> is <code>#f</code>, the
+	  default abort handler is used instead.  The default abort handler is a
+	  procedure that takes a single
+	  argument <code><var>continuation-thunk</var></code>.  When the default
+	  abort handler is called, it reinstates the continuation prompt and
+	  calls <code><var>continuation-thunk</var></code> with no arguments in the
+	  resulting continuation.</p>
+
+	<p>The calls to the <code><var>thunks</var></code> are never in tail
+	  context.</p>
+      </dd>
+
+      <dt class="procedure"><code>(abort-current-continuation <var>prompt-tag</var> <var>obj</var>
+      &hellip;)</code></dt>
+      <dd>
+	<p>The <code>abort-current-continuation</code> procedure
+	  aborts all active procedure calls in the current
+	  continuation until a continuation prompt tagged
+	  with <code><var>prompt-tag</var></code> is aborted, and
+	  replaces them with a call to the abort handler recorded with the
+	  prompt tag, passing it the
+	  arguments <code><var>obj</var></code>s.</p>
+	<p>
+	  When a continuation prompt tagged
+	  with <code><var>prompt-tag</var></code> is not available in
+	  the continuation processed
+	  by <code>abort-current-continuation</code>, an exception
+	  with condition type <code>&amp;continuation</code> is
+	  raised.</p>
+	<p><i>Note:</i> Even if a continuation prompt tagged
+	  with <code><var>prompt-tag</var></code> is available in the
+	  current continuation
+	  when <code>abort-current-continuation</code> is called, due
+	  to the presence of <code>dynamic-wind</code> winders (see
+	  below), it can still happen during the aborting process that
+	  it becomes no longer available.
+	</p>
+      </dd>
+    </dl>
+
+    <pre class="example">(let ([tag (make-continuation-prompt-tag)])
+  (call-with-continuation-prompt
+    (lambda ()
+      (+ 1
+         (abort-current-continuation tag 'foo 'bar)
+         2))
+    tag
+    list))<span class="result">(foo bar)</span></pre>
+
+   <p>The following example demonstrates that the prompt is
+      reinstalled by the default abort handler.</p>
+
+    <pre class="example">(let ([tag (make-continuation-prompt-tag)])
+  (call-with-continuation-prompt
+   (lambda ()
+     (abort-current-continuation tag
+       (lambda ()
+         (abort-current-continuation tag
+           (lambda ()
+             27)))))
+   tag
+   #f))<span class="result">27</span></pre>
+
+    <h3 id="continuations">Continuations</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	continuations)</code> library.  This library, in addition to the
+      procedures and syntax described here, also exports the condition types
+      described in the previous section on continuation prompts.</p>
+
+    <p>Each <dfn>continuation (procedure)</dfn> is a procedure.</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(call-with-non-composable-continuation <var>proc</var> <var>prompt-tag</var>)</code></dt>
+      <dt class="procedure"><code>(call-with-non-composable-continuation <var>proc</var>)</code></dt>
+      <dt class="procedure"><code>(call-with-current-continuation <var>proc</var>)</code></dt>
+      <dt class="procedure"><code>(call/cc <var>proc</var>)</code></dt>
+      <dd>
+	<p>If not supplied, <code><var>prompt-tag</var></code>
+	defaults to the default prompt tag.</p>
+	<p>It is an error if <code><var>proc</var></code> does not accept one argument.</p>
+	<p>The procedure <code>call-with-non-composable-continuation</code>
+	  packages all active procedure calls in the current
+	  continuation up to but not including a continuation prompt
+	  tagged with <code><var>prompt-tag</var></code> as a
+	  continuation (“escape”) procedure and passes it as an
+	  argument to <code><var>proc</var></code>.  The continuation
+	  procedure is a Scheme procedure such that, if it is later called,
+	  aborts all active procedure calls in the then-current
+	  continuation up to but not including a continuation prompt
+	  with <code><var>prompt-tag</var></code> or up to but not
+	  including an active procedure call shared by the current and
+	  captured continuations, whichever comes first.  Finally, the
+	  active procedure calls in the unshared portion of the
+	  captured continuation are reinstated and the arguments
+	  supplied to the call to the continuation procedure become
+	  the result values for the new current continuation.
+	</p>
+	<p>We say that the continuation procedure
+	is <dfn>delimited</dfn> by <code><var>prompt-tag</var></code>.</p>
+	<p>If a call to <code>call-with-non-composable-continuation</code>
+	occurs in a tail context, the call
+	to <code><var>proc</var></code> is also in a tail context.</p>
+	<p>If a continuation prompt tagged
+	  with <code><var>prompt-tag</var></code> is not available in
+	  the current continuation, an exception with condition
+	  type <code>&amp;continuation</code> is raised.
+	<p>If a continuation prompt tagged
+	  with <code><var>prompt-tag</var></code> is not available in
+	  the current continuation when the continuation procedure is called, an exception with condition
+	  type <code>&amp;continuation</code> is raised.</p>
+	<p>The identifier <code>call/cc</code> is an alias
+	for <code>call-with-current-continuation</code>, which does
+	not take a <code><var>prompt-tag</var></code> argument.</p>
+	<p><i>Note:</i> As a continuation prompt tagged with the
+	  default prompt tag is available in the initial continuation
+	  of each thread, including the primordial thread,
+	  the <code>call-with-non-composable-continuation</code>
+	  defined here is a conservative extension of
+	  the <code>call-with-current-continuation</code> of earlier
+	  Scheme reports.</p>
+      </dd>
+    </dl>
+
+    <p>The following example shows how continuation prompts delimit
+      the captured continuation and the continuation to be replaced.</p>
+
+    <pre class="example">(let ([tag (make-continuation-prompt-tag)])
+  (* 2
+   (call-with-continuation-prompt
+    (lambda ()
+      (* 3
+         (call-with-non-composable-continuation
+          (lambda (k)
+            (* 5
+               (call-with-continuation-prompt
+                (lambda ()
+                  (* 7 (k 11)))
+                tag)))
+         tag)))
+    tag)))<span class="result">990</span></pre>
+
+    <p>When the continuation is captured in this example, all active
+      procedure calls up to nearest (dynamically) enclosing prompt
+      (tagged with the value of <code>tag</code>) are captured.
+      Effectively, multiplication by <code>3</code> is captured.  When
+      the continuation is invoked in this example, its active
+      procedure calls are reinstated after the current continuation
+      has been cut back to the nearest enclosing prompt at the point
+      of invoking the captured continuation.  Effectively, the
+      multiplication by <code>7</code> is removed and replaced by the
+      captured multiplication by <code>3</code>.  In effect, this
+      yields the value of <code>(* 2 (* 3 (* 5 (* 3 11))))</code>,
+      which is <code>990</code>.</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(call-with-composable-continuation <var>proc</var>)</code></dt>
+      <dt class="procedure"><code>(call-with-composable-continuation <var>proc</var> <var>prompt-tag</var>)</code></dt>
+      <dd>
+	<p>If not supplied, <code><var>prompt-tag</var></code>
+	defaults to the default prompt tag.</p>
+	<p>It is an error if <code><var>proc</var></code> does not accept one argument.</p>
+	<p>The
+	  procedure <code>call-with-composable-continuation</code>
+	  packages all active procedure calls in the current
+	  continuation up to but not including a continuation prompt
+	  tagged with <code><var>prompt-tag</var></code> as a
+	  continuation (“escape”) procedure and passes it as an
+	  argument to <code><var>proc</var></code>.  The continuation
+	  procedure is a Scheme procedure such that, if it is later called,
+	  the active procedure calls in the captured continuation are
+	  reinstated and the arguments supplied to the call to the
+	  continuation procedure become the result values for the new
+	  current continuation.
+	</p>
+	<p>We say that the continuation procedure
+	is <dfn>delimited</dfn> by <code><var>prompt-tag</var></code>.</p>
+	<p>If a call to <code>call-with-composable-continuation</code>
+	occurs in a tail context, the call
+	to <code><var>proc</var></code> is also in a tail context.</p>
+	<p>If a continuation prompt tagged
+	  with <code><var>prompt-tag</var></code> is not available in
+	  the current continuation, an exception with condition
+	  type <code>&amp;continuation</code> is raised.</p>
+	<p><i>Note:</i> The difference between the continuation
+	  procedure returned
+	  by <code>call-with-non-composable-continuation</code>
+	  and <code>call-with-composable-continuation</code> is that
+	  the former removes portions of the then-current
+	  continuation, while the latter does not.  The former
+	  continuation procedures are called <dfn>non-composable
+	  continuations</dfn>, while the latter are
+	  called <dfn>composable continuations</dfn>.  The latter
+	  usually return values to the continuation in which they are
+	  called, while the former never do.</p>
+      </dd>
+    </dl>
+
+    <p>The following example is similar to the previous one except
+    that the call to <code>call-with-non-composable-continuation</code> is
+    replaced with a call
+    to <code>call-with-composable-continuation</code>.  Accordingly,
+    invoking the captured continuation does not remove any active
+    procedure calls and so the result of the second example
+    is <code>7</code> times the value of the first.</p>
+
+    <pre class="example">(let ([tag (make-continuation-prompt-tag)])
+  (* 2
+   (call-with-continuation-prompt
+    (lambda ()
+      (* 3
+         (call-with-composable-continuation
+          (lambda (k)
+            (* 5
+               (call-with-continuation-prompt
+                (lambda ()
+                  (* 7 (k 11)))
+                tag)))
+         tag)))
+    tag)))<span class="result">6930</span></pre>
+
+    <p>This concept of composable continuations together with the
+      facility to install and abort to continuation prompts is rich
+      enough to support the known delimited control operators.  For
+      example, the control operators
+      <code>reset</code> and <code>shift</code>
+      from <a href="#danvy"><cite>Abstracting Control</cite></a> can be implemented as
+      follows:</p>
+
+    <pre class="example">(define-syntax reset
+  (syntax-rules ()
+    [(reset e1 e2 ...)
+     (call-with-continuation-prompt
+      (lambda ()
+        e1 e2 ...))]))
+
+(define-syntax shift
+  (syntax-rules ()
+    [(shift k e1 e2 ...)
+     (call-with-composable-continuation
+       (lambda (c)
+         (define k (lambda args (reset (apply c args))))
+         (abort-current-continuation (default-continuation-prompt-tag)
+           (lambda ()
+             e1 e2 ...))))]))
+
+(+ 1 (reset 3))<span class="result"> 4</span>
+(+ 1 (reset (* 2 (shift k 4))))<span class="result"> 5</span>
+(+ 1 (reset (* 2 (shift k (k 4)))))<span class="result"> 9</span>
+(+ 1 (reset (* 2 (shift k (k (k 4))))))<span class="result">17</span>
+(+ 1 (reset (* 2 (shift k1 (* 3 (shift k2 (k1 (k2 4))))))))<span class="result">25</span></pre>
+
+    <p>For convenience, the control operators <code>shift</code>
+      and <code>reset</code> are predefined in the library <code>(srfi
+      :226 control shift-reset)</code>, described in the following
+      section.</p>
+
+    <p>The syntax <code>reset-at</code> and <code>shift-at</code> is
+      as <code>reset</code> and <code>shift</code>, respectively,
+      except that the continuation prompt tag has to be given
+      explicitly:</p>
+
+    <pre class="example">(let ([tag (make-continuation-prompt-tag)])
+  (+ 1 (reset-at tag (* 2 (shift-at tag k 4)))))<span class=result>5</span></pre>
+
+    <p>Another possible pair of control operators is made
+    by <code>prompt</code> and <code>control</code>.  The difference
+    with <code>reset</code>/<code>shift</code> is
+      that <code>control</code> does not reinstate the prompt.</p>
+
+    <pre class="example">(define-syntax prompt
+  (syntax-rules ()
+    [(prompt e1 e2 ...)
+     (call-with-continuation-prompt
+      (lambda ()
+	e1 e2 ...)
+      (default-continuation-prompt-tag)
+      (lambda (thunk)
+	(thunk)))]))
+
+(define-syntax control
+  (syntax-rules ()
+    [(control k e1 e2 ...)
+     (call-with-composable-continuation
+      (lambda (k)
+	(abort-current-continuation (default-continuation-prompt-tag)
+	  (lambda ()
+	    e1 e2 ...))))]))
+
+(prompt (+ 2 (control k (k 5))))<span class="result"> 7</span>
+(prompt (+ 2 (control k 5)))<span class="result"> 5</span>
+(prompt (+ 5 (prompt (+ 2 (control k1 (+ 1 (control k2 (k2 6))))))))<span class="result">12</span>
+(prompt (+ 5 (prompt (+ 2 (control k1 (+ 1 (control k2 (k1 6))))))))<span class="result"> 8</span>
+(prompt
+  (+ 12 (prompt (+ 5 (prompt (+ 2 (control k1 (control k2 (control k3 (k3 6))))))))))
+<span class="result">18</span>
+</pre>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(call-in-continuation <var>cont</var> <var>proc</var> <var>obj</var> &hellip;)</code></dt>
+      <dd>
+	<p>
+	  Aborts and reinstates active procedure calls as if the
+	  continuation procedure <code><var>cont</var></code> were
+	  applied, but instead of delivering values to then-current
+	  continuation, the procedure <code><var>proc</var></code> is
+	  called with the <code><var>objs</var></code> as arguments in
+	  this continuation.</p>
+      </dd>
+    </dl>
+
+    <p>The <code>call-in-continuation</code> procedure can be used to implement
+      the <code>guard</code> syntax concisely:</p>
+
+    <pre class="example">(define-syntax guard
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ (id c1 c2 ...) e1 e2 ...)
+       (identifier? #'id)
+       #`(call-with-current-continuation
+	  (lambda (guard-k)
+	    (with-exception-handler
+		(lambda (c)
+		  (call-with-current-continuation
+		   (lambda (handler-k)
+		     (call-in-continuation guard-k
+		       (lambda ()
+			 (let ([id c])
+			   #,(let f ([c1 #'c1] [c2* #'(c2 ...)])
+			       (syntax-case c2* ()
+				 [()
+				  (with-syntax
+				      ([rest
+					#'(call-in-continuation handler-k
+					    (lambda ()
+					      (raise-continuable c)))])
+				    (syntax-case c1 (else =>)
+				      [(else e1 e2 ...)
+				       #'(begin e1 e2 ...)]
+				      [(e0) #'e0]
+				      [(e0 => e1)
+				       #'(let ([t e0]) (if t (e1 t) rest))]
+				      [(e0 e1 e2 ...)
+				       #'(if e0
+					     (begin e1 e2 ...)
+					     rest)]))]
+				 [(c2 c3 ...)
+				  (with-syntax ([rest (f #'c2 #'(c3 ...))])
+				    (syntax-case c1 (=>)
+				      [(e0) #'(let ([t e0]) (if t t rest))]
+				      [(e0 => e1)
+				       #'(let ([t e0]) (if t (e1 t) rest))]
+				      [(e0 e1 e2 ...)
+				       #'(if e0
+					     (begin e1 e2 ...)
+					     rest)]))]))))))))
+		(lambda ()
+		  e1 e2 ...))))]
+      [_
+       (syntax-violation 'guard "invalid syntax" stx)])))</pre>
+
+    <p>Invoking a continuation <code>k</code> on
+      values <code><var>obj</var></code> &hellip; can be defined
+      in terms of <code>call-in-continuation</code>:</p>
+
+    <pre class="example">(let ([<var>tmp</var> <var>obj</var>] &hellip;)
+  (call-in-continuation k values <var>tmp</var> &hellip;))</pre>
+
+    <p>On the other hand, it is not possible to
+      define <code>call-in-continuation</code> in terms of invoking a
+      continuation, so the former is the more primitive notion.</p>
+
+    <p><i>Remark:</i> That a primitive like <code>call-in-continuation</code>
+      is needed was already noted in <a href="#feeley3"><cite>A better API for
+      first-class continuations</cite></a>.  In that paper, it is
+      called <code>continuation-graft</code>.  (The two accompanying
+      procedures <code>continuation-capture</code>
+      and <code>continuation-return</code> in that paper are
+      just <code>call/cc</code> and <code>apply</code> in the context of this
+      SRFI, which treats continuations as procedures for compatibility
+      reasons.)</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(call-in <var>cont</var> <var>proc</var> <var>obj</var> &hellip;)</code></dt>
+      <dd><p>As <code>call-in-continuation</code>
+      but <code><var>cont</var></code> must be a non-composable
+      continuation (procedure).</p></dd>
+      <dt class="procedure"><code>(return-to <var>cont</var> <var>obj</var> &hellip;)</code></dt>
+      <dd><p>Equivalent to <code>(call-in <var>cont</var> <var>values</var> <var>obj</var> &hellip;)</code>.</p></dd>
+    </dl>
+
+    <p><i>Remark:</i> In <a href="#feeley3"><cite>A better API for
+      first-class continuations</cite></a> it is argued that
+      (non-composable) continuations should form a type disjoint of
+      that of procedures.  This has, at least, didactic advantages.
+      While this SRFI does not take the radical step of not requiring
+      that non-composable continuation objects are callable, the
+      procedures <code>call-in</code> and <code>return-to</code>
+      (corresponding to <code>continuation-graft</code>
+      and <code>continuation-return</code> in the cited paper) can be
+      used to write code that works without the assumption that
+      non-composable continuation objects <code><var>k</var></code>
+      are callable: Instead
+      of <code>(<var>k</var> <var>obj</var>)</code> one
+      writes <code>(return-to <var>k</var> <var>obj</var>)</code>,
+      which has the obvious advantage that it becomes clear that the
+      call does not return to its continuation.  This allows a
+      possible future SRFI to deprecate or remove the callability of
+      non-composable continuation objects, at least those returned
+      by <code>call-with-non-composable-continuation</code>.
+    </p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(call-with-continuation-barrier <var>thunk</var>)</code></dt>
+      <dd>
+	<p>The <code>call-with-continuation-barrier</code> procedure
+	  installs an otherwise inaccessible continuation prompt in
+	  the current continuation and marks it as
+	  a <dfn>continuation barrier</dfn>.
+	  Finally, <code><var>thunk</var></code> is called with no
+	  arguments in the resulting continuation.</p>
+	<p>When applying a non-composable continuation would reinstate
+	  a continuation barrier, an exception with condition
+	  type <code>&amp;continuation</code> is raised.</p>
+	<p>If a continuation barrier is captured during a call
+	to <code>call-with-composable-continuation</code>, an
+	exception with condition type <code>&amp;continuation</code> is
+	  raised.</p>
+	<p>This extends the semantics
+	  of <code>call-with-non-composable-continuation</code>
+	  and <code>call-with-composable-continuation</code>.</p>
+	<p>The calls to the <code><var>thunks</var></code> are never in tail
+	  context.</p>
+	<p><i>Note:</i> As calling a composable continuation never
+	  aborts active procedure calls, a continuation barrier would
+	  be reinstated if and only if the captured continuation
+	  included a continuation barrier.</p>
+      </dd></dl>
+
+      <p>A continuation barrier prevents jumps into more deeply nested
+      active procedure calls:</p>
+
+      <pre class="example">((call-with-continuation-barrier
+  (lambda ()
+    (call/cc values))))<span class="result">&amp;continuation <i>exception</i></span></pre>
+
+      <p>On the other hand, escaping jumps are not prohibited:</p>
+
+      <pre class="example">(call/cc
+  (lambda (k)
+    (call-with-continuation-barrier
+      (lambda ()
+        (k 'ok)))))<span class="result">ok</span></pre>
+
+      <dl class="entries">
+      <dt class="procedure"><code>(continuation-prompt-available? <var>prompt-tag</var>)</code></dt>
+      <dt class="procedure"><code>(continuation-prompt-available? <var>prompt-tag</var> <var>cont</var>)</code></dt>
+      <dd>
+	<p>The first form is operationally equivalent to
+	  <code>(continuation-prompt-available? <var>prompt-tag</var> (call/cc values))</code>.</p>
+	<p>Returns <code>#t</code> if a continuation prompt tagged
+	  with <code><var>prompt-tag</var></code> is available in the
+	  continuation packaged in <code><var>cont</var></code> or
+	  if <code><var>cont</var></code> is a non-composable
+	  continuation delimited
+	  by <code><var>prompt-tag</var></code>, and <code>#f</code>
+	  otherwise.</p>
+      </dd></dl>
+
+      <pre class="example">(define tag (make-continuation-prompt-tag))
+(call-with-continuation-prompt
+  (lambda ()
+    (continuation-prompt-available? tag
+      (call-with-non-composable-continuation values)))
+  tag)<span class="result">#t</span>
+(call-with-continuation-prompt
+  (lambda ()
+    (continuation-prompt-available? tag
+      (call-with-non-composable-continuation values tag)))
+  tag)<span class="result">#t</span>
+(call-with-continuation-prompt
+  (lambda ()
+    (continuation-prompt-available? tag
+      (call-with-composable-continuation values tag)))
+  tag)<span class="result">#f</span></pre>
+      <dl class="entries">
+      <dt class="procedure"><code>(dynamic-wind <var>pre-thunk</var> <var>thunk</var> <var>post-thunk</var>)</code></dt>
+      <dd>
+	<p>The <code>dynamic-wind</code> procedure
+	  calls <code><var>pre-thunk</var></code> with no arguments in
+	  a continuation that calls <code><var>thunk</var></code> with
+	  no arguments in a continuation that
+	  calls <code><var>post-thunk</var></code> in a continuation
+	  with no arguments that finally delivers the results of the
+	  call to <code><var>thunk</var></code> to the continuation of
+	  the call to <code>dynamic-wind</code>.</p>
+	<p>Moreover, when the active call
+	  to <code><var>thunk</var></code> is aborted (either due to a
+	  prompt abort or a continuation procedure
+	  invocation), <code><var>post-thunk</var></code> is called
+	  with no arguments, and when the active call
+	  to <code><var>thunk</var></code> is reinstated (due to a
+	  continuation procedure
+	  invocation), <code><var>pre-thunk</var></code> is called
+	    with no arguments.</p>
+	<p>Each call to <code><var>pre-thunk</var></code>
+	  and <code><var>post-thunk</var></code> belongs to the dynamic
+	  extent of the original call to <code>dynamic-wind</code>.</p>
+	<p><i>Note:</i> When a call
+	  to <code><var>pre-thunk</var></code>
+	  or <code><var>post-thunk</var></code> returns during a
+	  prompt abort or a continuation procedure invocation, the
+	  sequence of active procedure calls that still have to be
+	  aborted and the sequence of active procedure calls that
+	  still have to be reinstated may have changed due to the
+	  application of composable continuations captured
+	  in <code><var>pre-thunk</var></code>
+	  or <code><var>post-thunks</var></code>.
+	<p>This extends the semantics
+	  of <code>abort-current-continuation</code>, <code>call-with-non-composable-continuation</code>,
+	  and <code>call-with-composable-continuation</code>.</p>
+	<p>The calls to the <code><var>thunks</var></code> are never in tail
+	  context.</p>
+      </dd>
+    </dl>
+
+    <p>The following example comes form <cite>R<sup>6</sup>RS</cite>
+      and demonstrates jumping out of the post-thunk.</p>
+
+    <pre class="example">(let ([n 0])
+  (call/cc
+    (lambda (k)
+      (dynamic-wind
+          values
+          (lambda ()
+            (dynamic-wind
+                values
+                (lambda ()
+                  (set! n (+ n 1))
+                  (k))
+                (lambda ()
+                  (set! n (+ n 2))
+                  (k))))
+         (lambda ()
+           (set! n (+ n 4))))))
+  n)<span class="result">7</span></pre>
+
+    <dl class="entries">
+      <dt class="syntax"><code>(unwind-protect <span class=token>protected-expr</span> <span class=token>cleanup-expr</span> &hellip;)</code></dt>
+      <dd>
+	<p><i>Syntax:</i>
+	  <code><span class="token">Protected-expr</span></code> and the <code><span class="token">cleanup-exprs</span></code>
+	  are expressions.</p>
+	<p><i>Semantics:</i>
+	  The <code><span class=token>protected-expr</span></code> is
+	  evaluated with an installed continuation barrier in a
+	  continuation that sequentially evaluates
+	  the <code><span class=token>cleanup-exprs</span></code>, discards their
+	  values, and finally returns the values yielded by the
+	  evaluation of <code><span class=token>protected-expr</span></code>.</p>
+	<p>Moreover, when the continuation in
+	  which <code><span class=token>protected-expr</span></code> is
+	  evaluated is aborted, the <span class=token>cleanup-exprs</span> are sequentially evaluated and their values discarded.</p>
+        <p><i>Note:</i> The <code>unwind-protect</code> syntactic form
+          and its name stems from <a href="#pitman"><cite>Common
+          Lisp</cite></a>.  It is useful when it must be guaranteed
+          that
+          the <code><span class="token">cleanup-exprs</span></code>
+          are evaluated exactly once per evaluation of
+          the <code>unwind-protect</code> form (bar abnormal thread
+          termination).</p>
+      </dd>
+    </dl>
+
+    <p>The <code>unwind-protect</code> keyword can be defined as follows:</p>
+
+    <pre class="example">(define-syntax unwind-protect
+  (syntax-rules ()
+    [(unwind-protect protected-expr cleanup-expr ...)
+     (dynamic-wind
+       (lambda () (values))
+       (lambda () (call-with-continuation-barrier (lambda () protected-expr)))
+       (lambda () (values) cleanup-expr ...))]))</pre>
+
+    <h3 id="shift-and-reset">Shift and Reset</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	shift-reset)</code> library.  This library exports the syntax
+	described here.</p>
+
+    <dl class="entries">
+      <dt class="syntax"><code>(reset-at <span class="token">expression</span> <span class="token">body</span>)</code></dt>
+      <dd>
+        <p><i>Semantics:</i> Evaluates <code>expression</code> to
+          obtain a continuation prompt tag.  A continuation prompt
+          identified by this tag is installed with
+          the default handler in the current continuation,
+          the <code><span class="token">body</span></code> is
+          evaluated in this extended continuation, and the results of
+          its last expression are returned.
+        </p>
+      </dd>
+      <dt class="syntax"><code>(shift-at <span class="token">expression</span> <span class="token">identifier</span> <span class="token">body</span>)</code></dt>
+      <dd>
+        <p><i>Semantics:</i> Evaluates <code>expression</code> to
+          obtain a continuation prompt tag <var>tag</var>.  The active
+          procedure calls in the current continuation up to but not
+          including a continuation prompt tagged with <var>tag</var>
+          are then packaged as a procedure <var>c</var>.  The current
+          continuation is then aborted up to and including the
+          continuation prompt tagged with <var>tag</var> and the
+          installed handler is then passed a thunk that, when called,
+          binds the <code><span class="token">identifier</span></code>
+          to a procedure <var>f</var> and
+          evaluates <code><span class="token">body</span></code> in
+          this extended environment.  The procedure <var>f</var> when
+          called with arguments, installs a continuation prompt tagged
+          with <var>tag</var> with the default handler in the current
+          continuation, and then calls <var>c</var> with the arguments
+          in this extended continuation.
+        </p>
+      </dd>
+      <dt class="syntax"><code>(reset <span class="token">body</span>)</code></dt>
+      <dd>
+        <p>As <code>reset-at</code> but uses the default continuation prompt tag instead of a specified one.</p>
+      </dd>
+      <dt class="syntax"><code>(shift <span class="token">identifier</span> <span class="token">body</span>)</code></dt>
+      <dd>
+        <p>As <code>shift-at</code> but uses the default continuation prompt tag instead of a specified one.</p>
+      </dd>
+    </dl>
+
+    <h3 id="inspection">Inspection</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	inspection)</code> library.  This library exports the two
+	procedures described here.</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(continuation? <var>obj</var>)</code></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a
+	  continuation procedure, and <code>#f</code> otherwise.</p>
+      </dd>
+      <dt class="procedure"><code>(non-composable-continuation? <var>obj</var>)</code></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a
+	  non-composable continuation procedure, and <code>#f</code>
+	  otherwise.</p>
+      </dd>
+    </dl>
+
+    <pre class="example">(continuation? (call/cc values))<span class="result">#t</span>
+(continuation? (call-with-composable-continuation values))<span class="result">#t</span>
+(continuation? values)<span class="result">#f</span>
+
+(non-composable-continuation? (call/cc values))<span class="result">#t</span>
+(non-composable-continuation? (call-with-composable-continuation values))<span class="result">#f</span>
+(non-composable-continuation? values)<span class="result">#f</span></pre>
+
+    <h3 id="continuation-marks-2">Continuation Marks</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	continuation-marks)</code> library.  This library, in addition
+	to the procedures described here, also exports the condition
+	types described in the section on continuation prompts.</p>
+
+    <h4 id="continuation-marks-3">Continuation Marks</h4>
+
+    <p>Continuation frames can be annotated with <dfn>continuation
+	marks</dfn>.  Each continuation mark maps a key, which can be
+	an arbitrary object, to a value, which can also be an
+	arbitrary object.  If a continuation frame is annotated with a
+	continuation mark for a key for which the continuation frame
+	has already been annotated with a mark, the most recent
+	annotation prevails.</p>
+
+    <p><i>Remark:</i> In <cite>A better API for first-class
+      continuations</cite>, the idea of a portable debugger using a procedure
+      named <code>continuation-next</code> to walk up a continuation was
+      presented.  With continuation marks this can be easily achieved when
+      frames are explicitly marked.  The advantage of an explicit marking is
+      that the debugger can then be instructed to automatically skip over
+      frames installed by standard library procedures, for example.  A Scheme
+      system could offer a debug mode in which every frame is automatically
+      marked in a specific way that is understood by the debugger.
+    </p>
+
+    <dl class="entries">
+      <dt class="syntax"><code>(with-continuation-mark <span class="token">key-expr</span> <span class="token">val-expr</span> <span class="token">expression</span>)</code></dt>
+      <dd>
+	<p><i>Syntax:</i>
+	  <code><span class="token">Key-expr</span></code>, <code><span class="token">val-expr</span></code>,
+	  and <code><span class="token">expression</span></code> are expressions.</p>
+	<p><i>Semantics:</i>
+	  <code>Key-expr</code> and <code>val-expr</code> are
+	  evaluated in an unspecified order to obtain a key and a
+	  value, respectively. The most recent continuation frame
+	  in the continuation of
+	  the <code>with-continuation-mark</code> expression is then
+	  dynamically annotated with a continuation mark mapping the
+	  key to the value, and <code>expression</code> is evaluated
+	  in the continuation of
+	  the <code>with-continuation-mark</code> expression.</p>
+	<p>If a <code>with-continuation-mark</code> expression is in
+	tail context, <code>expression</code> is in tail context as
+	  well.</p>
+        <p><i>Note:</i> That <code>with-continuation-mark</code> is a
+          syntax and not modeled as a procedure calling a thunk goes
+          back to the paper <a href="#clements"><cite>Modeling an
+          Algebraic Stepper</cite></a>, which introduced continuation
+          marks.  In fact, it makes optimization for a Scheme compiler
+          easier, and <code>with-continuation-mark</code> needs to be
+          efficient given its typical use cases.</p>
+      </dd>
+
+      <dt class="syntax"><code>(with-continuation-marks ([<span class="token">key-expr</span> <span class="token">val-expr</span>] &hellip;) <span class="token">body</span>)</code></dt>
+      <dd>
+	<p><i>Syntax:</i>
+	  <code>The <span class="token">key-exprs</span></code> and
+	  the <code><span class="token">val-exprs</span></code> are
+	  be expressions, and <code><span class="token">body</span></code> is
+	  be a body.</p>
+	<p><i>Semantics:</i> The <code>key-exprs</code> and
+	  the <code>val-exprs</code> are evaluated in an unspecified
+	  order to obtain a list of keys and a list of corresponding
+	  values, respectively. The most recent continuation frame in
+	  the continuation of the <code>with-continuation-marks</code>
+	  expression is then effectively annotated with a continuation
+	  mark mapping the keys to the values,
+	  and <code>body</code> is evaluated in the continuation
+	  of the <code>with-continuation-marks</code> expression.</p>
+	<p>It is unspecified which value prevails if two of the keys are the
+	  same.</p>
+	<p>If a <code>with-continuation-marks</code> expression is in
+	  tail context, the last expression of <code>body</code> is in
+	  tail context as well.</p>
+        <p><i>Note:</i> Note that continuation frames are conceptually
+          immutable.</p>
+      </dd>
+
+      <dt class="procedure"><code>(call-with-immediate-continuation-mark <var>key</var> <var>proc</var>)</code></dt>
+      <dt class="procedure"><code>(call-with-immediate-continuation-mark <var>key</var> <var>proc</var> <var>obj</var>)</code></dt>
+      <dd>
+	<p>If not supplied, <code><var>obj</var></code> defaults
+	  to <code>#f</code>.</p>
+	<p>If the most recent continuation frame in the continuation
+	of the call
+	to <code>call-with-immediate-continuation-mark</code> is
+	annotated with a continuation mark mapping <var>key</var> to a
+	value, <var>proc</var> is applied to the value, and
+	to <var>obj</var> otherwise.</p>
+	<p>If a call
+	  to <code>call-with-immediate-continuation-mark</code> occurs
+	  in a tail context, the call to <code><var>proc</var></code>
+	  is also in a tail context.</p>
+      </dd>
+    </dl>
+    <pre class="example">(with-continuation-mark 'key 'mark
+  (call-with-immediate-continuation-mark 'key values))<span class="result">mark</span>
+
+(let ([tag (make-continuation-prompt-tag)])
+  (with-continuation-mark 'key 'mark
+    (call-with-continuation-prompt
+      (lambda ()
+        (call-with-immediate-continuation-mark 'key values 'default))
+      tag)))<span class="result">default</span></pre>
+
+    <p>In the second example, we installed a continuation prompt with
+      some unrelated tag to make sure that the call
+      to <code>call-with-immediate-continuation-mark</code> is not in
+      tail context with respect to
+      the <code>with-continuation-mark</code> expression.</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(continuation-marks <var>cont</var>)</code></dt>
+      <dt class="procedure"><code>(continuation-marks <var>cont</var> <var>prompt-tag</var>)</code></dt>
+      <dd>
+	<p>If not supplied, <code><var>prompt-tag</var></code>
+	defaults to the default prompt tag.</p>
+	<p>Returns a continuation mark set capturing the continuation
+	  marks of the continuation frames in the
+	  continuation <code><var>cont</var></code> up to the
+	  continuation prompt <code>prompt-tag</code>.</p>
+	<p>If no continuation prompt tagged
+	  with <code><var>prompt-tag</var></code> is available
+	  in <code><var>cont</var></code> and the
+	  continuation <code><var>cont</var></code> is not delimited
+	  by <code><var>prompt-tag</var></code>, an exception with
+	  condition type <code>&amp;continuation</code> is raised.</p>
+      </dd>
+
+      <dt class="procedure"><code>(current-continuation-marks)</code></dt>
+      <dt class="procedure"><code>(current-continuation-marks <var>prompt-tag</var>)</code></dt>
+      <dd>
+	<p>If not supplied, <code><var>prompt-tag</var></code>
+	defaults to the default prompt tag.</p>
+	<p>Operationally equivalent to <code>(continuation-marks
+	(call-with-non-composable-continuation
+	values <var>prompt-tag</var>) <var>prompt-tag</var>)</code>.</p>
+      </dd>
+
+      <dt class="procedure"><code>(continuation-mark-set? <var>obj</var>)</code></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a
+	continuation mark set, and <code>#f</code> otherwise.</p>
+      </dd>
+    </dl>
+
+    <pre class="example">(continuation-mark-set? (current-continuation-marks))<span class="result">#t</span></pre>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(continuation-mark-set-&gt;list <var>mark-set</var> <var>key</var>)</code></dt>
+      <dt class="procedure"><code>(continuation-mark-set-&gt;list <var>mark-set</var> <var>key</var> <var>prompt-tag</var>)</code></dt>
+      <dd>
+	<p>If not supplied, <code><var>prompt-tag</var></code>
+	defaults to the default prompt tag.</p>
+	<p>Returns a newly allocated list containing the values of the
+	  continuation marks for <code><var>key</var></code> captured
+	  in <code><var>mark-set</var></code> up to where the
+	  corresponding continuation frames were separated by a
+	  continuation prompt
+	  tagged <code><var>prompt-tag</var></code>, if at all.  The
+	  list elements correspond to the continuation frames that
+	  contained a continuation mark
+	  for <code><var>key</var></code>, with the most recent
+	  continuation frame coming first.</p>
+	<p>If <code><var>mark-set</var></code> is <code>#f</code>, the
+	  mark set that would be returned
+	  by <code>(current-continuation-marks <var>prompt-tag</var>)</code>
+	  is used instead.</p>
+      </dd>
+
+      <dt class="procedure"><code>(continuation-mark-set-&gt;list* <var>mark-set</var> <var>list</var>)</code></dt>
+      <dt class="procedure"><code>(continuation-mark-set-&gt;list* <var>mark-set</var> <var>list</var> <var>obj</var>)</code></dt>
+      <dt class="procedure"><code>(continuation-mark-set-&gt;list* <var>mark-set</var> <var>list</var> <var>obj</var> <var>prompt-tag</var>)</code></dt>
+      <dd>
+	<p>If not supplied, <code><var>obj</var></code> defaults
+	  to <code>#f</code>.</p>
+	<p>If not supplied, <code><var>prompt-tag</var></code>
+	defaults to the default prompt tag.</p>
+	<p>Returns a newly allocated list containing newly allocated
+	  vectors.  The vectors contain the values of the continuation
+	  marks for the keys in <code><var>list</var></code> captured
+	  in <code><var>mark-set</var></code> up to where the
+	  corresponding continuation frames were separated by a
+	  continuation prompts
+	  tagged <code><var>prompt-tag</var></code>, if at all, as
+	  follows: Each vector contains the continuation marks of a
+	  single continuation frame for the keys contained
+	  in <code><var>list</var></code>.  If such a continuation
+	  frame has no mark for some key
+	  in <code><var>list</var></code>, the
+	  values <code><var>obj</var></code> is used.  The vectors in
+	  the newly allocated list correspond to the continuation
+	  frames that contain a continuation mark for at least one key
+	  in <code><var>list</var></code> with the most recent
+	  continuation frames coming first.</p>
+	<p>If <code><var>mark-set</var></code> is <code>#f</code>, the
+	  mark set that would be returned
+	  by <code>(current-continuation-marks <var>prompt-tag</var>)</code>
+	  is used instead.</p>
+      </dd>
+    </dl>
+
+    <pre class="example">(define tag (make-continuation-prompt-tag))
+(define key (make-continuation-mark-key))
+(define key1 (make-continuation-mark-key))
+(define key2 (make-continuation-mark-key))
+
+(with-continuation-mark key 'mark1
+  (with-continuation-mark key 'mark2
+    (call-with-continuation-prompt
+      (lambda ()
+        (with-continuation-mark key 'mark3
+          (continuation-mark-set-&gt;list #f key))))))<span class="result">(mark3 mark2)</span>
+
+(with-continuation-mark key1 'mark1
+  (with-continuation-mark key2 'mark2
+    (call-with-continuation-prompt
+     (lambda ()
+       (with-continuation-mark key1 'mark3
+         (continuation-mark-set-&gt;list* #f (list key1 key2) 'default)))
+     tag))<span class="result">(#(mark3 default) #(mark1 mark2))</span></pre>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(continuation-mark-set-&gt;iterator <var>mark-set</var> <var>list</var>)</code></dt>
+      <dt class="procedure"><code>(continuation-mark-set-&gt;iterator <var>mark-set</var> <var>list</var> <var>obj</var>)</code></dt>
+      <dt class="procedure"><code>(continuation-mark-set-&gt;iterator <var>mark-set</var> <var>list</var> <var>obj</var> <var>prompt-tag)</var></code></dt>
+      <dd>
+	<p>If not supplied, <code><var>obj</var></code> defaults
+	to <code>#f</code>.</p>
+	<p>If not supplied, <code><var>prompt-tag</var></code>
+	defaults to the default prompt tag.</p>
+	<p>Returns an iterator for the list that would be
+	  constructed by <code>continuation-mark-set-&gt;list*</code>
+	  when applied to the same arguments.</p>
+	<p><i>Note:</i> Some recent SRFIs that have been included into
+	  early editions of <a href="#r7rs"><cite>R<sup>7</sup>RS
+	  Large</cite></a> or are to be included in its forthcoming
+	  editions feature the use of generators (see <a href="https://srfi.schemers.org/srfi-158/">SRFI
+	  158</a>) to process lists (or objects of other sequence
+	  types).  As generators are fundamentally non-pure, we
+	  believe that their use should be limited in otherwise
+	  functional code.  The iterator concept used here, on the
+	  other hand, is fully functional.  It does have to be
+	  modified for lists that may potentially
+	  contain <code>#f</code>, which cannot happen here.</p>
+	<p>If <code><var>mark-set</var></code> is <code>#f</code>, the
+	  mark set that would be returned
+	  by <code>(current-continuation-marks <var>prompt-tag</var>)</code>
+	  is used instead.</p>
+      </dd>
+    </dl>
+
+    <p>A correct but possibly inefficient implementation
+    of <code>continuation-mark-set-&gt;iterator</code> is given as
+    follows:</p>
+
+    <pre class="example">(define continuation-mark-set-&gt;iterator
+  (lambda arg*
+    (let f ([ls (apply continuation-mark-set-&gt;list* arg*)])
+      (lambda ()
+        (if (null? ls)
+            (values #f
+                   (lambda ()
+                     (apply assertion-violation
+                            'continuation-mark-set-&gt;iterator
+                            "attempt to iterate past the end"
+                            arg*)))
+            (values (car ls) (f (cdr ls))))))))</pre>
+
+    <p>The iterator returned can be used to rebuild the list of continuation marks:</p>
+
+    <pre class=example>(let f ([iter (continuation-mark-set-&gt;iterator <var>mark-set</var> <var>list</var>)])
+  (let-values ([(head tail) (iter)])
+    (if head (cons head (f tail)) '())))
+&nbsp;<span class=result><i>value of (continuation-mark-set-&gt;list* <var>mark-set</var> <var>list</var>)</i></span></pre>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(continuation-mark-set-first <var>mark-set</var> <var>key</var>)</code></dt>
+      <dt class="procedure"><code>(continuation-mark-set-first <var>mark-set</var> <var>key</var> <var>obj</var>)</code></dt>
+      <dt class="procedure"><code>(continuation-mark-set-first <var>mark-set</var> <var>key</var> <var>obj</var> <var>prompt-tag</var>)</code></dt>
+      <dd>
+	<p>If not supplied, <code><var>obj</var></code> defaults
+	to <code>#f</code>.</p>
+	<p>If not supplied, <code><var>prompt-tag</var></code>
+	defaults to the default prompt tag.</p>
+	<p>Returns the first element for the list that would be
+	  constructed by <code>continuation-mark-set-&gt;list</code>
+	  when applied to the same arguments, or <code>obj</code> if
+	  the result would be the empty list.</p>
+	<p>If <code><var>mark-set</var></code> is <code>#f</code>, the
+	  mark set that would be returned
+	  by <code>(current-continuation-marks <var>prompt-tag</var>)</code>
+	  is used instead.</p>
+      </dd>
+    </dl>
+
+    <pre class="example">(let ([tag (make-continuation-prompt-tag)]
+      [key (make-continuation-mark-key)])
+  (with-continuation-mark key 'mark1
+    (call-with-continuation-prompt
+     (lambda ()
+       (with-continuation-mark key 'mark2
+         (continuation-mark-set-first #f key)))
+     tag)))<span class="result">mark2</span></pre>
+
+    <p>Using <code>continuation-marks</code>, the set of continuation
+      marks of a captured continuation can also be investigated:</p>
+
+    <pre class="example">(let ([tag (make-continuation-prompt-tag 'mytag)]
+      [key (make-continuation-mark-key)])
+  (define k
+    (with-continuation-mark key 'mark
+      (call-with-continuation-prompt
+        (lambda ()
+          (call/cc values))
+        tag)))
+  (continuation-mark-set-first (continuation-marks k) key))<span class="result">mark</span></pre>
+
+    <h4 id="mark-keys">Mark Keys</h4>
+
+    <p><dfn>Mark keys</dfn> can be used as opaque keys for
+    continuation marks.</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(make-continuation-mark-key)</code></dt>
+      <dt class="procedure"><code>(make-continuation-mark-key <var>name</var>)</code></dt>
+      <dd>
+	<p>Returns a mark key that is not <code>equal?</code> to any
+	  prior or future results
+	  from <code>make-continuation-mark-key</code>.
+	</p>
+	<p>
+	  The optional <code><var>name</var></code> argument may be
+	  used by the implementation for printing the mark key.
+	</p>
+      </dd>
+      <dt class="procedure"><code>(continuation-mark-key? <var>obj</var>)</code></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a
+	  mark key, and <code>#f</code> otherwise.</p>
+        <p><i>Note:</i> This specification does not define the type of
+          mark keys conclusively; it only demands that the values
+          returned by <code>make-continuation-mark-key</code> are mark
+          keys.  This can be exploited by implementations that offer
+          specialized procedures for mark keys.  If the implementation
+          does not treat any key object in continuation marks
+          specially, <code>continuation-mark-key?</code> can
+          return <code>#t</code> on all objects.  (Note that in any
+          case, any Scheme object can be used as a key object in a
+          continuation mark.)</p>
+      </dd>
+    </dl>
+
+    <pre class="example">(continuation-mark-key? (make-continuation-mark-key))<span class="result">#t</span>
+(equal? (make-continuation-mark-key) (make-continuation-mark-key))<span class="result">#f</span></pre>
+
+    <h3 id="parameter-objects-2">Parameter Objects</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	parameters)</code> library.</p>
+
+    <p>Each <dfn>parameter object</dfn> is a procedure.</p>
+
+    <p>A <dfn>parameterization</dfn> is an opaque mapping of parameter objects
+    to cells that hold a value.</p>
+
+    <p>Conceptually, each continuation contains at least one otherwise
+      inaccessible parameterization continuation mark, whose value is
+      a parameterization.  The <dfn>parameterization of a
+      continuation</dfn> is the value of the most recent
+      parameterization continuation mark in the continuation.  The
+      parameterization of the current continuation is the <dfn>current
+      parameterization</dfn>.  The (current) parameterization can
+      conceptually be seen as part of the dynamic environment.</p>
+
+    <p>The parameterization of the initial continuation of a top-level program
+      maps each current and future parameter object to a cell holding its
+      initial value.</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(make-parameter <var>obj</var>)</code></dt>
+      <dt class="procedure"><code>(make-parameter <var>obj</var> <var>proc</var>)</code></dt>
+      <dd>
+	<p>Invokes <code><var>proc</var></code>
+	  on <code><var>obj</var></code> in the dynamic environment of
+	  the call to <code>make-parameter</code> to obtain a value and
+	  returns a newly allocated parameter object, which is a
+	  procedure accepting zero or one argument and
+	  whose <dfn>initial value</dfn> is the value and
+	  whose <dfn>conversion procedure</dfn>
+	  is <code><var>proc</var></code>.</p>
+	<p>
+	  When a parameter object is invoked with zero arguments, the content
+	  of the cell of the parameter object in the parameterization of the
+	  invocation is returned.
+	</p>
+	<p>When a parameter object is invoked with one argument, its
+	  conversion function is applied to it in the dynamic
+	  environment of the call to the parameter object to obtain a
+	  new value.  The previous value contained in the cell of the
+	  parameter object in the parameterization of the invocation
+	  is then replaced with the new value.  The result of the
+	  invocation is unspecified.</p>
+      </dd>
+      <dt class="procedure"><code>(make-thread-parameter <var>obj</var>)</code></dt>
+      <dt class="procedure"><code>(make-thread-parameter <var>obj</var> <var>proc</var>)</code></dt>
+      <dd>
+	<p>As <code>make-parameter</code> except that the parameter
+	  object's cells are inheritable thread locals (see below).
+	</p>
+	<p><i>Note:</i> This means that any change of value through
+	  calling the thread parameter object with one argument won't
+	  be observable by other threads than the current.</p>
+      </dd>
+      <dt class="procedure"><code>(parameter? <var>obj</var>)</code></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a
+	  parameter object, <code>#f</code> otherwise.</p>
+      </dd>
+
+      <dt class="syntax"><code>(parameterize ([<span class="token">param-expr</span> <span class="token">expression</span>] &hellip;) <span class="token">body</span>)</code></dt>
+      <dd>
+	<p><i>Syntax:</i>
+	  The <code><span class="token">param-exprs</span></code> and
+	  the <code><span class="token">expressions</span></code> are
+	  expressions, and <code><span class="token">body</span></code> is
+	  a body.</p>
+	<p><i>Semantics:</i> Evaluates
+	  the <code><span class="token">param-exprs</span></code>
+	  and <code><span class="token">expressions</span></code> in
+	  an arbitrary order to obtain parameter objects and arbitrary
+	  objects, respectively.  An assertion violation is raised if
+	  one of the obtained parameter objects is not actually a
+	  parameter object.  The objects are then mapped to respective
+	  values by invoking the conversion procedures of the
+	  corresponding parameter objects in the dynamic environment
+	  of the <code>parameterize</code> expression on them.  For
+	  each parameter object, a newly allocated cell is then
+	  constructed that holds the obtained corresponding value.  A
+	  new parameterization that differs from the parameterization
+	  of the continuation of the <code>parameterize</code>
+	  expression in mapping the obtained parameter objects to the
+	  respectively newly allocated cells is then constructed.
+	  Finally, the most recent continuation frame in the
+	  continuation of the <code>parameterize</code> expression is
+	  annotated with a parameterization continuation mark whose
+	  value is the new parameterization and
+	  the <code><span class="token">body</span></code> is
+	  evaluated in this continuation.</p>
+	<p>It is unspecified which value prevails if two of the
+	  parameter objects are the same.</p>
+	<p>If a <code>parameterize</code> expression is in tail
+	  context, the last expression
+	  in <code><span class="token">body</span></code> is in tail
+	  context as well.</p>
+      </dd>
+      <dt class="procedure"><code>(current-parameterization)</code></dt>
+      <dd>
+	<p>Returns the current parameterization.</p>
+      </dd>
+      <dt class="procedure"><code>(parameterization? <var>obj</var>)</code></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a
+	parameterization, and <code>#f</code> otherwise.</p>
+      </dd>
+      <dt class="procedure"><code>(call-with-parameterization <var>parameterization</var> <var>thunk</var>)</code></dt>
+      <dd>
+	<p>Annotates the most recent continuation frame in the current
+	  continuation with a parameterization continuation mark whose
+	  value is <code><var>parameterization</var></code>, and
+	  invokes <code><var>proc</var></code> in this continuation.
+	</p>
+	<p>In particular, if a call
+	to <code>call-with-current-parameterization</code> occurs in a tail
+	context. the call to <code><var>proc</var></code> is also in a tail
+	context.</p>
+      </dd>
+    </dl>
+
+    <p>While the following example demonstrates many features of
+      parameter objects, it should not be considered to illustrate good
+      programming style.  Usually, the conversion procedure should be idempotent.</p>
+
+    <pre class="example">(define p (make-parameter 10 (lambda (x) (* x x))))
+(define ps #f)
+
+(p)<span class="result">100</span>
+
+(p 12)
+(p)<span class="result">144</span>
+
+(parameterize ([p (p)])
+  (set! ps (current-parameterization))
+  (p))<span class="result">20736</span>
+(p)<span class="result">144</span>
+
+(parameter? p)<span class="result">#t</span>
+(parameterization? ps)<span class="result">#t</span>
+
+(call-with-parameterization ps
+  (lambda ()
+    (let ([x (p)])
+      (p 0)
+      (list x (p)))))<span class="result">(20736 0)</span>
+
+(p)<span class="result">144</span></pre>
+
+    <p>The following example shows how continuation marks can be used
+    to test that the last expression in a <code>parameterize</code>
+    body is in tail context if the <code>parameterize</code> expression itself is:</p>
+
+<pre class="example">(with-continuation-mark 'in-tail-context? #t
+  (parameterize ([(make-parameter 0) 1])
+    (call-with-immediate-continuation-mark 'in-tail-context? values)))<span class="result">#t</span></pre>
+
+    <p><i>Note:</i> The parameter objects defined in this
+      specification are fully compatible with the parameter objects
+      of <a href="#feeley2"><cite>SRFI 39</cite></a>
+      and <cite>R<sup>7</sup>RS</cite> but add the requirement that
+      the last expression in the body of a <code>parameterize</code>
+      expression in tail context is in tail context as well.  With
+      respect to multiple threads, this specification differs
+      from <cite>Racket</cite> in that the cells associated with
+      parameter objects are not “thread-local” in this specification.
+      As has already been observed by Marc Feeley during the
+      discussion period of <cite>SRFI 39</cite>, this is the cleaner,
+      faster, and more expressive semantics.  Finally, the parameter
+      objects defined here are not fully compatible with the
+      parameters of <cite>Chez Scheme</cite>.  While these offer some
+      features over the parameter objects in <cite>SRFI 39</cite>
+      and <cite>R<sup>7</sup>RS</cite>, they would be incompatible
+      with the tail-context guarantee of the <code>parameterize</code>
+      form and with the parameterization as a first-class
+      object.  <cite>Chez Scheme's</cite> <code>parameterize</code>
+      mechanism is implemented by the <code>temporarily</code> syntax
+      below.</p>
+
+    <p>A <dfn>parameter-like object</dfn> is a procedure <var>p</var>
+      that can be invoked on zero and on one argument.  Calling it
+      with zero arguments should return the parameter value associated
+      with it; calling it with one argument should set the parameter
+      value associated with it to the argument value.</p>
+
+    <p>Each parameter object is a parameter-like object.</p>
+
+    <dl class="entries">
+      <dt class="syntax"><code>(temporarily ([<span class="token">param-expr</span> <span class="token">expression</span>] &hellip;) <span class="token">body</span>)</code></dt>
+      <dd>
+	<p><i>Syntax:</i>
+	  The <code><span class="token">param-exprs</span></code> and
+	  the <code><span class="token">expressions</span></code> are
+	  expressions, and <code><span class="token">body</span></code> is
+	  a body.</p>
+	<p><i>Semantics:</i> Evaluates
+	  the <code><span class="token">param-exprs</span></code>
+	  and <code><span class="token">expressions</span></code> in
+	  an arbitrary order to obtain parameter-like objects and
+	  arbitrary objects, the new values, respectively.  The body
+	  is evaluated and the values of its last expression are
+	  returned.</p>
+        <p>Whenever the dynamic extent of <code>body</code> is entered
+	  or left, the parameter-like objects are called with zero
+	  arguments in an unspecified order to yield values, the old
+	  values.  Each parameter-like object is then called with its
+	  respective new value.  Finally, the set of new values is
+	  replaced by the set of old values.</p>
+      </dd>
+    </dl>
+
+    <p>The following examples show how the <code>temporarily</code> syntax
+      differs from the <code>parameterize</code> syntax:</p>
+
+    <pre class=example>(let ([p (make-parameter 1 (lambda (x) (+ x 1)))])
+  (temporarily ([p 4]) (values))
+  (p))<span id="errata-3" class=result>3</span>
+
+(let ([p (make-parameter 1 (lambda (x) (+ x 1)))])
+  (parameterize ([p 4]) (values))
+  (p))<span class=result>2</span>
+
+(let ([p (make-parameter 1)])
+  (define t
+    (temporarily ([p 2])
+      (make-thread (lambda () (p)))))
+  (thread-join! (thread-start! t)))<span class=result>1</span>
+
+(let ([p (make-parameter 1)])
+  (define t
+    (parameterize ([p 2])
+      (make-thread (lambda () (p)))))
+    (thread-join! (thread-start! t)))<span class=result>2</span></pre>
+
+    <h3 id="fluids-2">Fluids</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	fluids)</code> library.</p>
+
+    <p>Each <dfn>fluid</dfn> is an identifier.  A parameter object is associated with each fluid.</p>
+
+    <p>Like other definitions, the <code>define-fluid</code>,
+    the <code>define-thread-fluid</code>,
+    and <code>define-fluidified</code> definitions can either appear at
+    the outermost level or in a body where other definitions can
+    appear.</p>
+
+    <dl class="entries">
+      <dt class="syntax"><code><span class="token">Fluid</span></code></dt>
+      <dd>
+        <p><i>Syntax:</i> <code><span class="token">Fluid</span></code> is a fluid.</p>
+        <p><i>Semantics:</i> Evaluates to the content of the cell of
+          the associated parameter object of
+          the <code><span class="token">fluid</span></code> in the current parameterization.</p>
+      </dd>
+      <dt class="syntax"><code>(set! <span class="token">fluid</span> <span class="token">expression</span>)</code></dt>
+      <dd>
+        <p><i>Syntax:</i> <code><span class="token">Fluid</span></code>
+          is a fluid; <code><span class="token">expression</span></code>
+          can be any expression.</p>
+        <p><i>Semantics:</i>
+          Evaluates <code><span class="token">expression</span></code>
+          and stores the resulting value in the content of the cell of
+          the associated parameter object of
+          the <code><span class="token">fluid</span></code> in the
+          current parameterization.  Returns unspecified values.</p>
+      </dd>
+      <dt class="syntax"><code>(define-fluid <span class="token">fluid</span> <span class="token">expression</span> <span class="token">converter
+      expression</span>)</code></dt>
+      <dt class="syntax"><code>(define-fluid <span class="token">fluid</span> <span class="token">expression</span>)</code></dt>
+      <dd>
+        <p><i>Syntax:</i>
+          <code><span class="token">Fluid</span></code> is an
+          identifier; <code><span class="token">expression</span></code>
+          and <code><span class="token">converter expression</span></code>
+          can be any expression.
+        </p>
+        <p><i>Semantics:</i> The <code>define-fluid</code> form
+          defines the <code><span class="token">fluid</span></code>.
+          When the <code>define-fluid</code> form is evaluated, in an
+          unspecified order,
+          the <code><span class="token">expression</span></code> is
+          evaluated to yield a value and
+          the <code><span class="token">converter-expression</span></code>
+          is evaluated to yield a procedure.
+          The <code><span class="token">fluid</span></code> is then
+          associated with a new parameter object whose initial value
+          is the obtained value and whose converter is the obtained
+          procedure.</p>
+        <p>If
+          the <code><span class="token">converter expression</span></code>
+          is missing, it defaults to an expression evaluating to the
+          identity procedure.</p>
+      </dd>
+      <dt class="syntax"><code>(define-thread-fluid <span class="token">fluid</span> <span class="token">expression</span> <span class="token">converter
+      expression</span>)</code></dt>
+      <dt class="syntax"><code>(define-thread-fluid <span class="token">fluid</span> <span class="token">expression</span>)</code></dt>
+      <dd>
+        <p>As <code>define-fluid</code> except that the associated
+          parameter object behaves as if created
+          by <code>make-thread-parameter</code> and
+          not <code>make-parameter</code>.</p>
+      </dd>
+      <dt class="syntax"><code>(define-fluidified <span class="token">fluid</span> <span class="token">parameter expression</span>)</code></dt>
+      <dd>
+        <p><i>Syntax:</i>
+          <code><span class="token">Fluid</span></code> is an
+          identifier; <code><span class="token">parameter expression</span></code>
+          is an expression that must evaluate to a parameter object.
+        </p>
+        <p><i>Semantics:</i>
+          The <code>define-fluidified</code> form
+          defines the <code><span class="token">fluid</span></code>.
+          When the <code>define-fluidified</code> form is evaluated,
+          the <code><span class="token">parameter expression</span></code> is
+          evaluated to yield a parameter object.
+          The <code><span class="token">fluid</span></code> is then
+          associated with this parameter object.</p>
+      </dd>
+      <dt class="syntax"><code>(fluid-let ([<span class="token">fluid</span> <span class="token">expression</span>] &hellip;) <span class="token">body</span>)</code></dt>
+      <dd>
+        <p><i>Syntax:</i>
+          The <code><span class="token">fluids</span></code> are arbitrary
+          fluids and the <code><span class="token">expressions</span></code> arbitrary expressions.
+        </p>
+        <p><i>Semantics:</i> Equivalent to a <code>parameterize</code>
+          form whose <code><span class="token">param-exprs</span></code>
+          evaluate to the parameter objects associated with
+        the <code><span class="token">fluids</span></code>.</p>
+      </dd>
+      <dt class="syntax"><code>(fluid-let* ([<span class="token">fluid</span> <span class="token">expression</span>] &hellip;) <span class="token">body</span>)</code></dt>
+      <dd>
+        <p>Related to <code>fluid-let</code> as <code>let*</code> is related to <code>let</code>.</p>
+      </dd>
+      <dt class="syntax"><code>(fluid-parameter <span class="token">fluid</span>)</code></dt>
+      <dd><p><i>Syntax:</i>
+        <code><span class="token">Fluid</span></code> can be an arbitrary fluid.
+      </p>
+      <p><i>Semantics:</i> Evaluates to the parameter object associated with the <code><span class="token">fluid</span></code>.</p></dd>
+    </dl>
+
+    <p>Thread fluids can be used to mimic (inheritable) thread local
+      variables of languages like C or C++.  As long as only one
+      thread is involved, they behave like ordinary variables.  With
+      more than one thread, they differ in behavior as an assignment
+      to a fluid in one thread won't be visible in other existing
+      threads:</p>
+
+    <pre class="example">(define-thread-fluid x 1)
+
+x<span class="result">1</span>
+
+(set! x 2)
+x<span class="result">2</span>
+
+(thread-join!
+ (thread-start!
+  (make-thread!
+   (lambda ()
+     (set! x 3)))))
+x<span class="result">2</span></pre>
+
+    <h3 id="initial-continuations">Initial Continuations</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	call-in-initial-continuation)</code> library.  The library, in
+	addition to the procedures and syntax described here, also
+	exports the <code>&amp;uncaught-exception</code> condition type
+	and associated procedures from <code>(srfi :226 control
+	threads)</code>.</p>
+
+    <p>An <dfn>initial continuation</dfn> is one that consists of a
+      single continuation prompt tagged with the default prompt tag
+      and with the default abort handler.  Moreover, a single initial
+      exception handler is installed in an initial continuation that,
+      when invoked on a <code>&amp;serious</code> condition or on a
+      non-condition object, aborts to the most recent continuation
+      prompt tagged with the default prompt tag and calls its abort handler
+      with a thunk that, when evaluated, raises an exception whose
+      condition is the object.  When invoked on a
+      non-<code>&amp;serious</code> condition object, the initial
+      abort handler returns with unspecified values instead.</p>
+
+    <p><i>Note:</i> There is usually more than one initial
+    continuation.  The primordial thread starts in an initial
+    continuation, but new initial continuations are created when new
+    threads or new promises are created or when the
+    procedure <code>call-in-initial-continuation</code> is invoked
+      (see below).</p>
+
+    <p>Executing a top-level program starts with an initial
+      continuation.  When values are delivered in this initial
+      continuation, the program exits normally.  When an exception is
+      raised in the dynamic extent of the abort handler of the initial
+      continuation prompt, the program may exit or may provide a
+      choice of other options.  It is expected that the initial
+      exception handler reports that an exception has been raised, and
+      displays information about the condition object that was
+      provided.</p>
+
+    <p>This extends the semantics of <code>raise</code>.</p>
+
+    <dl class="entries">
+      <dt class="entry"><code>(call-in-initial-continuation <var>thunk</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Calls <code><var>thunk</var></code> in an initial
+	  continuation.  The parameterization of the initial
+	  continuation is the same as the parameterization of the
+	  continuation of the call
+	  to <code>call-in-initial-continuation</code>.  When values
+	  are delivered to the initial continuation, the values are
+	  delivered to the continuation of the call
+	  to <code>call-in-initial-continuation</code>.  When an
+	  exception is raised in the dynamic extent of the abort handler of
+	  the continuation prompt of the initial continuation, a
+	  continuable exception of
+	  type <code>&amp;uncaught-exception</code> whose reason is the
+	  raised object is raised in the continuation of the call
+	  to <code>call-in-initial-continuation</code>.</p>
+	<p>This extends the semantics of <code>raise</code>.</p>
+      </dd>
+    </dl>
+
+<pre id="errata-4" class="example">(let ([tag (make-continuation-prompt-tag)]
+      [p (make-parameter 0)])
+  (parameterize ([p 1])
+    (call-with-continuation-prompt
+     (lambda ()
+       (call-in-initial-continuation
+        (lambda ()
+          (list (continuation-prompt-available? tag (call/cc values))
+                (p)))))
+     tag)))<span class="result">(#f 1)</span>
+
+(guard (c
+        [(uncaught-exception-condition? c) (uncaught-exception-condition-reason c)])
+  (call-in-initial-continuation
+    (lambda ()
+      (raise 42))))<span class="result">42</span></pre>
+
+    <h3 id="promises-2">Promises</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	promises)</code> library. The library, in addition to the
+      procedures and syntax described here, also exports
+      the <code>&amp;uncaught-exception</code> condition type and
+      associated procedures from <code>(srfi :226 control threads)</code>.</p>
+
+    <p><dfn>Promises</dfn> are objects that can be <dfn>forced</dfn>
+      to deliver values or raise exceptions.</p>
+
+    <dl class="entries">
+      <dt class="syntax"><code>(delay <span class="token">body</span>)</code></dt>
+      <dd>
+	<p><i>Syntax:</i>
+	  <code><span class="token">Body</span></code> is a body.</p>
+	<p><i>Semantics:</i> Evaluates to a promise that behaves as
+	  follows when forced in a continuation <var>k</var>: If the
+	  promise already has delivered values, the same values are
+	  delivered again, and if the promise already has raised an
+	  exception, the same exception is raised again in the
+	  continuation <var>k</var>.
+	  Otherwise, <code><span class="token">body</span></code> is
+	  evaluated in an initial continuation.  The parameterization
+	  of the initial continuation is the same as the
+	  parameterization of the continuation of the
+	  original <code>delay</code> expression.  When values are
+	  delivered to the initial continuation and the promise still
+	  hasn't delivered values or has raised an exception, the
+	  values are delivered to the continuation in which the
+	  promise was forced.  Otherwise, the already delivered values
+	  are delivered again, or the already raised exception is
+	  raised again in the continuation <var>k</var>.  When an
+	  exception is raised in the dynamic extent of the abort handler of
+	  the continuation prompt of the initial continuation and the
+	  promise still hasn't delivered values or has raised an
+	  exception, a continuable exception of
+	  type <code>&amp;uncaught-exception-condition</code> whose reason
+	  is the object is raised in the continuation <var>k</var>.
+	  Otherwise, the already delivered values are delivered again,
+	  or the already raised exception is raised again in the
+	  continuation <var>k</var>.</p>
+
+	<p>If a call to <code>force</code> occurs in tail context
+	  during the evaluation
+	  of <code><span class="token">body</span></code>, it is
+	  effectively a tail call.</p>
+
+	<p>All operations involved in forcing except for the
+	  evaluation of the body are required to be atomic.</p>
+
+	<p><i>Note: </i> The extra requirement about calls
+	  to <code>force</code> in tail contexts makes the
+	  extra <code>delay-force</code> syntax
+	  of <cite>R<sup>7</sup>RS</cite> (see
+	  also <cite>SRFI 45</cite>, where it
+	  is called <code>lazy</code>) unnecessary.</p>
+      </dd>
+
+      <dt class="procedure"><code>(make-promise <var>obj</var> &hellip;)</code></dt>
+      <dd>
+	<p>Returns a promise that, when forced in a continuation,
+	delivers the values <code><var>obj</var></code> &hellip; to the
+	continuation.</p>
+	<p><i>Note:</i>
+	  <cite>R<sup>7</sup>RS</cite> includes the description of a
+	  one-argument procedure also named <code>make-promise</code> that
+	  behaves as the <code>make-promise</code> procedure defined
+	  here when applied to a single non-promise object.  As the
+	  semantics of <code>make-promise</code>
+	  in <cite>R<sup>7</sup>RS</cite> makes it mostly useless and
+	  does not allow the obvious generalization to multiple
+	  values, we have decided to break compatibility for the
+	  better.
+	</p>
+      </dd>
+
+      <dt class="procedure"><code>(promise? <var>obj</var>)</code></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a
+	promise, and <code>#f</code> otherwise.</p>
+      </dd>
+
+      <dt class="procedure"><code>(force <var>promise</var>)</code></dt>
+      <dd>
+	<p>The <code>force</code> procedure
+	forces <code><var>promise</var></code> in the continuation of
+	the call to <code>force</code>.</p>
+      </dd>
+    </dl>
+
+    <p><i>Note:</i>
+      <cite>R<sup>7</sup>RS</cite> includes the unfortunate
+      requirement that the body of a <code>delay</code> form has to be
+      evaluated in the dynamic environment of the call
+      to <code>force</code>.  This makes the result of forcing a
+      promise dependent on the time when the promise is forced, even in
+      purely functional code.  As has already been observed Marc
+      Feeley during the discussion period of <cite>SRFI 39</cite>, the
+      more consistent semantics would have been to evaluate the body
+      of a <code>delay</code> form in the parameterization of that
+      form.  The <code>delay</code> syntax defined in this
+      specification has the more consistent semantics and is breaking
+      compatibility with <cite>R<sup>7</sup>RS</cite> for what we
+      think is the better.  The semantics defined here also work well
+      in the presence of capturing and applying continuations.  In
+      fact, with regard to the dynamic environment, the semantics of
+      promises are now equivalent to that of threads.</p>
+
+    <pre class="example">(promise? (make-promise 1 2))<span class="result">#t</span>
+(promise? (delay 3))<span class="result">#t</span>
+(promise? (force (make-promise (make-promise 4))))<span class="result">#t</span>
+
+(call-with-values
+    (lambda ()
+      (force
+       (delay
+         (define x 1)
+         (values x 2))))
+  list)<span class="result">(1 2)</span>
+
+(let* ([p (make-parameter 3)]
+       [q (parameterize
+              ([p 5])
+            (delay (p)))])
+  (force q))<span class="result">5</span>
+
+(let* ([x 0]
+       (q (delay
+            (set! x (+ x 1))
+            (raise #t))))
+  (guard (c [(uncaught-exception-condition? c)])
+    (force q)
+    (set! x (+ x 2)))
+  (guard (c [(uncaught-exception-condition? c)])
+    (force q)
+    (set! x (+ x 4)))
+  x)<span class="result">1</span></pre>
+
+    <h3 id="exceptions">Exceptions</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	exceptions)</code> library.</p>
+
+    <p>Conceptually, each continuation contains at least one
+      otherwise inaccessible exception handler stack continuation
+      mark, whose value is a list of exception handlers,
+      which are one-argument procedures.  The <dfn>exception handler
+      stack</dfn> of a continuation is the value of the most recent
+      exception handler stack continuation mark in the continuation.
+      The exception handler stack of the current continuation is
+      the <dfn>current exception handler stack</dfn>.
+      The <dfn>current exception handler</dfn> is the first element of
+      the current exception handler stack.  An exception handler
+      (procedure) is <dfn>installed</dfn> in a continuation by
+      recording the exception handler stack of the continuation,
+      constructing a new exception handler stack by prepending the
+      exception handler to be installed to the recorded exception
+      handler stack, and annotating the continuation with an exception
+      handler stack continuation mark whose value is the new exception
+      handler stack.  The most recent exception handler
+      is <dfn>removed</dfn> in a continuation by recording the
+      exception handler stack of the continuation, constructing a new
+      exception handler stack by removing the first element of the
+      recorded exception handler stack, and annotating the continuation
+      with an exception handler stack continuation mark whose value is
+      the new exception handler stack.</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(with-exception-handler <var>handler</var> <var>thunk</var>)</code></dt>
+      <dd>
+	<p>It is an assertion violation
+	if <code><var>handler</var></code> is not a procedure or does not
+	accept one argument.</p>
+	<p>Installs <code><var>handler</var></code> in the
+	  continuation to the call
+	  to <code>with-exception-handler</code>,
+	  calls <code>thunk</code> with no arguments, and delivers the
+	  resulting values to the continuation of the call
+	  to <code>with-exception-handler</code>.
+	</p>
+	<p>If a call
+	  to <code>with-exception-handler</code> occurs in a tail
+	  context, the call to <code><var>thunk</var></code> is also in a tail
+	  context.</p>
+	<p><i>Note:</i> The tail context requirement is neither
+	  in <cite>R<sup>6</sup>RS</cite> nor
+	  in <cite>R<sup>7</sup>RS</cite>.</p>
+      </dd>
+      <dt class="procedure"><code>(exception-handler-stack)</code></dt>
+      <dd>
+	<p>Returns a newly allocated list containing the handlers of
+	  the current exception handler stack, with the most recently
+	  installed handlers coming first.</p></dd>
+      <dt class="procedure"><code>(current-exception-handler)</code></dt>
+      <dd><p>Returns the current exception handler.</p>
+      </dd>
+      <dt class="procedure"><code>(raise <var>obj</var>)</code></dt>
+      <dd>
+	<p>Raises a <dfn>non-continuable exception</dfn> as follows:
+	  The current exception handler is recorded and then the most
+	  recent exception handler is removed in the continuation
+	  to the call to <code>raise</code>.  The recorded exception
+	  handler is then invoked on <code><var>obj</var></code>.  If
+	  this invocation returns, a non-continuable exception with
+	  condition type <code>&amp;non-continuable</code> is raised
+	  in the continuation of the call to <code>raise</code>.
+	</p>
+	<p>If there is no current exception handler because the
+	  current exception handler stack is empty, the current
+	  continuation is instead aborted to the most recent
+	  continuation prompt tagged with the default continuation
+	  prompt tag, and its handler invoked on a thunk that, when called,
+	  raises <code><var>obj</var></code>.</p>
+	<p><i>Note:</i> The current exception handler stack becomes
+	  empty if the initial exception handler returns after having
+	  been invoked on a non-<code>&amp;serious</code> condition,
+	  which causes a <code>&amp;non-continuable</code> condition to
+	  be raised.</p>
+      </dd>
+      <dt class="procedure"><code>(raise-continuable <var>obj</var>)</code></dt>
+      <dd>
+	<p>Raises a <dfn>continuable exception</dfn> as follows:
+	  The most recent continuation frame in the continuation to
+	  the call to <code>raise-continuable</code> is annotated with an
+	  exception handler stack continuation mark whose value is the
+	  current handler stack with the first element removed.  The
+	  previously first element is then invoked
+	  on <code><var>obj</var></code>, and its values are returned.</p>
+	<p>If there is no current exception handler because the
+	  current exception handler stack is empty, the current
+	  continuation is instead aborted to the most recent
+	  continuation prompt tagged with the default continuation
+	  prompt, and its handler invoked on a thunk that, when called,
+	  raises <code><var>obj</var></code>.</p>
+	<p>If a call to <code>raise-continuable</code> occurs in a
+	  tail context, the call to the current exception handler is
+	  also in a tail context.</p>
+	<p><i>Note: </i> The tail context requirement is neither
+	  in <cite>R<sup>6</sup>RS</cite>, nor
+	  in <cite>R<sup>7</sup>RS</cite>.  It is
+	  in <cite>SRFI 18</cite>,
+	  whose <code>raise</code> corresponds
+	  to <code>raise-continuable</code>
+	  in <cite>R<sup>6</sup>RS</cite>
+	  and <cite>R<sup>7</sup>RS</cite>.</p>
+      </dd>
+      <dt class="syntax"><code>(guard
+	  (<span class="token">variable</span> <span class="token">cond
+	  clause<sub>1</sub></span> <span class="token">cond
+	    clause<sub>2</sub></span> &hellip;) <span class="token">body</span>)</code></dt>
+      <dt class="entry"><code>=&gt;</code><span class="type">auxiliary syntax</span></dt>
+      <dt class="entry"><code>else</code><span class="type">auxiliary syntax</span></dt>
+      <dd>
+	<p><i>Syntax:</i> Each <code><span class="token">cond
+	  clause</span></code> is as in the specification
+	  of <code><span class="token">cond</span></code>.  <code><span class="token">Variable</span></code>
+	  is an identifier
+	  and <code><span class="token">body</span></code> a body.</p>
+	<p><i>Semantics:</i> Installs an exception handler as
+	  described below in the continuation of
+	  the <code>guard</code> expression, and
+	  evaluates <code><span class="token">body</span></code>.  The
+	  installed exception handler captures and records the current
+	  continuation delimited by the default prompt tag.  It then
+	  aborts to the continuation of the <code>guard</code>
+	  expression or to the most recent continuation prompt tagged
+	  with the default prompt tag, whichever comes first.  It then
+	  binds the raised object
+	  to <code><span class="token">variable</span></code> and,
+	  within the scope of that binding, evaluates the clauses as
+	  if they were the clauses of a <code>cond</code> expression.
+	  If every <code><span class="token">cond clause</span></code>
+	  evaluates to <code>#f</code> and there is
+	  no <code>else</code> clause, the recorded continuation is
+	  reinstated with the most recent exception handler removed
+	  and a continuable exception with the same object originally
+	  raised is raised in the resulting continuation.  Otherwise,
+	  the resulting values of the equivalent <code>cond</code>
+	  expression are delivered to the aborted continuation (the
+	  one captured and recorded).</p>
+	<p>If a <code>guard</code> expression is in tail context, the
+	  last expression
+	  in <code><span class="token">body</span></code> is in tail
+	  context as well.  The final expression in
+	  a <code><span class="token">cond clause</span></code> is in
+	  a tail context if the <code>guard</code> expression itself
+	  is.</p>
+	<p><i>Note:</i> The tail context requirement on the body of
+	  a <code>guard</code> expression is neither
+	  in <cite>R<sup>6</sup>RS</cite>, nor
+	  in <cite>R<sup>7</sup>RS</cite>.</p>
+      </dd>
+    </dl>
+
+    <pre class="example">(guard (c [(eqv? c 42) c])
+  (+ 1
+     (call-with-continuation-prompt
+       (lambda ()
+         (raise 42)))))<span class="result">43</span></pre>
+
+    <h3 id="conditions-2">Conditions</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+        conditions)</code> library.</p>
+
+    <p>The condition types described in this section allow condition
+      values to encapsulate information about the current
+      parameterization, the current continuation mark set and the
+      current exception handler stack at the origin of an exception
+      situation.</p>
+
+    <p>The semantics of
+      the <code>assertion-violation</code>, <code>error</code>,
+      and <code>syntax-violation</code> are extended so that they
+      communicate this information of the exception situation.
+    </p>
+
+    <dl class="entries">
+      <dt class="entry"><code>&amp;parameterization</code><span class="type">condition-type</span></dt>
+      <dt class="procedure"><code>(make-parameterization-condition <var>parameterization</var></code>)</dt>
+      <dt class="procedure"><code>(parameterization-condition? <var>obj</var></code>)</dt>
+      <dt class="procedure"><code>(condition-parameterization <var>condition</var></code>)</dt>
+      <dd>
+	<p>This condition type could be defined by</p>
+	<pre>(define-condition-type &amp;parameterization &amp;condition
+  make-parameterization-condition parameterization-condition?
+  (parameterization condition-parameterization))</pre>
+        <p><code><var>Parameterization</var></code> should be a
+          parameterization.  This condition provides information about
+          a parameterization, typically at the origin of the condition.</p>
+        <p>The condition object provided with the exception raised by <code>assertion-violation</code>,
+          <code>error</code>, and <code>syntax-violation</code> also
+          has the condition type <code>&amp;parameterization</code>,
+          with the current parameterization as the value of its
+          field.
+        </p>
+        <p>This extends the semantics of <code>assertion-violation</code>,
+          <code>error</code>, and <code>syntax-violation</code>.</p>
+        <p>Whenever the implementation detects an exceptional
+          situation and raises an exception providing a condition
+          object, this condition object should also have the condition
+          type <code>&amp;parameterization</code>, with the current
+          parameterization as the value of its field.</p>
+      </dd>
+
+      <dt class="entry"><code>&amp;continuation-marks</code><span class="type">condition-type</span></dt>
+      <dt class="procedure"><code>(make-continuation-marks-condition <var>continuation-marks</var></code>)</dt>
+      <dt class="procedure"><code>(continuation-marks-condition? <var>obj</var></code>)</dt>
+      <dt class="procedure"><code>(condition-continuation-marks <var>condition</var></code>)</dt>
+      <dd>
+	<p>This condition type could be defined by</p>
+	<pre>(define-condition-type &amp;continuation-marks &amp;condition
+  make-continuation-marks-condition continuation-marks-condition?
+  (continuation-marks condition-continuation-marks))</pre>
+        <p><code><var>Continuation-marks</var></code> should be a
+          continuation mark set.  This condition provides information about
+          a continuation mark set, typically of the origin of the condition.</p>
+        <p>The condition object provided with the exception raised by <code>assertion-violation</code>,
+          <code>error</code>, and <code>syntax-violation</code> also
+          has the condition type <code>&amp;continuation-marks</code>,
+          with the current continuation mark set up to the prompt
+          tagged with the default prompt tag as the value of its
+          field.
+        </p>
+        <p>This extends the semantics of <code>assertion-violation</code>,
+          <code>error</code>, and <code>syntax-violation</code>.</p>
+        <p>Whenever the implementation detects an exceptional
+          situation and raises an exception providing a condition
+          object, this condition object should also have the condition
+          type <code>&amp;continuation-marks</code>, with the current
+          continuation mark set up to the prompt tagged with the
+          default prompt tag as the value of its field.</p>
+      </dd>
+
+      <dt class="entry"><code>&amp;exception-handler-stack</code><span class="type">condition-type</span></dt>
+      <dt class="procedure"><code>(make-exception-handler-stack-condition <var>exception-handler-stack</var></code>)</dt>
+      <dt class="procedure"><code>(exception-handler-stack-condition? <var>obj</var></code>)</dt>
+      <dt class="procedure"><code>(condition-exception-handler-stack <var>condition</var></code>)</dt>
+      <dd>
+	<p>This condition type could be defined by</p>
+	<pre>(define-condition-type &amp;exception-handler-stack &amp;condition
+  make-exception-handler-stack-condition exception-handler-stack-condition?
+  (exception-handler-stack condition-exception-handler-stack))</pre>
+        <p><code><var>Exception-handler-stack</var></code> should be a
+          list of exception handlers.  This condition provides information about
+          an exception handler stack, typically at the origin of the condition.</p>
+        <p>The condition object provided with the exception raised by <code>assertion-violation</code>,
+          <code>error</code>, and <code>syntax-violation</code> also
+          has the condition
+          type <code>&amp;exception-handler-stack</code>, with the
+          current exception handler stack as a newly allocated list as
+          the value of its field.
+        </p>
+        <p>This extends the semantics of <code>assertion-violation</code>,
+          <code>error</code>, and <code>syntax-violation</code>.</p>
+        <p>Whenever the implementation detects an exceptional
+          situation and raises an exception providing a condition
+          object, this condition object should also have the condition
+          type <code>&amp;exception-handler-stack</code>, with the current
+          exception handler stack as the value of its field.</p>
+      </dd>
+    </dl>
+
+    <h3 id="time-objects">Time Objects</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	times)</code> library.  The time type defined in this library is used in <code>(srfi
+	:226 control threads)</code> for timeout arguments in various procedures.</p>
+
+    <p>The specification of this library is minimal to make it
+      compatible with existing and future Scheme time APIs.</p>
+
+    <p><dfn>Time objects</dfn> or simply <dfn>times</dfn> represent an
+       absolute time (in the process' proper time).</p>
+
+    <p><i>Note:</i> Specifying a minimal temporal resolution of time
+      objects is outside the scope of this minimal library.  For the
+      purpose of their use as timeout arguments, it is recommended
+      that the minimal resolution of time objects is at least a millisecond.</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(time? <var>obj</var>)</code></dt>
+      <dd><p>Returns <code>#t</code> if <code><var>obj</var></code> is
+      a time object, <code>#f</code> otherwise.</p>
+      </dd>
+      <dt class="procedure"><code>(current-time)</code></dt>
+      <dd><p>Returns the absolute time at the call
+      to <code>current-time</code> as a time object.</p></dd>
+      <dt class="procedure"><code>(seconds+ <var>time</var> <var>x</var>)</code></dt>
+      <dd><p>Returns <code><var>x</var></code> seconds in the future
+      of <code><var>time</var></code> as a time object.</p>
+	<p><i>Note:</i> If <code><var>x</var></code> is a negative
+	real number, the returned time is actually in the past
+	of <code><var>time</var></code>.</p>
+	<p><i>Note:</i> Future SRFIs detailing time objects may want
+	  to add a
+	  procedure <code>(nanoseconds+ <var>time</var> <var>n</var>)</code>
+	  where the time offset is not a real number measuring seconds
+	  but an integer measuring nanoseconds.</p>
+      </dd>
+    </dl>
+
+    <h3 id="threads">Threads</h3>
+
+    <p>This section describes the <code>(srfi :226 control
+	threads)</code> library.  The library is compatible and mostly
+      API-compatible with <cite>SRFI 18</cite>.  For detailed
+      examples and a detailed rationale, please see that SRFI.  The
+      author of this document does not claim any additional major
+      contributions; in fact, a lot of text from <cite>SRFI
+	18</cite> was copied verbatim or mostly verbatim.</p>
+
+    <p>The concepts of a <i>thread</i>, a <i>mutex</i>, and a
+      condition variable are described in the corresponding
+      subsections below.  As in <cite>SRFI 18</cite>, we do not
+      require specific fairness constraints from implementations of
+      this SRFI.  Please see <cite>SRFI 18</cite> for more comments on
+      fairness.</p>
+
+    <p>The API described in this sections differs from the API provided by <cite>SRFI 18</cite> in the following points:</p>
+
+    <ul>
+      <li><p>Neither threads, nor mutexes, nor condition variables possess
+	  a <code>name</code> field.  If such information is needed
+	  for debugging purposes, a weak hash table can be used
+	  instead for mutexes or condition variables.  For threads,
+	  the thread type can be extended by arbitrary
+	  fields.</p></li>
+      <li><p>Neither threads, nor mutexes, nor condition variables
+	  possess <code>specific</code> fields.  If these are needed
+	  for mutexes or condition variables, weak hash tables can be
+	  used instead.  For threads, the thread type can be extended
+	  by arbitrary fields.</p>
+        <p>Moreover, this SRFI
+	  describes thread locals as a mechanism to associate data
+	  with threads.  In fact, thread locals allow library-specific
+	  and not only application-specific data as the
+	  thread-specific field of <cite>SRFI 18</cite>.</p></li>
+      <li><p>The interface for (absolute) time objects does not have a
+	  notion of an implementation-dependent <i>epoch</i>.  In particular, there are no procedures
+	  <code>time-&gt;seconds</code> and <code>seconds-&gt;time</code>.</p></li>
+      <li><p>The procedures related to exception handling contained
+	  in <cite>SRFI 18</cite> are described elsewhere in this
+	  document.</p></li>
+      <li><p>The exception objects of <cite>SRFI 18</cite> are
+	  replaced by equivalent condition objects following the hierarchy
+	  of standard condition types of <cite>R<sup>6</sup>RS</cite>.</p></li>
+      <li><p>The procedure <code>thread-join!</code> does not have the
+          optional <code><var>timeout-val</var></code> argument.</p></li>
+    </ul>
+
+    <p>A <dfn>timeout</dfn> is either represented by a time object or
+      by <code>#f</code>.  If it is <code>#f</code>, an absolute time
+      lying infinitely far in the future is represented (meaning
+      effectively no timeout).  A missing optional timeout value
+      defaults to <code>#f</code>.  A timeout that is in the past is
+      automatically reached.</p>
+
+    <h4 id="conditions-3">Conditions</h4>
+
+    <dl class="entries">
+      <dt class="entry"><code>&amp;thread</code><span class="type">condition-type</span></dt>
+      <dt class="procedure"><code>(make-thread-condition</code>)</dt>
+      <dt class="procedure"><code>(thread-condition? <var>obj</var></code>)</dt>
+      <dd>
+	<p>This condition type could be defined by</p>
+	<pre>(define-condition-type &amp;thread &amp;serious
+  make-thread-condition thread-condition?)</pre>
+	<p>This is a supertype for a set of more specific (serious) thread conditions.</p>
+      </dd>
+      <dt class="entry"><code>&amp;uncaught-exception</code><span class="type">condition-type</span></dt>
+      <dt class="procedure"><code>(make-uncaught-exception-condition <var>obj</var></code>)</dt>
+      <dt class="procedure"><code>(uncaught-exception-condition? <var>obj</var></code>)</dt>
+      <dt class="procedure"><code>(uncaught-exception-condition-reason <var>condition</var></code>)</dt>
+      <dd>
+	<p>This condition type could be defined by</p>
+	<pre>(define-condition-type &amp;uncaught-exception &amp;thread
+  make-uncaught-exception-condition uncaught-exception-condition?
+  (reason uncaught-exception-reason))</pre>
+	<p>Both <code>uncaught-exception-condition?</code>
+	  and <code>uncaught-exception-condition-reason</code> are the
+	  same as <code>uncaught-exception</code>
+	  and <code>uncaught-exception-reason</code>
+	  in <cite>SRFI 18</cite>.</p>
+	<p><i>Note:</i> The names defined in this specification are
+	  more in line with the naming conventions
+	  in <cite>R<sup>6</sup>RS</cite>.</p>
+      </dd>
+      <dt class="entry"><code>&amp;thread-already-terminated</code><span class="type">condition-type</span></dt>
+      <dt class="procedure"><code>(make-thread-already-terminated-condition</code>)</dt>
+      <dt class="procedure"><code>(thread-already-terminated-condition? <var>obj</var></code>)</dt>
+      <dd>
+	<p>This condition type could be defined by</p>
+	<pre>(define-condition-type &amp;thread-already-terminated &amp;thread
+  make-thread-already-terminated-condition thread-already-terminated-condition?)</pre>
+	<p>The procedure <code>thread-already-terminated-condition?</code>  is the same
+	  as <code>terminated-thread-exception?</code>
+	  in <cite>SRFI 18</cite>.</p>
+      </dd>
+      <dt class="entry"><code>&amp;thread-timeout</code><span class="type">condition-type</span></dt>
+      <dt class="procedure"><code>(make-thread-timeout-condition</code>)</dt>
+      <dt class="procedure"><code>(thread-timeout-condition? <var>obj</var></code>)</dt>
+      <dd>
+	<p>This condition type could be defined by</p>
+	<pre>(define-condition-type &amp;thread-timeout &amp;thread
+  make-thread-timeout-condition thread-timeout-condition?)</pre>
+	<p>The procedure <code>thread-timeout-condition?</code>  is the same
+	  as <code>join-timeout-exception?</code>
+	  in <cite>SRFI 18</cite>.</p>
+      </dd>
+      <dt class="entry"><code>&amp;thread-abandoned-mutex</code><span class="type">condition-type</span></dt>
+      <dt class="procedure"><code>(make-thread-abandoned-mutex-condition</code>)</dt>
+      <dt class="procedure"><code>(thread-abandoned-mutex-condition? <var>obj</var></code>)</dt>
+      <dd>
+	<p>This condition type could be defined by</p>
+	<pre>(define-condition-type &amp;thread-abandoned-mutex &amp;thread
+  make-thread-abandoned-mutex-condition thread-abandoned-mutex-condition?)</pre>
+	<p>The procedure <code>thread-abandoned-mutex-condition?</code>  is the same
+	  as <code>abandoned-mutex-exception?</code>
+	  in <cite>SRFI 18</cite>.</p>
+      </dd>
+      <dt class="entry"><code>&amp;concurrent-modification</code><span class="type">condition-type</span></dt>
+      <dt class="procedure"><code>(make-concurrent-modification-violation)</code></dt>
+      <dt class="procedure"><code>(concurrent-modification-violation? <var>obj</var></code>)</dt>
+      <dd>
+	<p>This condition type could be defined by</p>
+	<pre>(define-condition-type &amp;concurrent-modification-violation &amp;assertion
+	  make-concurrent-modification-violation concurrent-modification-violation?)</pre>
+	<p>A <code>&amp;concurrent-modification</code> violation is
+	  raised when a concurrent modification of a non-thread safe
+	  data structure is detected.</p>
+        <p><i>Note:</i> Not all concurrent modifications can be
+          detected, or such checks would violate reasonable performance
+          assumptions.</p>
+      </dd>
+    </dl>
+
+    <p>The following example gives an implementation
+    of <code>list-&gt;vector</code> utilizing <code>&amp;concurrent-modification</code>:</p>
+
+    <pre class="example">(define list-&gt;vector
+  (lambda (ls)
+    (define-syntax safe
+      (syntax-rules ()
+        [(safe expr)
+         (guard (exc [(assertion-violation? exc)
+                      (raise
+                        (condition
+                          (make-who-condition 'list-&gt;vector)
+                          (make-message-condition "argument concurrently modified")
+                          (make-irritants-condition (list ls))
+                          (make-concurrent-modification-violation)))])
+           expr)]))
+    (let ([n (length ls)])
+      (do ([v (make-vector n)]
+           [i 0 (fx+ i 1)]
+           [ls ls (safe (cdr ls))])
+          ((fx=? i n) v)
+        (vector-set! v i (safe (car ls)))))))</pre>
+
+    <h4 id="threads-2">Threads</h4>
+
+    <p>A <dfn>thread</dfn> is a Scheme value of a specific type.
+      It represents a virtual processor that shares object space with all other threads.</p>
+
+    <p> A <dfn>running</dfn> thread is a thread that is currently
+    executing. There can be more than one running thread on a
+    multiprocessor machine.  A <dfn>runnable</dfn> thread is a thread
+    that is ready to execute or running.  A thread
+    is <dfn>blocked</dfn> if it is waiting for a mutex to become
+    unlocked, an I/O operation to become possible, the end of
+    a <i>sleep</i> period, etc.  A <dfn>new</dfn> thread is a thread
+    that has not yet become runnable.  A new thread becomes runnable
+    when it is started.  A <dfn>terminated</dfn> thread is a thread
+    that can no longer become runnable (but "deadlocked" threads are
+    not considered terminated).
+
+    <p>The only valid transitions between the thread states are from
+      new to runnable, between runnable and blocked, and from any
+      state to terminated.  Any attempt to cause an invalid transition
+      raises an assertion violation.</p>
+
+    <dl class="entries">
+      <dt class="record-type"><code>thread</code></dt>
+      <dd><p>Non-opaque and non-sealed record type representing
+          threads.  Its constructor descriptor specifies a non-default
+          constructor equivalent to <code>make-thread</code> below.
+      </p></dd>
+    </dl>
+
+    <p>Extending the default thread type allows us to add application-specific
+      fields transparently to each object representing a thread.</p>
+
+    <pre class="example">(define-record-type mythread
+  (parent thread)
+  (fields specific)
+  (protocol
+    (lambda (n)
+      (lambda (thunk obj)
+        ((n thunk) obj))))
+
+(thread-join!
+  (thread-start!
+    (make-mythread
+      (lambda ()
+        (define t (current-thread))
+        (assert (mythread? t))
+        (assert (thread? t))
+        (mythread-specific t))
+      'specific)))<span class="result">specific</span></pre>
+
+    <p><i>Remark:</i> The above assumes an implementation that
+      supports the <cite>R6RS</cite> record mechanism.  For
+      implementations supporting a different record mechanism with
+      single inheritance, the above applies <i>mutatis mutandis</i>.</p>
+
+    <dl class="entries">
+      <dt class="entry"><code>(make-thread <var>thunk</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Returns a new thread.  This thread is not automatically
+	  made runnable (the procedure <code>thread-start!</code> must be
+	  used for this).</p>
+	<p>The thread's execution consists of a call
+	  to <code><var>thunk</var></code> in an initial continuation
+	  as defined above.  The parameterization of the initial
+	  continuation is the same as the parameterization of the
+	  continuation of the invocation of <code>make-thread</code>.
+	  When an exception <var>e</var> is raised in the dynamic
+	  extent of the abort handler of the initial continuation prompt,
+	  an <code>&amp;uncaught-exception</code> condition object is recorded to be
+	  raised for this thread and the thread finally
+	  terminated.  The <code>reason</code> field of
+	  the <code>&amp;uncaught-exception</code> condition object is
+	  populated with the exception <var>e</var>.  When values are
+	  delivered to the initial continuation, the values are
+	  recorded to be delivered for this thread, and the thread
+	  is finally terminated.</p>
+	<p>When a thread is finally terminated, all mutexes it owns are abandoned.</p>
+	<p>This extends the semantics of <code>raise</code>.</p>
+      </dd>
+      <dt class="entry"><code>(thread? <var>obj</var>)</code><span class="type">procedure</span></dt>
+      <dd><p>Returns <code>#t</code> if <code><var>obj</var></code> is
+      a thread, and <code>#f</code> otherwise.</p>
+      </dd>
+      <dt class="entry"><code>(current-thread)</code><span class="type">procedure</span></dt>
+      <dd><p>Returns the current thread.</p>
+      </dd>
+      <dt class="entry"><code>(thread-start! <var>thread</var>)</code><span class="type">procedure</span></dt>
+      <dd><p>Makes <code><var>thread</var></code> runnable and returns
+	  it.  The thread <code><var>thread</var></code> must be a new
+	  thread.</p>
+	<p><i>Note:</i> It is useful to separate thread creation and
+	  thread activation to avoid the race condition that would
+	  occur if the created thread tries to examine a table in
+	  which the current thread stores the created thread.</p>
+      </dd>
+      <dt class="entry"><code>(thread-yield!)</code><span class="type">procedure</span></dt>
+      <dd><p>The current thread exits the running state.  Returns unspecified values.</p></dd>
+      <dt class="entry"><code>(thread-sleep! <var>timeout</var>)</code><span class="type">procedure</span></dt>
+      <dd><p>The current thread waits until the timeout <var>timeout</var> is
+	  reached.  This blocks the thread only if timeout represents
+	  a point in the future.  The
+	  procedure <code>thread-sleep!</code> returns unspecified
+	  values.</p>
+	<p>An assertion violation is raised if <code><var>timeout</var></code> is <code>#f</code>.</p>
+      </dd>
+      <dt class="entry"><code>(thread-terminate! <var>thread</var>)</code><span class="type">procedure</span></dt>
+      <dd><p>Schedules an abnormal termination
+	  of <code><var>thread</var></code>.  When the termination is
+	  due and if the thread is not already terminated, all mutexes
+	  owned by the thread become unlocked/abandoned and
+	  a <code>&amp;thread-already-terminated</code> condition object to be raised
+	  is recorded for this thread.</p>
+	<p>If thread is the current
+	  thread, <code>thread-terminate!</code> does not return.
+	  Otherwise, the current thread waits until the
+	  termination of <code><var>thread</var></code> has occurred.
+	  Afterward, <code>thread-terminate!</code> returns unspecified values.</p>
+	<p>If a thread is scheduled for (abnormal) termination and is
+	  blocked, the termination is due and the thread terminated
+	  before it would be unblocked.</p>
+	<p><i>Note:</i> This operation must be used carefully
+	  because it terminates a thread abruptly and it is impossible
+	  for that thread to perform any kind of cleanup.  This may be a
+	  problem if the thread is in the middle of a critical section
+	  where some structure has been put in an inconsistent
+	  state.  However, another thread attempting to enter this
+	  critical section will raise an <code>&amp;thread-abandoned-mutex</code> violation
+	  because the mutex is unlocked/abandoned.  This helps avoid
+	  observing an inconsistent state.</p>
+      </dd>
+      <dt class="procedure"><code>(thread-schedule-terminate! <var>thread</var>)</code></dt>
+      <dd>
+        <p>Works like <code>thread-terminate!</code>, but returns immediately
+          so that the current thread does not wait until the termination
+          of <code><var>thread</var></code> has occurred.</p>
+      </dd>
+    </dl>
+
+    <p>The procedure <code>thread-terminate!</code> can be defined in
+      terms of <code>thread-schedule-terminate!</code> and <code>thread-join!</code>
+      as follows:</p>
+
+    <pre>(define thread-terminate!
+  (lambda (thread)
+    (thread-schedule-terminate! thread)
+    (with-exception-handler
+        (lambda (exc)
+          (if (thread-condition? exc)
+              (values)
+              (raise exc)))
+      (lambda ()
+        (thread-join! thread)))))</pre>
+
+    <dl class="entries">
+      <dt class="entry"><code>(thread-join! <var>thread</var> <var>timeout</var>)</code><span class="type">procedure</span></dt>
+      <dt class="entry"><code>(thread-join! <var>thread</var>)</code><span class="type">procedure</span></dt>
+      <dd><p>The current thread waits
+	  until <code><var>thread</var></code> terminates (normally or
+	  not) or until the timeout <code><var>timeout</var></code> is
+	  reached.  If the timeout is reached, a continuable exception
+	  of type <code>&amp;thread-timeout</code> is raised.
+	  Otherwise, if an condition object to be raised is recorded
+	  for this thread, a continuable exception with this condition
+	  object is raised.  Otherwise, the result values to be
+	  delivered that are recorded for this thread are
+	  delivered.</p>
+      </dd>
+    </dl>
+
+    <pre class="example">(let ([p (make-parameter 0)])
+(parameterize ([p 1])
+  (let ([y
+         (thread-join!
+          (thread-start!
+            (make-thread
+             (lambda ()
+               (let ([x (p)])
+                 (p 2)
+                 x)))))])
+    (list y (p)))))<span class="result">(1 2)</span></pre>
+
+    <pre class="example">(let [(l '())]
+  (define out!
+    (lambda (x)
+      (set! l (cons x l))))
+  (define get
+    (lambda ()
+      (reverse l)))
+  (thread-join!
+   (thread-start!
+    (make-thread
+      (lambda ()
+        (dynamic-wind
+            (lambda ()
+              (out! 'in))
+            (lambda ()
+              (call/cc
+               (lambda (k)
+                 (thread-join!
+                  (thread-start!
+                   (make-thread
+                     (lambda ()
+                       (out! 'thread)
+                       (k))))))))
+            (lambda ()
+              (out! 'out)))))))
+  (get))<span class="result">(in thread in out out)</span></pre>
+
+    <h4 id="mutexes">Mutexes</h4>
+
+    <p>A <dfn>mutex</dfn> is a Scheme value of a specific type,
+      representing a mutual exclusion device, also known as a lock and
+      binary semaphore.</p>
+
+    <p>A mutex can be in one of four states: <dfn>locked</dfn>
+      (either <dfn>owned</dfn> or not owned) and <dfn>unlocked</dfn>
+      (either <dfn>abandoned</dfn> or not abandoned).  An attempt to
+      lock a mutex only succeeds if the mutex is in an unlocked state.
+      Otherwise, the current thread must wait. A mutex in the
+      locked/owned state has an associated <dfn>owner thread</dfn>,
+      which by convention is the thread that is responsible for
+      unlocking the mutex (this case is typical of critical sections
+      implemented as "lock mutex, perform operation, unlock mutex").
+      A mutex in the locked/not-owned state is not linked to a
+      particular thread.  A mutex becomes locked when a thread locks
+      it using the <code>mutex-lock!</code> primitive.  A mutex
+      becomes unlocked/abandoned when the owner of a locked/owned
+      mutex terminates.  A mutex becomes unlocked/not-abandoned when a
+      thread unlocks it using the <code>mutex-unlock!</code>
+      primitive.  The mutex primitives specified in this SRFI do not
+      implement <i>recursive</i> mutex semantics; an attempt to lock a
+      mutex that is locked implies that the current thread must wait
+      even if the mutex is owned by the current thread (this can lead
+      to a deadlock if no other thread unlocks the mutex).</p>
+
+    <dl class="entries">
+      <dt class="entry"><code>(make-mutex)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Returns a new mutex in the unlocked/not-abandoned
+	  state.</p>
+      </dd>
+      <dt class="entry"><code>(mutex? <var>obj</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a
+	  mutex, and <code>#f</code> otherwise.</p>
+      </dd>
+      <dt class="entry"><code>(mutex-state <var>mutex</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>
+	  Returns one of the
+	  symbols <code>not-owned</code>, <code>abandoned</code>, <code>not-abandoned</code>
+	  or a thread object, reflecting the state
+	  of <code><var>mutex</var></code>, where a thread object
+	  represents the <i>owned</i> state and the owner.</p>
+      </dd>
+      <dt class="entry"><code>(mutex-lock! <var>mutex</var> <var>timeout</var> <var>owner-thread</var>)</code><span class="type">procedure</span></dt>
+      <dt class="entry"><code>(mutex-lock! <var>mutex</var> <var>timeout</var>)</code><span class="type">procedure</span></dt>
+      <dt class="entry"><code>(mutex-lock! <var>mutex</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>If <code><var>owner-thread</var></code> is not given, it defaults to the current thread.</p>
+	<p>If <code><var>mutex</var></code> is currently locked, the
+	  current thread waits until it is unlocked or until the timeout
+	  is reached.  If the timeout is reached, <code>#f</code> is
+	  returned.  Otherwise, <code><var>mutex</var></code> becomes
+	  locked with <code><var>owner-thread</var></code> as the owner
+	  unless <code><var>owner-thread</var></code> is terminated, in which
+	  case <code><var>mutex</var></code> becomes
+	  unlocked/abandoned.</p>
+	<p>After changing the state of the mutex,
+	  an <code>&amp;abandoned-mutex</code> condition object is raised if the
+	  mutex was unlocked/abandoned before the state change,
+	  otherwise <code>mutex-lock!</code> returns <code>#t</code>.</p>
+	<p><i>Note:</i> It is not an error if the
+	  mutex is owned by the current thread (but the current thread
+	  will have to wait).</p>
+      </dd>
+      <dt class="entry"><code>(mutex-unlock! <var>mutex</var> <var>condition-variable</var> <var>timeout</var>)</code><span class="type">procedure</span></dt>
+      <dt class="entry"><code>(mutex-unlock! <var>mutex</var> <var>condition-variable</var>)</code><span class="type">procedure</span></dt>
+      <dt class="entry"><code>(mutex-unlock! <var>mutex</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Unlocks the mutex by making it unlocked/not-abandoned.  If
+	  <code><var>condition-variable</var></code> is supplied, the
+	  current thread is blocked and added to the
+	  <code><var>condition-variable</var></code> before
+	  unlocking <code><var>mutex</var></code>; the thread can
+	  unblock at any time but no later than when an appropriate
+	  call to <code>condition-variable-signal!</code> or
+	  <code>condition-variable-broadcast!</code> is performed (see below), and
+	  no later than the <code><var>timeout</var></code>.  If there
+	  are threads waiting to lock this mutex, the scheduler
+	  selects a thread, the mutex becomes locked/owned or
+	  locked/not-owned, and the thread is unblocked. <code>mutex-unlock!</code>
+	  returns <code>#f</code> when the timeout is reached, otherwise it
+	  returns <code>#t</code>.</p>
+	<p><i>Note:</i> It is not an error to unlock an unlocked mutex
+	  or a mutex that is owned by any thread.</p>
+	<p><i>Note:</i> The reason the thread can unblock at any time
+	  (when <code><var>condition-variable</var></code> is
+	  supplied) is the handling of interrupts (see
+	  the <code>thread-interrupt!</code> procedure below).  After a
+	  thread blocked on a condition-variable has handled such an
+	  interrupt, it would be wrong for the scheduler to return the
+	  thread to the blocked state because any calls
+	  to <code>condition-variable-broadcast!</code>  during the
+	  interrupt will have gone unnoticed.  It is necessary for the
+	  thread to remain runnable and return from the call to
+	  <code>mutex-unlock!</code> with a result of <code>#t</code>.</p>
+	<p><i>Note:</i> <code>mutex-unlock!</code> is related to the
+	  <i>wait</i> operation on condition variables available in
+	  other thread systems. The main difference is that <i>wait</i>
+	  automatically locks the mutex just after the thread is
+	  unblocked. This operation is not performed
+	  by <code>mutex-unlock!</code>  and so must be done by an
+	  explicit call to <code>mutex-lock!</code>.  This has the
+	  advantages that a different timeout and exception handler can
+	  be specified on the <code>mutex-lock!</code> and <code>mutex-unlock!</code> operations and the
+	  location of all the mutex operations is clearly apparent.</p>
+      </dd>
+    </dl>
+
+    <h4 id="condition-variables">Condition variables</h4>
+
+    <p>A <dfn>condition variable</dfn> is a Scheme value of a specific type.
+      It represents a set of blocked threads.</p>
+
+    <p>The blocked threads represented by a condition variable are
+      waiting for a certain condition to become true.  When a thread
+      modifies some program state that might make the condition true,
+      the thread unblocks some number of threads (one or all depending
+      on the primitive used) so they can check the value of the
+      condition.  This allows complex forms of inter-thread
+      synchronization to be expressed more conveniently than with
+      mutexes alone.</p>
+
+    <p><i>Note:</i> The term <i>condition variable</i>, while
+      well-established, is misleading as it describes not a variable,
+      but an object.  In addition, condition variables are unrelated
+      to conditions.</p>
+
+    <dl class="entries">
+      <dt class="entry"><code>(make-condition-variable)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Returns a new empty condition variable.</p>
+      </dd>
+      <dt class="entry"><code>(condition-variable? <var>obj</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a
+	  condition variable, and <code>#f</code> otherwise.</p>
+      </dd>
+      <dt class="entry"><code>(condition-variable-signal! <var>condition-variable</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>If there are threads blocked on <code><var>condition-variable</var></code>, the
+	scheduler selects a thread and unblocks it. The
+	procedure <code>condition-variable-signal!</code> returns
+	  unspecified values.</p>
+	<p><i>Note: </i> As there are no fairness constraints imposed
+	  on the scheduler by this SRFI, the scheduler may always select
+	  the same thread to unblock it.  If in doubt, use <code>condition-variable-broadcast!</code> instead.</p>
+      </dd>
+      <dt class="entry"><code>(condition-variable-broadcast! <var>condition-variable</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Unblocks all the threads blocked
+	  on <code><var>condition-variable</var></code>.  The
+	  procedure <code>condition-variable-broadcast!</code> returns
+	  an unspecified values.</p>
+      </dd>
+    </dl>
+
+    <h4 id="thread-locals-2">Thread locals</h4>
+
+    <p>The procedures in this subsection are also exported by
+      the <code>(srfi :226 control thread-locals)</code> library.</p>
+
+    <p><dfn>Thread locals</dfn> are opaque values used to identify
+      thread-specific locations.</p>
+
+    <p>The <dfn>thread-specific storage</dfn> is an opaque table
+      associating to each current and future thread and to
+      each thread local a cell that holds a value.</p>
+
+    <dl class="entries">
+      <dt class="entry"><code>(make-thread-local <var>obj</var> <var>inheritable?</var>)</code><span class="type">procedure</span></dt>
+      <dt class="entry"><code>(make-thread-local <var>obj</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Returns a thread local that is not <code>equal?</code> to
+	  any prior or future results
+	  from <code>make-thread-local</code>.  The
+	  object <code><var>obj</var></code> is stored in the cells
+	  associated with the thread local in the thread-specific
+	  storage.  The thread local is <dfn>inheritable</dfn>
+	  if <code><var>inheritable?</var></code> is
+	  not <code>#f</code>.</p>
+	<p>If <code><var>inheritable?</var></code> is not given, it
+	  defaults to <code>#f</code>.
+      </dd>
+      <dt class="entry"><code>(thread-local? <var>obj</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Returns <code>#t</code> if <code><var>obj</var></code> is a thread local, and <code>#f</code> otherwise.</p>
+      </dd>
+      <dt class="entry"><code>(tlref <var>tl</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Returns the value of the cell associated with the current
+	  thread and to <code><var>tl</var></code> in the
+	  thread-specific storage.</p>
+      </dd>
+      <dt class="entry"><code>(tlset! <var>tl</var> <var>obj</var>)</code><span class="type">procedure</span></dt>
+      <dd>
+	<p>Sets the value of the cell associated with the current
+	  thread and to <code><var>tl</var></code> in the
+	  thread-specific storage to <code><var>obj</var></code>.</p>
+	<p>If <code><var>tl</var></code> is inheritable, also sets the
+	  values of the corresponding cells in the thread-specific
+	  storage of the future threads that will be created by the
+	  current thread to <code><var>obj</var></code>.</p>
+      </dd>
+    </dl>
+
+    <h4 id="interrupts">Interrupts</h4>
+
+    <p>The syntax and procedures in this subsection are also exported by
+      the <code>(srfi :226 control interrupts)</code> library.</p>
+
+    <dl class="entries">
+      <dt class="thread-parameter"><code>current-interrupt-level</code></dt>
+      <dd><p>The <code>current-interrupt-level</code> can be
+	  parameterized to a non-negative exact integer.  Its initial
+	  value is zero.</p>
+      </dd>
+      <dt class="procedure"><code>(disable-interrupts!)</code></dt>
+      <dd>
+	<p>Increases the value the <code>current-interrupt-level</code> by one.</p>
+      </dd>
+      <dt class="procedure"><code>(enable-interrupts!)</code></dt>
+      <dd>
+	<p>Decreases the value the <code>current-interrupt-level</code> by one.</p>
+	<p><i>Note:</i> It is an assertion violation if this would
+	  lower the interrupt level to a negative number.</p>
+      </dd>
+      <dt class="syntax"><code>(with-interrupts-disabled <span class="token">body</span>)</code></dt>
+      <dd><p>Convenience syntax, effectively equivalent to <code>(parameterize ([current-interrupt-level (+ (current-interrupt-level) 1)]) <span class="token">body</span>)</code>.</p>
+	<p>
+	  <i>Note:</i> If the <code>with-interrupts-disabled</code> form is in tail-context,
+	  <code><span class="token">body</span></code> is
+	  a <code><span class="token">tail body</span></code>.</p>
+      </dd>
+      <dt class="syntax"><code>(with-interrupts-enabled <span class="token">body</span>)</code></dt>
+      <dd><p>Convenience syntax, effectively equivalent to <code>(parameterize ([current-interrupt-level (- (current-interrupt-level) 1)]) <span class="token">body</span>)</code>.</p>
+	<p>
+	  <i>Note:</i> If the <code>with-interrupts-enabled</code> form is in tail-context,
+	  <code><span class="token">body</span></code> is
+	  a <code><span class="token">tail body</span></code>.</p>
+	<p><i>Note:</i> It is an assertion violation if this would
+	  lower the interrupt level to a negative number.</p>
+      </dd>
+      <dt class="procedure"><code>(thread-interrupt! <var>thread</var> <var>thunk</var>)</code></dt>
+      <dd>
+	<p>Schedules an interrupt
+	  for <code><var>thread</var></code> for when
+	  the <code>current-interrupt-level</code>
+	  of <code><var>thread</var></code> is zero.  The current
+	  continuation of <code><var>thread</var></code> is then
+	  replaced by a continuation that records the values it
+	  receives, invokes <code><var>thunk</var></code> with no
+	  arguments, discards its values, and then yields the
+	  recorded values to the original continuation.
+	</p>
+	<p><i>Note:</i> An interrupt can occur while a thread is
+	  blocked waiting on a condition variable.</p>
+        <p><i>Note:</i> Pending interrupts need not be handled
+          immediately after the current interrupt level has dropped to
+          zero.  They only need to be handled eventually.</p>
+      </dd>
+    </dl>
+
+    <h2 id="implementation-2">Implementation</h2>
+
+    <h3 id="portability">Portability</h3>
+
+    <p>Implementing the control operators presented in this SRFI
+      solely in terms of the facilities provided in <cite>R<sup>6</sup>RS</cite> or
+      <cite>R<sup>7</sup>RS</cite> is not possible.</p>
+
+    <h3 id="sample-implementation">Sample Implementation</h3>
+
+    <p><a href="https://srfi.schemers.org/srfi-226/srfi-226.tgz">The sample implementation</a> accompanying this SRFI demonstrates
+      how the control operators can be implemented on top of a small
+      set of primitives.  If in doubt, it favors simplicity and
+      clarity over speed.</p>
+
+    <p>The small set of primitives that have to be provided are as follows:</p>
+
+    <dl class="entries">
+      <dt class="procedure"><code>(%call-with-current-continuation <var>proc</var>)</code></dt>
+      <dd>
+	<p>It is an error if <code><var>proc</var></code> is not a
+	procedure taking a single argument.</p>
+	<p>Calls <code><var>proc</var></code> with the current undelimited continuation.</p>
+	<p>If a call to <code>%call/cc</code> occurs in a tail
+	context, the call to <code><var>proc</var></code> is also in a
+	  tail context.</p>
+	<p>An undelimited continuation is represented by a
+	  procedure <code><var>k</var></code> that, when it is later
+	  called, abandons whatever undelimited continuation is in
+	  effect at that later time and instead reinstates the
+	  continuation that is represented by it.</p>
+
+	<p><i>Note:</i> The
+	  primitive <code>%call-with-current-continuation</code>
+	  neither supports <code>dynamic-wind</code> nor continuation
+	  barriers.  It can thus be viewed as
+	  the <a href="#clinger"><cite>R4RS</cite></a> procedure with
+	  the name <code>call-with-current-continuation</code>.</p>
+      </dd>
+      <dt class="procedure"><code>(%call-in-continuation <var>k</var> <var>thunk</var>)</code></dt>
+      <dd>
+	<p>Abandons whatever undelimited continuation is in effect,
+	  and calls <code><var>thunk</var></code> with the undelimited
+	  continuation represented by <code><var>k</var></code> as the
+	  continuation of the call.</p>
+      </dd>
+      <dt class="procedure"><code>(%continuation=? <var>k<sub>1</sub></var> <var>k<sub>2</sub></var>)</code></dt>
+      <dd>
+	<p>Returns <code>#t</code> if the undelimited continuation
+	  represented by <code><var>k<sub>1</sub></var></code> is the
+	  same as the undelimited continuation represented
+	  by <code><var>k<sub>2</sub></var></code>,
+	  and <code>#f</code> otherwise.</p>
+	<p><i>Note:</i> Procedure equivalence with respect to the
+	  standard predicates <code>eq?</code>, <code>eqv?</code>,
+	  and <code>equal?</code> is unspecified at least in some
+	  versions of the Scheme programming language.</p>
+      </dd>
+
+      <dt class="syntax"><code>(%case-lambda-box <span class="token">expression</span> [<span class="token">formals</span>
+	  <span class="token">body</span>] ...)</code></dt>
+      <dd>
+	<p><i>Syntax:</i>
+	  <code><span class="token">Expression</span></code> is an
+	  expression,
+	  the <code><span class="token">formals</span></code> are a
+	  formal parameter list, and
+	  the <code><span class="token">bodies</span></code> are
+	  bodies.</p>
+
+	<p><i>Semantics:</i>
+	  When a <code>%case-lambda-box</code> expression is evaluated,
+	  it first
+	  evaluates <code><span class="token">expression</span></code>,
+	  stores the resulting value in a new location, and then
+	  returns a procedure that when later called with some
+	  arguments behaves as if the procedure were created by
+	  evaluating <code>(case-lambda [<span class="token">formals</span> <span class="token">body</span>] ...)</code>
+	  and that is tagged with the new location.</p>
+      </dd>
+
+      <dt class="procedure"><code>(%case-lambda-box-ref <var>proc</var> <var>obj</var>)</code></dt>
+      <dd>
+	<p>If <var>proc</var> is a procedure tagged with a location,
+	  the <code>%case-lambda-box-ref</code> procedure returns the value
+	  stored in this location, and <code>obj</code> otherwise.</p>
+      </dd>
+    </dl>
+
+    <p><i>Note:</i> The sample implementation is packaged in the form
+      of libraries for Chez Scheme so that the
+      extensive <a href="tests.sps">test suite</a> can be run.
+      However, the sample implementation cannot provide the libraries
+      as defined in this SRFI (neither for Chez Scheme, nor for any
+      other Scheme) because it is likely impossible to do this in a
+      portable way.  As Chez (and standard) Scheme does not support
+      delimited continuations natively, the sample implementation's
+      code must be run within the dynamic extent of
+      the <code>run</code> procedure defined
+      in <a href="lib/control-features.sls">lib/control-features.sls</a>.
+      See the <code>test</code> syntax
+      in <a href="lib/control-features/testing.sls">lib/control-features/testing.sls</a>
+      on how to use <code>run</code>.
+    </p>
+
+    <h3 id="other-implementations">Other Implementations</h3>
+
+    <p>A lot of the control operators of this SRFI are natively
+    implemented in Racket.  A high-performance implementation of
+    continuation marks is described in <a href="#flatt"><cite>Compiler
+    and runtime support for continuation marks</cite></a>.</p>
+
+    <h2 id="acknowledgements">Acknowledgements</h2>
+
+    <p>This SRFI borrows heavily from Racket's collection of control
+    operators.</p>
+
+    <p>The sample implementation builds upon the ideas presented
+      in <cite>A Monadic Framework for Delimited
+      Continuations</cite> and found in Racket's CS
+      implementation.</p>
+
+    <p>Thanks go to Lassi Kortela for pointing out Marc
+      Feeley's <cite>A better API for first-class continuations</cite>
+      to me, and to John Cowan and Vladimir Nikishkin for <i>very</i>
+      careful readings of the first draft and providing me with a lot
+      of helpful comments.  The same specifically applies to Marc
+      Feeley, whose experience and insights I wouldn't want to
+      have missed.  Then there is Masanori Ogino who, carefully read
+      the latest drafts and helped finding last-minute errors.</p>
+
+    <p>I am grateful to Shiro Kawai, who is working on an alternative
+      implementation of SRFI 226 for his Gauche system.  His comments
+      and questions about this SRFI helped a lot to improve it.</p>
+
+    <p>This document uses text copied verbatim from <cite>SRFI
+    18</cite>.</p>
+
+    <p>Finally, I would like to thank Arthur A. Gleckler for
+      <a href="https://srfi-email.schemers.org/srfi-224/msg/16888913/">encouraging me</a> to write a SRFI covering delimited
+      continuations.</p>
+
+    <h2 id="references">References</h2>
+
+    <ol class="bibliography">
+      <li id="chezscheme"><p><a href="https://cisco.github.io/ChezScheme/">Chez Scheme</a>.</p></li>
+      <li id="clements"><p>John Clements, Matthew Flatt, Matthias Felleisen: <a href="https://link.springer.com/chapter/10.1007/3-540-45309-1_21"><cite>Modeling an Algebraic Stepper</cite></a>, ESOP 2001: Programming Languages and Systems, pp. 320–334</p></li>
+      <li id="clinger">
+	<p>William Clinger, Jonathan Rees: <a href="https://standards.scheme.org/official/r4rs.pdf"><cite>Revised<sup>4</sup>
+	  Report on the Algorithmic Language Scheme</cite></a>.</p>
+      </li>
+      <li id="danvy"><p>Olivier Danvy, Andrzej
+      Filinski: <cite>Abstracting control</cite>, LFP '90: Proceedings
+      of the 1990 ACM conference on LISP and functional programming,
+      May 1990,
+      pp. 151–160. DOI: <a href="https://doi.org/10.1145/91556.91622">10.1145/91556.91622</a>.</p></li>
+      <li id="dybvig">
+	<p>R. Kent Dybvig, Simon Peyton Jones, and Amr
+	  Sabry: <cite>A monadic framework for delimited
+	    continuations</cite>, Journal of Functional Programming, Volume
+	  17, Issue 6, November 2007,
+	  pp. 687-730. DOI: <a href="https://doi.org/10.1017/S0956796807006259">10.1017/S0956796807006259</a>.</p>
+      </li>
+      <li id="feeley1">
+	<p>Marc
+	Feeley: <a href="https://srfi.schemers.org/srfi-18/srfi-18.html"><cite>SRFI
+	18: Multithreading support</cite></a>.</p>
+      </li>
+      <li id="feeley2">
+	<p>Marc
+	Feeley: <a href="https://srfi.schemers.org/srfi-39/srfi-39.html"><cite>SRFI
+	39: Parameter objects</cite></a>.</p>
+      </li>
+      <li id="feeley3">
+	<p>Marc Feeley: <a href="http://www.iro.umontreal.ca/~feeley/papers/FeeleySW01.pdf"><cite>A better API for first-class
+	continuations</cite></a>, Scheme and Functional Programming Workshop
+	(SFPW'01), pages 1-3, September 2001.
+      </li>
+      <li id="filinski"><p>Andrzej Filinski: <cite>Representing
+      monads</cite>, POPL '94: Proceedings of the 21st ACM
+      SIGPLAN-SIGACT symposium on Principles of programming
+      languages, February 1994, pp. 446-457. DOI: <a href="https://doi.org/10.1145/174675.178047">10.1145/174675.178047</a>.</p></li>
+      <li id="flatt">
+	<p>Matthew Flatt, R. Kent Dybvig: <cite>Compiler and runtime
+	  support for continuation marks</cite>, PLDI 2020:
+	  Proceedings of the 41st ACM SIGPLAN Conference on
+	  Programming Language Design and Implementation, June 2020, pp. 45-58. DOI: <a href="https://doi.org/10.1145/3385412.3385981">
+	    10.1145/3385412.3385981</a>.</p></li>
+      <li id="gasbichler">
+	<p>Martin Gasbichler, Michael Sperber: <cite>Final shift for
+	  call/cc:: direct implementation of shift and reset</cite>,
+	  ACM SIGPLAN Notices, Volume 37, Issue 9, September 2002,
+	  pp. 271–282. DOI: <a href="https://doi.org/10.1145/583852.581504">10.1145/583852.581504</a>.</p></li>
+      <li id="c17">
+        <p><a href="https://www.iso.org/standard/74528.html">ISO/IEC 9899:2018 Information technology — Programming languages — C</a></p>
+      </li>
+      <li id="hansen">
+	<p>Lars T. Hansen:
+	  <a href="https://srfi.schemers.org/srfi-15/srfi-15.html"><cite>SRFI
+	      15: Syntax for dynamic scoping</cite></a>.</p>
+      </li>
+      <li id="kawai">
+	<p>Shiro Kawai, John Cowan, Thomas
+	Gilray: <a href="https://srfi.schemers.org/srfi-158/srfi-158.html"><cite>SRFI
+	158: Generators and Accumulators</cite></a>.</p>
+      </li>
+      <li id="kelsey1">
+	<p>Richard Kelsey, William Clinger, Jonathan Rees (eds.):
+	  <cite>Revised<sup>5</sup> Report on the Algorithmic Language
+	      Scheme</cite>, ACM SIGPLAN Notices, Volume 33, Issue 9, Sept. 1,
+	      1998, pp.
+	  26–76. DOI: <a href="https://doi.org/10.1145/290229.290234">10.1145/290229.290234</a>.</p>
+      </li>
+      <li id="kelsey2">
+	<p>Richard Kelsey, Michael Sperber:
+	  <a href="https://srfi.schemers.org/srfi-34/srfi-34.html"><cite>SRFI
+	      34: Exception Handling for Programs</cite></a>.</p>
+      </li>
+      <li id="kiselyov">
+	<p>Oleg
+	Kiselyov: <a href="https://okmij.org/ftp/continuations/against-callcc.html"><cite>An
+	argument against call/cc</cite></a>.</p>
+      </li>
+      <li id="nieper1">
+	<p>Marc Nieper-Wißkirchen:
+	  <a href="https://srfi.schemers.org/srfi-154/srfi-154.html"><cite>SRFI
+	      154: First-class dynamic extents</cite></a>.</p>
+      </li>
+      <li id="nieper2">
+	<p>Marc Nieper-Wißkirchen:
+	  <a href="https://srfi.schemers.org/srfi-155/srfi-155.html"><cite>SRFI
+	      155: Promises</cite></a>.</p>
+      </li>
+      <li id="nieper3">
+	<p>Marc Nieper-Wißkirchen:
+	  <a href="https://srfi.schemers.org/srfi-157/srfi-157.html"><cite>SRFI
+	      157: Continuation marks</cite></a>.</p>
+      </li>
+      <li id="pitman">
+        <p>Kent
+        Pitman: <a href="https://www.lispworks.com/documentation/HyperSpec/Front/index.htm">Common
+        Lisp HyperSpec</a>.</p>
+      </li>
+      <li id="posix">
+        <p><a href="https://posix.opengroup.org/">Portable Operating System Interface (IEEE 1003)</a>.</p>
+      </li>
+      <li id="r7rs">
+	<p><a href="https://github.com/johnwcowan/r7rs-work/blob/master/R7RSHomePage.md">R7RS Home Page</a>.</p>
+      </li>
+      <li id="racket">
+	<p><a href="https://racket-lang.org/">Racket</a>.</p>
+      </li>
+      <li id="shinn">
+	<p>Alex Shinn, John Cowan, Arthur
+	  A. Gleckler: <a href="https://small.r7rs.org/attachment/r7rs.pdf"><cite>Revised<sup>7</sup>
+	  Report on the Algorithmic Language Scheme</cite></a>.</p>
+      </li>
+      <li id="sperber">
+	<p>Michael Sperber, R. Kent Dybvig, Matthew Flatt,
+	  Anton van Straaten, Robby Findler, and Jacob
+	  Matthews: <cite>Revised<sup>6</sup> Report on the Algorithmic
+	    Language Scheme</cite>. Journal of Functional Programming,
+	  Volume 19, Supplement S1, August 2009,
+	  pp. 1-301. DOI: <a href="https://doi.org/10.1017/S0956796809990074">10.1017/S0956796809990074</a>.</p>
+      </li>
+      <li id="van-horn">
+	<p>David van
+	Horn: <a href="https://srfi.schemers.org/srfi-97/srfi-97.html"><cite>SRFI
+	97: SRFI Libraries</cite></a>.</p>
+      </li>
+      <li id="van-tonder">
+	<p>André van Tonder: <a href="https://srfi.schemers.org/srfi-45/srfi-45.html"><cite>SRFI
+	45: Primitives for Expressing Iterative Lazy Algorithms</cite></a>.</p>
+      </li>
+    </ol>
+
+    <h2 id="copyright">Copyright</h2>
+    <p>&copy; 2021 Marc Nieper-Wißkirchen.</p>
+
+    <p>
+      Permission is hereby granted, free of charge, to any person
+      obtaining a copy of this software and associated documentation files
+      (the "Software"), to deal in the Software without restriction,
+      including without limitation the rights to use, copy, modify, merge,
+      publish, distribute, sublicense, and/or sell copies of the Software,
+      and to permit persons to whom the Software is furnished to do so,
+      subject to the following conditions:</p>
+
+    <p>
+      The above copyright notice and this permission notice (including the
+      next paragraph) shall be included in all copies or substantial
+      portions of the Software.</p>
+    <p>
+      THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+      EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+      MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+      NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+      BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+      ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+      CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+      SOFTWARE.</p>
+
+    <hr>
+    <address>Editor: <a href="mailto:srfi-editors+at+srfi+dot+schemers+dot+org">Arthur A. Gleckler</a></address></body></html>
