@@ -29,6 +29,11 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NPLC0 = os.path.join(ROOT, "build", "stage0", "nplc0")
+# P5 exercises the current reader (arrays, datum labels), which the frozen
+# stage0 predates.  Fall back to stage0 when the toolchain is absent.
+READER_COMPILER = os.path.join(ROOT, "build", "bin", "nplc")
+if not os.path.exists(READER_COMPILER):
+    READER_COMPILER = NPLC0
 
 OK = "\033[32mPASS\033[0m"
 BAD = "\033[33mSKIP\033[0m"
@@ -264,6 +269,51 @@ def pbt_idempotent(work):
         record("fail", "P4 AST print stability")
 
 
+# ---------------------------------------------------------------- P5 reader corpus
+
+READER_CORPUS = [
+    ("cyclic-label", "(define x '#1=(a . #1#))\n(define (main) 0)\n", True),
+    ("rank-zero-label", "(define x '#0=(a . #0#))\n(define (main) 0)\n", True),
+    ("rank-two-array", "(define x '#2A((1 2) (3 4)))\n(define (main) 0)\n", True),
+    ("rank-one-array", "(define x '#1A(1 2 3))\n(define (main) 0)\n", True),
+    ("rank-zero-rejected", "(define x '#0A(1))\n(define (main) 0)\n", False),
+    ("rank-too-large", "(define x '#33A(1))\n(define (main) 0)\n", False),
+    ("unjointed-label", "(define x '#1=(a . #1#)\n(define (main) 0)\n", False),
+    ("label-cycle-rejected", "(define x '#1=#1#)\n(define (main) 0)\n", False),
+    ("short-array-row", "(define x '#2A((1 2) (3)))\n(define (main) 0)\n", False),
+]
+
+
+def pbt_reader(work):
+    """Property 5: valid array/label data reads; malformed ranks/labels fail
+    with a normal error, never a signal or a hang."""
+    bad = []
+    for index, (name, program, valid) in enumerate(READER_CORPUS):
+        src = os.path.join(work, "reader_%d.npl" % index)
+        with open(src, "w") as f:
+            f.write(program)
+        try:
+            reader_flag = ("--print-ast" if READER_COMPILER == NPLC0
+                           else "--emit-qbe")
+            result = subprocess.run([READER_COMPILER, reader_flag, src],
+                                    capture_output=True, timeout=5)
+        except subprocess.TimeoutExpired:
+            bad.append(name + " (timeout)")
+            continue
+        if result.returncode < 0 or 128 < result.returncode < 160:
+            bad.append(name + " (signal %d)" % result.returncode)
+            continue
+        if valid and result.returncode != 0:
+            bad.append(name + " (rejected)")
+        if not valid and result.returncode == 0:
+            bad.append(name + " (accepted)")
+    if bad:
+        print("  " + ", ".join(bad))
+        record("fail", "P5 reader corpus")
+    else:
+        record("pass", "P5 reader corpus (%d cases)" % len(READER_CORPUS))
+
+
 # ---------------------------------------------------------------- main
 
 def main():
@@ -281,6 +331,7 @@ def main():
         pbt_fuzz(min(args.seeds, 120), work)
         pbt_fail_fast(work)
         pbt_idempotent(work)
+        pbt_reader(work)
 
     total_bad = results["fail"]
     skipped = results["skip"]

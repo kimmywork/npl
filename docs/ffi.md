@@ -12,8 +12,9 @@ Functions".
 
 Supported by `nplc` since 2026-10-22 (P2b); `nplc -l`/`-L` and `npli -l`
 since 2026-10-23; pointers and `define-c-function` since 2026-10-27;
-explicit C memory and array views since 2026-11-23. Not yet supported:
-callbacks into NPL and C structs (F2). See "Limitations" and the plan in
+explicit C memory and array views since 2026-11-23; C struct descriptors and
+struct-typed arguments since 2026-11-23. Not yet supported: callbacks into
+NPL. See "Limitations" and the plan in
 [design-primitives](../.agents/archive/design/design-primitives.md).
 
 ## Declaring A Function
@@ -298,6 +299,42 @@ Foreign memory holds C scalars and addresses only. Never store an `NplVal`
 there: the collector neither scans nor frees foreign memory, and a pointer
 stored in it does not keep an NPL object alive. Reading a `pointer` slot
 returns an address-only pointer with unknown size.
+
+### C Structs
+
+`define-c-struct` is a top-level declaration. It compiles and runs a tiny
+probe with `sizeof`/`offsetof` (using `NPL_CC`, else `CC`, else `cc`) and
+binds the name to a quoted layout descriptor. Only pointers to structs cross
+the FFI boundary; by-value structs are out of scope.
+
+```scheme
+(define-c-struct timespec
+  "struct timespec"
+  (tv_sec long)
+  (tv_nsec long))
+
+(define-c-function time-now "npl_time_now_ts"
+  (int struct:timespec) -> int)
+
+(let ((value (make-c-struct timespec)))
+  (time-now 0 value)
+  (list (c-struct-ref value 'tv_sec)
+        (c-struct-ref value 'tv_nsec)))
+```
+
+| Procedure | Result |
+|---|---|
+| `(make-c-struct descriptor)` | allocate a zero-filled view |
+| `(c-struct? v)` | predicate |
+| `(c-struct-pointer v)` | the underlying pointer |
+| `(c-struct-ref v field)` / `(c-struct-set! v field value)` | typed field access |
+| `(c-struct-size v)` | `sizeof` the C type |
+
+Field types are `u8 u16 u32 u64 i8 i16 i32 i64 int long int64 size_t bool
+float double pointer`. A `define-c-function` argument of type
+`struct:name` takes a matching view and passes its pointer; the generated
+stub includes the common POSIX headers. The probe and stubs use
+`_GNU_SOURCE`/`_DARWIN_C_SOURCE`.
 
 ### C Arrays
 

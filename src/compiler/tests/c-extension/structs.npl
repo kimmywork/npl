@@ -1,0 +1,19 @@
+(import (scheme base) (scheme write) (npl ffi))
+
+(define-c-struct timespec
+  "struct timespec"
+  (tv_sec long)
+  (tv_nsec long))
+
+(define-c-function time-now "npl_time_now_ts" (int struct:timespec) -> int)
+
+(define (main)
+  (let ((value (make-c-struct timespec)))
+    (let ((status (time-now 0 value)))
+      (write (list status
+                   (> (c-struct-ref value 'tv_sec) 0)
+                   (>= (c-struct-ref value 'tv_nsec) 0)
+                   (< (c-struct-ref value 'tv_nsec) 1000000000)))
+      (newline))))
+
+(main)

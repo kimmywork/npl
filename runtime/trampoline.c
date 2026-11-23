@@ -293,6 +293,9 @@ static NplVal escape_continuation(NplVal environment, int64_t argc,
     exit(1);
 }
 
+/* Retained for the runtime ABI.  The self-hosted compiler lowers call/cc
+ * through control conversion, so no emitted program calls this entry point;
+ * keep it for C extensions that link the runtime directly. */
 NplVal npl_call_cc(NplVal procedure)
 {
     if (g_escape_depth >= NPL_MAX_ESCAPE_DEPTH) {

@@ -1,0 +1,59 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl time))
+
+(include "framework.npl")
+
+(define (main)
+  (test-identity "time-utc predicate"
+                 (lambda () (time-utc? (current-time)))
+                 #t)
+  (test-identity "time-monotonic predicate"
+                 (lambda () (time-monotonic? (current-time 'time-monotonic)))
+                 #t)
+  (test-identity "time-resolution returns a duration"
+                 (lambda () (time-duration? (time-resolution)))
+                 #t)
+  (let ((epoch (time-utc->date (make-time 'time-utc 0 0) 0)))
+    (test-equal "epoch year" (lambda () (date-year epoch)) 1970)
+    (test-equal "epoch month" (lambda () (date-month epoch)) 1)
+    (test-equal "epoch day" (lambda () (date-day epoch)) 1)
+    (test-equal "epoch hour" (lambda () (date-hour epoch)) 0)
+    (test-equal "epoch minute" (lambda () (date-minute epoch)) 0)
+    (test-equal "epoch second" (lambda () (date-second epoch)) 0)
+    (test-equal "epoch zone" (lambda () (date-zone-offset epoch)) 0)
+    (test-equal "epoch week day" (lambda () (date-week-day epoch)) 4)
+    (test-equal "epoch year day" (lambda () (date-year-day epoch)) 1)
+    (test-equal "epoch round trip"
+                (lambda () (time-second (date->time-utc epoch))) 0)
+    (test-identity "epoch format"
+                   (lambda ()
+                     (equal? (date->string epoch "~Y-~m-~d ~H:~M:~S ~z")
+                             "1970-01-01 00:00:00 +0000"))
+                   #t))
+  (let ((date (make-date 0 6 5 4 3 2 1970 0 0 0 #f)))
+    (test-equal "make-date second" (lambda () (date-second date)) 6)
+    (test-equal "make-date month" (lambda () (date-month date)) 2)
+    (test-equal "make-date year" (lambda () (date-year date)) 1970))
+  (test-equal "time-difference"
+              (lambda ()
+                (time-second
+                  (time-difference (make-time 'time-utc 0 10)
+                                   (make-time 'time-utc 0 3))))
+              7)
+  (test-equal "add-duration"
+              (lambda ()
+                (time-second
+                  (add-duration (make-time 'time-utc 0 10)
+                                (make-time 'time-duration 0 5))))
+              15)
+  (test-equal "subtract-duration"
+              (lambda ()
+                (time-second
+                  (subtract-duration (make-time 'time-utc 0 10)
+                                     (make-time 'time-duration 0 5))))
+              5)
+  (finish-tests "srfi-19"))
+
+(main)

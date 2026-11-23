@@ -50,7 +50,7 @@ for fixture in integer-arithmetic rational-arithmetic radix-exact \
                complex-rectangular exact-numeric-utilities inexact-math \
                mixed-numeric-utilities mutable-bindings named-let char-basics \
                symbols procedure-values apply lists vectors strings \
-               definition-macros syntax-case syntax-case-npl ffi-memory records-errors primitive-errors \
+               definition-macros syntax-case syntax-case-npl ffi-memory time records-errors primitive-errors \
                port-parameters text-io-time r5rs unicode-strings unicode-char dynamic-extent \
                datum-labels cyclic-data numeric-alias-paths unspecified-values \
                self-tail-calls closure-captures named-loops direct-calls \

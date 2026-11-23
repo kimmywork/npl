@@ -690,7 +690,23 @@ NplVal npl_port_ready_p(NplVal port);     /* char-ready? (a whole character) */
 NplVal npl_byte_ready_p(NplVal port);     /* u8-ready? */
 NplVal npl_jiffies_per_second(void);
 NplVal npl_current_jiffy(void);
-NplVal npl_current_second(void);            /* absolute path or #f */
+NplVal npl_current_second(void);
+
+/* Typed (npl time) wrappers (clock.c); struct pointer arguments. */
+struct timespec;
+struct tm;
+int npl_time_now_ts(int which, struct timespec *out);
+int npl_time_resolution_ts(int which, struct timespec *out);
+int npl_time_gmtime_ts(const struct timespec *value, struct tm *out);
+int npl_time_localtime_ts(const struct timespec *value, struct tm *out);
+int npl_time_mktime_ts(struct tm *value, struct timespec *out);
+int npl_time_timegm_ts(struct tm *value, struct timespec *out);
+NplVal npl_time_now_prim(NplVal which, NplVal view);
+NplVal npl_time_resolution_prim(NplVal which, NplVal view);
+NplVal npl_time_gmtime_prim(NplVal value, NplVal out);
+NplVal npl_time_localtime_prim(NplVal value, NplVal out);
+NplVal npl_time_mktime_prim(NplVal value, NplVal out);
+NplVal npl_time_timegm_prim(NplVal value, NplVal out);            /* absolute path or #f */
 void npl_exit(NplVal code);                   /* R7RS exit status mapping */
 
 /* bootstrap lexer hooks — all take TAGGED values */
@@ -784,6 +800,8 @@ NplVal npl_ffi_type_size(NplVal code);
 NplVal npl_ffi_pointer_ref(NplVal pointer, NplVal code, NplVal offset);
 NplVal npl_ffi_pointer_set(NplVal pointer, NplVal code, NplVal offset,
                            NplVal value);
+/* A (npl ffi) c-struct view is a record (type pointer descriptor). */
+void *npl_ffi_struct_pointer(NplVal value, const char *who);
 NplVal npl_ffi_from_int64(int64_t value);
 NplVal npl_ffi_from_uint64(uint64_t value);
 NplVal npl_ffi_from_double(double value);

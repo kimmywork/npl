@@ -88,8 +88,16 @@ NplVal npl_read_file(NplVal path) {
         npl_primitive_file_error("read-file", "cannot read file", path);
     }
     char *data = (char *)malloc((size_t)size + 1);
+    if (!data) {
+        fclose(fp);
+        npl_runtime_oom_internal();
+    }
     size_t got = fread(data, 1, (size_t)size, fp);
     fclose(fp);
+    if (got != (size_t)size) {
+        free(data);
+        npl_primitive_file_error("read-file", "short read", path);
+    }
     data[got] = '\0';
     NplVal out = npl_c_text_internal(data, got);
     free(data);

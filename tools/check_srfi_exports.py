@@ -16,6 +16,7 @@ ALIASES = {
     "lib/srfi/128.sld": "lib/npl/comparator.sld",
     "lib/srfi/13.sld": "lib/npl/string.sld",
     "lib/srfi/41.sld": "lib/npl/data/stream.sld",
+    "lib/srfi/19.sld": "lib/npl/time.sld",
     "lib/srfi/47.sld": "lib/npl/data/array.sld",
     "lib/srfi/133.sld": "lib/npl/vector.sld",
     "lib/srfi/158.sld": "lib/npl/data/generator.sld",

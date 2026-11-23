@@ -115,6 +115,9 @@ run_suite srfi-149 "PASS srfi-149 5"
 run_suite syntax-case "PASS syntax-case 4"
 run_suite syntax-case-procedural "PASS syntax-case-procedural 20"
 run_suite ffi-memory "PASS ffi-memory 42"
+run_suite runtime-hardening "PASS runtime-hardening 7"
+run_suite c-structs "PASS c-structs 7"
+run_suite srfi-19 "PASS srfi-19 20"
 run_suite npl-lambda "PASS npl-lambda 5"
 run_suite derived-forms "PASS derived-forms 17"
 run_suite explicit-control "PASS explicit-control 2"
@@ -386,6 +389,17 @@ cc -o "$WORK/typed" "$WORK/typed.s" "$WORK/typed-stubs.o" "$WORK/typed.o" \
     "$RUNTIME" -lm
 "$WORK/typed" > "$WORK/typed.out"
 cmp "$EXTENSION/typed.out" "$WORK/typed.out"
+# define-c-struct layout probe and a struct: typed function argument.
+"$WORK/compiler" --emit=c-stubs --stdlib-root "$ROOT/lib" "$EXTENSION/structs.npl" \
+    > "$WORK/structs-stubs.c"
+cc -std=c99 -Wall -Wextra -Wpedantic -Werror -I "$ROOT/runtime" -c \
+    -o "$WORK/structs-stubs.o" "$WORK/structs-stubs.c"
+emit "$WORK/compiler" "$EXTENSION/structs.npl" "$WORK/structs.ssa"
+"$QBE" -o "$WORK/structs.s" "$WORK/structs.ssa"
+cc -o "$WORK/structs" "$WORK/structs.s" "$WORK/structs-stubs.o" \
+    "$RUNTIME" -lm
+"$WORK/structs" > "$WORK/structs.out"
+cmp "$EXTENSION/structs.out" "$WORK/structs.out"
 # A program without define-c-function has empty stubs.
 "$WORK/compiler" --emit=c-stubs --stdlib-root "$ROOT/lib" "$EXTENSION/main.npl" \
     > "$WORK/no-stubs.c"

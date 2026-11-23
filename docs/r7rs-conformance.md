@@ -98,6 +98,12 @@ Open, all non-blocking:
    `open-input-file` a `file-error?` object, and reports absent irritants as
    `#f`. The native suite `error-objects.npl` covers these instead; fixtures
    do not depend on Guile for them.
+4. **Cross-form continuation reentry.** npli evaluates each interaction and
+   `load` form separately, so a continuation captured in one form and invoked
+   from a later form re-enters the earlier form. nplc compiles the whole
+   program and has no such boundary. Escape-only frames behave identically;
+   `src/repl/tests/interop.in` guards the supported behavior
+   (evaluator decision D3).
 
 Two compiler limits that are *not* R7RS deviations but are worth knowing:
 

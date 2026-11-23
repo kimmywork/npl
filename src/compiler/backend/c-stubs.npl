@@ -21,6 +21,8 @@
     ((string=? type "string") "const char *")
     ((string=? type "pointer") "void *")
     ((string=? type "pointer-out") "void **")
+    ((c-struct-type-string? type)
+     (string-append (c-struct-c-type-for (datum-symbol type)) " *"))
     (else type)))
 
 ; Octal escapes keep the literal valid for any byte of an NPL name.
@@ -118,6 +120,11 @@
                     ", " who ");"))
     ((string=? type "string")
      (string-append "    npl_ffi_check_string(" argument ", " who ");"))
+    ((c-struct-type-string? type)
+     (string-append "    " (c-struct-c-type-for (datum-symbol type))
+                    " *" c-name " = (" (c-struct-c-type-for
+                                         (datum-symbol type))
+                    " *)npl_ffi_struct_pointer(" argument ", " who ");"))
     (else (string-append "    void *" c-name " = NULL;"))))
 
 ; The NPL argument index after an argument of type (pointer-out has none).
@@ -286,6 +293,16 @@
           (c-stub-line port "#include <stdbool.h>")
           (c-stub-line port "#include <stddef.h>")
           (c-stub-line port "#include <stdint.h>")
+          (c-stub-line port "#define _GNU_SOURCE")
+          (c-stub-line port "#define _DARWIN_C_SOURCE")
+          (c-stub-line port "#include <time.h>")
+          (c-stub-line port "#include <sys/time.h>")
+          (c-stub-line port "#include <sys/stat.h>")
+          (c-stub-line port "#include <dirent.h>")
+          (c-stub-line port "#include <pwd.h>")
+          (c-stub-line port "#include <grp.h>")
+          (c-stub-line port "#include <sys/utsname.h>")
+          (c-stub-line port "#include <sys/resource.h>")
           (c-stub-functions port entries))
         #t)))
 

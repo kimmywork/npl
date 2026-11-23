@@ -20,7 +20,13 @@
             (begin
               (require-raw-arity form 2 "define-values")
               (define-values-proper-formals (car (cdr form))))
-            ())
+            (if (raw-form? form "define-c-struct")
+                (if (if (pair? (cdr form))
+                        (datum-symbol? (car (cdr form)))
+                        #f)
+                    (cons (car (cdr form)) ())
+                    ())
+                ()))
         (cons single ()))))
 
 (define (predeclare-global-identifiers identifiers environment)
@@ -171,6 +177,10 @@
         (if (c-primitive-declaration? form value-env macro-env)
             (expand-top-sequence
               (cdr forms) (declare-c-primitive form value-env) macro-env acc)
+        (if (c-struct-declaration? form value-env macro-env)
+            (expand-top-sequence
+              (cons (c-struct-definition form) (cdr forms))
+              value-env macro-env acc)
         (if (c-function-declaration? form value-env macro-env)
             (expand-top-sequence
               (cdr forms) (declare-c-function form value-env) macro-env acc)
@@ -216,7 +226,7 @@
                         (predeclare-spliced-globals
                           (direct-defined-identifiers expanded) value-env)
                         macro-env
-                        (cons expanded acc))))))))))))))
+                        (cons expanded acc)))))))))))))))
 
 ; Top-level names defined by spliced macro output: unbound ones become
 ; globals named like direct definitions (with the library prefix inside a

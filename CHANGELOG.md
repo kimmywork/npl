@@ -43,6 +43,10 @@ behavior).
 - Differential `syntax-case` fixtures run on nplc, npli, and Guile.
 - `syntax-case` fenders and binding-aware `free-identifier=?`; the SRFI 41
   `stream-match` matcher now uses the reference procedural implementation.
+- Explicit C memory (`foreign-alloc`, typed pointer access, `c-array`) and
+  `define-c-struct` / `struct:` typed C arguments.
+- `(npl time)` / `(srfi 19)` core: UTC/monotonic time, dates, formatting,
+  and duration arithmetic.
 - `(npl lambda)` with `λ` and `fn` shorthand.
 - Forward references to value-defined procedures now compile: a procedure
   may call a global that is defined later with `(define name (lambda ...))`

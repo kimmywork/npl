@@ -19,6 +19,7 @@
   "frontend/source.npl"
   "frontend/primitive-table.npl"
   "frontend/library-primitives.npl"
+  "frontend/c-structs.npl"
   "frontend/c-primitives.npl"
   "frontend/c-functions.npl"
   "frontend/numeric-aliases.npl"

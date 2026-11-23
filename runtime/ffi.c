@@ -240,6 +240,18 @@ NplVal npl_ffi_from_pointer(void *address)
     return npl_pointer(address);
 }
 
+void *npl_ffi_struct_pointer(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_RECORD)
+        npl_primitive_error(who, "expected a C struct view", value);
+    {
+        NplVector *record = (NplVector *)npl_header(value);
+        if (record->length < 3)
+            npl_primitive_error(who, "expected a C struct view", value);
+        return npl_pointer_address(record->data[1], who);
+    }
+}
+
 NplVal npl_ffi_unspecified(void)
 {
     return npl_unspecified();

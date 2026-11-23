@@ -50,6 +50,17 @@ M0a is implemented on `feature/0.1.3-ffi`:
 - M4 (lambda shorthand and library migration) is complete: `(npl lambda)`
   provides `λ`/`fn`, and `(npl data stream)` / `(srfi 41)` uses the
   reference procedural syntax-case `stream-match` matcher with fenders.
+- H1 runtime/reader hardening is implemented: record index bounds in both
+  the inline and primitive paths, catchable rest-arity errors, linear lexer
+  string accumulation, short-read detection, a P5 reader corpus, and the
+  documented cross-form continuation deviation.
+- F2 C structs are implemented: `define-c-struct` uses a compile-time
+  `sizeof`/`offsetof` probe, `make-c-struct`/`c-struct-ref`/`c-struct-set!`
+  and `struct:name` typed stubs work. `timespec` and `tm` are the first
+  descriptors; the rest of the POSIX catalog moves with P2.
+- P1 SRFI 19 is implemented for the core surface: `(npl time)` /
+  `(srfi 19)` provide UTC/monotonic/duration values, current-time and
+  resolution, date conversion, formatting, and duration arithmetic.
 - F1 C memory core is implemented: `foreign-alloc`/`foreign-free`/
   `foreign-size`/`foreign-copy`, typed `pointer-ref`/`pointer-set!` and
   views, `c-array`, and `with-resource` release tests. `ffi-memory` has 42
@@ -425,9 +436,9 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 319,680 lines; SHA-256
-  `8e0b390dcea200494200ff23b141b9546ebd27f5bd536f8a2e1525d1ac1f73e7`
-  (strict relay, 2026-11-23, F1 C memory core). The seed calls
+- `bootstrap/current.ssa`: 329,654 lines; SHA-256
+  `7105e18267b88fb43b79ef6110e6eef5cf0e4c7aa6f261463b2ba0c3212e45f3`
+  (strict relay, 2026-11-23, H1/F2/SRFI 19). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

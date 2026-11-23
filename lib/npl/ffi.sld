@@ -18,6 +18,8 @@
           pointer-set-i8! pointer-set-i16! pointer-set-i32! pointer-set-i64!
           pointer-set-float! pointer-set-double! pointer-set-pointer!
           c-type-size
+          make-c-struct c-struct? c-struct-pointer c-struct-ref
+          c-struct-set! c-struct-size
           c-array? c-array c-array-pointer c-array-length c-array-type
           make-c-array c-array-ref c-array-set! c-array->vector
           vector->c-array)
@@ -47,13 +49,18 @@
         ((eq? type 'u16) 1)
         ((eq? type 'u32) 2)
         ((eq? type 'u64) 3)
+        ((eq? type 'size_t) 3)
+        ((eq? type 'int64) 7)
         ((eq? type 'i8) 4)
         ((eq? type 'i16) 5)
         ((eq? type 'i32) 6)
+        ((eq? type 'int) 6)
         ((eq? type 'i64) 7)
+        ((eq? type 'long) 7)
         ((eq? type 'float) 8)
         ((eq? type 'double) 9)
         ((eq? type 'pointer) 10)
+        ((eq? type 'bool) 0)
         (else (error "npl ffi: unknown C type" type))))
 
     (define (c-type-size type)
@@ -130,6 +137,55 @@
       (apply pointer-set! pointer 'double value rest))
     (define (pointer-set-pointer! pointer value . rest)
       (apply pointer-set! pointer 'pointer value rest))
+
+    (define-record-type c-struct-record
+      (make-c-struct-record pointer descriptor)
+      c-struct?
+      (pointer c-struct-pointer)
+      (descriptor c-struct-descriptor))
+
+    (define (c-struct-descriptor? descriptor)
+      (if (pair? descriptor)
+          (if (assq 'size descriptor)
+              (if (assq 'fields descriptor) #t #f)
+              #f)
+          #f))
+
+    (define (make-c-struct descriptor)
+      (if (not (c-struct-descriptor? descriptor))
+          (error "make-c-struct: expected a define-c-struct descriptor"
+                 descriptor))
+      (make-c-struct-record
+        (foreign-alloc (cdr (assq 'size descriptor)))
+        descriptor))
+
+    (define (c-struct-size view)
+      (if (not (c-struct? view))
+          (error "c-struct-size: expected a C struct view" view))
+      (cdr (assq 'size (c-struct-descriptor view))))
+
+    (define (c-struct-field descriptor field)
+      (let ((entry (assq field (cdr (assq 'fields descriptor)))))
+        (if entry
+            entry
+            (error "C struct has no such field" field))))
+
+    (define (c-struct-ref view field)
+      (if (not (c-struct? view))
+          (error "c-struct-ref: expected a C struct view" view))
+      (let ((entry (c-struct-field (c-struct-descriptor view) field)))
+        (npl_ffi_pointer_ref (c-struct-pointer view)
+                             (car (cdr (cdr entry)))
+                             (car (cdr entry)))))
+
+    (define (c-struct-set! view field value)
+      (if (not (c-struct? view))
+          (error "c-struct-set!: expected a C struct view" view))
+      (let ((entry (c-struct-field (c-struct-descriptor view) field)))
+        (npl_ffi_pointer_set (c-struct-pointer view)
+                             (car (cdr (cdr entry)))
+                             (car (cdr entry))
+                             value)))
 
     (define-record-type c-array-record
       (make-c-array-record pointer length type)

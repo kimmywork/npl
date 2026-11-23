@@ -1,0 +1,43 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl ffi))
+
+(include "framework.npl")
+
+(define-c-struct timespec
+  "struct timespec"
+  (tv_sec long)
+  (tv_nsec long))
+
+(define (raises? thunk)
+  (guard (condition (#t #t))
+    (thunk)
+    #f))
+
+(define (main)
+  (let ((value (make-c-struct timespec)))
+    (test-identity "c-struct view"
+                   (lambda () (c-struct? value))
+                   #t)
+    (test-identity "c-struct pointer"
+                   (lambda () (pointer? (c-struct-pointer value)))
+                   #t)
+    (test-identity "c-struct size"
+                   (lambda () (> (c-struct-size value) 0))
+                   #t)
+    (test-equal "c-struct zero-filled"
+                (lambda () (c-struct-ref value 'tv_sec)) 0)
+    (c-struct-set! value 'tv_sec 123456789)
+    (c-struct-set! value 'tv_nsec 987654321)
+    (test-equal "c-struct long field"
+                (lambda () (c-struct-ref value 'tv_sec)) 123456789)
+    (test-equal "c-struct second field"
+                (lambda () (c-struct-ref value 'tv_nsec)) 987654321)
+    (test-identity "unknown c-struct field raises"
+                   (lambda ()
+                     (raises? (lambda () (c-struct-ref value 'missing))))
+                   #t))
+  (finish-tests "c-structs"))
+
+(main)
