@@ -606,7 +606,6 @@ reject_reader backslash-identifier "bad character byte 92"
 reject_compile contracts/duplicate-definition.npl \
     duplicate-definition "duplicate top-level definition"
 
-python3 "$ROOT/tools/check_srfi_exports.py"
 python3 "$ROOT/tools/check_library_test_coverage.py"
 
 echo "full compiler dynamic core: PASS"

@@ -45,6 +45,7 @@ frozen recovery artifacts as current behavior.
 | Property tests | `tests/property/` | deterministic generated inputs | `(npl test property)` |
 | Numeric oracle | `tests/numeric/` | exact numeric substrate against Guile | `(tools toolchain)` |
 | Upstream suite | `tests/chibi/` | independent chibi R7RS suite | `run_chibi_suite.sh` |
+| Library metadata | `(tools libraries)` | exports, imports, cycles, layering, alias re-exports | `tools/run-tests.npl` |
 | Toolchain checks (NPL) | `(tools toolchain)` | current fixed point, GC, numeric oracle, driver, install, core consistency | `tools/run-tests.npl` |
 | Toolchain checks (legacy) | `tools/check_*.sh` | REPL, full compiler, relay | shell adapters |
 | Frozen bootstrap | `bootstrap/stage0/tools/`, `bootstrap/tools/` | stage0, permanent bootstrap chain | separate script |
@@ -164,6 +165,25 @@ The implementation is `lib/npl/test/expect.sld`; the CLI is
 
 Fixtures outside the gate (`core-bindings`, `smoke`, `integer-io`,
 `port-wrappers`) are still runnable directly with the same command.
+
+## Library metadata
+
+`(tools libraries)` walks every file under `lib/`, reads all `.sld`
+definitions and their includes, and derives the binding graph from the
+source. It checks:
+
+- every export is defined exactly once locally, or resolves through an
+  import (including `(npl internal primitive)` and C-backed bindings);
+- duplicate exports, duplicate definitions, and export/import collisions;
+- import conflicts by binding origin, including `only`/`except`/`prefix`/
+  `rename` and alias re-exports;
+- cycles in the library import graph;
+- layer rules: internals -> scheme -> npl -> demo/srfi, with SRFI aliases
+  not importing other SRFIs.
+
+No alias table is maintained: an alias export is valid when its origin
+resolves through the canonical library. The old `check_srfi_exports.py`
+table was removed.
 
 ## Toolchain checks in NPL
 

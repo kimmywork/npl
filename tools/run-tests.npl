@@ -12,6 +12,7 @@
         (npl platform)
         (npl unix)
         (npl test expect)
+        (tools libraries)
         (tools toolchain))
 
 (define ROOT (current-directory))
@@ -173,6 +174,7 @@
       (display "current compiler fixed point SKIP\n")
       (report "current compiler fixed point"
               (check-current-fixed-point ROOT)))
+  (report "library metadata" (check-libraries ROOT))
   (run-script "full compiler language" "tools/check_full_compiler.sh")
   (report "unified nplc driver" (check-driver ROOT))
   (report "install layout" (check-install ROOT))
