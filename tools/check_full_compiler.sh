@@ -232,7 +232,7 @@ grep -F 'call $npl_integer_string_p(' "$WORK/c-primitives.ssa" >/dev/null
 # A tail call from a top-level procedure to itself with its own arity is a
 # jump (backend/tail.npl emit-self-jump), not a trampoline request; a call
 # with another arity keeps the request and reports the arity error.
-SELF="$ROOT/tests/r7rs/fixtures/self-tail-calls"
+SELF="$ROOT/tests/fixtures/self-tail-calls"
 emit "$WORK/compiler" "$SELF/native.npl" "$WORK/self-tail-calls.ssa"
 self_function() {
     awk -v f="function l \$_npl_fn_$1(" \
@@ -253,7 +253,7 @@ self_function bad | grep -qF 'npl_tail_request(l $_npl_fn_bad,'
 # body (backend/bindings.npl self-loop-binding?); a reassigned name, a call
 # from a nested lambda, and a call with another arity keep the trampoline.
 # The loop is the first lambda its top-level function creates.
-LOOPS="$ROOT/tests/r7rs/fixtures/named-loops"
+LOOPS="$ROOT/tests/fixtures/named-loops"
 emit "$WORK/compiler" "$LOOPS/native.npl" "$WORK/named-loops.ssa"
 loop_lambda() {
     awk -v f="function l \$_npl_fn_$1(" \
@@ -295,7 +295,7 @@ cmp "$WORK/direct-report.ssa" "$WORK/direct-plain.ssa"
 # CPS entry (the fallback) does not call it. A variadic function has one;
 # raise in a direct body raises through npl_raise_direct. Deep recursion and
 # a collection at a small nursery inside it still work.
-DCALLS="$ROOT/tests/r7rs/fixtures/direct-calls"
+DCALLS="$ROOT/tests/fixtures/direct-calls"
 emit "$WORK/compiler" "$DCALLS/native.npl" "$WORK/direct-calls.ssa"
 direct_function() {
     awk -v f="function l \$$1(" \
@@ -322,7 +322,7 @@ NPL_GC_NURSERY_BYTES=65536 "$WORK/direct-calls" > "$WORK/direct-calls.out"
 cmp "$DCALLS/expected.out" "$WORK/direct-calls.out"
 # Direct lambdas (design-calls C3): the mapped lambda has a direct entry
 # stored in its closure, and map-one calls it through npl_closure_direct.
-DLAMBDAS="$ROOT/tests/r7rs/fixtures/direct-lambdas"
+DLAMBDAS="$ROOT/tests/fixtures/direct-lambdas"
 emit "$WORK/compiler" "$DLAMBDAS/native.npl" "$WORK/direct-lambdas.ssa"
 grep -q '^function l \$_lambda_[0-9]*_d(l %npl_env, l %npl_p0)' \
     "$WORK/direct-lambdas.ssa"
@@ -331,7 +331,7 @@ awk -v f='function l $_npl_fn__5fnpl_5flib_5f1_5fmap_5f2done(' \
     "$WORK/direct-lambdas.ssa" | grep -qF 'call $npl_closure_direct('
 # Lambdas are flat closures: one npl_make_flat_closure per creation and
 # inline capture loads, no separate environment object (design-calls C1b).
-CAPTURES="$ROOT/tests/r7rs/fixtures/closure-captures"
+CAPTURES="$ROOT/tests/fixtures/closure-captures"
 emit "$WORK/compiler" "$CAPTURES/native.npl" "$WORK/closure-captures.ssa"
 grep -qF 'call $npl_make_flat_closure(' "$WORK/closure-captures.ssa"
 if grep -qE 'npl_make_environment|npl_environment_ref' \

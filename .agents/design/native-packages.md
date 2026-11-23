@@ -1,5 +1,7 @@
 # Native Packages
 
+Public documentation: `docs/native-packages.md` (pure NPL packages, core A, external B, `package.meta`, and testing).
+
 Status: accepted direction, 2026-11-23. Core packages use linked (A) mode;
 external packages use loaded (B) mode. Both share one NplVal ABI and one
 binding manifest. Not yet implemented.

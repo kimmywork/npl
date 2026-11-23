@@ -165,10 +165,8 @@ SCHEME
 "$ROOT/build/bin/npli" -l "$library" "$WORK/c-environments.scm" \
     > "$WORK/c-environments.out"
 printf '(10 0 3)' | cmp - "$WORK/c-environments.out"
-{
-    sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'
-/^(include "framework.npl")$/d' "$TESTS/c-primitives.npl"
-} > "$WORK/c-primitives.scm"
+sed 's|^(include "framework.npl")$|(import (npl test))|' \
+    "$TESTS/c-primitives.npl" > "$WORK/c-primitives.scm"
 (cd "$TESTS" && "$ROOT/build/bin/npli" "$WORK/c-primitives.scm") \
     > "$WORK/c-primitives.out"
 grep -Fx 'PASS c-primitives 11' "$WORK/c-primitives.out" >/dev/null
@@ -208,10 +206,8 @@ grep -F "npli: cannot load $WORK/missing-library" "$WORK/rejected.err" >/dev/nul
 
 # Primitive error objects agree with native (src/compiler/tests, same file).
 # Inline framework.npl in place of its include line.
-{
-    sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'
-/^(include "framework.npl")$/d' "$TESTS/primitive-errors.npl"
-} > "$WORK/primitive-errors.scm"
+sed 's|^(include "framework.npl")$|(import (npl test))|' \
+    "$TESTS/primitive-errors.npl" > "$WORK/primitive-errors.scm"
 "$ROOT/build/bin/npli" "$WORK/primitive-errors.scm" > "$WORK/primitive-errors-suite.out"
 grep -Fx 'PASS primitive-errors 37' "$WORK/primitive-errors-suite.out" >/dev/null
 # Standard libraries are bound to npli's compiled procedures only when their
@@ -231,10 +227,8 @@ printf '(42 42)' | cmp - "$WORK/edited-library.out"
 ! grep -Fx '(42 42)' "$WORK/native-library.out" >/dev/null
 
 # Raw primitive errors are native error objects under npli as well.
-{
-    sed '/^(include "framework.npl")$/r '"$TESTS/framework.npl"'
-/^(include "framework.npl")$/d' "$TESTS/runtime-errors.npl"
-} > "$WORK/runtime-errors.scm"
+sed 's|^(include "framework.npl")$|(import (npl test))|' \
+    "$TESTS/runtime-errors.npl" > "$WORK/runtime-errors.scm"
 "$ROOT/build/bin/npli" "$WORK/runtime-errors.scm" > "$WORK/runtime-errors-suite.out"
 grep -Fx 'PASS runtime-errors 14' "$WORK/runtime-errors-suite.out" >/dev/null
 [ "$missing_status" -eq 66 ]

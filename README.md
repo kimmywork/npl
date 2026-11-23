@@ -122,6 +122,7 @@ supported, and there is no cross-compilation path at this stage.
 - [R7RS-small conformance](docs/r7rs-conformance.md)
 - [Extending NPL](docs/extending.md)
 - [C functions and FFI](docs/ffi.md)
+- [Packages and native packages](docs/native-packages.md)
 - [Time and SRFI 19](docs/time.md)
 - [POSIX and SRFI 170](docs/posix.md)
 - [R7RS-small reference](docs/reference/r7rs.html) and
@@ -142,8 +143,11 @@ tools/run_chibi_suite.sh --native              # external conformance suite
 
 The gate builds the toolchain, checks the permanent bootstrap chain, runs the
 compiler suites and contracts, exercises the shared native/`npli`/Guile
-fixtures, and checks the runtime and GC. See
-[Verification](docs/testing.md) for stage details and fixture rules.
+fixtures, and checks the runtime and GC. The orchestrator is
+`tools/run-tests.npl`; fixture tests use `(npl test expect)`, unit tests use
+`(npl test)` / `(srfi 64)`, and property tests use `(npl test property)` /
+`(srfi 252)`. See [Verification](docs/testing.md) for stage details and
+fixture rules.
 
 ## License
 

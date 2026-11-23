@@ -69,7 +69,7 @@ accepted:
 ### Three-way fixtures: 41 in the gate
 
 Every behavior the project commits to has a fixture under
-`tests/r7rs/fixtures/` run by `tools/run_r7rs_fixture.sh` through native,
+`tests/fixtures/` run by `tools/run_r7rs_fixture.sh` through native,
 npli, and Guile 3 with byte-identical stdout, stderr, and status. Fixtures
 with `oracle=none` (Guile lacks the behavior: datum labels in `read`,
 `record-update`, cyclic printing, `match-define`) are checked against

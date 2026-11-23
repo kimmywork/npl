@@ -1,6 +1,21 @@
 # Workstate
 
 
+## Test infrastructure (2026-11-23)
+
+- `(npl test)` / `(srfi 64)` and `(npl test property)` / `(srfi 252)` are
+  implemented. `src/compiler/tests/framework.npl` includes the same
+  `lib/npl/test/core.scm`, so importless suites and imported tests share one
+  implementation.
+- `(npl test expect)` and `tools/run-tests.npl` replace the fixture loop and
+  expect shell logic. Fixtures moved to `tests/fixtures`, discovered from
+  `tests/fixtures/manifest.scm`; PBT suites live in `tests/property`.
+- Shell scripts remain as explicit legacy adapters for stage0, bootstrap,
+  driver, install, GC, and relay checks. Compiler-suite manifest migration is
+  the next testing increment.
+- Plan: `.agents/plans/testing-infrastructure.md`; docs:
+  `docs/testing.md` and `docs/native-packages.md`.
+
 ## 0.1.3 macro foundation (M0a, 2026-11-16)
 
 M0a is implemented on `feature/0.1.3-ffi`:
@@ -43,7 +58,7 @@ M0a is implemented on `feature/0.1.3-ffi`:
   resolves definition-site bindings), top-level `begin` is recognized even
   when core syntax is imported, and named `let` in transformer code binds its
   loop name correctly.
-- `tests/r7rs/fixtures/syntax-case` (Guile oracle) and
+- `tests/fixtures/syntax-case` (Guile oracle) and
   `syntax-case-npl` (nplc/npli differential) cover clauses, fenders,
   ellipsis, with-syntax, hygiene, helpers, phase forms, local macros, and
   definition-producing output.
@@ -139,7 +154,7 @@ I2 and part of I3 are implemented on `feature/srfi-i2-i3`:
 - The seed was relayed for the reader change.
 - Review (2026-11-12): all findings are fixed. The spec-derived suites,
   import cases, and native/npli fixture were merged into
-  `src/compiler/tests/` and `tests/r7rs/fixtures/srfi-i2-i3`; the design note
+  `src/compiler/tests/` and `tests/fixtures/srfi-i2-i3`; the design note
   is `.agents/reviews/2026-11-12-srfi-i2-i3-test-design.md`.
 
 I3 completion is on `feature/0.1.2-i3-remaining` (PR #5):

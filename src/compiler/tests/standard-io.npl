@@ -3,9 +3,9 @@
         (scheme file)
         (scheme process-context)
         (only (scheme base)
-              + = car cdr close-input-port close-output-port eof-object?
-              eq? newline read-char string=? symbol->string vector-ref
-              write-char))
+              + - = car cdr close-input-port close-output-port eof-object?
+              eq? eqv? guard newline null? read-char string? string=?
+              symbol->string vector-ref write-char))
 
 (include "framework.npl")
 

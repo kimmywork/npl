@@ -2,7 +2,7 @@
 # Shared execution results plus rejection/recovery contracts for malformed syntax.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-FIXTURE="$ROOT/tests/r7rs/fixtures/core-bindings"
+FIXTURE="$ROOT/tests/fixtures/core-bindings"
 NPLC=${NPLC:-"$ROOT/build/bin/nplc"}
 NPLI=${NPLI:-"$ROOT/build/bin/npli"}
 export NPLC NPLI

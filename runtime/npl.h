@@ -677,6 +677,8 @@ NplVal npl_command_line(void);                /* R7RS: command name + arguments 
 NplVal npl_set_command_line(NplVal arguments);
 NplVal npl_read_file(NplVal path);            /* whole file as string; aborts on error */
 NplVal npl_process_run(NplVal arguments, NplVal output_path);
+NplVal npl_process_run_full(NplVal arguments, NplVal input_path,
+                           NplVal output_path, NplVal error_path);
 NplVal npl_get_environment_variable(NplVal name);
 NplVal npl_get_environment_variables(void);
 NplVal npl_file_exists(NplVal path);

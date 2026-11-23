@@ -1,0 +1,47 @@
+(import (scheme base)
+        (scheme write)
+        (npl test)
+        (npl test property))
+
+(test-begin "pbt-core")
+
+(test-property (lambda (a b) (= (+ a b) (+ b a)))
+               (list (exact-integer-generator) (exact-integer-generator))
+               200)
+
+(test-property (lambda (a b c) (= (* a (+ b c)) (+ (* a b) (* a c))))
+               (list (exact-integer-generator)
+                     (exact-integer-generator)
+                     (exact-integer-generator))
+               100)
+
+(test-property (lambda (x) (equal? (reverse (reverse (list x))) (list x)))
+               (list (exact-integer-generator))
+               50)
+
+(test-property (lambda (a b)
+                 (= (string-length (string-append a b))
+                    (+ (string-length a) (string-length b))))
+               (list (string-generator) (string-generator))
+               100)
+
+(test-property (lambda (value)
+                 (equal? (list->vector (vector->list (vector value)))
+                         (vector value)))
+               (list (exact-integer-generator))
+               50)
+
+(test-property (lambda (bytes)
+                 (= (bytevector-length bytes) (bytevector-length bytes)))
+               (list (bytevector-generator))
+               50)
+
+(test-property-error (lambda (x) (error "property error" x))
+                     (list (exact-integer-generator))
+                     20)
+
+(test-property-expect-fail (lambda (x) #f)
+                           (list (exact-integer-generator))
+                           20)
+
+(finish-tests "pbt-core")

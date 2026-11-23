@@ -6,7 +6,7 @@ Usage: python3 tools/r7rs_inventory.py [--missing] [--library NAME]
 Reads docs/reference/r7rs.html (Appendix A) and lib/scheme/*.sld. A name
 counts as present when the library exports it or, for syntax handled by the
 compiler core, when it is listed in CORE_SYNTAX. Presence is an export check,
-not a conformance verdict: behavior is established by tests/r7rs fixtures.
+not a conformance verdict: behavior is established by tests/fixtures.
 """
 
 import argparse

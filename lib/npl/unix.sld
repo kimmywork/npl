@@ -20,6 +20,7 @@
           set-file-mode directory-files make-directory-files-generator
           open-directory read-directory close-directory
           real-path file-space temp-file-prefix create-temp-file port-fileno
+          glob
           call-with-temporary-filename
           umask set-umask! current-directory set-current-directory!
           pid nice user-uid user-gid user-effective-uid user-effective-gid
@@ -55,6 +56,8 @@
       "npl_unix_file_info_port")
     (define-c-primitive (npl_unix_directory_files (path any) (dots any)) any
       "npl_unix_directory_files")
+    (define-c-primitive (npl_unix_glob (pattern any)) any
+      "npl_unix_glob")
     (define-c-primitive (npl_unix_open_directory (path any)) any
       "npl_unix_open_directory")
     (define-c-primitive (npl_unix_read_directory (handle any) (dots any)) any
@@ -231,6 +234,9 @@
           #f))
 
     ; ---- directories -----------------------------------------------------
+
+    (define (glob pattern)
+      (npl_unix_glob pattern))
 
     (define (directory-files directory . rest)
       (npl_unix_directory_files directory

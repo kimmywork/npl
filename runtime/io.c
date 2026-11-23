@@ -179,6 +179,68 @@ NplVal npl_process_run(NplVal arguments, NplVal output_path)
     return npl_fixnum(1);
 }
 
+NplVal npl_process_run_full(NplVal arguments, NplVal input_path,
+                           NplVal output_path, NplVal error_path)
+{
+    size_t count = process_argument_count(arguments);
+    char **argv = (char **)malloc((count + 1) * sizeof(char *));
+    NplVal rest = arguments;
+    posix_spawn_file_actions_t actions;
+    int action_status;
+    pid_t child = 0;
+    int spawn_status;
+    int status = 0;
+    if (!argv) npl_runtime_oom_internal();
+    for (size_t index = 0; index < count; index++) {
+        argv[index] = npl_c_string_internal(
+            process_string(npl_car(rest), "run-process*"));
+        rest = npl_cdr(rest);
+    }
+    argv[count] = NULL;
+
+    action_status = posix_spawn_file_actions_init(&actions);
+    if (action_status == 0 && input_path != npl_false()) {
+        char *path = npl_c_string_internal(
+            process_string(input_path, "run-process*"));
+        action_status = posix_spawn_file_actions_addopen(
+            &actions, STDIN_FILENO, path, O_RDONLY, 0);
+        free(path);
+    }
+    if (action_status == 0 && output_path != npl_false()) {
+        char *path = npl_c_string_internal(
+            process_string(output_path, "run-process*"));
+        action_status = posix_spawn_file_actions_addopen(
+            &actions, STDOUT_FILENO, path,
+            O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        free(path);
+    }
+    if (action_status == 0 && error_path != npl_false()) {
+        char *path = npl_c_string_internal(
+            process_string(error_path, "run-process*"));
+        action_status = posix_spawn_file_actions_addopen(
+            &actions, STDERR_FILENO, path,
+            O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        free(path);
+    }
+    if (action_status != 0) {
+        for (size_t index = 0; index < count; index++) free(argv[index]);
+        free(argv);
+        npl_primitive_file_error("run-process*", "cannot configure process",
+                                 arguments);
+    }
+    spawn_status = posix_spawnp(
+        &child, argv[0], &actions, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    for (size_t index = 0; index < count; index++) free(argv[index]);
+    free(argv);
+    if (spawn_status != 0) return npl_fixnum(127);
+    if (waitpid(child, &status, 0) < 0)
+        npl_primitive_error("run-process*", "wait failed", arguments);
+    if (WIFEXITED(status)) return npl_fixnum(WEXITSTATUS(status));
+    if (WIFSIGNALED(status)) return npl_fixnum(128 + WTERMSIG(status));
+    return npl_fixnum(1);
+}
+
 NplVal npl_get_environment_variable(NplVal name_value)
 {
     char *name = npl_c_string_internal(process_string(name_value,

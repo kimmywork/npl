@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+SPDX-FileCopyrightText: 2025, 2026 Andrew Tropin <mail+srfi269@trop.in>
+SPDX-License-Identifier: MIT
+-->
+  <head>
+    <meta charset="utf-8">
+    <title>SRFI 269: Portable Test Definitions</title>
+    <link href="/favicon.png" rel="icon" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="https://srfi.schemers.org/srfi.css" type="text/css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      :target { background-color: #e1f0fd; }
+    </style></head>
+  <body>
+    <h1><a href="https://srfi.schemers.org/"><img class="srfi-logo"
+    src="https://srfi.schemers.org/srfi-logo.svg" alt="SRFI surfboard
+    logo" /></a>SRFI 269: Portable Test Definitions</h1>
+
+<p>by <a href="https://trop.in/">Andrew Tropin</a>, Ramin Honary</p>
+
+<h2 id="status">Status</h2>
+
+    <p>This SRFI is currently in <em>final</em> status.  Here is <a href="https://srfi.schemers.org/srfi-process.html">an explanation</a> of each status that a SRFI can hold.  To provide input on this SRFI, please send email to <code><a href="mailto:srfi+minus+269+at+srfi+dotschemers+dot+org">srfi-269@<span class="antispam">nospam</span>srfi.schemers.org</a></code>.  To subscribe to the list, follow <a href="https://srfi.schemers.org/srfi-list-subscribe.html">these instructions</a>.  You can access previous messages via the mailing list <a href="https://srfi-email.schemers.org/srfi-269/">archive</a>.</p>
+    <ul>
+      <li>Received: 2026-04-01</li>
+      <li>Draft #1 published: 2026-04-02</li>
+      <li>Draft #2 published: 2026-06-04</li>
+      <li>Draft #3 published: 2026-07-29</li>
+      <li>Draft #4 published: 2026-09-03</li>
+      <li>Draft #5 published: 2026-09-24</li>
+      <li>Finalized: 2026-09-30</li>
+    </ul>
+
+<h2 id="abstract">Abstract</h2>
+
+<p>This SRFI defines a portable API for test definitions that is
+decoupled from test execution and reporting.  It provides four
+definition forms: the universal <code>is</code> macro for assertions,
+<code>testing</code> for giving groups of assertions human-readable
+context, <code>test</code> for grouping assertions into independently
+executable units, and <code>suite</code> for organizing tests into
+hierarchies.  The exported <code>metadata</code> auxiliary syntax
+attaches user-provided information to tests and suites to adjust the
+behavior of a test runner, for example to select tests by tags or to
+enforce timeout values.  The API is tiny,
+yet capable and flexible.  By focusing on the definition, and leaving
+execution semantics to test runners, this SRFI offers a common ground
+that can reduce fragmentation among testing libraries.</p>
+
+<p>Unlike side-effect-driven testing frameworks (e.g.&nbsp;<a href="https://srfi.schemers.org/srfi-64/">SRFI 64</a>),
+this API produces first-class runtime entities, making it easy to
+filter, schedule, wrap them in exception guards and continuation
+barriers, run in arbitrary order, and re-run dynamically generated
+test subsets.  In addition to the usual CLI test runners, it enables
+runtime-friendly test runners that integrate well with highly
+interactive development workflows inside REPLs and IDEs, significantly
+increasing control over test execution, and shortening the feedback
+loop.</p>
+
+<p>To bridge the test definitions and test runners, the SRFI specifies
+a message-passing programming interface and test loading and
+execution semantics recommendations for test runner implementers.</p>
+
+<h2 id="toc">Table of contents</h2>
+<ul>
+  <li><a href="#rationale">Rationale</a></li>
+  <li>
+    <a href="#specification">Specification</a>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#terminology">Terminology</a></li>
+      <li><a href="#current-test-runner-parameter">
+  current-test-runner parameter</a></li>
+      <li>
+        <a href="#is-macro">is — assertion macro</a>
+        <ul>
+          <li><a href="#is-syntax">Syntax</a></li>
+          <li><a href="#is-description">Description</a></li>
+          <li><a href="#return-value">Return value</a></li>
+          <li><a href="#constraints">Constraints</a></li>
+          <li><a href="#examples">Examples</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#testing-macro">testing - assertion context macro</a>
+        <ul>
+          <li><a href="#testing-syntax">Syntax</a></li>
+          <li><a href="#testing-description">Description</a></li>
+          <li><a href="#testing-return-value">Return value</a></li>
+          <li><a href="#testing-constraints">Constraints</a></li>
+          <li><a href="#testing-examples">Examples</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#metadata-syntax">metadata - auxiliary syntax</a>
+        <ul>
+          <li><a href="#syntax">Syntax</a></li>
+          <li><a href="#description">Description</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#test-macro">test — test definition macro</a>
+        <ul>
+          <li><a href="#syntax-2">Syntax</a></li>
+          <li><a href="#description-2">Description</a></li>
+          <li><a href="#constraints-2">Constraints</a></li>
+          <li><a href="#return-value-2">Return value</a></li>
+          <li><a href="#examples-2">Examples</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#test-loader-form">test-loader — deferred test definition</a>
+        <ul>
+          <li><a href="#syntax-3">Syntax</a></li>
+          <li><a href="#description-3">Description</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#suite-macro">suite — test suite definition macro</a>
+        <ul>
+          <li><a href="#syntax-4">Syntax</a></li>
+          <li><a href="#description-4">Description</a></li>
+          <li><a href="#constraints-3">Constraints</a></li>
+          <li><a href="#return-value-3">Return value</a></li>
+          <li><a href="#examples-3">Examples</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#suite-loader-form">suite-loader — deferred suite definition</a>
+        <ul>
+          <li><a href="#syntax-5">Syntax</a></li>
+          <li><a href="#suite-loader-invocation">Suite loader invocation</a></li>
+          <li><a href="#description-5">Description</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#define-suite-form">define-suite — named suite definition</a>
+        <ul>
+          <li><a href="#syntax-6">Syntax</a></li>
+          <li><a href="#description-6">Description</a></li>
+          <li><a href="#examples-4">Examples</a></li>
+        </ul>
+      </li>
+      <li><a href="#predicates">Predicates</a></li>
+    </ul>
+  </li>
+  <li>
+    <a href="#implementation">Implementations</a>
+    <ul>
+      <li><a href="#portable-sample-implementation">Portable Sample Implementation</a></li>
+      <li>
+        <a href="#suitbl-mdash-a-full-fledged-testing-library-based-on-srfi-269">suitbl — a full-fledged testing library based
+on SRFI 269</a>
+        <ul>
+          <li><a href="#implementation-notes">Implementation Notes</a></li>
+          <li><a href="#portability-considerations">Portability considerations</a></li>
+          <li><a href="#test-suites">Test suites</a></li>
+        </ul>
+      </li>
+      <li><a href="#supplementary-material">Supplementary material</a></li>
+    </ul>
+  </li>
+  <li><a href="#acknowledgements">Acknowledgements</a></li>
+  <li><a href="#copyright">Copyright</a></li>
+</ul>
+
+<h2 id="rationale">Rationale</h2>
+
+<p>Most of the Scheme libraries and applications benefit from tests,
+and most of test suites benefit from portability.
+<a href="https://srfi.schemers.org/srfi-64/srfi-64.html">SRFI 64</a>
+(2005) was a valuable first step toward a common testing API, and its
+widespread adoption demonstrates the need.  Yet the Scheme ecosystem
+remains fragmented: implementations maintain their own incompatible
+testing libraries
+(<a href="https://docs.racket-lang.org/rackunit/">RackUnit</a>,
+Chicken's <a href="https://wiki.call-cc.org/eggref/5/test"><code>test</code>
+egg</a>,
+Chibi's <a href="https://synthcode.com/scheme/chibi/lib/chibi/test.html"><code>(chibi
+test)</code></a>, and numerous ad hoc solutions), each with its own
+terminology and conventions.  There is no shared vocabulary for what
+"assertion," "test," and "test suite" mean, making it difficult to
+write portable tests, and nearly impossible to build portable testing
+tools.</p>
+
+<p>SRFI 64's design couples three distinct concerns: defining tests,
+executing them, and reporting results.  Writing
+a <code>test-assert</code> form <em>is</em> running it: the assertion
+fires as a side effect at load time, and that leads to multiple
+consequences.  Tests cannot be defined in one place and run in
+another, the execution strategy cannot be changed without rewriting
+test code, and the <code>test-begin</code>/<code>test-end</code> model is
+fragile and provides no first-class grouping.  SRFI 64's own rationale
+acknowledges this trade-off, noting that the API "may be a little less
+elegant and 'compositional' than using explicit test objects."</p>
+
+<p>Because SRFI 64 tests are imperative side effects rather than
+first-class values, they cannot be filtered by tag, reordered, re-run
+as a subset, or inspected programmatically.  The test runner relies on
+global mutable state, making tests non-reentrant and difficult to
+compose.  These limitations are especially painful in interactive
+workflows: at a REPL or inside an IDE. A programmer wants to pick one
+failing test, re-run it, examine the failure/use a debugger, fix the
+code, and iterate: a tight feedback loop that is impossible when tests
+are ephemeral side effects that vanish after execution.</p>
+
+<p>This SRFI addresses these problems through three design
+decisions:</p>
+
+<ol>
+  <li><strong>Common vocabulary.</strong> The terms
+  <em>assertion</em>, <em>assertion context</em>, <em>test</em>,
+  <em>test context</em>, <em>suite</em>, <em>entity</em>, <em>message</em>,
+  <em>test runner</em>, and <em>metadata</em> are defined precisely,
+  giving the community a shared language for definitions, tooling,
+  and communication.</li>
+
+  <li><strong>Separation of definition from execution and
+  reporting.</strong> Four small forms: <code>is</code>,
+  <code>testing</code>, <code>test</code>, and <code>suite</code>.
+  The <code>is</code>, <code>test</code>, and <code>suite</code> forms
+  construct first-class entities (runtime objects) and deliver them to
+  a pluggable test runner via a message-passing protocol.
+  The <code>testing</code> form adds reporting context to assertions.
+  Definition code is fully portable; execution and reporting strategy
+  varies by environment.</li>
+
+  <li><strong>First-class test entities.</strong> Because tests are
+  data, runners can filter by metadata, reorder, wrap each test in
+  exception guards or continuation barriers, enforce timeouts, and
+  re-run arbitrary subsets without changing a single line of test
+  definition code.  Suite loaders are composable procedures that can
+  be stored, exported, and combined.  The <code>is</code> macro
+  captures both the unevaluated source form and a thunk that evaluates
+  it, allowing runners to inspect and execute assertions separately.
+  The result is an API that is equally at home in CI pipelines and in
+  live REPL sessions.</li>
+</ol>
+
+<p>The API surface is deliberately minimal: four definition forms,
+one auxiliary syntax, one parameter, one setter procedure, three
+predicates, and two deferred variants.  Yet it covers assertions with
+rich diagnostics,
+named tests, nested suites, user-provided metadata, and deferred
+composable suite loaders.  This SRFI is intended to supersede SRFI 64
+for the purpose of test definition.  By standardizing what a
+test <em>is</em> and leaving how it is <em>run</em> to test runners,
+this SRFI provides a stable foundation on which future standards for
+runners, reporters, and discovery mechanisms can be built.</p>
+
+<h2 id="specification">Specification</h2>
+
+<h3 id="overview">Overview</h3>
+
+<p>The API specified by this SRFI is organized into two layers:</p>
+
+<ol>
+  <li><strong>Test definition primitives</strong> (normative).  Four
+  definition forms: <code>is</code>, <code>testing</code>,
+  <code>test</code>, and <code>suite</code>; the exported
+  <code>metadata</code> auxiliary syntax; a
+  <code>current-test-runner</code> parameter;
+  the <code>set-default-test-runner!</code> procedure; a small set of
+  predicates; and deferred variants <code>test-loader</code>
+  and <code>suite-loader</code>.</li>
+
+  <li><strong>Test runner interface</strong> (normative message
+  protocol).  A message-passing protocol that bridges test definitions
+  and test runners.  Each message type is defined alongside its
+  corresponding definition primitive above.</li>
+</ol>
+
+<p>The sample implementation section provides informative guidance and
+materials for test runner implementers on loading, scheduling, and
+reporting.</p>
+
+<p>The definition primitives do not execute tests themselves.  The
+<code>is</code>, <code>test</code>, and <code>suite</code> forms construct
+a first-class <em>entity</em>, an association list (alist), and deliver
+it to the current test runner via a <em>message</em>.
+The <code>testing</code> form establishes an assertion context for the
+dynamic extent of its body and does not construct an entity or send a
+message.  A test entity captures the test body as a one-argument
+procedure, its description string, optional metadata, and its source
+location when available.  The test runner is a procedure stored in
+the <code>current-test-runner</code> parameter; it receives messages as
+alists and is free to execute tests immediately, collect them for
+later, or take any other action.</p>
+
+<p>This separation is the central design principle: code that
+<em>defines</em> tests is portable across all conforming
+implementations, while code that <em>runs</em> tests may vary to suit
+different environments: CI pipelines, interactive REPLs and IDE,
+specific testing/reporting tools.</p>
+
+<h3 id="terminology">Terminology</h3>
+
+The common vocabulary important for both communication and for
+implementation.  In this section we set up this common glossary.
+
+<dl>
+  <dt id="term-assertion">Assertion</dt>
+  <dd>A single check, usually produced by the <code>is</code> macro.
+  An assertion captures an expression (the <em>body</em>), a thunk
+  that evaluates it, its assertion context, and its source location
+  when available.  It also has an optional description to clarify the
+  intent of the assertion when it is not clear from the asserting
+  expression.</dd>
+
+  <dt id="term-assertion-context">Assertion context</dt>
+  <dd>An ordered list of description strings from dynamically
+  enclosing <code>testing</code> forms, from outermost to innermost.
+  It gives reporters human-readable context for an assertion.  An
+  assertion context is distinct from a <a href="#term-test-context">test
+  context</a>, which carries values supplied by a test runner to a test
+  body.</dd>
+
+  <dt id="term-test">Test</dt>
+  <dd>A named, independently executable unit of testing, usually
+  produced by the <code>test</code> form.  A test groups zero or more
+  assertions together under a human-readable description string.
+  Tests are the smallest unit that a test runner schedules and reports
+  on.  A test body procedure is a one-argument procedure whose
+  argument is supplied by the runner when the test is executed.</dd>
+
+  <dt id="term-test-context">Test context</dt>
+  <dd>An association list supplied by a test runner to a test body
+  procedure.  It is treated as immutable by convention: its pairs are
+  not modified after construction, although their values may be
+  stateful.  Typical values include resources created by fixtures,
+  callbacks, metadata, and other data needed during a test run.  The
+  primary goal of test context is to provide an explicit communication
+  channel between fixtures, tests, and test runner.</dd>
+
+  <dt id="term-test-suite">Test suite</dt>
+  <dd>A named grouping of tests and nested test suites, usually
+  produced by the <code>suite</code> or <code>suite-loader</code>
+  form.  Suites impose hierarchical structure, and may carry metadata
+  that potentially influences the test running behavior for the entire
+  group.</dd>
+
+  <dt id="term-entity">Entity</dt>
+  <dd>An assertion, test, suite or other testing-related entry usually
+  represented as an association list.  Entities are the first-class
+  runtime objects that flow from definition code to the test runner.
+  In the alist case, keys are symbols; their prefixes
+  (<code>assertion/</code>, <code>test/</code>,
+  <code>suite/</code>) indicate which kind of entity they belong
+  to.</dd>
+
+  <dt id="term-message">Message</dt>
+  <dd>An association list sent to the test runner via
+  the <code>current-test-runner</code> parameter.  Every message
+  contains at least a <code>type</code> key whose value is a symbol
+  identifying the kind of message
+  (e.g.&nbsp;<code>runner/run-assertion</code>,
+  <code>runner/load-test</code>, <code>runner/load-suite</code>).  The
+  remaining keys carry the entities and any additional context.</dd>
+
+  <dt id="term-test-runner">Test runner</dt>
+  <dd>A procedure of one argument (a message), which can be used as
+  a <code>current-test-runner</code> parameter.  The test runner
+  receives every message produced by the definition primitives and
+  decides how to handle it: for example, by executing an assertion
+  immediately, by collecting a test for deferred execution, or by
+  building a suite hierarchy.  This SRFI specifies the messages a test
+  runner <em>must</em> accept; it does not prescribe execution order,
+  concurrency, or reporting strategy.</dd>
+
+  <dt id="term-test-reporter">Test reporter</dt>
+  <dd>A procedure that consumes events from a test runner and produces
+  human- or machine-readable output (terminal text, JUnit&nbsp;XML,
+  TAP, etc.).  Test reporters are outside the scope of this SRFI; they
+  are mentioned here because SRFI-269-based testing library
+  implementation experience proved it practical to have a reporter
+  separated from a test runner. It enables one to choose and adjust
+  the output format easily without modifying or reimplementing a test
+  runner.</dd>
+
+  <dt id="term-metadata">Metadata</dt>
+  <dd>An association list of user-provided key&ndash;value pairs
+  attached to a test or suite.  Metadata is opaque to the definition
+  API; its interpretation is entirely up to the test runner.  Typical
+  uses include tagging tests
+  (e.g.&nbsp;<code>((tags&nbsp;.&nbsp;(integration)))</code>),
+  specifying a timeout, or adding fixtures.</dd>
+
+  <dt id="term-source-location">Source location</dt>
+  <dd>An entity that identifies the location of the source code. Can
+  be an association list with
+  keys <code>filename</code>, <code>line</code>,
+  and <code>column</code>, or any other object useful for the specific
+  Scheme implementation.</dd>
+
+  <dt id="term-suite-path">Suite path</dt>
+  <dd>An ordered list of suite entities representing the chain of
+  enclosing suites from the outermost to the innermost.  The suite
+  path provides context for each test, enabling runners and reporters
+  to reconstruct the full hierarchy.</dd>
+
+</dl>
+
+<h3 id="current-test-runner-parameter">
+  <code>current-test-runner</code> parameter</h3>
+
+<dl>
+  <dt><code>(current-test-runner)</code></dt>
+  <dd>Returns the current test runner procedure.</dd>
+
+  <dt><code>(set-default-test-runner! <var>runner</var>)</code></dt>
+  <dd>Sets the default test runner to <var>runner</var>.  Subsequent
+  invocations of the message-producing forms use <var>runner</var>
+  unless <code>parameterize</code> installs a different runner for a
+  dynamic extent.</dd>
+</dl>
+
+<p><code>current-test-runner</code> is a
+<a href="https://r7rs.org/">parameter object</a> (as defined
+by <code>make-parameter</code>) that holds the current test runner
+procedure.  The message-producing forms <code>is</code>,
+<code>test</code>, and <code>suite</code> deliver their messages by
+calling <code>(current-test-runner)</code> to obtain the runner and then
+applying it to a message.  The <code>testing</code> form sends no
+message itself.</p>
+
+<p>If <code>current-test-runner</code> is never set, invoking a
+message-producing form <em>should</em> produce a diagnostic indicating
+that no runner has been configured.  A <code>testing</code> form whose
+body produces no messages does not require a test runner.  Libraries
+that provide a test runner <em>may</em> call
+<code>set-default-test-runner!</code> upon loading so that end users
+need not configure it manually.</p>
+
+<p>Because <code>current-test-runner</code> is a parameter, it can be
+rebound with <code>parameterize</code> to install a different runner
+for a dynamic extent, which is useful for testing the test framework
+itself or for running tests with alternative test runner.</p>
+
+<h3 id="is-macro">is &mdash; assertion macro</h3>
+
+<h4 id="is-syntax">Syntax</h4>
+
+<dl>
+  <dt><code>(is <var>expression</var>)</code></dt>
+  <dd>Generic assertion form.  Asserts that <var>expression</var>
+  evaluates to a truthy value.</dd>
+
+  <dt><code>(is <var>expression</var> <var>description</var>)</code></dt>
+  <dd>Same, with a human-readable assertion description.</dd>
+</dl>
+
+<h4 id="is-description">Description</h4>
+
+<p>The <code>is</code> macro is the sole assertion primitive.  Each
+invocation constructs an <em>assertion entity</em> (an alist) and
+delivers it to the current test runner by sending
+a <code>runner/run-assertion</code> message.  The test runner decides
+how to execute the assertion and what to do with the result.</p>
+
+<p>Programs may rename <code>is</code> when importing it, or wrapper
+libraries may re-export it under a name such as <code>check</code> using
+the implementation's library-renaming facilities.</p>
+
+<p>An optional <var>description</var> expression may be supplied as the
+second argument.  It must evaluate to a string.  When supplied, the
+description is stored in the assertion entity so reporters can present
+the domain meaning of an assertion in addition to, or instead of, the
+captured source form.</p>
+
+<p>Every invocation also captures the current
+<a href="#term-assertion-context">assertion context</a>.  The context
+is stored in the assertion entity under <code>assertion/context</code>
+even when it is empty.  The body thunk must re-establish the captured
+context whenever it evaluates the original expression.  Consequently,
+nested assertions inherit the same context even if a runner invokes
+the body thunk after the enclosing <code>testing</code> form has
+returned.</p>
+
+<p>The assertion entity contains the following keys.
+The <code>assertion/description</code> and
+<code>assertion/location</code> keys are optional:</p>
+
+<table>
+  <thead>
+    <tr><th>Key</th><th>Value</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>assertion/body-thunk</code></td>
+      <td>A thunk that, when called, re-establishes the captured
+      assertion context, evaluates the original expression, and
+      returns its value.</td>
+    </tr>
+    <tr>
+      <td><code>assertion/body</code></td>
+      <td>The source form of the expression as a datum (unevaluated),
+      useful for reporting.</td>
+    </tr>
+    <tr>
+      <td><code>assertion/context</code></td>
+      <td>The assertion context captured when <code>is</code> was
+      invoked.  It is an ordered list of strings from the outermost
+      enclosing <code>testing</code> form to the innermost, or the empty
+      list if there is no enclosing <code>testing</code> form.</td>
+    </tr>
+    <tr>
+      <td><code>assertion/description</code></td>
+      <td>The human-readable description.  This key is omitted if no
+      description was provided.</td>
+    </tr>
+    <tr>
+      <td><code>assertion/location</code></td>
+      <td>An assertion <a href="#term-source-location">source code
+      location</a>.  This key may be omitted if source-location
+      information is unavailable.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The message sent to the test runner has the form:</p>
+
+<pre><code>`((type        . runner/run-assertion)
+  (assertion   . ,<var>assertion-entity</var>))</code></pre>
+
+<h4 id="return-value">Return value</h4>
+
+<p>The return value of <code>is</code> is determined by the test
+runner.  A conforming runner <em>should</em> return the value produced
+by the body thunk when the assertion succeeds.  This makes it possible
+to reuse the value returned by <code>is</code> forms:</p>
+
+<pre><code>(is (= 7 (is (+ 3 4))))  ; inner is returns 7</code></pre>
+
+<h4 id="constraints">Constraints</h4>
+
+<ul>
+  <li>When used inside a <code>suite</code> but outside of
+  a <code>test</code>, the test runner <em>should</em> signal an
+  error.  Assertions are the province of tests; suites only group
+  tests.</li>
+  <li>If a <var>description</var> is provided, it must evaluate to a
+  string.</li>
+</ul>
+
+<h4 id="examples">Examples</h4>
+
+<pre><code>;; Atomic value &mdash; truthy means pass
+(is #t)
+(is 42)
+
+;; Variable
+(let ((x "hello"))
+  (is x))
+
+;; Procedure applications
+(is (= 4 (+ 2 2)))
+(is (string=? "hello" (greet "world")))
+(is (even? 14))
+(is (lset= = '(1 2 3) '(3 2 1)))
+
+;; Assertion description in a complete test
+(test "permission inheritance" (ctx)
+  (define db (cdr (assq 'db ctx)))
+  (define project (create-project! db "srfi-269"))
+  (define user (project-creator project))
+  (define permissions (user-permissions db user project))
+
+  (is (member 'project/admin permissions)
+      "project creator receives administration permission for the project"))
+</code></pre>
+
+
+<h3 id="testing-macro"><code>testing</code> - assertion context macro</h3>
+
+<h4 id="testing-syntax">Syntax</h4>
+
+<dl>
+  <dt><code>(testing <var>description</var> <var>body</var> &hellip;)</code></dt>
+  <dd>Evaluates one or more <var>body</var> forms with
+  <var>description</var> added to the current assertion context.</dd>
+</dl>
+
+<h4 id="testing-description">Description</h4>
+
+<p>The <code>testing</code> macro gives a group of assertions shared
+human-readable context.  It evaluates <var>description</var> exactly
+once.  It then evaluates the <var>body</var> forms in order with that
+string appended to the current assertion context.
+Every <code>is</code> invoked during this dynamic extent, including
+one invoked through an ordinary procedure call, captures the extended
+context in its assertion entity.</p>
+
+<p><code>testing</code> does not construct an entity and does not send a
+message to the current test runner.  It is not independently
+schedulable, discoverable, or re-executable.  It only affects assertion
+entities produced while its body is executing.  The body may contain
+ordinary Scheme expressions, such as local definitions and setup code,
+as well as assertions.</p>
+
+<p><code>testing</code> forms may be nested.  Each nested description is
+appended to the assertion context, so the value of
+<code>assertion/context</code> is ordered from the outermost
+<code>testing</code> form to the innermost.</p>
+
+<p>An assertion may be executed after the dynamic extent in which its
+entity was constructed.  Its body thunk must therefore re-establish
+the captured assertion context while evaluating the assertion body.
+This requirement ensures that a nested <code>is</code> receives the
+same context:</p>
+
+<pre><code>(testing "arithmetic"
+  (is (= 7 (is (+ 3 4)))))</code></pre>
+
+<p>Both assertions in this example have an
+<code>assertion/context</code> value equal to
+<code>'("arithmetic")</code>, including when a runner defers evaluation
+of the outer assertion body.</p>
+
+<h4 id="testing-return-value">Return value</h4>
+
+<p>The <code>testing</code> form returns the values produced by its last
+<var>body</var> form.</p>
+
+<h4 id="testing-constraints">Constraints</h4>
+
+<ul>
+  <li>At least one <var>body</var> form must be provided.</li>
+  <li><code>testing</code> may appear inside a <code>test</code>, inside
+  another <code>testing</code> form, or at the top level.  A top-level
+  form provides context to standalone assertions; it does not
+  implicitly create a test entity.</li>
+  <li><code>testing</code> must not appear directly inside a
+  <code>suite</code>. <code>testing</code>, as well as assertions
+  belong inside tests.</li>
+  <li>Invoking <code>test</code> or <code>suite</code> within the dynamic
+  extent of <code>testing</code> is an error.  Named groupings of tests
+  should be represented by nested suites.</li>
+</ul>
+
+<h4 id="testing-examples">Examples</h4>
+
+<pre><code>;; Several assertions jointly verify a domain-level property.
+(test "creating a file" ()
+  (define path "/tmp/srfi-269-example")
+
+  (testing "temporary directory is writable"
+    (define status (spawn "touch" path))
+    (is (= status 0))
+    (is (file-exists? path))))
+
+;; Nested assertion contexts.
+(test "permission inheritance" ()
+  (testing "administrator"
+    (testing "inherited project permissions"
+      (is (member 'project/write permissions)))))
+
+;; Standalone use, primarily useful at a REPL.
+(testing "parser smoke check"
+  (is (parseable? sample))
+  (is (valid? (parse sample))))</code></pre>
+
+<h3 id="metadata-syntax"><code>metadata</code> - auxiliary syntax</h3>
+
+<h4 id="syntax">Syntax</h4>
+
+<dl>
+  <dt><code>(metadata <var>metadata-alist</var>)</code></dt>
+  <dd>Attaches definition-time metadata to a test or suite entity.</dd>
+</dl>
+
+<h4 id="description">Description</h4>
+
+<p><code>metadata</code> is an auxiliary syntax keyword recognized by
+<code>test</code>, <code>test-loader</code>, <code>suite</code>,
+<code>suite-loader</code>, and <code>define-suite</code>.  A conforming
+library must export <code>metadata</code> along with those forms.  It may
+be renamed with the implementation's library import facilities; the
+enclosing form must recognize the renamed binding in the same way as
+the original name.</p>
+
+<p>A metadata clause may appear only in the positions shown in the
+syntax of the enclosing forms.  It is not an expression and has no
+standalone meaning.  <var>metadata-alist</var> is an expression that must
+evaluate to an association list.  It is evaluated exactly once when
+the enclosing form constructs its test or suite entity, and the
+resulting value is stored under <code>test/metadata</code> or
+<code>suite/metadata</code>, respectively.</p>
+
+
+<h3 id="test-macro">test &mdash; test definition macro</h3>
+
+<h4 id="syntax-2">Syntax</h4>
+
+<dl>
+  <dt><code>(test <var>description</var> () <var>body</var> &hellip;)</code></dt>
+  <dd>Defines and immediately loads a test without binding a context
+  identifier in the test body.</dd>
+
+  <dt><code>(test <var>description</var> (<var>context</var>) <var>body</var> &hellip;)</code></dt>
+  <dd>Defines and immediately loads a test.  The
+  identifier <var>context</var> is bound in the test body.</dd>
+
+  <dt><code>(test <var>description</var> () (metadata <var>metadata-alist</var>) <var>body</var> &hellip;)</code></dt>
+  <dt><code>(test <var>description</var> (<var>context</var>) (metadata <var>metadata-alist</var>) <var>body</var> &hellip;)</code></dt>
+  <dd>Same forms, with user-provided
+  <a href="#term-metadata">metadata</a> attached to the test entity.</dd>
+</dl>
+
+<h4 id="description-2">Description</h4>
+
+<p>The <code>test</code> macro defines a single, independently
+executable unit of testing.  It constructs a <em>test entity</em> (an
+alist) that captures the test body as a one-argument procedure, its
+description and metadata, and its source location when available.  It
+then immediately delivers the entity to the current test runner by
+sending a <code>runner/load-test</code> message.</p>
+
+<p>A test runner executes the body procedure by applying it to a
+context value:</p>
+
+<pre><code>((cdr (assq 'test/body-procedure test)) context)</code></pre>
+
+<p>The context value is supplied by the runner and is an association
+list.  A runner <em>should</em> construct it anew for every invocation
+of a test body procedure.  Context producers, such as test fixtures or
+runner middleware, extend a context by constructing a new alist and
+passing it to the next producer or to the test.  They <em>should
+not</em> modify the pairs that form an existing context.</p>
+
+<p>Treating the context structure as immutable does not require its
+values to be immutable.  A context may contain stateful resources such
+as database connections, sockets, ports, or boxes.  Tests and context
+producers may perform the side effects supported by those values.  The
+context alist itself remains unchanged; replacing or adding an
+association requires constructing and passing a new context.</p>
+
+<p>A test should be self-contained: its body should not depend on side
+effects produced by surrounding expressions or by other tests.  Side
+effects directed at values in the context are permitted, but a runner
+should arrange setup and cleanup so that each execution starts with the
+intended state.  Because a test runner may execute tests in any order,
+at any point in time, or skip them entirely, relying on unrelated
+external state makes test results unpredictable.</p>
+
+<p>A test entity is not single-use.  A test runner may call test body
+procedure multiple times, possibly with a different context value each
+time.  Every call evaluates the test body anew, so
+each <code>is</code> form constructs and delivers a new assertion
+entity, and any other side effects occur again.</p>
+
+<p><var>description</var> is a string that serves as a human-readable
+label for the test.  The context list is either empty or contains a
+single <var>context</var> identifier.  When present, the identifier is
+used as the formal parameter of the body procedure.  When the list is
+empty, the runner-supplied context value is ignored and no context
+identifier is bound in the test body.  The <var>body</var> forms
+typically contain zero or more <code>is</code> assertions, but may
+contain arbitrary Scheme expressions (e.g.&nbsp;local definitions,
+setup code).</p>
+
+<p>The test entity contains the following keys.
+The <code>test/location</code> key is optional:</p>
+
+<table>
+  <thead>
+    <tr><th>Key</th><th>Value</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>test/body-procedure</code></td>
+      <td>A procedure of one argument.  When called with a context
+      value, it evaluates the <var>body</var> forms in order.  If a
+      <var>context</var> identifier was provided, it is bound to that
+      value.</td>
+    </tr>
+    <tr>
+      <td><code>test/description</code></td>
+      <td>The <var>description</var> string.</td>
+    </tr>
+    <tr>
+      <td><code>test/metadata</code></td>
+      <td>The <var>metadata-alist</var>, or <code>'()</code> if none
+      was provided.</td>
+    </tr>
+    <tr>
+      <td><code>test/location</code></td>
+      <td>A <a href="#term-source-location">source location</a>.
+      This key may be omitted if source-location information is
+      unavailable.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The message sent to the test runner has the form:</p>
+
+<pre><code>`((type . runner/load-test)
+  (test . ,<var>test-entity</var>))</code></pre>
+
+<h4 id="constraints-2">Constraints</h4>
+
+<ul>
+  <li>The argument list must be empty or contain exactly one
+  identifier.  When present, the identifier is bound only in the test
+  body, not while evaluating the <var>metadata-alist</var>.</li>
+  <li>Tests <em>should not</em> be nested.  Invoking <code>test</code>
+  inside the body of another <code>test</code> is an error; the test
+  runner <em>should</em> signal it.  However, in some cases, it can be
+  useful to have a test or suite inside the test, it can be achieved,
+  if <code>current-test-runner</code> is parameterized (temporarily
+  redefined).</li>
+  <li>Tests <em>may</em> appear at the top level or inside
+  a <code>suite</code>.  When inside a suite, the test runner
+  associates the test with the enclosing suite path.</li>
+</ul>
+
+<h4 id="return-value-2">Return value</h4>
+
+<p>The return value of <code>test</code> is unspecified.  Because
+<code>test</code> is a <em>loading</em> form that registers a test
+with the runner rather than executing it, no meaningful value is
+produced.  Code <em>must not</em> rely on the return value.</p>
+
+<h4 id="examples-2">Examples</h4>
+
+<pre><code>;; Minimal test
+(test "addition works" ()
+  (is (= 4 (+ 2 2))))
+
+;; Multiple assertions in one test
+(test "string operations" ()
+  (is (string=? "HELLO" (string-upcase "hello")))
+  (is (= 5 (string-length "hello"))))
+
+;; Test using context and metadata
+(test "database round-trip" (ctx)
+  (metadata
+   `((tags . (integration))
+     (timeout . 30)))
+  (define db (cdr (assq 'db ctx)))
+  (is (equal? sample-record (db-read db (db-write db sample-record)))))
+
+;; Test with setup code
+(test "list reversal" ()
+  (define xs '(1 2 3))
+  (is (equal? '(3 2 1) (reverse xs))))</code></pre>
+
+<h3 id="test-loader-form"><code>test-loader</code> &mdash; deferred test definition</h3>
+
+<h4 id="syntax-3">Syntax</h4>
+
+<dl>
+  <dt><code>(test-loader <var>description</var> <var>context-list</var> <var>body</var> &hellip;)</code></dt>
+  <dt><code>(test-loader <var>description</var> <var>context-list</var> (metadata <var>metadata-alist</var>) <var>body</var> &hellip;)</code></dt>
+  <dd><var>context-list</var> is <code>()</code> or
+  <code>(<var>context</var>)</code>, as for <code>test</code>.</dd>
+</dl>
+
+<h4 id="description-3">Description</h4>
+
+<p><code>test-loader</code> accepts the same arguments and constructs
+the same test entity as <code>test</code>, but returns a loader instead of
+loading it immediately.  The loader accepts zero or one metadata alist
+and sends a <code>runner/load-test</code> message when invoked.
+Load-time metadata is sent separately under <code>load/metadata</code>.</p>
+
+<pre><code>`((type          . runner/load-test)
+  (test          . ,<var>test-entity</var>)
+  (load/metadata . ,<var>metadata-alist</var>))</code></pre>
+
+<p><code>test</code> can be implemented via <code>test-loader</code>:</p>
+
+<pre><code>(test <var>arguments</var> &hellip;)
+&equiv;
+((test-loader <var>arguments</var> &hellip;))</code></pre>
+
+<h3 id="suite-macro"><code>suite</code> &mdash; test suite definition macro</h3>
+
+<h4 id="syntax-4">Syntax</h4>
+
+<dl>
+  <dt><code>(suite <var>description</var> <var>body</var> &hellip;)</code></dt>
+  <dd>Defines and immediately loads a test suite.</dd>
+
+  <dt><code>(suite <var>description</var> (metadata <var>metadata-alist</var>) <var>body</var> &hellip;)</code></dt>
+  <dd>Same, with user-provided <a href="#term-metadata">metadata</a>
+  attached to the suite entity.</dd>
+</dl>
+
+<h4 id="description-4">Description</h4>
+
+<p>The <code>suite</code> macro defines a grouping unit that organizes
+tests and nested suites into a hierarchy.  It constructs a <em>suite
+entity</em> (an alist), then immediately delivers it to the current
+test runner by sending a <code>runner/load-suite</code> message.  The
+test runner evaluates the suite body, during which any
+enclosed <code>test</code> and <code>suite</code> forms are loaded and
+possibly associated with the context of this suite.</p>
+
+<p><var>description</var> is a string-valued expression that serves as
+a human-readable label for the suite.  The <var>body</var> forms
+typically contain <code>test</code> forms, and
+nested <code>suite</code> forms.  It should not contain any other
+code, especially test setup code, as tests should be self-contained as
+they can be executed in arbitrary orders and multiple times.</p>
+
+<p>The suite entity contains the following keys.
+The <code>suite/location</code> key is optional:</p>
+
+<table>
+  <thead>
+    <tr><th>Key</th><th>Value</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>suite/body-thunk</code></td>
+      <td>A thunk that, when called, evaluates
+      the <var>body</var> forms in order.  During evaluation, enclosed
+      <code>test</code> and <code>suite</code> forms register
+      themselves with the current test runner under this suite&rsquo;s
+      context.</td>
+    </tr>
+    <tr>
+      <td><code>suite/description</code></td>
+      <td>The <var>description</var> string.</td>
+    </tr>
+    <tr>
+      <td><code>suite/metadata</code></td>
+      <td>The <var>metadata-alist</var>, or <code>'()</code> if none
+      was provided.</td>
+    </tr>
+    <tr>
+      <td><code>suite/location</code></td>
+      <td>A <a href="#term-source-location">source location</a>.
+      This key may be omitted if source-location information is
+      unavailable.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The message sent to the test runner has the form:</p>
+
+<pre><code>`((type  . runner/load-suite)
+  (suite . ,<var>suite-entity</var>))</code></pre>
+
+<h4 id="constraints-3">Constraints</h4>
+
+<ul>
+  <li>Suites <em>must not</em> be nested inside a <code>test</code>.
+  Invoking <code>suite</code> inside the body of a <code>test</code>
+  is an error; the test runner <em>should</em> signal it.  The only
+  exception is if the test runner is overridden inside the test, which
+  means that current hierarchy is reset to the empty one and suite is
+  not "nested" inside the test anymore.</li>
+  <li>Suites <em>may</em> be nested inside other suites to arbitrary
+  depth.</li>
+  <li>Bare <code>is</code> assertions inside a suite but outside of
+  any <code>test</code> are an error; the test runner <em>should</em>
+  signal them.  Enclosing such assertions in <code>testing</code> does
+  not implicitly create a test and does not make them valid.
+  Assertions belong inside tests.</li>
+</ul>
+
+<h4 id="return-value-3">Return value</h4>
+
+<p>The return value of <code>suite</code> is unspecified.  Because
+<code>suite</code> is a <em>loading</em> form that registers a suite
+with the runner rather than executing its tests, no meaningful value
+is produced.  Code <em>must not</em> rely on the return value.</p>
+
+<h4 id="examples-3">Examples</h4>
+
+<pre><code>;; Flat suite
+(suite "arithmetic"
+  (test "addition" ()
+    (is (= 4 (+ 2 2))))
+  (test "multiplication" ()
+    (is (= 6 (* 2 3)))))
+
+;; Nested suites
+(suite "strings"
+  (suite "case conversion"
+    (test "upcase" ()
+      (is (string=? "HELLO" (string-upcase "hello"))))
+    (test "downcase" ()
+      (is (string=? "hello" (string-downcase "HELLO")))))
+
+  (suite "splitting"
+    (test "split on comma" ()
+      (is (equal? '("a" "b" "c")
+                  (string-split "a,b,c" #\,))))))
+
+;; Suite with metadata
+(suite "integration tests"
+  (metadata
+   `((tags . (integration))
+     (slow? . #t)))
+
+  (test "end-to-end round trip" ()
+    (is (equal? expected (round-trip input)))))</code></pre>
+
+
+<h3 id="suite-loader-form"><code>suite-loader</code> &mdash; deferred suite definition</h3>
+
+<h4 id="syntax-5">Syntax</h4>
+
+<dl>
+  <dt><code>(suite-loader <var>description</var> <var>body</var> &hellip;)</code></dt>
+  <dd>Returns a suite loader that, when called, loads the suite.</dd>
+
+  <dt><code>(suite-loader <var>description</var> (metadata <var>metadata-alist</var>) <var>body</var> &hellip;)</code></dt>
+  <dd>Same, with metadata.</dd>
+</dl>
+
+<h4 id="suite-loader-invocation">Suite loader invocation</h4>
+
+<dl>
+  <dt><code>(<var>loader</var>)</code></dt>
+  <dd>Loads the suite with its definition-time metadata.</dd>
+
+  <dt><code>(<var>loader</var> <var>metadata-alist</var>)</code></dt>
+  <dd>Loads the suite with additional call-time metadata.</dd>
+</dl>
+
+<h4 id="description-5">Description</h4>
+
+<p><code>suite-loader</code> is the deferred counterpart
+of <code>suite</code>.  It constructs the same suite entity
+but <em>does not</em> immediately send it to the test runner.
+Instead, it returns a suite loader, a procedure that accepts zero or
+one argument that, when invoked, sends
+the <code>runner/load-suite</code> message.  The optional argument
+must be a metadata alist.  This load-time metadata is sent separately
+under <code>load/metadata</code> key.  The test runner decides on a merging
+strategy.  The default option is just to prepend the suite's metadata with load
+metadata.  This, way alist lookup procedures that return the first
+matching entry observe load-time values as taking precedence over
+definition-time values.  Invoking a suite loader must not modify its
+definition-time metadata, so the same loader can be invoked repeatedly
+with different metadata.  The returned loader should carry the
+information, or be registered in some registry to make
+the <code>suite-loader?</code> predicate return <code>#t</code> on it.
+This can be later used for discovery of test suites loaders (deferred
+test suites).</p>
+
+<p>When a suite loader is invoked with load-time metadata, the message
+sent to the test runner has the form:</p>
+
+<pre><code>`((type          . runner/load-suite)
+  (suite         . ,<var>suite-entity</var>)
+  (load/metadata . ,<var>metadata-alist</var>))</code></pre>
+
+<p><code>suite</code> can be implemented via <code>suite-loader</code>:</p>
+
+<pre><code>(suite <var>desc</var> <var>body</var> &hellip;)
+&equiv;
+((suite-loader <var>desc</var> <var>body</var> &hellip;))</code></pre>
+
+<p>The <code>is</code>, <code>testing</code>, <code>suite</code>, and
+<code>test</code> forms can be used at the top level.  Top-level
+<code>is</code> and <code>testing</code> forms are primarily useful for
+interactive work because their assertions are sent to the current test
+runner as soon as the forms are evaluated.  Test modules
+<em>should</em> place assertions and <code>testing</code> forms inside
+<code>test</code> forms and wrap their tests and suites in a
+<code>suite-loader</code> (or <code>define-suite</code>) so that test
+runners can discover and load them as a unit.  A bare top-level
+<code>test</code> and similar forms are loaded as soon as the module is
+evaluated, with no way for a runner to discover them independently or
+defer their execution.</p>
+
+<p>Suite loaders are the primary building block for composable,
+reusable test suites.  Because they are first-class procedures, they
+can be stored in variables, passed as arguments, and invoked inside
+other suites to include their tests:</p>
+
+<pre><code>(define my-unit-tests
+  (suite-loader "unit tests"
+    (test "one" () (is #t))
+    (test "two" () (is (= 2 (+ 1 1))))))
+
+(define my-integration-tests
+  (suite-loader "integration tests"
+    (test "round-trip" ()
+      (is (equal? x (decode (encode x)))))))
+
+;; Compose into a top-level public suite.  The same loader can be
+;; called more than once with different metadata.
+(define all-tests
+  (suite-loader "all tests"
+    (my-unit-tests '((configuration . default)))
+    (my-unit-tests '((configuration . strict)))
+    (my-integration-tests)))
+
+(export all-tests)
+</code></pre>
+
+<h3 id="define-suite-form"><code>define-suite</code> &mdash; named suite definition</h3>
+
+<h4 id="syntax-6">Syntax</h4>
+
+<dl>
+  <dt><code>(define-suite (<var>name</var>) <var>body</var> &hellip;)</code></dt>
+  <dd>Defines a suite loader bound to <var>name</var>.</dd>
+
+  <dt><code>(define-suite (<var>name</var>) (metadata <var>metadata-alist</var>) <var>body</var> &hellip;)</code></dt>
+  <dd>Same, with user-provided <a href="#term-metadata">metadata</a>
+  attached to the underlying suite entity.</dd>
+</dl>
+
+<h4 id="description-6">Description</h4>
+
+<p><code>define-suite</code> is a convenience form that combines
+<code>suite-loader</code> with an ordinary definition.  The suite name
+is written in a parenthesized header, similar to a procedure
+definition with <code>define</code>.  It is equivalent to:</p>
+
+<pre><code>(define <var>name</var>
+  (suite-loader (symbol->string '<var>name</var>) <var>body</var> &hellip;))</code></pre>
+
+<p>Or, with metadata:</p>
+
+<pre><code>(define <var>name</var>
+  (suite-loader (symbol->string '<var>name</var>) (metadata <var>metadata-alist</var>) <var>body</var> &hellip;))</code></pre>
+
+<p>The suite description string is derived from <var>name</var> by
+converting the symbol to a string.  This form is intended for
+top-level suite definitions in test modules.</p>
+
+<h4 id="examples-4">Examples</h4>
+
+<pre><code>(define-suite (arithmetic-tests)
+  (test "addition" ()
+    (is (= 4 (+ 2 2))))
+  (test "subtraction" ()
+    (is (= 0 (- 2 2)))))
+
+;; Now (arithmetic-tests) can be called from another suite
+;; or from the REPL to load and run the tests.</code></pre>
+
+
+<h3 id="predicates">Predicates</h3>
+
+Those predicates have no use for defining test and test suites, but
+they are really handy for test runners implementers.
+
+<dl>
+  <dt><code>(test? <var>obj</var>)</code> &rarr; <var>boolean</var></dt>
+  <dd>Returns <code>#t</code> if <var>obj</var> is a test entity:
+  an alist that contains at least the
+  keys <code>test/body-procedure</code>
+  and <code>test/description</code>.</dd>
+
+  <dt><code>(suite? <var>obj</var>)</code> &rarr; <var>boolean</var></dt>
+  <dd>Returns <code>#t</code> if <var>obj</var> is a suite entity:
+  an alist that contains at least the
+  keys <code>suite/body-thunk</code>
+  and <code>suite/description</code>.</dd>
+
+  <dt><code>(suite-loader? <var>obj</var>)</code> &rarr; <var>boolean</var></dt>
+  <dd>Returns <code>#t</code> if <var>obj</var> is a suite loader
+  (usually produced by <code>suite-loader</code>
+  or <code>define-suite</code>).  Implementations can mark suite
+  loaders with a procedure property or somehow else; ordinary lambdas
+  do not satisfy this predicate.</dd>
+</dl>
+
+<h2 id="implementation">Implementations</h2>
+
+<h3 id="portable-sample-implementation">Portable Sample Implementation</h3>
+
+<p>A compact sample implementation is provided in the <code>(srfi
+srfi-269)</code> library:</p>
+
+<ul>
+  <li><a href="https://git.sr.ht/~abcdw/guile-ares-rs/tree/03db1e41/item/src/srfi-269/r7rs/srfi/srfi-269.scm">srfi-269.scm</a>:
+  an R7RS-style <code>define-library</code> implementation using
+  <code>syntax-rules</code>, including a simple sequential test runner.</li>
+  <li><a href="https://git.sr.ht/~abcdw/guile-ares-rs/tree/03db1e41/item/tests/srfi-269/r7rs/srfi/srfi-269-test.scm">srfi-269-test.scm</a>:
+  tests for the sample implementation.</li>
+</ul>
+
+<p>The sample implementation uses
+<a href="https://srfi.schemers.org/srfi-229/">SRFI 229</a> tagged
+procedures to identify suite loaders and records source locations
+as <code>#f</code>.  It is intentionally small, it includes a basic
+runner suitable for examples and experimentation, and it doesn't set
+context, merge load-time, inherit suite metadata or implement any other
+advanced functionality.</p>
+
+<h3 id="suitbl-mdash-a-full-fledged-testing-library-based-on-srfi-269"><code>suitbl</code> &mdash; a full-fledged testing library based
+on SRFI 269</h3>
+
+<p><code>suitbl</code> is provided as part of
+the <a href="https://git.sr.ht/~abcdw/guile-ares-rs">guile-ares-rs</a>
+project.  It has an advanced test runner, with customizable
+schedulers, reporters, and many other features.  The definitions API is
+SRFI-269-compatible and contained in a single module:</p>
+
+<ul>
+  <li><a href="https://git.sr.ht/~abcdw/guile-ares-rs/tree/03db1e41/item/src/guile/ares/suitbl/definitions.scm">definitions.scm</a>
+  &mdash; the complete test definition primitives
+  (<code>is</code>, <code>metadata</code>, <code>test</code>,
+  <code>suite</code>, <code>test-loader</code>, <code>suite-loader</code>,
+  <code>define-suite</code>, <code>current-test-runner</code>,
+  <code>set-default-test-runner!</code>, and predicates).</li>
+</ul>
+
+<p>The implementation depends on <code>syntax-case</code>, and guile's
+procedure properties.</p>
+
+<h4 id="implementation-notes">Implementation Notes</h4>
+
+<p>The <code>is</code> macro accepts an arbitrary expression and
+produces a body thunk that evaluates it.  It also accepts an optional
+description expression.  When present, it is evaluated and stored
+under <code>assertion/description</code>; otherwise, the key is omitted.
+The unevaluated source form is captured as a datum.</p>
+
+<p>The <code>test</code> macro parses a description expression
+followed by an argument list.  The list is either empty or contains one
+<var>context</var> identifier.  The generated
+<code>test/body-procedure</code> always accepts one context value.  If
+an identifier is present, it is used as the formal parameter;
+otherwise, the value is ignored.  The runner can later call that
+procedure with any context value it chooses.  It can be a subject
+for future specification of test runner.</p>
+
+<p>The immediate <code>suite</code> form can be defined in terms of
+<code>suite-loader</code>: <code>suite</code> expands
+to <code>((suite-loader&nbsp;&hellip;))</code>.  The deferred form is
+the primitive; the immediate form simply invokes it.  This factoring
+keeps the macro logic in one place and makes suite loaders the natural
+unit of composition.</p>
+
+<p>The <code>suite-loader</code> form returns a procedure that accepts
+an optional metadata alist and, when called, sends
+a <code>runner/load-suite</code> message to the current test runner.
+The test runner constructs the effective suite metadata by appending
+the definition-time metadata to the call-time metadata, without
+modifying either alist.  The returned procedure carries an identifying
+marker that allows the <code>suite-loader?</code> predicate to
+identify it (see portability notes below).</p>
+
+<h4 id="portability-considerations">Portability considerations</h4>
+
+<p>A small number of Guile-specific features are used in the
+<code>suitbl</code> definitions implementation.  Each has a
+straightforward equivalent in other Scheme systems:</p>
+
+<dl>
+  <dt>Source locations
+  (<code>syntax-source</code>, <code>%search-load-path</code>)</dt>
+  <dd>The <code>suitbl</code> implementation calls Guile's
+  <code>syntax-source</code>
+  at macro-expansion time to obtain a filename/line/column alist, and
+  resolves relative paths via <code>%search-load-path</code>.  Other
+  implementations can use their own source-location API (e.g.
+  <code>syntax-line</code>/<code>syntax-column</code> in Racket, or
+  the <code>source-info</code> facility of the host system).  When no
+  source-location API is available, the <code>assertion/location</code>,
+  <code>test/location</code>, and <code>suite/location</code> keys
+  may be omitted or set to <code>#f</code>.</dd>
+
+  <dt>Procedure properties
+  (<code>set-procedure-properties!</code>,
+  <code>procedure-property</code>)</dt>
+  <dd>Suite loaders are tagged using Guile's procedure properties so
+  that <code>suite-loader?</code> can distinguish them from ordinary
+  lambdas.  R7RS implementations can use
+  <a href="https://srfi.schemers.org/srfi-229/">SRFI 229</a> or
+  <a href="https://srfi.schemers.org/srfi-259/">SRFI 259</a>, where
+  available, to implement equivalent procedure properties.  Other
+  implementations can use alternative strategies: placing
+  suite-loader in a hash table that serves as a global registry, or
+  any other mechanism that allows a reliable predicate.</dd>
+</dl>  The sample implementation is written in R7RS, doesn't
+provide any useful location value, and
+uses <code>syntax-rules</code> instead of <code>syntax-case</code>.
+
+<h4 id="test-suites">Test suites</h4>
+
+<p>Test suites for both implementations are provided:</p>
+
+<ul>
+  <li><a href="https://git.sr.ht/~abcdw/guile-ares-rs/tree/03db1e41/item/tests/srfi-269/r7rs/srfi/srfi-269-test.scm">srfi-269-test.scm</a>
+  &mdash; SRFI-64 tests for the portable sample implementation.</li>
+  <li><a href="https://git.sr.ht/~abcdw/guile-ares-rs/tree/03db1e41/item/tests/guile/ares/suitbl/definitions-test.scm">definitions-test.scm</a>
+  &mdash; SRFI-269 tests that verify the predicates, the entities and messages
+  produced by <code>is</code>, <code>test</code>,
+  and <code>suite</code>, and the behavior
+  of <code>define-suite</code>.  The tests intercept messages via a
+  logging test runner to inspect the entities without executing
+  them.</li>
+</ul>
+
+<h3 id="supplementary-material">Supplementary material</h3>
+
+<ul>
+  <li><a href="https://youtu.be/JI7Z6-tndaw">Portable Test
+  Definitions API for Scheme in 2 minutes 30 seconds</a> &mdash; a
+  short introduction with a live demo.</li>
+  <li><a href="https://youtu.be/_NjwHP0r5tM">Portable Test
+  Definitions API for Scheme: Deep Dive</a> &mdash; a detailed
+  walk-through of the design, the message protocol, and the
+  implementation.</li>
+</ul>
+
+<h2 id="acknowledgements">Acknowledgements</h2>
+
+<p>The design of this SRFI was influenced
+by <code>clojure.test</code>'s use of first-class test entities and
+its <code>is</code> and <code>testing</code> macros, and by JUnit's test
+primitives for building
+hierarchies.  SRFI 64 provided the foundation, and demonstrated the
+need for a portable and runtime-friendly testing API; this SRFI builds
+on the lessons learned from its adoption.</p>
+
+<p>Thanks to Andrew Kravchuk for showcasing the Common Lisp testing
+ecosystem and sharing the experience.</p>
+
+<p>Thanks to Daphne Preston-Kendal for providing valuable feedback and identifying
+several significant bugs and misimplementations.</p>
+
+<p>Thanks to <a href="https://nlnet.nl/">NLnet</a> for funding the work
+on the <code>suitbl</code> testing library and this specification.</p>
+
+<h2 id="copyright">Copyright</h2>
+<p>&copy; 2025, 2026 Andrew Tropin, Ramin Honary.</p>
+
+<p>
+  Permission is hereby granted, free of charge, to any person
+  obtaining a copy of this software and associated documentation files
+  (the "Software"), to deal in the Software without restriction,
+  including without limitation the rights to use, copy, modify, merge,
+  publish, distribute, sublicense, and/or sell copies of the Software,
+  and to permit persons to whom the Software is furnished to do so,
+  subject to the following conditions:</p>
+
+<p>
+  The above copyright notice and this permission notice (including the
+  next paragraph) shall be included in all copies or substantial
+  portions of the Software.</p>
+
+<p>
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+  BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+  ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.</p>
+
+  <hr>
+  <address>Editor: <a href="mailto:srfi-editors+at+srfi+dot+schemers+dot+org">Arthur A. Gleckler</a></address>
+</body></html>

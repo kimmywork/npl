@@ -12,6 +12,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <glob.h>
 #include <grp.h>
 #include <limits.h>
 #include <pwd.h>
@@ -83,6 +84,30 @@ static int unix_check_string_equals(NplVal value, const char *text,
     string = (const NplString *)npl_header(value);
     return string->length == length &&
            memcmp(string->data, text, length) == 0;
+}
+
+/* glob(3): a POSIX pattern expanded by the host.  No matches is the empty
+ * list, not an error. */
+NplVal npl_unix_glob(NplVal pattern_value)
+{
+    char *pattern = unix_path(pattern_value, "glob");
+    glob_t matches;
+    int status = glob(pattern, 0, NULL, &matches);
+    free(pattern);
+    if (status == GLOB_NOMATCH) return npl_nil();
+    if (status != 0) unix_raise("glob", errno, pattern_value);
+    {
+        NplVal result = npl_nil();
+        npl_gc_root(&result);
+        for (size_t index = matches.gl_pathc; index > 0; index--)
+            result = npl_cons(
+                npl_string(matches.gl_pathv[index - 1],
+                           (uint32_t)strlen(matches.gl_pathv[index - 1])),
+                result);
+        globfree(&matches);
+        npl_gc_unroot(&result);
+        return result;
+    }
 }
 
 NplVal npl_unix_posix_error_p(NplVal value)
