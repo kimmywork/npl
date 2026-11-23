@@ -55,3 +55,28 @@ Review: [macro system](../2026-11-14-macro-system-review.md).
 Guile column is not a comparison. `body-define/leak.scm` checks that npli does
 not leak the body definition to the top level; its second form is expected
 to fail.
+
+## 2026-11-23-ffi-posix-time
+
+Review: [0.1.3 FFI, POSIX, and time](../2026-11-23-0.1.3-ffi-posix-time-review.md).
+Uses `build/bin/npli` and `build/bin/nplc` directly (the driver links the
+core native packages); `observed.txt` records the output at `32cfa51`.
+
+```sh
+.agents/reviews/probes/2026-11-23-ffi-posix-time/run.sh            # 01-05, 09-11
+.agents/reviews/probes/2026-11-23-ffi-posix-time/run.sh --leak     # R5
+.agents/reviews/probes/2026-11-23-ffi-posix-time/run.sh --cc       # R6
+.agents/reviews/probes/2026-11-23-ffi-posix-time/run.sh --stubs    # R7
+```
+
+| Probe | Finding |
+|---|---|
+| `01`, `02` | R1: directory handle use after close |
+| `03` | R2: zone offset sign (Guile column) |
+| `04` | R3: unchecked integer arguments in `(npl unix)` |
+| `05` | R4: view read after `foreign-free` |
+| `06` | R5: `make-c-struct` leak (`--leak`) |
+| `07-import-*` | R6: C compiler at import (`--cc`) |
+| `09` | R8: `npl_time_now_ts` declared but not defined |
+| `10` | R9: mismatched brackets (Guile column) |
+| `11` | R10: stub headers conflict with a libc prototype |

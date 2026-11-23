@@ -95,7 +95,9 @@ NplVal npl_unix_glob(NplVal pattern_value)
     int status = glob(pattern, 0, NULL, &matches);
     free(pattern);
     if (status == GLOB_NOMATCH) return npl_nil();
-    if (status != 0) unix_raise("glob", errno, pattern_value);
+    if (status != 0)
+        npl_primitive_error("glob", "pattern expansion failed",
+                            pattern_value);
     {
         NplVal result = npl_nil();
         npl_gc_root(&result);
@@ -124,8 +126,9 @@ NplVal npl_unix_posix_error_p(NplVal value)
 
 NplVal npl_unix_posix_error_name(NplVal value)
 {
-    NplVector *record = (NplVector *)npl_header(value);
+    NplVector *record;
     if (!npl_unix_posix_error_p(value)) return npl_false();
+    record = (NplVector *)npl_header(value);
     if (npl_is_nil(record->data[3]) || !npl_is_ptr(record->data[3]))
         return npl_false();
     return npl_car(record->data[3]);
@@ -133,8 +136,9 @@ NplVal npl_unix_posix_error_name(NplVal value)
 
 NplVal npl_unix_posix_error_message(NplVal value)
 {
-    NplVector *record = (NplVector *)npl_header(value);
+    NplVector *record;
     if (!npl_unix_posix_error_p(value)) return npl_false();
+    record = (NplVector *)npl_header(value);
     return record->data[2];
 }
 
@@ -188,6 +192,23 @@ static int unix_dotfile(const char *name)
     return name[0] == '.' && name[1] != '\0';
 }
 
+typedef struct NplDirHandle {
+    DIR *directory;
+    struct NplDirHandle *next;
+} NplDirHandle;
+
+static NplDirHandle *open_directories = NULL;
+
+static NplDirHandle *find_directory(NplVal handle, const char *who)
+{
+    NplDirHandle *entry;
+    void *address = npl_pointer_address(handle, who);
+    for (entry = open_directories; entry; entry = entry->next)
+        if ((void *)entry == address) return entry;
+    npl_primitive_error(who, "directory is closed", handle);
+    return NULL;
+}
+
 NplVal npl_unix_directory_files(NplVal path_value, NplVal dotfiles_value)
 {
     char *path = unix_path(path_value, "directory-files");
@@ -234,31 +255,41 @@ NplVal npl_unix_open_directory(NplVal path_value)
 {
     char *path = unix_path(path_value, "open-directory");
     DIR *directory = opendir(path);
+    NplDirHandle *handle;
     free(path);
     if (!directory) unix_raise("open-directory", errno, path_value);
-    return npl_pointer(directory);
+    handle = (NplDirHandle *)malloc(sizeof(NplDirHandle));
+    if (!handle) npl_runtime_oom_internal();
+    handle->directory = directory;
+    handle->next = open_directories;
+    open_directories = handle;
+    return npl_pointer(handle);
 }
 
 NplVal npl_unix_read_directory(NplVal handle, NplVal dotfiles_value)
 {
-    DIR *directory = (DIR *)npl_pointer_address(handle, "read-directory");
-    struct dirent *entry;
+    NplDirHandle *entry = find_directory(handle, "read-directory");
+    struct dirent *item;
     int include_dotfiles = npl_is_true(dotfiles_value);
-    while ((entry = readdir(directory)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 ||
-            strcmp(entry->d_name, "..") == 0)
+    while ((item = readdir(entry->directory)) != NULL) {
+        if (strcmp(item->d_name, ".") == 0 ||
+            strcmp(item->d_name, "..") == 0)
             continue;
-        if (!include_dotfiles && unix_dotfile(entry->d_name))
+        if (!include_dotfiles && unix_dotfile(item->d_name))
             continue;
-        return npl_string(entry->d_name, (uint32_t)strlen(entry->d_name));
+        return npl_string(item->d_name, (uint32_t)strlen(item->d_name));
     }
     return npl_eof_object();
 }
 
 NplVal npl_unix_close_directory(NplVal handle)
 {
-    DIR *directory = (DIR *)npl_pointer_address(handle, "close-directory");
-    closedir(directory);
+    NplDirHandle *entry = find_directory(handle, "close-directory");
+    NplDirHandle **link = &open_directories;
+    while (*link && *link != entry) link = &(*link)->next;
+    if (*link) *link = entry->next;
+    closedir(entry->directory);
+    free(entry);
     return npl_unspecified();
 }
 
@@ -441,6 +472,7 @@ NplVal npl_unix_create_temp_file(NplVal prefix_value)
     descriptor = mkstemp(template);
     if (descriptor < 0) {
         int code = errno;
+        free(template);
         free(prefix);
         unix_raise("create-temp-file", code, prefix_value);
     }
@@ -490,7 +522,9 @@ NplVal npl_unix_pid(void)
 
 NplVal npl_unix_nice(NplVal delta)
 {
-    int value = nice((int)npl_fixnum_value(delta));
+    int value;
+    errno = 0;
+    value = nice((int)npl_fixnum_value(delta));
     if (value == -1 && errno != 0)
         unix_raise("nice", errno, delta);
     return npl_fixnum(value);

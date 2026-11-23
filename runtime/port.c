@@ -222,9 +222,11 @@ NplVal npl_port_from_fd(int fd, int input, int output, int textual)
         (input ? NPL_PORT_INPUT : 0) | (output ? NPL_PORT_OUTPUT : 0) |
         (textual ? NPL_PORT_TEXTUAL : NPL_PORT_BINARY);
     FILE *stream = fdopen(fd, mode);
-    if (!stream)
+    if (!stream) {
+        close(fd);
         npl_primitive_error("fd->port", "cannot wrap file descriptor",
                             npl_fixnum(fd));
+    }
     return make_port(stream, flags);
 }
 

@@ -152,6 +152,18 @@
     (define open/nofollow 8)
     (define open/truncate 16)
 
+    (define (require-integer name value)
+      (if (exact-integer? value)
+          value
+          (error (string-append name ": expected an exact integer") value)))
+
+    (define (require-nonnegative name value)
+      (let ((value (require-integer name value)))
+        (if (>= value 0)
+            value
+            (error (string-append name ": expected a non-negative integer")
+                   value))))
+
     (define (posix-error? object)
       (npl_unix_posix_error_p object))
 
@@ -170,6 +182,7 @@
             (error "open-file: permission bits must be an integer" mode))
         (if (not (memq buffer (list buffer-none buffer-block buffer-line)))
             (error "open-file: invalid buffer mode" buffer))
+        (require-integer "open-file" flags)
         (npl_unix_open_file fname port-type flags mode buffer)))
 
     (define (fd->port fd port-type . rest)
@@ -263,10 +276,14 @@
     ; ---- creation and mutation ------------------------------------------
 
     (define (create-directory fname . rest)
-      (npl_unix_create_directory fname (if (null? rest) #o775 (car rest))))
+      (npl_unix_create_directory
+        fname (require-integer "create-directory"
+                               (if (null? rest) #o775 (car rest)))))
 
     (define (create-fifo fname . rest)
-      (npl_unix_create_fifo fname (if (null? rest) #o664 (car rest))))
+      (npl_unix_create_fifo
+        fname (require-integer "create-fifo"
+                               (if (null? rest) #o664 (car rest)))))
 
     (define (create-hard-link old-fname new-fname)
       (npl_unix_create_hard_link old-fname new-fname))
@@ -281,8 +298,10 @@
     (define (set-file-owner fname uid gid)
       (npl_unix_set_file_owner
         fname
-        (if (eq? uid owner/unchanged) -1 uid)
-        (if (eq? gid group/unchanged) -1 gid)))
+        (if (eq? uid owner/unchanged) -1
+            (require-integer "set-file-owner" uid))
+        (if (eq? gid group/unchanged) -1
+            (require-integer "set-file-owner" gid))))
 
     (define (time-parts value)
       (cond
@@ -305,11 +324,13 @@
                                     (car modify) (cdr modify))))))
 
     (define (truncate-file fname/port length)
-      (if (string? fname/port)
-          (npl_unix_truncate_file fname/port length)
-          (npl_unix_truncate_port fname/port length)))
+      (let ((length (require-nonnegative "truncate-file" length)))
+        (if (string? fname/port)
+            (npl_unix_truncate_file fname/port length)
+            (npl_unix_truncate_port fname/port length))))
 
-    (define (set-file-mode fname mode) (npl_unix_set_file_mode fname mode))
+    (define (set-file-mode fname mode)
+      (npl_unix_set_file_mode fname (require-integer "set-file-mode" mode)))
     (define (real-path path) (npl_unix_real_path path))
     (define (file-space path-or-port)
       (if (string? path-or-port)
@@ -319,13 +340,14 @@
     ; ---- process state ---------------------------------------------------
 
     (define (umask) (npl_unix_umask))
-    (define (set-umask! mask) (npl_unix_set_umask mask))
+    (define (set-umask! mask)
+      (npl_unix_set_umask (require-integer "set-umask!" mask)))
     (define (current-directory) (npl_unix_current_directory))
     (define (set-current-directory! directory)
       (npl_unix_set_current_directory directory))
     (define (pid) (npl_unix_pid))
     (define (nice . rest)
-      (npl_unix_nice (if (null? rest) 1 (car rest))))
+      (npl_unix_nice (require-integer "nice" (if (null? rest) 1 (car rest)))))
     (define (user-uid) (npl_unix_getuid))
     (define (user-gid) (npl_unix_getgid))
     (define (user-effective-uid) (npl_unix_geteuid))

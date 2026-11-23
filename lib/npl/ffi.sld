@@ -18,7 +18,7 @@
           pointer-set-i8! pointer-set-i16! pointer-set-i32! pointer-set-i64!
           pointer-set-float! pointer-set-double! pointer-set-pointer!
           c-type-size
-          make-c-struct c-struct? c-struct-pointer c-struct-ref
+          make-c-struct free-c-struct c-struct? c-struct-pointer c-struct-ref
           c-struct-set! c-struct-size
           c-array? c-array c-array-pointer c-array-length c-array-type
           make-c-array c-array-ref c-array-set! c-array->vector
@@ -250,6 +250,10 @@
               (begin
                 (c-array-set! array index (vector-ref vector index))
                 (loop (+ index 1)))))))
+    ; Release a struct view allocated by make-c-struct.  The view must be
+    ; the owner, not a c-struct-pointer view of another record.
+    (define (free-c-struct value)
+      (foreign-free (c-struct-pointer value)))
     ; Runtime-loaded native packages (mode B).  ffi-load-library returns #t
     ; or the loader's message string; ffi-procedure returns #f when the
     ; symbol is not visible.  (npl native) adds path discovery and errors.

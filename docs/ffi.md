@@ -325,10 +325,15 @@ the FFI boundary; by-value structs are out of scope.
 | Procedure | Result |
 |---|---|
 | `(make-c-struct descriptor)` | allocate a zero-filled view |
+| `(free-c-struct view)` | release a view allocated by `make-c-struct` |
 | `(c-struct? v)` | predicate |
 | `(c-struct-pointer v)` | the underlying pointer |
 | `(c-struct-ref v field)` / `(c-struct-set! v field value)` | typed field access |
 | `(c-struct-size v)` | `sizeof` the C type |
+
+`make-c-struct` allocates with `foreign-alloc`; release it with
+`free-c-struct` or `with-resource`. `(npl time)` uses `with-resource` for
+every temporary `timespec`/`tm` view.
 
 Field types are `u8 u16 u32 u64 i8 i16 i32 i64 int long int64 size_t bool
 float double pointer`. A `define-c-function` argument of type

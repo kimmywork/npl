@@ -41,5 +41,7 @@ package (linked mode A), so importing the library needs no user flags.
   their type and are not converted through UTC by the type aliases.
 - `string->date` defaults unparsed fields to 1970-01-01 00:00:00 UTC and a
   zero zone offset.
-- `current-date` with no argument uses the host local timezone.
+- `current-date` with no argument uses the host local timezone; explicit
+  offsets follow SRFI 19 (UTC plus offset), including positive and
+  half-hour offsets.
 - Tests: `srfi-19` (30 checks) and the nplc/npli `time` fixture.

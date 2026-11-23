@@ -696,15 +696,6 @@ NplVal npl_jiffies_per_second(void);
 NplVal npl_current_jiffy(void);
 NplVal npl_current_second(void);
 
-/* Typed (npl time) wrappers (clock.c); struct pointer arguments. */
-struct timespec;
-struct tm;
-int npl_time_now_ts(int which, struct timespec *out);
-int npl_time_resolution_ts(int which, struct timespec *out);
-int npl_time_gmtime_ts(const struct timespec *value, struct tm *out);
-int npl_time_localtime_ts(const struct timespec *value, struct tm *out);
-int npl_time_mktime_ts(struct tm *value, struct timespec *out);
-int npl_time_timegm_ts(struct tm *value, struct timespec *out);
 NplVal npl_time_now_prim(NplVal which, NplVal view);
 NplVal npl_time_resolution_prim(NplVal which, NplVal view);
 NplVal npl_time_gmtime_prim(NplVal value, NplVal out);

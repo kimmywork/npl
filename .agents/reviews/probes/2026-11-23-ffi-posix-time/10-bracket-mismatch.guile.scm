@@ -1,0 +1,7 @@
+(define (try text)
+  (write (catch #t (lambda () (read (open-input-string text)))
+                (lambda (key . args) (list 'error key))))
+  (newline))
+(try "(1 2]")
+(try "[a b)")
+(try "]")

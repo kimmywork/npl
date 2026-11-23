@@ -44,6 +44,41 @@ static size_t ffi_type_width(int code)
     }
 }
 
+typedef struct FfiLiveBase {
+    void *base;
+    struct FfiLiveBase *next;
+} FfiLiveBase;
+
+static FfiLiveBase *ffi_live_bases = NULL;
+
+static void ffi_register_base(void *base)
+{
+    FfiLiveBase *entry = (FfiLiveBase *)malloc(sizeof(FfiLiveBase));
+    if (!entry) npl_runtime_oom_internal();
+    entry->base = base;
+    entry->next = ffi_live_bases;
+    ffi_live_bases = entry;
+}
+
+static void ffi_unregister_base(void *base)
+{
+    FfiLiveBase **link = &ffi_live_bases;
+    while (*link && (*link)->base != base) link = &(*link)->next;
+    if (*link) {
+        FfiLiveBase *entry = *link;
+        *link = entry->next;
+        free(entry);
+    }
+}
+
+static int ffi_base_live(void *base)
+{
+    FfiLiveBase *entry;
+    for (entry = ffi_live_bases; entry; entry = entry->next)
+        if (entry->base == base) return 1;
+    return 0;
+}
+
 static NplPointer *ffi_pointer_object(NplVal value, const char *who)
 {
     if (!npl_is_pointer(value))
@@ -82,6 +117,7 @@ static NplVal ffi_alloc_block(size_t size, size_t alignment)
     if (posix_memalign(&memory, alignment, actual) != 0)
         npl_runtime_oom_internal();
     memset(memory, 0, actual);
+    ffi_register_base(memory);
     {
         NplVal value = npl_pointer(memory);
         NplPointer *pointer = ffi_pointer_object(value, "foreign-alloc");
@@ -109,6 +145,7 @@ NplVal npl_ffi_foreign_free(NplVal value)
     if (!pointer->owned)
         npl_primitive_error("foreign-free",
             "pointer was not allocated by foreign-alloc", value);
+    ffi_unregister_base(pointer->base);
     free(pointer->base);
     pointer->address = NULL;
     pointer->base = NULL;
@@ -189,6 +226,8 @@ static unsigned char *ffi_access_address(NplVal value, int code,
     size_t width = ffi_type_width(code);
     if (pointer->address == NULL)
         npl_primitive_error(who, "null pointer access", value);
+    if (pointer->sized && !ffi_base_live(pointer->base))
+        npl_primitive_error(who, "allocation was freed", value);
     if (pointer->sized &&
         (offset > pointer->size || width > pointer->size - offset))
         npl_primitive_error(who, "offset is beyond the allocation",
