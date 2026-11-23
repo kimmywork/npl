@@ -1,0 +1,2 @@
+(import (scheme base) (scheme write) (npl demo crc32))
+(include "behavior.scm")

@@ -1,0 +1,23 @@
+(package
+  (name npl-time)
+  (library (npl time))
+  (tier core)
+  (version "0.1.0")
+  (abi-version 1)
+  (abi nplval)
+  (native
+    (sources ("native/time.c"))
+    (headers "native")
+    (include-dirs)
+    (system-libraries ())
+    (shared-name "npl_time")
+    (static-name "npl_time")
+    (bindings
+      (npl_time_now_prim "npl_time_now_prim" 2)
+      (npl_time_resolution_prim "npl_time_resolution_prim" 2)
+      (npl_time_gmtime_prim "npl_time_gmtime_prim" 2)
+      (npl_time_localtime_prim "npl_time_localtime_prim" 2)
+      (npl_time_mktime_prim "npl_time_mktime_prim" 2)
+      (npl_time_timegm_prim "npl_time_timegm_prim" 2)))
+  (platforms (or darwin linux))
+  (dependencies ()))

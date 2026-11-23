@@ -409,3 +409,49 @@ symbol. Under `npli`:
 - **Types are unchecked.** A declared type documents intent. A later step
   may use the cheap ones (`pair`, `fixnum`, `char`, `index`) for inline
   checks, keeping the C checks.
+
+## Native Packages
+
+Library C can live outside the runtime and primitive table. A package keeps
+its NPL library, C sources, and `package.meta` together:
+
+```
+lib/npl/time.sld
+lib/npl/time/native/time.c
+lib/npl/time/package.meta
+```
+
+There are two deployment modes over one `NplVal` ABI:
+
+- **Core (linked, A).** CMake builds `libnpl_<name>.a` and a shared object.
+  `nplc` links the archive automatically from `core.meta`; `npli` links the
+  shared object with an rpath, so `define-c-primitive` resolves at expansion
+  time. The library does not pass `-l` flags. `(npl time)` is the first core
+  package.
+- **External (loaded, B).** The package build makes a shared object; the NPL
+  library calls `ffi-load-library` and `ffi-procedure` (or the helpers in
+  `(npl native)`) to bind exported functions at load time. No compiler,
+  seed, or primitive-table change is needed. `(npl demo crc32)` is the
+  sample.
+
+```scheme
+(import (npl native))
+
+(load-native-library "npl_demo_crc32")
+(define crc32 (native-procedure "npl_demo_crc32" 1))
+```
+
+`(npl native)` searches `NPL_NATIVE_PATH`, then
+`<executable-dir>/../lib/npl/native`, then `./lib/npl/native`, trying
+`lib<name>.dylib` and `lib<name>.so`. Core packages use linked mode and do
+not import it.
+
+External C should be allocation-free first: read bytevectors and struct
+views, write caller-provided buffers, and return status codes. It must not
+link a second runtime or call `npl_primitive_error`. Core packages may use
+runtime helpers because they are part of the same build.
+
+`package.meta` (provisional) records the tier, ABI version, sources,
+system libraries, shared/static names, and bindings. The current CMake flow
+builds the checked-in packages and writes `lib/npl/native/core.meta`, the
+small manifest `nplc` reads at link time.

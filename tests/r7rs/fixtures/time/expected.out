@@ -5,3 +5,5 @@
 (monotonic #t)
 (difference 7)
 (add 15)
+(julian 2440587.5)
+(parsed "2001-02-03 04:05:06 +0000")

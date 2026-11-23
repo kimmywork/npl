@@ -1,0 +1,26 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl demo crc32))
+
+(include "framework.npl")
+
+(define (main)
+  (test-equal "empty bytevector"
+              (lambda () (crc32 #u8()))
+              0)
+  (test-equal "123456789 vector"
+              (lambda () (crc32 (string->utf8 "123456789")))
+              #xCBF43926)
+  (test-equal "single zero byte"
+              (lambda () (crc32 #u8(0)))
+              #xD202EF8D)
+  (test-identity "argument check"
+                 (lambda ()
+                   (guard (condition (#t #t))
+                     (crc32 'not-a-bytevector)
+                     #f))
+                 #t)
+  (finish-tests "native-crc32"))
+
+(main)

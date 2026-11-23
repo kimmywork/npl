@@ -6,16 +6,18 @@ cd "$ROOT"
 BUILD="$ROOT/build"
 QBE="$BUILD/qbe/qbe"
 RUNTIME="$BUILD/runtime/libnpl_runtime.a"
+NATIVE="$BUILD/lib/npl/native"
+export NPL_NATIVE_PATH="$NATIVE"
 TESTS="$ROOT/src/compiler/tests"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime >/dev/null
+ninja -C "$BUILD" qbe_build npl_runtime npl_time npl_demo_crc32 >/dev/null
 
 build_ssa() {
     "$QBE" -o "$2.s" "$1"
-    cc -o "$2" "$2.s" "$RUNTIME" -lm
+    cc -o "$2" "$2.s" "$NATIVE/libnpl_time.a" "$RUNTIME" -lm
 }
 
 emit() {
@@ -117,7 +119,9 @@ run_suite syntax-case-procedural "PASS syntax-case-procedural 20"
 run_suite ffi-memory "PASS ffi-memory 42"
 run_suite runtime-hardening "PASS runtime-hardening 7"
 run_suite c-structs "PASS c-structs 7"
-run_suite srfi-19 "PASS srfi-19 20"
+run_suite srfi-19 "PASS srfi-19 30"
+run_suite platform "PASS platform 5"
+run_suite native-crc32 "PASS native-crc32 4"
 run_suite npl-lambda "PASS npl-lambda 9"
 run_suite derived-forms "PASS derived-forms 17"
 run_suite explicit-control "PASS explicit-control 2"
@@ -394,10 +398,11 @@ cmp "$EXTENSION/typed.out" "$WORK/typed.out"
     > "$WORK/structs-stubs.c"
 cc -std=c99 -Wall -Wextra -Wpedantic -Werror -I "$ROOT/runtime" -c \
     -o "$WORK/structs-stubs.o" "$WORK/structs-stubs.c"
+cc -std=c99 -Wall -Wextra -Werror -c -o "$WORK/time.o" "$EXTENSION/time.c"
 emit "$WORK/compiler" "$EXTENSION/structs.npl" "$WORK/structs.ssa"
 "$QBE" -o "$WORK/structs.s" "$WORK/structs.ssa"
 cc -o "$WORK/structs" "$WORK/structs.s" "$WORK/structs-stubs.o" \
-    "$RUNTIME" -lm
+    "$WORK/time.o" "$RUNTIME" -lm
 "$WORK/structs" > "$WORK/structs.out"
 cmp "$EXTENSION/structs.out" "$WORK/structs.out"
 # A program without define-c-function has empty stubs.

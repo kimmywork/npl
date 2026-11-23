@@ -313,8 +313,44 @@ Options:
             #f)))
     (if (= status 0) 0 (driver-stage-failure "cc" status))))
 
-; User libraries precede the runtime archive: they may call into it. The
-; stub object, if any, precedes the user libraries whose functions it calls.
+; Core native packages are listed in core.meta beside the runtime archive
+; (generated from lib/CMakeLists.txt and the package manifests).  Importing
+; one needs no user -l/-L flags: the driver links every core archive.
+(define (driver-core-native-directory config)
+  (let* ((runtime (driver-runtime config))
+         (beside (string-append (path-dir runtime) "native"))
+         (layout (string-append (path-dir runtime) "../lib/npl/native")))
+    (if (file-exists? (string-append beside "/core.meta"))
+        beside
+        (if (file-exists? (string-append layout "/core.meta"))
+            layout
+            #f))))
+
+(define (driver-core-native-link-args config)
+  (let ((directory (driver-core-native-directory config)))
+    (if (not directory)
+        ()
+        (let ((forms (parse-source-file
+                       (string-append directory "/core.meta"))))
+          (let loop ((rest forms) (names ()))
+            (if (null? rest)
+                (cons (string-append "-L" directory)
+                      (rev-into names ()))
+                (let ((form (car rest)))
+                  (if (raw-form? form "core-native")
+                      (let* ((name (datum-string-text (car (cdr form))))
+                             (archive (string-append directory "/lib"
+                                                     name ".a")))
+                        (loop (cdr rest)
+                              (cons (if (file-exists? archive)
+                                        archive
+                                        (string-append "-l" name))
+                                    names)))
+                      (loop (cdr rest) names)))))))))
+
+; User libraries precede the core packages and the runtime archive: core
+; packages may call into the runtime.  The stub object, if any, precedes the
+; user libraries whose functions it calls.
 (define (driver-link-objects config assembly stubs executable)
   (let ((runtime (driver-runtime config)))
     (let ((status
@@ -323,8 +359,10 @@ Options:
                 (cons "-o" (cons executable
                   (cons assembly
                     (append stubs
-                      (rev-into (driver-get config DRIVER-LINK)
-                                (cons runtime (cons "-lm" ()))))))))
+                      (append
+                        (rev-into (driver-get config DRIVER-LINK) ())
+                        (append (driver-core-native-link-args config)
+                                (cons runtime (cons "-lm" ())))))))))
               #f)))
       (if (= status 0) 0 (driver-stage-failure "link" status)))))
 

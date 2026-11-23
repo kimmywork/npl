@@ -50,10 +50,11 @@ M0a is implemented on `feature/0.1.3-ffi`:
 - M4 (lambda shorthand and library migration) is complete: `(npl lambda)`
   provides `λ`/`fn`, and `(npl data stream)` / `(srfi 41)` uses the
   reference procedural syntax-case `stream-match` matcher with fenders.
-- Native-package extraction is accepted in
-  `.agents/design/native-packages.md`: core packages use linked mode (A),
-  external packages use loaded mode (B), both over one NplVal ABI. `(npl
-  time)` is the first core candidate; implementation is pending.
+- Native packages are implemented: `(npl platform)` is the NPL wrapper over
+  the bootstrap feature hook; `(npl time)` is the first core linked package
+  (`libnpl_time`); `(npl demo crc32)` is the first external loaded package.
+  `package.meta`, `core.meta`, driver auto-linking, and `(npl native)` path
+  discovery are in place.
 - H1 runtime/reader hardening is implemented: record index bounds in both
   the inline and primitive paths, catchable rest-arity errors, linear lexer
   string accumulation, short-read detection, a P5 reader corpus, and the
@@ -62,9 +63,10 @@ M0a is implemented on `feature/0.1.3-ffi`:
   `sizeof`/`offsetof` probe, `make-c-struct`/`c-struct-ref`/`c-struct-set!`
   and `struct:name` typed stubs work. `timespec` and `tm` are the first
   descriptors; the rest of the POSIX catalog moves with P2.
-- P1 SRFI 19 is implemented for the core surface: `(npl time)` /
-  `(srfi 19)` provide UTC/monotonic/duration values, current-time and
-  resolution, date conversion, formatting, and duration arithmetic.
+- P1 SRFI 19 is complete: `(npl time)` / `(srfi 19)` provide time/date
+  values, nanoseconds resolution, full formatting and parsing, Julian-day
+  conversions, and TAI/monotonic aliases. The six time primitive rows are
+  gone; the C entry points are in `lib/npl/time/native/time.c`.
 - F1 C memory core is implemented: `foreign-alloc`/`foreign-free`/
   `foreign-size`/`foreign-copy`, typed `pointer-ref`/`pointer-set!` and
   views, `c-array`, and `with-resource` release tests. `ffi-memory` has 42

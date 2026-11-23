@@ -40,13 +40,17 @@ npl_escape() {
 # own symbols (.agents/archive/design/design-primitives.md, section 5), so npli links every
 # runtime member, not only those it uses, and exports them on Linux.
 RUNTIME="$ROOT/build/lib/npl/libnpl_runtime.a"
+NATIVE="$ROOT/build/lib/npl/native"
 "$ROOT/build/bin/nplc" -c "$work/repl.npl" -o "$work/repl.o"
 case "$(uname -s)" in
     Darwin) whole=("-Wl,-force_load,$RUNTIME") ;;
     *) whole=(-rdynamic -Wl,--whole-archive "$RUNTIME" -Wl,--no-whole-archive
               -ldl) ;;
 esac
-"${NPL_CC:-${CC:-cc}}" -o "$OUTPUT" "$work/repl.o" "${whole[@]}" -lm
+# Core native packages are linked as shared objects: define-c-primitive
+# resolves their symbols through dlsym when a library is evaluated.
+"${NPL_CC:-${CC:-cc}}" -o "$OUTPUT" "$work/repl.o" \
+    -L"$NATIVE" -lnpl_time -Wl,-rpath,"$NATIVE" "${whole[@]}" -lm
 # The pre-rename binary is no longer produced or used.
 rm -f "$ROOT/build/bin/npl-repl"
 printf 'built npli: %s\n' "$OUTPUT"

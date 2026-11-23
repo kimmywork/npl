@@ -22,14 +22,16 @@
           c-struct-set! c-struct-size
           c-array? c-array c-array-pointer c-array-length c-array-type
           make-c-array c-array-ref c-array-set! c-array->vector
-          vector->c-array)
+          vector->c-array
+          ffi-load-library ffi-procedure)
   (import (scheme base)
           (only (npl internal primitive)
                 pointer? pointer-null? null-pointer pointer->integer
                 npl_ffi_alloc npl_ffi_foreign_free npl_ffi_foreign_size
                 npl_ffi_foreign_copy npl_ffi_pointer_add
                 npl_ffi_pointer_offset npl_ffi_pointer_ref
-                npl_ffi_pointer_set npl_ffi_type_size))
+                npl_ffi_pointer_set npl_ffi_type_size
+                npl_ffi_load_library npl_ffi_procedure))
   (begin
     (define-syntax with-resource
       (syntax-rules ()
@@ -247,4 +249,14 @@
               array
               (begin
                 (c-array-set! array index (vector-ref vector index))
-                (loop (+ index 1)))))))))
+                (loop (+ index 1)))))))
+    ; Runtime-loaded native packages (mode B).  ffi-load-library returns #t
+    ; or the loader's message string; ffi-procedure returns #f when the
+    ; symbol is not visible.  (npl native) adds path discovery and errors.
+    (define (ffi-load-library path)
+      (npl_ffi_load_library path))
+
+    (define (ffi-procedure symbol arity)
+      (npl_ffi_procedure symbol arity))
+)
+)

@@ -21,12 +21,12 @@ memory/struct helpers, and error raising.
 ## Proposed Layout
 
 ```
-lib/npl/time/
-  time.sld                 public library
-  native/time.c            NplVal-ABI entry points
-  native/time.h
-  native/CMakeLists.txt    builds libnpl_time.{a,dylib,so}
-  package.meta             optional: system libraries, include dirs
+lib/npl/time.sld          public library
+lib/npl/time/native/time.c
+lib/npl/time/package.meta
+lib/npl/demo/crc32.sld
+lib/npl/demo/crc32/native/crc32.c
+lib/npl/demo/crc32/package.meta
 ```
 
 `(npl time)` remains the import name. C may use `npl.h` for layout and the

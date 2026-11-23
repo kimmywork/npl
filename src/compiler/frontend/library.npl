@@ -214,7 +214,8 @@
                   (file-exists? (library-path-for-key key))))))))
 
 ; Feature identifiers advertised by (features) in lib/scheme/text-io.scm.
-; Keep both lists in sync; the libraries suite checks the common ones.
+; The fixed names below cover the language; OS, architecture, and width come
+; from the runtime bootstrap hook so cond-expand and (features) agree.
 (define (library-feature-name? name)
   (if (string=? name "r7rs")
       #t
@@ -244,7 +245,8 @@
                                           (npl_little_endian_p)
                                           (if (string=? name "big-endian")
                                               (not (npl_little_endian_p))
-                                              #f)))))))))))))))
+                                              (npl_platform_feature
+                                                name))))))))))))))))
 
 (define (library-feature? requirement)
   (if (datum-symbol? requirement)

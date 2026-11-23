@@ -9,7 +9,7 @@
               (date-year-day epoch)))
 (report 'round-trip (time-second (date->time-utc epoch)))
 (report 'format (date->string epoch "~Y-~m-~d ~H:~M:~S ~z"))
-(report 'resolution (time-duration? (time-resolution)))
+(report 'resolution (exact-integer? (time-resolution)))
 (report 'monotonic (time-monotonic? (current-time 'time-monotonic)))
 (report 'difference
         (time-second
@@ -19,3 +19,9 @@
         (time-second
           (add-duration (make-time 'time-utc 0 10)
                         (make-time 'time-duration 0 5))))
+(report 'julian (date->julian-day epoch))
+(report 'parsed
+        (date->string
+          (string->date "2001-02-03 04:05:06 +0000"
+                        "~Y-~m-~d ~H:~M:~S ~z")
+          "~Y-~m-~d ~H:~M:~S ~z"))
