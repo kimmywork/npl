@@ -331,7 +331,7 @@
   (test-identity "alloc/free stress"
                  (lambda ()
                    (let loop ((index 0))
-                     (if (= index 10000)
+                     (if (= index 100000)
                          #t
                          (begin
                            (let ((p (foreign-alloc 16)))
