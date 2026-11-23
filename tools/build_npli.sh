@@ -43,14 +43,20 @@ RUNTIME="$ROOT/build/lib/npl/libnpl_runtime.a"
 NATIVE="$ROOT/build/lib/npl/native"
 "$ROOT/build/bin/nplc" -c "$work/repl.npl" -o "$work/repl.o"
 case "$(uname -s)" in
-    Darwin) whole=("-Wl,-force_load,$RUNTIME") ;;
-    *) whole=(-rdynamic -Wl,--whole-archive "$RUNTIME" -Wl,--no-whole-archive
-              -ldl) ;;
+    Darwin)
+        whole=("-Wl,-force_load,$RUNTIME")
+        rpath=(-Wl,-rpath,@loader_path/../lib/npl/native)
+        ;;
+    *)
+        whole=(-rdynamic -Wl,--whole-archive "$RUNTIME" -Wl,--no-whole-archive
+              -ldl)
+        rpath=(-Wl,-rpath,'$ORIGIN/../lib/npl/native')
+        ;;
 esac
 # Core native packages are linked as shared objects: define-c-primitive
 # resolves their symbols through dlsym when a library is evaluated.
 "${NPL_CC:-${CC:-cc}}" -o "$OUTPUT" "$work/repl.o" \
-    -L"$NATIVE" -lnpl_time -lnpl_unix -Wl,-rpath,"$NATIVE" \
+    -L"$NATIVE" -lnpl_time -lnpl_unix "${rpath[@]}" \
     "${whole[@]}" -lm
 # The pre-rename binary is no longer produced or used.
 rm -f "$ROOT/build/bin/npl-repl"

@@ -455,3 +455,12 @@ runtime helpers because they are part of the same build.
 system libraries, shared/static names, and bindings. The current CMake flow
 builds the checked-in packages and writes `lib/npl/native/core.meta`, the
 small manifest `nplc` reads at link time.
+
+## Platform Features
+
+`cond-expand` and `(features)` share the runtime feature list. The OS and
+architecture names are `darwin`, `linux`, `aarch64`, `x86_64`, and
+`64-bit`; because an identifier cannot start with a digit, write the width
+feature as `|64-bit|` in `cond-expand`. `(npl platform)` exposes
+`platform-triple`, `platform-features`, and `platform-feature?`; the triple
+is for diagnostics and build metadata, not for feature tests.

@@ -55,6 +55,5 @@
 (define (features)
   (append
     (list 'r7rs 'npl 'full-unicode 'ratios 'exact-closed 'exact-complex
-          'ieee-float 'posix 'unix 'srfi-46 'srfi-149 'srfi-149-compatible
-          (if (npl_little_endian_p) 'little-endian 'big-endian))
+          'ieee-float 'posix 'unix 'srfi-46 'srfi-149 'srfi-149-compatible)
     (npl_platform_features)))

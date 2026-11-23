@@ -371,12 +371,14 @@
                                      (string (string-ref text index))))))))
 
     (define (user-info:parsed-full-name value)
-      (let ((parts (split-commas (user-info:full-name value))))
-        (if (null? parts)
-            parts
-            (cons (replace-name-ampersands
-                    (car parts) (capitalize-name (user-info:name value)))
-                  (cdr parts)))))
+      (if (not (string? (user-info:full-name value)))
+          '()
+          (let ((parts (split-commas (user-info:full-name value))))
+            (if (null? parts)
+                parts
+                (cons (replace-name-ampersands
+                        (car parts) (capitalize-name (user-info:name value)))
+                      (cdr parts))))))
 
     (define-record-type group-info-record
       (make-group-info-record name gid)

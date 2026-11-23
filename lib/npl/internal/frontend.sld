@@ -39,6 +39,7 @@
   (include "../../../src/compiler/frontend/c-functions.npl")
   (include "../../../src/compiler/frontend/numeric-aliases.npl")
   (include "../../../src/compiler/frontend/library.npl")
+  (include "../../../src/compiler/frontend/platform.npl")
   (include "../../../src/compiler/frontend/library-definitions.npl")
   (begin
     (define FRONTEND-ERROR-TAG 930)

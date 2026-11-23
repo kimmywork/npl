@@ -32,6 +32,16 @@ lib/npl/demo/crc32/package.meta
 `(npl time)` remains the import name. C may use `npl.h` for layout and the
 F1/F2 helpers, but must not link a second `libnpl_runtime`.
 
+Implemented packages:
+
+- `(npl time)` -> `libnpl_time`, core A.
+- `(npl unix)` / `(srfi 170)` -> `libnpl_unix`, core A.
+- `(npl demo crc32)` -> `libnpl_demo_crc32`, external B.
+
+`(npl platform)` is a thin NPL wrapper over the runtime feature hook, not a
+native package. The driver reads `lib/npl/native/core.meta` and links every
+listed core archive, so a new core package does not need a driver change.
+
 ## Deployment Modes And Tiering
 
 A and B are two deployment modes of the same native package, not two C APIs.

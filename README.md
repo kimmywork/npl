@@ -46,6 +46,7 @@ Current extensions include `(npl hashtable)` / `(srfi 125)`,
 `(srfi 113)`, `(npl sort)` / `(srfi 132)` and `(srfi 95)`,
 `(npl data collection)` / `(srfi 44)`, `(npl data map)` / `(srfi 146)`,
 `(npl data bitvector)` / `(srfi 178)`, `(npl time)` / `(srfi 19)`,
+`(npl unix)` / `(srfi 170)`,
 `(npl lambda)` (`λ` and `fn`),
 `(npl data unifiable-box)` / `(srfi 161)`,
 `(npl data multiple-value-box)` / `(srfi 195)`, `(npl data box)` / `(srfi 111)`,
@@ -122,6 +123,7 @@ supported, and there is no cross-compilation path at this stage.
 - [Extending NPL](docs/extending.md)
 - [C functions and FFI](docs/ffi.md)
 - [Time and SRFI 19](docs/time.md)
+- [POSIX and SRFI 170](docs/posix.md)
 - [R7RS-small reference](docs/reference/r7rs.html) and
   [SRFI 125 reference](docs/reference/srfi-125.html)
 

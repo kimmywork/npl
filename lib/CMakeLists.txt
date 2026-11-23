@@ -64,3 +64,4 @@ file(WRITE ${NPL_NATIVE_DIR}/core.meta
 install(TARGETS npl_time npl_time_shared npl_unix npl_unix_shared npl_demo_crc32
   ARCHIVE DESTINATION lib/npl/native
   LIBRARY DESTINATION lib/npl/native)
+install(FILES ${NPL_NATIVE_DIR}/core.meta DESTINATION lib/npl/native)
