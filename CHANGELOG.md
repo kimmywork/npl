@@ -57,6 +57,8 @@ behavior).
 - SRFI 170 POSIX as the core `(npl unix)` / `(srfi 170)` package: file
   metadata and directories, links, process state, users/groups, environment,
   time, terminals, and file-descriptor ports.
+  Tests cover every exported name, including binary/buffer modes, glob,
+  ownership/timestamps, umask, users/groups, and temporary filenames.
 - `(npl demo zlib)` external package: caller-owned buffers around
   `compress`/`uncompress`, built only when zlib is available.
 - Test infrastructure: `(npl test)` / `(srfi 64)`, `(npl test property)` /

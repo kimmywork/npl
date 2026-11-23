@@ -122,7 +122,7 @@ run_suite ffi-memory "PASS ffi-memory 42"
 run_suite runtime-hardening "PASS runtime-hardening 7"
 run_suite c-structs "PASS c-structs 7"
 run_suite srfi-19 "PASS srfi-19 30"
-run_suite srfi-170 "PASS srfi-170 30"
+run_suite srfi-170 "PASS srfi-170 83"
 run_suite platform "PASS platform 5"
 run_suite native-crc32 "PASS native-crc32 4"
 if [ -f "$NATIVE/libnpl_demo_zlib.so" ] || \

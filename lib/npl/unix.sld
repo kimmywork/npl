@@ -166,6 +166,10 @@
             (buffer (if (if (null? rest) #t (null? (cdr rest)))
                         buffer-block
                         (car (cdr rest)))))
+        (if (not (exact-integer? mode))
+            (error "open-file: permission bits must be an integer" mode))
+        (if (not (memq buffer (list buffer-none buffer-block buffer-line)))
+            (error "open-file: invalid buffer mode" buffer))
         (npl_unix_open_file fname port-type flags mode buffer)))
 
     (define (fd->port fd port-type . rest)

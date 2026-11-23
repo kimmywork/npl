@@ -58,4 +58,4 @@ values. `owner/unchanged` and `group/unchanged` leave ownership alone.
   adversarial concurrent processes.
 - `(srfi 170)` is an alias for `(npl unix)`.
 
-Tests: `srfi-170` (30 checks) and the nplc/npli `unix` fixture.
+Tests: `srfi-170` (83 checks, all 97 exports referenced) and the nplc/npli `unix` fixture.

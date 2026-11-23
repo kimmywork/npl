@@ -8,6 +8,14 @@
 
 (include "framework.npl")
 
+(define (read-test-file path)
+  (call-with-input-file path
+    (lambda (port) (read-string 1000 port))))
+
+(define (write-test-file path text)
+  (call-with-output-file path
+    (lambda (port) (display text port))))
+
 (define (main)
   (let* ((root (make-temporary-directory))
          (file (string-append root "/file.txt"))
@@ -169,9 +177,223 @@
                              (close-port port)
                              (> space 0))))
                        #t)
-        (test-identity "terminal? on a string port"
+        ; ---- file metadata field surface --------------------------------
+        (let ((info (file-info renamed #t)))
+          (test-identity "file-info device" (lambda () (integer? (file-info:device info))) #t)
+          (test-identity "file-info inode" (lambda () (integer? (file-info:inode info))) #t)
+          (test-identity "file-info mode" (lambda () (integer? (file-info:mode info))) #t)
+          (test-identity "file-info nlinks" (lambda () (>= (file-info:nlinks info) 1)) #t)
+          (test-identity "file-info uid" (lambda () (integer? (file-info:uid info))) #t)
+          (test-identity "file-info gid" (lambda () (integer? (file-info:gid info))) #t)
+          (test-identity "file-info rdev" (lambda () (integer? (file-info:rdev info))) #t)
+          (test-identity "file-info blksize" (lambda () (> (file-info:blksize info) 0)) #t)
+          (test-identity "file-info blocks" (lambda () (>= (file-info:blocks info) 0)) #t)
+          (test-identity "file-info atime" (lambda () (time-utc? (file-info:atime info))) #t)
+          (test-identity "file-info ctime" (lambda () (time-utc? (file-info:ctime info))) #t)
+          (test-identity "file-info directory predicate"
+                         (lambda () (file-info-directory? (file-info root #t))) #t)
+          (test-identity "file-info socket predicate"
+                         (lambda () (file-info-socket? info)) #f)
+          (test-identity "file-info device predicate"
+                         (lambda () (file-info-device? info)) #f))
+        (let ((subdir (string-append root "/subdir")))
+          (create-directory subdir #o755)
+          (test-identity "create-directory"
+                         (lambda () (file-info-directory? (file-info subdir #t)))
+                         #t)
+          (delete-directory subdir))
+        (let ((fifo (string-append root "/fifo")))
+          (create-fifo fifo #o600)
+          (test-identity "create-fifo"
+                         (lambda () (file-info-fifo? (file-info fifo #f)))
+                         #t)
+          (delete-file fifo))
+        (test-identity "glob"
                        (lambda ()
-                         (terminal? (open-input-string "x")))
+                         (if (member renamed (glob (string-append root "/*"))) #t #f))
+                       #t)
+        (test-identity "current-directory"
+                       (lambda () (string? (current-directory)))
+                       #t)
+        (let ((saved (current-directory)))
+          (set-current-directory! root)
+          (test-identity "set-current-directory!"
+                         (lambda () (equal? (real-path (current-directory))
+                                            (real-path root)))
+                         #t)
+          (set-current-directory! saved))
+        (test-identity "umask"
+                       (lambda () (integer? (umask)))
+                       #t)
+        (let ((old (umask)))
+          (set-umask! #o022)
+          (test-equal "set-umask!"
+                      (lambda () (umask))
+                      #o022)
+          (set-umask! old))
+        (test-identity "monotonic-time"
+                       (lambda () (time-monotonic? (monotonic-time)))
+                       #t)
+        (test-identity "nice"
+                       (lambda () (integer? (nice 0)))
+                       #t)
+        (test-identity "user-effective-uid"
+                       (lambda () (integer? (user-effective-uid)))
+                       #t)
+        (test-identity "user-effective-gid"
+                       (lambda () (integer? (user-effective-gid)))
+                       #t)
+        (test-identity "user-supplementary-gids"
+                       (lambda ()
+                         (let loop ((rest (user-supplementary-gids)))
+                           (if (null? rest) #t
+                               (if (integer? (car rest)) (loop (cdr rest)) #f))))
+                       #t)
+        (test-identity "get-environment-variables"
+                       (lambda ()
+                         (let ((variables (get-environment-variables)))
+                           (if (pair? variables)
+                               (pair? (car variables))
+                               #f)))
+                       #t)
+        (test-identity "posix-error-message"
+                       (lambda ()
+                         (guard (condition
+                                 ((posix-error? condition)
+                                  (> (string-length (posix-error-message condition)) 0)))
+                           (file-info (string-append root "/missing") #t)
+                           #f))
+                       #t)
+        (test-identity "owner/group unchanged constants"
+                       (lambda ()
+                         (if (symbol? owner/unchanged)
+                             (symbol? group/unchanged)
+                             #f))
+                       #t)
+        (test-identity "time/now and time/unchanged constants"
+                       (lambda ()
+                         (if (symbol? time/now) (symbol? time/unchanged) #f))
+                       #t)
+        (test-identity "set-file-owner unchanged"
+                       (lambda ()
+                         (set-file-owner renamed owner/unchanged group/unchanged)
+                         #t)
+                       #t)
+        (test-identity "set-file-times explicit"
+                       (lambda ()
+                         (set-file-times renamed
+                                         (make-time 'time-utc 0 1000000000)
+                                         (make-time 'time-utc 0 1000000000))
+                         (= (time-second (file-info:mtime (file-info renamed #t)))
+                            1000000000))
+                       #t)
+        (test-identity "set-file-times now/unchanged"
+                       (lambda ()
+                         (set-file-times renamed time/now time/unchanged)
+                         #t)
+                       #t)
+        (let ((user (user-info (user-uid))))
+          (test-identity "user-info predicate" (lambda () (user-info? user)) #t)
+          (test-identity "user-info uid" (lambda () (integer? (user-info:uid user))) #t)
+          (test-identity "user-info gid" (lambda () (integer? (user-info:gid user))) #t)
+          (test-identity "user-info home" (lambda () (string? (user-info:home-dir user))) #t)
+          (test-identity "user-info shell" (lambda () (string? (user-info:shell user))) #t)
+          (test-identity "user-info full-name"
+                         (lambda ()
+                           (if (user-info:full-name user) #t #t))
+                         #t)
+          (test-identity "user-info parsed full-name"
+                         (lambda ()
+                           (let ((parts (user-info:parsed-full-name user)))
+                             (if (pair? parts) (string? (car parts)) #t)))
+                         #t))
+        (let ((group (group-info (user-gid))))
+          (test-identity "group-info predicate" (lambda () (group-info? group)) #t)
+          (test-identity "group-info name" (lambda () (string? (group-info:name group))) #t)
+          (test-identity "group-info gid" (lambda () (integer? (group-info:gid group))) #t))
+        (let ((temporary (call-with-temporary-filename
+                           (lambda (name)
+                             (write-test-file name "temporary")
+                             name))))
+          (test-identity "call-with-temporary-filename"
+                         (lambda () (file-exists? temporary))
+                         #t)
+          (delete-file temporary))
+        (test-identity "temp-file-prefix"
+                       (lambda () (string? (temp-file-prefix)))
+                       #t)
+        (test-identity "binary constants"
+                       (lambda ()
+                         (if (symbol? binary-input)
+                             (if (symbol? binary-output)
+                                 (if (symbol? binary-input/output) #t #f)
+                                 #f)
+                             #f))
+                       #t)
+        (test-identity "buffer constants"
+                       (lambda ()
+                         (if (symbol? buffer-none)
+                             (if (symbol? buffer-block)
+                                 (symbol? buffer-line)
+                                 #f)
+                             #f))
+                       #t)
+        (test-identity "binary output/input"
+                       (lambda ()
+                         (let ((path (string-append root "/bytes.bin")))
+                           (let ((port (open-file path binary-output
+                                                  (+ open/create open/truncate))))
+                             (write-bytevector #u8(1 2 3) port)
+                             (close-port port))
+                           (let ((port (open-file path binary-input 0)))
+                             (let ((bytes (read-bytevector 3 port)))
+                               (close-port port)
+                               (equal? bytes #u8(1 2 3))))))
+                       #t)
+        (test-identity "binary-input/output"
+                       (lambda ()
+                         (let ((port (open-file (string-append root "/bytes.bin")
+                                                binary-input/output 0 #o666
+                                                buffer-none)))
+                           (let ((binary (binary-port? port)))
+                             (close-port port)
+                             binary)))
+                       #t)
+        (test-identity "open/append"
+                       (lambda ()
+                         (let ((path (string-append root "/append.txt")))
+                           (write-test-file path "line")
+                           (let ((port (open-file path textual-output
+                                                  open/append #o666 buffer-line)))
+                             (write-string "tail" port)
+                             (close-port port))
+                           (equal? (read-test-file path) "linetail")))
+                       #t)
+        (test-identity "open/exclusive"
+                       (lambda ()
+                         (guard (condition ((posix-error? condition) #t))
+                           (open-file (string-append root "/io.txt")
+                                      binary-output
+                                      (+ open/create open/exclusive))
+                           #f))
+                       #t)
+        (test-identity "open/nofollow"
+                       (lambda ()
+                         (guard (condition ((posix-error? condition) #t))
+                           (open-file link binary-input open/nofollow)
+                           #f))
+                       #t)
+        (test-identity "buffer modes open"
+                       (lambda ()
+                         (let ((path (string-append root "/buffer.txt")))
+                           (let ((port (open-file path textual-output
+                                                  (+ open/create open/truncate)
+                                                  #o666 buffer-block)))
+                             (close-port port))
+                           #t))
+                       #t)
+        (test-identity "terminal? on a string port"
+                       (lambda () (terminal? (open-input-string "x")))
                        #f))
       (lambda ()
         (for-each

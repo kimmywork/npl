@@ -6,3 +6,7 @@
 (environment "yes")
 (user #t)
 (process #t)
+(monotonic #t)
+(binary #t)
+(glob #t)
+(directory #t)
