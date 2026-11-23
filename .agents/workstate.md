@@ -63,6 +63,10 @@ M0a is implemented on `feature/0.1.3-ffi`:
   `sizeof`/`offsetof` probe, `make-c-struct`/`c-struct-ref`/`c-struct-set!`
   and `struct:name` typed stubs work. `timespec` and `tm` are the first
   descriptors; the rest of the POSIX catalog moves with P2.
+- Thread direction is recorded in `.agents/design/threads.md`: a public NPL
+  thread object and scheduler interface on a 1:1 pthread substrate first;
+  M:N green threads are a later scheduler, not part of SRFI 18. T1 is the
+  next runtime increment.
 - P2-P4 SRFI 170 is implemented as the core `(npl unix)` / `(srfi 170)`
   package: `libnpl_unix`, file metadata/directories/links, process state,
   users/groups, environment, time, terminals, and fd ports. Tests:
