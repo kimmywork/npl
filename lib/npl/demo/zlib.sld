@@ -1,8 +1,8 @@
-; External native package sample (deployment mode B) over system zlib.
+; External native package sample over system zlib.
 ;
-; The shared object is loaded through (npl native).  Compress allocates a
-; zlib-bound output buffer; uncompress takes the expected output size so the
-; C side never allocates.
+; One native-package declaration serves both linked modes for nplc and the
+; loaded mode for npli.  Compress allocates a zlib-bound output buffer;
+; uncompress takes the expected output size so the C side never allocates.
 (define-library (npl demo zlib)
   (export zlib-version zlib-compress zlib-uncompress
           zlib-compress-bound zlib-available?)
@@ -10,40 +10,57 @@
           (npl ffi)
           (npl native))
   (begin
-    (define loaded? #f)
-    (define version-raw #f)
-    (define bound-raw #f)
-    (define compress-raw #f)
-    (define uncompress-raw #f)
+    (native-package "npl_demo_zlib"))
+  (cond-expand
+    (npl-native-linked
+     (begin
+       (define-c-primitive (version-raw (buffer bytevector)) fixnum
+         "npl_demo_zlib_version")
+       (define-c-primitive (bound-raw (length fixnum)) fixnum
+         "npl_demo_zlib_bound")
+       (define-c-primitive (compress-raw (bytes bytevector)
+                                         (destination bytevector)) fixnum
+         "npl_demo_zlib_compress")
+       (define-c-primitive (uncompress-raw (bytes bytevector)
+                                           (destination bytevector)) fixnum
+         "npl_demo_zlib_uncompress")
+       (define (zlib-available?) #t)))
+    (else
+     (begin
+       (define loaded? #f)
+       (define version-raw #f)
+       (define bound-raw #f)
+       (define compress-raw #f)
+       (define uncompress-raw #f)
 
-    (define (zlib-available?)
-      (if loaded?
-          #t
-          (let ((path (native-library-path "npl_demo_zlib")))
-            (if (not path)
-                #f
-                (let ((loaded (ffi-load-library path)))
-                  (if (string? loaded)
-                      #f
-                      (begin
-                        (set! version-raw
-                              (ffi-procedure "npl_demo_zlib_version" 1))
-                        (set! bound-raw
-                              (ffi-procedure "npl_demo_zlib_bound" 1))
-                        (set! compress-raw
-                              (ffi-procedure "npl_demo_zlib_compress" 2))
-                        (set! uncompress-raw
-                              (ffi-procedure "npl_demo_zlib_uncompress" 2))
-                        (set! loaded?
-                              (if version-raw
-                                  (if bound-raw
-                                      (if compress-raw
-                                          (if uncompress-raw #t #f)
-                                          #f)
-                                      #f)
-                                  #f))
-                        loaded?)))))))
-
+       (define (zlib-available?)
+         (if loaded?
+             #t
+             (let ((path (native-library-path "npl_demo_zlib")))
+               (if (not path)
+                   #f
+                   (let ((loaded (ffi-load-library path)))
+                     (if (string? loaded)
+                         #f
+                         (begin
+                           (set! version-raw
+                                 (ffi-procedure "npl_demo_zlib_version" 1))
+                           (set! bound-raw
+                                 (ffi-procedure "npl_demo_zlib_bound" 1))
+                           (set! compress-raw
+                                 (ffi-procedure "npl_demo_zlib_compress" 2))
+                           (set! uncompress-raw
+                                 (ffi-procedure "npl_demo_zlib_uncompress" 2))
+                           (set! loaded?
+                                 (if version-raw
+                                     (if bound-raw
+                                         (if compress-raw
+                                             (if uncompress-raw #t #f)
+                                             #f)
+                                         #f)
+                                     #f))
+                           loaded?))))))))))
+  (begin
     (define (require-loaded)
       (if (not (zlib-available?))
           (error "zlib package not built or not found")))

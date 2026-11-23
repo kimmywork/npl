@@ -174,7 +174,11 @@
                    (loop (cdr rest)
                          (append exports (cond-exports (cdr declaration) base))
                          (append imports (cond-imports (cdr declaration) base))
-                         (append body (cond-body (cdr declaration) base))))
+                         ; Keep alternatives for definition counting; the
+                         ; branches are mutually exclusive.
+                         (append body
+                                 (cons (cons 'cond-expand (cdr declaration))
+                                       ()))))
                   (else (loop (cdr rest) exports imports body))))))))
 
     (define (read-included paths base)
@@ -208,7 +212,10 @@
                   (if (eq? (car form) kind)
                       (loop (cdr rest) (append out (cdr form)))
                       (if (eq? (car form) 'begin)
-                          (loop (cdr rest) (append out (cdr form)))
+                          (loop (cdr rest)
+                                (if (eq? kind 'body)
+                                    (append out (cdr form))
+                                    out))
                           (loop (cdr rest) out)))
                   (loop (cdr rest) out))))))
 
@@ -281,12 +288,24 @@
                               (cons (name-string (car (cdr field))) out)
                               out))))))))
 
+    ; cond-expand branches are alternatives: a name defined in more than one
+    ; branch is one export, while a duplicate inside one branch is still an
+    ; error.
+    (define (new-branch-names names known)
+      (if (null? names)
+          '()
+          (if (member (car names) known)
+              (new-branch-names (cdr names) known)
+              (cons (car names)
+                    (new-branch-names (cdr names) known)))))
+
     (define (collect-cond-defs clauses base)
       (let loop ((rest clauses) (out '()))
         (if (null? rest)
             out
-            (loop (cdr rest)
-                  (append out (collect-defs (cdr (car rest)) base))))))
+            (let ((branch (collect-defs (cdr (car rest)) base)))
+              (loop (cdr rest)
+                    (append out (new-branch-names branch out)))))))
 
     (define (count-defs defs)
       (let loop ((rest defs) (counts '()))

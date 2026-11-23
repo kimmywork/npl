@@ -34,6 +34,8 @@
           (scheme char)
           (npl ffi))
   (begin
+    (native-package "npl_time")
+
     (define time-utc 'time-utc)
     (define time-monotonic 'time-monotonic)
     (define time-duration 'time-duration)

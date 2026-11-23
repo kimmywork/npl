@@ -54,25 +54,33 @@ lib/npl/demo/crc32/package.meta
 There are two deployment modes over one `NplVal` ABI:
 
 - **Core (linked, A).** CMake builds `libnpl_<name>.a` and a shared object.
-  `nplc` reads `lib/npl/native/core.meta` and links the archive; `npli` links
-  the shared object with a relative rpath. Importing the library needs no
-  `-l`/`-L` flags. Examples: `(npl time)`, `(npl unix)`.
-- **External (loaded, B).** CMake builds a shared object; the NPL library
-  finds it with `(npl native)` and binds exported functions with
-  `ffi-load-library` / `ffi-procedure`. It does not require a compiler or
-  seed change. Examples: `(npl demo crc32)`, `(npl demo zlib)`.
+  `nplc --native=static` (the default) links the archive; `nplc
+  --native=shared` links the shared object with a relocatable rpath; `npli`
+  links the shared object. Importing the library needs no `-l`/`-L` flags.
+  Examples: `(npl time)`, `(npl unix)`.
+- **External (same artifacts, optional package).** CMake builds both an
+  archive and a shared object. The `.sld` declares `(native-package
+  "npl_<name>")`; `nplc` links the requested form, while `npli` loads the
+  shared object through `(npl native)` and binds exported functions with
+  `ffi-load-library` / `ffi-procedure`. Examples: `(npl demo crc32)`,
+  `(npl demo zlib)`.
+
+`native.meta` beside the runtime lists each package, its tier, both artifact
+names, and any system libraries. The driver links only packages the program
+actually imports, so a narrow import set produces a smaller executable.
 
 Artifact form and tier are separate axes. A native package can install both
 an archive and a shared object; `nplc` defaults to static linking, while
-`npli` uses shared objects and loads external packages dynamically. The
-target is to support both deliverables for core and third-party packages:
+`npli` uses shared objects and loads external packages dynamically. Both
+deliverables are supported for core and third-party packages:
 
 - one self-contained executable linked from archives;
-- an executable plus a directory of shared objects.
+- an executable plus a directory of shared objects (`@loader_path/../lib/npl`
+  and `@loader_path/../lib/npl/native` on Darwin, `$ORIGIN/...` on Linux).
 
-`npli` never invokes a C compiler at run time: layouts come from
-`c-struct-layouts.meta`, and `define-c-function` uses a prebuilt stub
-shared object. See [native link modes](../.agents/design/link-modes.md).
+`npli` is the dynamic runtime and never invokes a C compiler at run time:
+layouts come from `c-struct-layouts.meta`, and `define-c-function` uses a
+prebuilt stub shared object. See [native link modes](../.agents/design/link-modes.md).
 
 ### `package.meta`
 
@@ -107,11 +115,12 @@ The provisional manifest is a Scheme datum:
 - Unknown keys are ignored; `abi-version` versions the format.
 
 CMake currently builds the checked-in native packages from
-`lib/CMakeLists.txt` and writes `core.meta` from the same list. It also
-generates and installs `c-struct-layouts.meta` with
-`nplc --emit=c-structs`, so `define-c-struct` imports do not run a C
-compiler; `NPL_C_STRUCT_LAYOUTS` overrides the cache file for a package.
-The zlib sample is built only when `find_package(ZLIB)` succeeds.
+`lib/CMakeLists.txt`, writes `core.meta` for compatibility, and writes the
+full `native.meta` index. It also generates and installs
+`c-struct-layouts.meta` with `nplc --emit=c-structs`, so `define-c-struct`
+imports do not run a C compiler; `NPL_C_STRUCT_LAYOUTS` overrides the cache
+file for a package. The zlib sample is built only when `find_package(ZLIB)`
+succeeds; its static archive carries `-lz` through `native.meta`.
 
 ### ABI and safety
 

@@ -29,6 +29,8 @@ Options:
                     npl.h for C stubs: env NPL_INCLUDE, else the layout
   -l NAME, -lNAME   link library NAME into the executable
   -L DIR, -LDIR     search DIR for -l libraries
+  --native=MODE     native packages: static (default) or shared
+                    (env NPL_NATIVE_LINK)
   -h, --help        show this help
   --version         show the NPL release version
 ")
@@ -47,8 +49,13 @@ Options:
 ; Internal (--c-stubs-file PATH): the SSA child run also writes the
 ; define-c-function stubs there, so a build expands the program once.
 (define DRIVER-STUBS 9)
+(define DRIVER-NATIVE 10)
+; Internal (--native-packages-file PATH): the SSA child run records the
+; native-package declarations of the expanded program.
+(define DRIVER-PACKAGES 11)
 
-(define (driver-config) (vector "exe" #f #f #f #f #f #f #f () #f))
+(define (driver-config)
+  (vector "exe" #f #f #f #f #f #f #f () #f "static" #f))
 (define (driver-get config slot) (vector-ref config slot))
 (define (driver-set! config slot value) (vector-set! config slot value))
 
@@ -87,6 +94,20 @@ Options:
        (string-append "--emit=" kind
                       " is not yet supported (see docs/toolchain.md)")))
     (else (driver-error (string-append "unknown output kind: " kind)))))
+
+(define (driver-set-native-mode! config mode)
+  (if (if (string=? mode "static") #t (string=? mode "shared"))
+      (driver-set! config DRIVER-NATIVE mode)
+      (driver-error (string-append "unknown native link mode: " mode))))
+
+(define (driver-native-mode config)
+  (let ((explicit (driver-get config DRIVER-NATIVE)))
+    (if explicit
+        explicit
+        (let ((environment (get-environment-variable "NPL_NATIVE_LINK")))
+          (if (if environment (> (string-length environment) 0) #f)
+              environment
+              "static")))))
 
 (define (driver-value option rest)
   (if (null? rest)
@@ -152,6 +173,16 @@ Options:
            (driver-parse! config (cdr rest)))
           ((string=? argument "--c-stubs-file")
            (driver-set! config DRIVER-STUBS (driver-value argument rest))
+           (driver-parse! config (cdr rest)))
+          ((string=? argument "--native-packages-file")
+           (driver-set! config DRIVER-PACKAGES (driver-value argument rest))
+           (driver-parse! config (cdr rest)))
+          ((driver-prefix? "--native=" argument)
+           (driver-set-native-mode! config
+             (substring argument 9 (string-length argument)))
+           (driver-parse! config rest))
+          ((string=? argument "--native")
+           (driver-set-native-mode! config (driver-value argument rest))
            (driver-parse! config (cdr rest)))
           ((driver-link-option? argument)
            (driver-parse! config (driver-add-link! config argument rest)))
@@ -263,16 +294,21 @@ Options:
 ; Compiler diagnostics go to standard error; standard output is reserved for
 ; SSA. A failed child therefore needs no output relay, and a large partial
 ; SSA file can never bury the diagnostic.
-(define (driver-emit-ssa config ssa stubs)
+(define (driver-emit-ssa config ssa stubs packages)
   (let ((status
           (run-process
             (cons (driver-self)
               (cons "--emit=ssa"
                 (cons "--stdlib-root"
                   (cons (driver-stdlib config)
-                    (cons "--c-stubs-file"
-                      (cons stubs
-                        (cons (driver-get config DRIVER-SOURCE) ())))))))
+                    (cons "--native"
+                      (cons (driver-native-mode config)
+                        (cons "--c-stubs-file"
+                          (cons stubs
+                            (cons "--native-packages-file"
+                              (cons packages
+                                (cons (driver-get config DRIVER-SOURCE)
+                                      ())))))))))))
             ssa)))
     (if (= status 0)
         0
@@ -314,46 +350,264 @@ Options:
             #f)))
     (if (= status 0) 0 (driver-stage-failure "cc" status))))
 
-; Core native packages are listed in core.meta beside the runtime archive
-; (generated from lib/CMakeLists.txt and the package manifests).  Importing
-; one needs no user -l/-L flags: the driver links every core archive.
-(define (driver-core-native-directory config)
+; Native packages are described by native.meta beside the runtime archive.
+; nplc links only the packages the expanded program declared, in the artifact
+; form selected by --native=static|shared.  core.meta is the fallback index
+; for older installs and for the static core package names.
+(define (driver-native-directory config)
   (let* ((runtime (driver-runtime config))
          (beside (string-append (path-dir runtime) "native"))
          (layout (string-append (path-dir runtime) "../lib/npl/native")))
-    (if (file-exists? (string-append beside "/core.meta"))
+    (if (if (file-exists? (string-append beside "/native.meta"))
+            #t
+            (file-exists? (string-append beside "/core.meta")))
         beside
-        (if (file-exists? (string-append layout "/core.meta"))
+        (if (if (file-exists? (string-append layout "/native.meta"))
+                #t
+                (file-exists? (string-append layout "/core.meta")))
             layout
             #f))))
 
-(define (driver-core-native-link-args config)
-  (let ((directory (driver-core-native-directory config)))
-    (if (not directory)
-        ()
-        (let ((forms (parse-source-file
-                       (string-append directory "/core.meta"))))
-          (let loop ((rest forms) (names ()))
-            (if (null? rest)
-                (cons (string-append "-L" directory)
-                      (rev-into names ()))
-                (let ((form (car rest)))
-                  (if (raw-form? form "core-native")
-                      (let* ((name (datum-string-text (car (cdr form))))
-                             (archive (string-append directory "/lib"
-                                                     name ".a")))
-                        (loop (cdr rest)
-                              (cons (if (file-exists? archive)
-                                        archive
-                                        (string-append "-l" name))
-                                    names)))
-                      (loop (cdr rest) names)))))))))
+(define (driver-runtime-shared config)
+  (let ((explicit (driver-environment "NPL_RUNTIME_SHARED")))
+    (if explicit explicit
+        (let ((directory (path-dir (driver-runtime config))))
+          (if (file-exists? (string-append directory "libnpl_runtime.dylib"))
+              (string-append directory "libnpl_runtime.dylib")
+              (if (file-exists? (string-append directory "libnpl_runtime.so"))
+                  (string-append directory "libnpl_runtime.so")
+                  (driver-error
+                    "shared runtime not found; build npl_runtime_shared")))))))
 
-; User libraries precede the core packages and the runtime archive: core
-; packages may call into the runtime.  The stub object, if any, precedes the
-; user libraries whose functions it calls.
-(define (driver-link-objects config assembly stubs executable)
-  (let ((runtime (driver-runtime config)))
+(define (driver-native-meta-forms path)
+  (let ((forms (parse-source-file path)))
+    (if (null? forms)
+        ()
+        (let ((form (car forms)))
+          (if (raw-form? form "native-packages")
+              (cdr form)
+              forms)))))
+
+(define (driver-native-entries directory)
+  (let ((path (string-append directory "/native.meta")))
+    (if (file-exists? path)
+        (let loop ((forms (driver-native-meta-forms path)) (entries ()))
+          (if (null? forms)
+              (rev entries)
+              (let ((form (car forms)))
+                (if (raw-form? form "native-package")
+                    (let ((parts (cdr form)))
+                      (if (not (= (raw-list-count parts 0) 5))
+                          (driver-error "malformed native.meta entry"))
+                      (let ((name (datum-string-text (car parts)))
+                            (tier (car (cdr parts)))
+                            (archive (datum-string-text (car (cdr (cdr parts)))))
+                            (shared (datum-string-text
+                                      (car (cdr (cdr (cdr parts))))))
+                            (system (driver-native-system-list
+                                      (car (cdr (cdr (cdr (cdr parts))))))))
+                        (loop (cdr forms)
+                              (cons (cons name
+                                          (cons tier
+                                                (cons archive
+                                                      (cons shared
+                                                            (cons system ())))))
+                                    entries))))
+                    (loop (cdr forms) entries)))))
+        (let loop ((forms (parse-source-file
+                            (string-append directory "/core.meta")))
+                   (entries ()))
+          (if (null? forms)
+              (rev entries)
+              (let ((form (car forms)))
+                (if (raw-form? form "core-native")
+                    (let ((name (datum-string-text (car (cdr form)))))
+                      (loop (cdr forms)
+                            (cons (cons name
+                                        (cons 'core
+                                              (cons (string-append "lib" name ".a")
+                                                    (cons #f (cons () ())))))
+                                  entries)))
+                    (loop (cdr forms) entries))))))))
+
+(define (driver-native-system-list values)
+  (if (null? values)
+      ()
+      (if (not (datum-string? (car values)))
+          (driver-error "native.meta system library must be a string")
+          (cons (datum-string-text (car values))
+                (driver-native-system-list (cdr values))))))
+
+(define (driver-native-system-flags names)
+  (if (null? names)
+      ()
+      (cons (string-append "-l" (car names))
+            (driver-native-system-flags (cdr names)))))
+
+(define (driver-native-system-args entry)
+  (if entry
+      (if (pair? (car (cdr (cdr (cdr (cdr entry))))))
+          (driver-native-system-flags
+            (car (cdr (cdr (cdr (cdr entry))))))
+          ())
+      ()))
+
+(define (driver-native-entry name entries)
+  (if (null? entries)
+      #f
+      (if (string=? name (car (car entries)))
+          (car entries)
+          (driver-native-entry name (cdr entries)))))
+
+(define (driver-split-colon text)
+  (let loop ((start 0) (index 0) (parts ()))
+    (cond
+      ((= index (string-length text))
+       (rev (cons (substring text start index) parts)))
+      ((= (string-byte-ref text index) 58)
+       (loop (+ index 1) (+ index 1)
+             (cons (substring text start index) parts)))
+      (else (loop start (+ index 1) parts)))))
+
+(define (driver-native-search-directories config)
+  (let ((configured (get-environment-variable "NPL_NATIVE_PATH"))
+        (primary (driver-native-directory config)))
+    (append
+      (if primary (cons primary ()) ())
+      (if configured
+          (let loop ((parts (driver-split-colon configured)) (out ()))
+            (if (null? parts)
+                (rev out)
+                (loop (cdr parts)
+                      (if (> (string-length (car parts)) 0)
+                          (cons (car parts) out)
+                          out))))
+          ()))))
+
+(define (driver-file-in-directories directories name)
+  (if (null? directories)
+      #f
+      (let ((path (string-append (car directories) "/" name)))
+        (if (file-exists? path)
+            path
+            (driver-file-in-directories (cdr directories) name)))))
+
+(define (driver-native-static-name entry name)
+  (if entry
+      (car (cdr (cdr entry)))
+      (string-append "lib" name ".a")))
+
+(define (driver-native-shared-name entry name)
+  (if entry
+      (let ((shared (car (cdr (cdr (cdr entry))))))
+        (if shared shared (string-append "lib" name ".dylib")))
+      (string-append "lib" name ".dylib")))
+
+(define (driver-native-static-file config entry name)
+  (let ((file (driver-native-static-name entry name)))
+    (let ((path (driver-file-in-directories
+                  (driver-native-search-directories config) file)))
+      (if path path
+          (driver-error
+            (string-append "native package " name
+                           " has no static archive (" file ")"))))))
+
+(define (driver-native-shared-file config entry name)
+  (let ((directories (driver-native-search-directories config)))
+    (let ((file (driver-native-shared-name entry name)))
+      (let ((path (driver-file-in-directories directories file)))
+        (if path path
+            (if (string=? file (string-append "lib" name ".dylib"))
+                (let ((fallback (driver-file-in-directories
+                                  directories (string-append "lib" name ".so"))))
+                  (if fallback fallback
+                      (driver-error
+                        (string-append "native package " name
+                                       " has no shared object"))))
+                (driver-error
+                  (string-append "native package " name
+                                 " has no shared object (" file ")"))))))))
+
+(define (driver-native-package-names directory)
+  (let ((path (string-append directory "/native-packages.meta")))
+    (if (not (file-exists? path))
+        ()
+        (let loop ((forms (parse-source-file path)) (names ()))
+          (if (null? forms)
+              (rev names)
+              (let ((form (car forms)))
+                (if (raw-form? form "native-package")
+                    (loop (cdr forms)
+                          (cons (datum-string-text (car (cdr form))) names))
+                    (loop (cdr forms) names))))))))
+
+(define (driver-native-static-args config directory names entries)
+  (if (null? names)
+      ()
+      (let ((entry (driver-native-entry (car names) entries)))
+        (append
+          (cons (driver-native-static-file config entry (car names))
+                (driver-native-system-args entry))
+          (driver-native-static-args config directory (cdr names) entries)))))
+
+(define (driver-native-shared-args config names entries)
+  (if (null? names)
+      ()
+      (let ((entry (driver-native-entry (car names) entries)))
+        (append
+          (cons (driver-native-shared-file config entry (car names))
+                (driver-native-system-args entry))
+          (driver-native-shared-args config (cdr names) entries)))))
+
+(define (driver-native-rpath-args config)
+  (let ((runtime (driver-runtime-shared config))
+        (native (driver-native-directory config)))
+    (let ((absolute
+            (append
+              (cons (path-dir runtime) ())
+              (if native (cons native ()) ()))))
+      (if (npl_platform_feature "darwin")
+          (append
+            (cons "-Wl,-rpath,@loader_path/../lib/npl"
+              (cons "-Wl,-rpath,@loader_path/../lib/npl/native" ()))
+            (let loop ((rest absolute) (out ()))
+              (if (null? rest)
+                  (rev out)
+                  (loop (cdr rest)
+                        (cons (string-append "-Wl,-rpath,"
+                                             (car rest))
+                              out)))))
+          (append
+            (cons "-Wl,-rpath,$ORIGIN/../lib/npl"
+              (cons "-Wl,-rpath,$ORIGIN/../lib/npl/native" ()))
+            (let loop ((rest absolute) (out ()))
+              (if (null? rest)
+                  (rev out)
+                  (loop (cdr rest)
+                        (cons (string-append "-Wl,-rpath,"
+                                             (car rest))
+                              out)))))))))
+
+(define (driver-native-link-args config directory)
+  (let ((mode (driver-native-mode config)))
+    (let ((native (driver-native-directory config)))
+      (let ((names (driver-native-package-names directory))
+            (entries (if native (driver-native-entries native) ())))
+        (if (string=? mode "shared")
+            (append
+              (driver-native-shared-args config names entries)
+              (cons (driver-runtime-shared config)
+                    (driver-native-rpath-args config)))
+            (driver-native-static-args config directory names entries))))))
+
+; User libraries precede the native packages and the runtime: native and
+; shared objects may call into the runtime.  Static mode links the runtime
+; archive; shared mode links the shared runtime plus package shared objects.
+(define (driver-link-objects config directory assembly stubs executable)
+  (let ((runtime (if (string=? (driver-native-mode config) "static")
+                     (cons (driver-runtime config) ())
+                     ()))
+        (extra (if (npl_platform_feature "darwin") () (cons "-ldl" ()))))
     (let ((status
             (run-process
               (cons (driver-cc config)
@@ -362,8 +616,10 @@ Options:
                     (append stubs
                       (append
                         (rev-into (driver-get config DRIVER-LINK) ())
-                        (append (driver-core-native-link-args config)
-                                (cons runtime (cons "-lm" ())))))))))
+                        (append
+                          (driver-native-link-args config directory)
+                          (append runtime
+                                  (append extra (cons "-lm" ()))))))))))
               #f)))
       (if (= status 0) 0 (driver-stage-failure "link" status)))))
 
@@ -371,7 +627,7 @@ Options:
   (let ((stubs (driver-stub-objects config directory)))
     (if (number? stubs)
         stubs
-        (driver-link-objects config assembly stubs executable))))
+        (driver-link-objects config directory assembly stubs executable))))
 
 (define (driver-final-stage config directory kind assembly output)
   (cond
@@ -388,7 +644,9 @@ Options:
                         output
                         (string-append directory "/source.s"))))
       (let ((emitted (driver-emit-ssa config ssa
-                                      (string-append directory "/stubs.c"))))
+                                      (string-append directory "/stubs.c")
+                                      (string-append directory
+                                                     "/native-packages.meta"))))
         (if (if (= emitted 0) (string=? kind "ssa") #t)
             emitted
             (let ((assembled (driver-assemble config ssa assembly)))
@@ -405,6 +663,8 @@ Options:
         (driver-delete-if-present (string-append directory "/source.s"))
         (driver-delete-if-present (string-append directory "/stubs.c"))
         (driver-delete-if-present (string-append directory "/stubs.o"))
+        (driver-delete-if-present
+          (string-append directory "/native-packages.meta"))
         (delete-directory directory))))
 
 (define (driver-build config)
@@ -419,6 +679,7 @@ Options:
 ; partial file.
 (define (driver-c-stubs config)
   (library-set-standard-root! (driver-stdlib config))
+  (native-package-set-link-mode! (driver-native-mode config))
   (expand-for-c-stubs (driver-get config DRIVER-SOURCE))
   (if (driver-get config DRIVER-OUTPUT)
       (let ((port (open-output-file (driver-get config DRIVER-OUTPUT))))
@@ -431,6 +692,7 @@ Options:
 ; every define-c-struct, then write the layouts for later imports to read.
 (define (driver-c-structs config)
   (library-set-standard-root! (driver-stdlib config))
+  (native-package-set-link-mode! (driver-native-mode config))
   (expand-for-c-stubs (driver-get config DRIVER-SOURCE))
   (if (driver-get config DRIVER-OUTPUT)
       (let ((port (open-output-file (driver-get config DRIVER-OUTPUT))))
@@ -450,10 +712,30 @@ Options:
       (begin (write-c-stubs-file (driver-get config DRIVER-STUBS)) 0)
       0))
 
+(define (driver-write-native-packages path)
+  (let ((port (open-output-file path)))
+    (let loop ((names (rev (cell-get NATIVE-PACKAGES))))
+      (if (pair? names)
+          (begin
+            (display "(native-package \"" port)
+            (display (car names) port)
+            (display "\")\n" port)
+            (loop (cdr names)))))
+    (close-port port)))
+
+(define (driver-write-requested-native-packages config)
+  (if (driver-get config DRIVER-PACKAGES)
+      (begin
+        (driver-write-native-packages (driver-get config DRIVER-PACKAGES))
+        0)
+      0))
+
 (define (driver-emit-ssa-in-process config)
   (library-set-standard-root! (driver-stdlib config))
+  (native-package-set-link-mode! (driver-native-mode config))
   (emit-program (driver-get config DRIVER-SOURCE))
-  (driver-write-requested-stubs config))
+  (driver-write-requested-stubs config)
+  (driver-write-requested-native-packages config))
 
 (define (driver-run config)
   (cond

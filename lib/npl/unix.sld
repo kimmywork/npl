@@ -44,6 +44,8 @@
           (npl time)
           (npl data generator))
   (begin
+    (native-package "npl_unix")
+
     (define-c-primitive (npl_unix_posix_error_p (value any)) boolean
       "npl_unix_posix_error_p")
     (define-c-primitive (npl_unix_posix_error_name (value any)) any

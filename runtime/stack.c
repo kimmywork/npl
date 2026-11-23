@@ -15,7 +15,15 @@
 #include <sys/resource.h>
 
 /* 0 before npl_runtime_init: no entry falls back. */
+#ifdef NPL_RUNTIME_SHARED
+/* The dynamic executable defines the authoritative slot; generated code
+ * loads it directly, and the shared runtime reaches it through the loader. */
+extern uintptr_t npl_stack_limit;
+extern uintptr_t npl_opaque_zero;
+#else
 uintptr_t npl_stack_limit = 0;
+uintptr_t npl_opaque_zero = 0;
+#endif
 
 #define NPL_STACK_FALLBACK_BYTES ((uintptr_t)8 << 20)
 #define NPL_STACK_MAX_BYTES ((uintptr_t)1 << 30)
@@ -37,7 +45,6 @@ static uintptr_t g_stack_floor = 0;
 static uintptr_t g_window_bytes = 0;
 
 /* opaque zero (npl.h): never written. */
-uintptr_t npl_opaque_zero = 0;
 
 /* base is an address near the top (oldest end) of the stack. */
 void npl_stack_init_internal(uintptr_t base)

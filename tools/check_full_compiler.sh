@@ -13,13 +13,23 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime npl_time npl_unix npl_demo_crc32 npl_c_struct_layouts >/dev/null
+ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts >/dev/null
 # zlib is optional; the target exists only when CMake found the library.
-ninja -C "$BUILD" npl_demo_zlib >/dev/null 2>&1 || true
+ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
+
+EXTRA_NATIVE=()
+EXTRA_LIBS=()
+if [ -f "$NATIVE/libnpl_demo_zlib.a" ]; then
+    EXTRA_NATIVE=("$NATIVE/libnpl_demo_zlib.a")
+    EXTRA_LIBS=(-lz)
+fi
 
 build_ssa() {
     "$QBE" -o "$2.s" "$1"
-    cc -o "$2" "$2.s" "$NATIVE/libnpl_time.a" "$NATIVE/libnpl_unix.a" "$RUNTIME" -lm
+    cc -o "$2" "$2.s" "$NATIVE/libnpl_time.a" "$NATIVE/libnpl_unix.a" \
+        "$NATIVE/libnpl_demo_crc32.a" \
+        ${EXTRA_NATIVE[@]+"${EXTRA_NATIVE[@]}"} "$RUNTIME" -lm \
+        ${EXTRA_LIBS[@]+"${EXTRA_LIBS[@]}"}
 }
 
 emit() {

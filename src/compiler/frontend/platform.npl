@@ -63,12 +63,18 @@
                                               #t
                                               (if (string=? name "srfi-149-compatible")
                                                   #t
+                                                  (if (string=? name "npl-native-linked")
+                                          (native-package-linked?)
+                                          (if (string=? name "npl-native-static")
+                                              (native-package-static?)
+                                              (if (string=? name "npl-native-shared")
+                                                  (native-package-shared?)
                                                   (if (string=? name "little-endian")
                                           (npl_little_endian_p)
                                           (if (string=? name "big-endian")
                                               (not (npl_little_endian_p))
                                               (npl_platform_feature
-                                                name))))))))))))))))
+                                                name)))))))))))))))))))
 
 (define (library-feature? requirement)
   (if (datum-symbol? requirement)
@@ -113,4 +119,3 @@
 (define (library-expand-cond-expression form)
   (cons (datum-symbol "begin")
         (library-cond-select (cdr form))))
-

@@ -434,6 +434,16 @@
       (let ((forms (control-program lowered)))
         (pass-register-globals forms)
         (pass-register-functions forms)
+        ; In shared mode the runtime is a shared object and cannot export a
+        ; data symbol that generated code addresses directly.  The executable
+        ; owns the slot; the shared runtime resolves it at load time.
+        (if (native-package-shared?)
+            (begin
+              (data-line "export")
+              (data-line "$npl_stack_limit = { l 0 }")
+              (data-line "export")
+              (data-line "$npl_opaque_zero = { l 0 }"))
+            #f)
         (emit-all-forms forms)
         (dump-and-print)))))
 

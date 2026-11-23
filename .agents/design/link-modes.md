@@ -1,7 +1,7 @@
 # Native Link Modes And Packaging
 
-Status: proposed, 2026-11-23. This decouples the artifact form (static vs
-shared) from the package tier (core vs external) and the consumption mode
+Status: implemented, 2026-11-24. The artifact form (static vs shared) is
+decoupled from the package tier (core vs external) and the consumption mode
 (linked vs loaded).
 
 ## Terms
@@ -135,16 +135,20 @@ archives need. `otool -L` / `ldd` must show no `libnpl_*` dependency.
 - Core imports stay compiler-cache based (`c-struct-layouts.meta`); a link
   mode must not reintroduce a C compiler at import time.
 
-## Increments
+## Implementation
 
-1. **L1: both artifacts.** Build archives and shared objects for the
-   external crc32/zlib samples; extend the index/metadata. No driver change.
-2. **L2: static/dynamic selection for core.** Add the `nplc` link-mode
-   option and choose archive vs shared for `core.meta` entries. Verify a
-   single static binary and a relocatable dynamic bundle.
-3. **L3: compiler-visible external packages.** Replace the unconditional
-   `load-native-library` path with a declaration the driver records; make
-   static linking of external packages work.
-4. **L4: packaging and tests.** Install script/manifest for the dynamic
-   bundle, `otool`/`ldd` assertions, and a mixed program (core + external)
-   in both modes.
+- `native.meta` lists every package with tier, archive, shared object, and
+  system libraries. `native-package` declarations in `.sld` files record the
+  packages the driver links.
+- CMake builds both artifacts for time, unix, crc32, and zlib. Core shared
+  objects depend on `libnpl_runtime`; external shared objects stay
+  runtime-free.
+- `nplc --native=static` is the default and links only imported archives.
+  `nplc --native=shared` links `libnpl_runtime` plus imported shared objects
+  and writes relocatable rpaths.
+- `npli` links the shared runtime and core shared objects. Generated code
+  exports `npl_stack_limit` and `npl_opaque_zero`; the shared runtime
+  resolves those data slots from the executable.
+- `(tools link-modes)` checks both modes, relocatable/external execution,
+  dependency shape, artifact presence, and size ordering: dynamic smaller
+  than static, narrow imports smaller than wide imports.

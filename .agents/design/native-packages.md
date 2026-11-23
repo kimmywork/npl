@@ -51,11 +51,10 @@ A and B are two deployment modes of the same native package, not two C APIs.
 Both use the same exported `NplVal` entry points and the same binding list.
 
 Artifact form (static archive vs shared object) is orthogonal to tier and to
-consumption mode (linked vs loaded). The target is to build and install both
-forms for every native package, so `nplc` can produce one static executable
-or an executable plus shared objects, while `npli` stays dynamic and never
-runs a C compiler at import time. The concrete gap list and increments are
-in [link-modes](link-modes.md).
+consumption mode (linked vs loaded). Every native package builds and installs
+both forms, so `nplc` can produce one static executable or an executable plus
+shared objects, while `npli` stays dynamic and never runs a C compiler at
+import time. Implementation details are in [link-modes](link-modes.md).
 
 | Tier | Mode | Who builds/loads it | Why |
 |---|---|---|---|

@@ -24,6 +24,7 @@
   "frontend/c-structs.npl"
   "frontend/c-primitives.npl"
   "frontend/c-functions.npl"
+  "frontend/native-packages.npl"
   "frontend/numeric-aliases.npl"
   "frontend/library.npl"
   "frontend/platform.npl"

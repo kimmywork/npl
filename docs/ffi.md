@@ -431,18 +431,19 @@ lib/npl/time/native/time.c
 lib/npl/time/package.meta
 ```
 
-There are two deployment modes over one `NplVal` ABI:
+Native packages use one `NplVal` ABI and two artifact forms:
 
 - **Core (linked, A).** CMake builds `libnpl_<name>.a` and a shared object.
-  `nplc` links the archive automatically from `core.meta`; `npli` links the
-  shared object with an rpath, so `define-c-primitive` resolves at expansion
-  time. The library does not pass `-l` flags. `(npl time)` and
-  `(npl unix)` are core packages.
-- **External (loaded, B).** The package build makes a shared object; the NPL
-  library calls `ffi-load-library` and `ffi-procedure` (or the helpers in
-  `(npl native)`) to bind exported functions at load time. No compiler,
-  seed, or primitive-table change is needed. `(npl demo crc32)` is the
-  sample. `(npl demo zlib)` is the second sample and links the system zlib.
+  `nplc --native=static` links imported archives; `nplc --native=shared`
+  links the shared runtime and imported shared objects; `npli` links the
+  shared objects with a relocatable rpath. No `-l` flags are needed.
+  `(npl time)` and `(npl unix)` are core packages.
+- **External (optional package, B).** CMake builds both forms and the `.sld`
+  declares `(native-package "npl_<name>")`. In linked modes the C symbols
+  come from the archive or shared object; in `npli` the library binds them
+  through `(npl native)` / `ffi-procedure`. `(npl demo crc32)` and
+  `(npl demo zlib)` are the samples; zlib adds `-lz` through `native.meta`
+  in static mode.
 
 ```scheme
 (import (npl native))
@@ -463,8 +464,9 @@ runtime helpers because they are part of the same build.
 
 `package.meta` (provisional) records the tier, ABI version, sources,
 system libraries, shared/static names, and bindings. The current CMake flow
-builds the checked-in packages and writes `lib/npl/native/core.meta`, the
-small manifest `nplc` reads at link time. It also runs
+builds the checked-in packages, writes `lib/npl/native/native.meta` (the
+artifact index `nplc` reads) and keeps `core.meta` for compatibility. It
+also runs
 `nplc --emit=c-structs` once and installs
 `lib/npl/native/c-struct-layouts.meta`, so importing the core packages does
 not invoke a C compiler.

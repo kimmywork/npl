@@ -46,6 +46,7 @@ frozen recovery artifacts as current behavior.
 | Numeric oracle | `tests/numeric/` | exact numeric substrate against Guile | `(tools toolchain)` |
 | Upstream suite | `tests/chibi/` | independent chibi R7RS suite | `run_chibi_suite.sh` |
 | Library metadata | `(tools libraries)` | exports, imports, cycles, layering, alias re-exports | `tools/run-tests.npl` |
+| Native link modes | `(tools link-modes)` | static/shared artifacts, dependencies, size and import footprint | `tools/run-tests.npl` |
 | Toolchain checks (NPL) | `(tools toolchain)` | current fixed point, GC, numeric oracle, driver, install, core consistency | `tools/run-tests.npl` |
 | Toolchain checks (legacy) | `tools/check_*.sh` | REPL, full compiler, relay | shell adapters |
 | Frozen bootstrap | `bootstrap/stage0/tools/`, `bootstrap/tools/` | stage0, permanent bootstrap chain | separate script |

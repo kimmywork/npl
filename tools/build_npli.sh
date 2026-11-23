@@ -36,28 +36,29 @@ npl_escape() {
     printf '(include "%s")\n' "$(npl_escape "$ROOT/src/repl/main.npl")"
 } > "$work/repl.npl"
 
-# C libraries loaded with npli -l call back into the runtime through npli's
-# own symbols (.agents/archive/design/design-primitives.md, section 5), so npli links every
-# runtime member, not only those it uses, and exports them on Linux.
-RUNTIME="$ROOT/build/lib/npl/libnpl_runtime.a"
+# npli is the dynamic runtime: the runtime and core native packages are
+# shared objects beside the executable.  This is one runtime instance, so
+# shared package objects and C libraries loaded with npli -l resolve the same
+# runtime symbols.
+RUNTIME_DIR="$ROOT/build/lib/npl"
 NATIVE="$ROOT/build/lib/npl/native"
-"$ROOT/build/bin/nplc" -c "$work/repl.npl" -o "$work/repl.o"
+"$ROOT/build/bin/nplc" --native=shared -c "$work/repl.npl" -o "$work/repl.o"
 case "$(uname -s)" in
     Darwin)
-        whole=("-Wl,-force_load,$RUNTIME")
-        rpath=(-Wl,-rpath,@loader_path/../lib/npl/native)
+        extra=()
+        rpath=(-Wl,-rpath,@loader_path/../lib/npl
+               -Wl,-rpath,@loader_path/../lib/npl/native)
         ;;
     *)
-        whole=(-rdynamic -Wl,--whole-archive "$RUNTIME" -Wl,--no-whole-archive
-              -ldl)
-        rpath=(-Wl,-rpath,'$ORIGIN/../lib/npl/native')
+        extra=(-ldl -rdynamic)
+        rpath=(-Wl,-rpath,'$ORIGIN/../lib/npl'
+               -Wl,-rpath,'$ORIGIN/../lib/npl/native')
         ;;
 esac
-# Core native packages are linked as shared objects: define-c-primitive
-# resolves their symbols through dlsym when a library is evaluated.
 "${NPL_CC:-${CC:-cc}}" -o "$OUTPUT" "$work/repl.o" \
+    -L"$RUNTIME_DIR" -lnpl_runtime \
     -L"$NATIVE" -lnpl_time -lnpl_unix "${rpath[@]}" \
-    "${whole[@]}" -lm
+    ${extra[@]+"${extra[@]}"} -lm
 # The pre-rename binary is no longer produced or used.
 rm -f "$ROOT/build/bin/npl-repl"
 printf 'built npli: %s\n' "$OUTPUT"

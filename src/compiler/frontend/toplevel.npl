@@ -75,6 +75,7 @@
   (cell-set! SYNTAX-MARKS (new-mark-table))
   (cell-set! SYNTAX-NEXT-MARK 0)
   (cell-set! EXPAND-NEXT-VALUE 0)
+  (native-package-reset!)
   (let ((environment (predeclare-globals forms ())))
     (car (expand-top-sequence
            forms environment
@@ -174,6 +175,10 @@
              (predeclare-spliced-globals
                (begin-defined-value-list (cdr form) ()) value-env)
              (top-syntax-cells-unbound (cdr form) macro-env) acc)
+        (if (native-package-declaration? form value-env macro-env)
+            (begin
+              (declare-native-package form)
+              (expand-top-sequence (cdr forms) value-env macro-env acc))
         (if (c-primitive-declaration? form value-env macro-env)
             (expand-top-sequence
               (cdr forms) (declare-c-primitive form value-env) macro-env acc)
@@ -226,7 +231,7 @@
                         (predeclare-spliced-globals
                           (direct-defined-identifiers expanded) value-env)
                         macro-env
-                        (cons expanded acc)))))))))))))))
+                        (cons expanded acc))))))))))))))))
 
 ; Top-level names defined by spliced macro output: unbound ones become
 ; globals named like direct definitions (with the library prefix inside a

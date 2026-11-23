@@ -76,8 +76,10 @@ M0a is implemented on `feature/0.1.3-ffi`:
   `package.meta`, `core.meta`, driver auto-linking, and `(npl native)` path
   discovery are in place. `nplc --emit=c-structs` generates
   `c-struct-layouts.meta` at build/install time, so core imports do not run a
-  C compiler. Static/shared artifacts are still being decoupled from package
-  tier; see `.agents/design/link-modes.md`.
+  C compiler. `native.meta` lists each package's archive, shared object, and
+  system libraries. `nplc` defaults to `--native=static`; `--native=shared`
+  links the shared runtime and package shared objects. See
+  `.agents/design/link-modes.md`.
 - H1 runtime/reader hardening is implemented: record index bounds in both
   the inline and primitive paths, catchable rest-arity errors, linear lexer
   string accumulation, short-read detection, a P5 reader corpus, and the
@@ -105,12 +107,12 @@ M0a is implemented on `feature/0.1.3-ffi`:
   views, `c-array`, and `with-resource` release tests. `ffi-memory` has 62
   tests and an nplc/npli fixture.
 - Deferred: full syntax-object mark histories and multi-arrow `λ` currying.
-- Native link modes are recorded in `.agents/design/link-modes.md`:
+- Native link modes are implemented (`.agents/design/link-modes.md`):
   artifact form (static/shared) is orthogonal to tier and consumption mode.
-  L1 builds both artifacts for external packages; L2 adds `nplc` link-mode
-  selection; L3 makes external packages compiler-visible for static linking;
-  L4 adds dynamic-bundle packaging tests. Current core builds already produce
-  both `libnpl_time`/`libnpl_unix` archives and shared objects.
+  Every native package builds both forms; `nplc --native=static|shared`
+  selects the form, `npli` is the dynamic runtime, external packages use the
+  same `native-package` declaration for both, and `(tools link-modes)` checks
+  dependencies, relocatability, and binary size/import footprint.
 - The older sections below are historical. Where they say `syntax-case` is
   deferred, this 0.1.3 macro foundation section supersedes them.
 
@@ -481,10 +483,10 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 332,404 lines; SHA-256
-  `7f34e3bb292c622dab4a2286be3f493f9d8dcdc03a05e24d9f64f1ca6d1cfae1`
-  (strict relay, 2026-11-23, syntax split, cached struct layouts, and paired
-  bracket tokens). The seed calls
+- `bootstrap/current.ssa`: 341,494 lines; SHA-256
+  `2ffda681405b925ea15c4624a96b983435aa0c388a469392c87f790dc7adb824`
+  (strict relay, 2026-11-24, static/shared link modes, shared runtime, and
+  dynamic data slots). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

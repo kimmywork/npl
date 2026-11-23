@@ -683,6 +683,7 @@
   (cell-set! LIBRARY-STANDARD-INDEX ())
   (cell-set! LIBRARY-OUTPUT ())
   (cell-set! LIBRARY-NEXT-ID 0)
+  (native-package-reset!)
   (library-register-inline forms root)
   (cell-set! LIBRARY-PRIMITIVE-MACROS
     (expand-derived-syntax
