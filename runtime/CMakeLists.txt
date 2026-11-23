@@ -9,6 +9,7 @@ add_library(npl_runtime STATIC
   ${RUNTIME_SRC_DIR}/control.c
   ${RUNTIME_SRC_DIR}/error.c
   ${RUNTIME_SRC_DIR}/ffi.c
+  ${RUNTIME_SRC_DIR}/ffi-memory.c
   ${RUNTIME_SRC_DIR}/gc.c
   ${RUNTIME_SRC_DIR}/hashtable.c
   ${RUNTIME_SRC_DIR}/inexact.c

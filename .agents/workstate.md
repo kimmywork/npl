@@ -50,6 +50,10 @@ M0a is implemented on `feature/0.1.3-ffi`:
 - M4 (lambda shorthand and library migration) is complete: `(npl lambda)`
   provides `λ`/`fn`, and `(npl data stream)` / `(srfi 41)` uses the
   reference procedural syntax-case `stream-match` matcher with fenders.
+- F1 C memory core is implemented: `foreign-alloc`/`foreign-free`/
+  `foreign-size`/`foreign-copy`, typed `pointer-ref`/`pointer-set!` and
+  views, `c-array`, and `with-resource` release tests. `ffi-memory` has 42
+  tests and an nplc/npli fixture.
 - Deferred: full syntax-object mark histories and multi-arrow `λ` currying.
 - The older sections below are historical. Where they say `syntax-case` is
   deferred, this 0.1.3 macro foundation section supersedes them.
@@ -62,8 +66,9 @@ POSIX, SRFI 18 threads, SRFI 230 atomics, and finally full SRFI 226.
 The Appendix review of
 [2026-11-12-features-and-roadmap](reviews/2026-11-12-features-and-roadmap.md)
 is the review intake: F3/F4/F5/F6 and the cross-form continuation
-documentation gap are accepted as H1 hardening; F1/F2 and the roadmap's
-version-selector and "fix F1 before threads" entries are not adopted.
+documentation gap are accepted as H1 hardening; appendix F1/F2 and the
+roadmap's version-selector and "fix appendix F1 before threads" entries are
+not adopted.
 `syntax-case`, originally deferred, is implemented in the macro foundation
 above. 0.1.2 merged at `d688cac`.
 
@@ -420,10 +425,9 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 319,626 lines; SHA-256
-  `b295f1c91e064f6fc0a30c2773b70eab4d61fc831180936394cf601783918339`
-  (strict relay, 2026-11-23, syntax-case fenders, M4 lambda/library
-  migration, and differential fixtures). The seed calls
+- `bootstrap/current.ssa`: 319,680 lines; SHA-256
+  `8e0b390dcea200494200ff23b141b9546ebd27f5bd536f8a2e1525d1ac1f73e7`
+  (strict relay, 2026-11-23, F1 C memory core). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

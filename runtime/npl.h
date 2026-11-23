@@ -258,7 +258,12 @@ typedef struct {
  * it; whatever it points to is released by the C library's own calls. */
 typedef struct {
     NplHeader header;
-    void *address;
+    void *address;   /* current address (may be base + offset) */
+    void *base;      /* allocation base, for pointer+offset views */
+    size_t size;     /* remaining bytes, meaningful when sized */
+    size_t offset;   /* address - base */
+    int sized;       /* size/remaining length is known */
+    int owned;       /* base was allocated by foreign-alloc */
 } NplPointer;
 
 /* SRFI 125 hash table (hashtable.c): open addressing with linear probing
@@ -767,6 +772,18 @@ void *npl_ffi_to_pointer(NplVal value, const char *who);
 void npl_ffi_check_string(NplVal value, const char *who);
 char *npl_ffi_copy_string(NplVal value);
 void npl_ffi_free(void *memory);
+
+/* Explicit C memory (ffi-memory.c). */
+NplVal npl_ffi_alloc(NplVal size, NplVal alignment);
+NplVal npl_ffi_foreign_free(NplVal pointer);
+NplVal npl_ffi_foreign_size(NplVal pointer);
+NplVal npl_ffi_foreign_copy(NplVal pointer, NplVal size, NplVal alignment);
+NplVal npl_ffi_pointer_add(NplVal pointer, NplVal offset);
+NplVal npl_ffi_pointer_offset(NplVal pointer);
+NplVal npl_ffi_type_size(NplVal code);
+NplVal npl_ffi_pointer_ref(NplVal pointer, NplVal code, NplVal offset);
+NplVal npl_ffi_pointer_set(NplVal pointer, NplVal code, NplVal offset,
+                           NplVal value);
 NplVal npl_ffi_from_int64(int64_t value);
 NplVal npl_ffi_from_uint64(uint64_t value);
 NplVal npl_ffi_from_double(double value);

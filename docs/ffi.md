@@ -11,9 +11,10 @@ pointers) is declared with `define-c-function` instead; see "Typed C
 Functions".
 
 Supported by `nplc` since 2026-10-22 (P2b); `nplc -l`/`-L` and `npli -l`
-since 2026-10-23; pointers and `define-c-function` since 2026-10-27. Not yet
-supported: callbacks into NPL, structs, arrays. See "Limitations" and the
-plan in [design-primitives](../.agents/archive/design/design-primitives.md).
+since 2026-10-23; pointers and `define-c-function` since 2026-10-27;
+explicit C memory and array views since 2026-11-23. Not yet supported:
+callbacks into NPL and C structs (F2). See "Limitations" and the plan in
+[design-primitives](../.agents/archive/design/design-primitives.md).
 
 ## Declaring A Function
 
@@ -258,6 +259,70 @@ normal return, a raise caught outside it, an escape through a
 continuation, or `exit` (R7RS 6.14; `emergency-exit` runs nothing).
 Re-entering `body` through a continuation does not acquire or release the
 resource again, so a body re-entered after its release must not use it.
+
+### Foreign Memory
+
+`foreign-alloc` owns a zero-filled `malloc` block. The alignment argument is
+a power of two; it defaults to 16 and smaller requests are rounded up to the
+platform pointer alignment. Free the block with `foreign-free` or
+`with-resource`; there is no finalizer.
+
+| Procedure | Result |
+|---|---|
+| `(foreign-alloc size [alignment])` | zero-filled owned pointer |
+| `(foreign-free p)` | release an owned pointer; views are rejected |
+| `(foreign-size p)` | remaining bytes, or 0 when unknown |
+| `(foreign-copy p size [alignment])` | owned copy of `size` bytes |
+| `(pointer+offset p offset)` | view at byte offset; shares, does not own |
+| `(pointer-offset p)` | byte offset from the allocation base |
+| `(pointer-ref p type [offset])` | typed load |
+| `(pointer-set! p type value [offset])` | typed store |
+| `(c-type-size type)` | byte width of a C type |
+
+`type` is `u8 u16 u32 u64 i8 i16 i32 i64 float double pointer`. The typed
+forms `pointer-ref-u8`, `pointer-ref-i64`, `pointer-set-double!`, and so on
+omit the type symbol. Loads and stores check the view's known bounds and
+natural alignment; a freed or foreign pointer has unknown size, so only
+alignment and null checks apply.
+
+```scheme
+(import (scheme base) (npl ffi))
+
+(with-resource (p (foreign-alloc 16) foreign-free)
+  (pointer-set-u32! p #x11223344 0)
+  (pointer-set-double! p 2.5 8)
+  (list (pointer-ref-u32 p 0) (pointer-ref-double p 8)))
+```
+
+Foreign memory holds C scalars and addresses only. Never store an `NplVal`
+there: the collector neither scans nor frees foreign memory, and a pointer
+stored in it does not keep an NPL object alive. Reading a `pointer` slot
+returns an address-only pointer with unknown size.
+
+### C Arrays
+
+A `c-array` is a view `(pointer length type)`; it owns no memory. Accessors
+check the index and use the element width. `make-c-array` allocates a new
+block, while `c-array` wraps an existing pointer.
+
+| Procedure | Result |
+|---|---|
+| `(c-array pointer length type)` | view over existing memory |
+| `(make-c-array length type [alignment])` | allocate and wrap a view |
+| `(c-array? v)` | predicate |
+| `(c-array-pointer a)` | the underlying pointer |
+| `(c-array-length a)` / `(c-array-type a)` | fields |
+| `(c-array-ref a i)` / `(c-array-set! a i v)` | checked element access |
+| `(c-array->vector a)` / `(vector->c-array v type [pointer])` | conversion |
+
+```scheme
+(let ((a (make-c-array 3 'u32)))
+  (vector->c-array '#(10 20 30) 'u32 (c-array-pointer a))
+  (foreign-free (c-array-pointer a)))
+```
+
+`make-c-array` and `vector->c-array` without a pointer return an owned
+view; release it with `(foreign-free (c-array-pointer a))`.
 `src/compiler/tests/c-extension/pointers.npl` covers each case.
 
 ## Diagnostics

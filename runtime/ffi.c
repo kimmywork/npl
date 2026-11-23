@@ -29,6 +29,11 @@ NplVal npl_pointer(void *address)
     pointer->header.tag = BOX_POINTER;
     pointer->header.flags = 0;
     pointer->address = address;
+    pointer->base = address;
+    pointer->size = 0;
+    pointer->offset = 0;
+    pointer->sized = 0;
+    pointer->owned = 0;
     return (NplVal)(uintptr_t)pointer | TAG_PTR;
 }
 
