@@ -47,7 +47,8 @@ behavior).
   `define-c-struct` / `struct:` typed C arguments.
 - `(npl time)` / `(srfi 19)` core: UTC/monotonic time, dates, formatting,
   and duration arithmetic.
-- `(npl lambda)` with `λ` and `fn` shorthand.
+- `(npl lambda)` with `λ` and `fn` shorthand, including multi-arrow
+  currying such as `(fn a => b => (+ a b))`.
 - Forward references to value-defined procedures now compile: a procedure
   may call a global that is defined later with `(define name (lambda ...))`
   or `(define name (case-lambda ...))`, as R7RS library and program bodies

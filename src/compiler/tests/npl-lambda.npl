@@ -18,6 +18,18 @@
   (test-equal "fn arrow form"
               (lambda () ((fn x => (+ x 1)) 41))
               42)
+  (test-equal "fn multi-arrow currying"
+              (lambda () (((fn a => b => (+ a b)) 1) 2))
+              3)
+  (test-equal "λ three-arrow currying"
+              (lambda () ((((λ x => y => z => (+ x y z)) 1) 2) 3))
+              6)
+  (test-equal "parenthesized arrow formals"
+              (lambda () ((fn (a b) => (+ a b)) 20 22))
+              42)
+  (test-equal "parenthesized ordinary formals"
+              (lambda () ((fn (a b) (+ a b)) 20 22))
+              42)
   (test-identity "λ rest formals"
                  (lambda ()
                    (equal? ((λ (first . rest) (list first rest)) 1 2 3)
