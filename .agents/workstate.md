@@ -10,9 +10,12 @@
 - `(npl test expect)` and `tools/run-tests.npl` replace the fixture loop and
   expect shell logic. Fixtures moved to `tests/fixtures`, discovered from
   `tests/fixtures/manifest.scm`; PBT suites live in `tests/property`.
-- Shell scripts remain as explicit legacy adapters for stage0, bootstrap,
-  driver, install, GC, and relay checks. Compiler-suite manifest migration is
-  the next testing increment.
+- The main NPL gate no longer runs stage0, `bootstrap/bootstrap.ssa`,
+  `bootstrap/compiler`, or `bootstrap/runtime`; those live under
+  `bootstrap/stage0/tools/run.sh` and `bootstrap/tools/check_bootstrap.sh`.
+  Shell scripts remain as legacy adapters for driver, install, GC, and relay
+  checks. Compiler-suite manifest
+  migration is the next testing increment.
 - Plan: `.agents/plans/testing-infrastructure.md`; docs:
   `docs/testing.md` and `docs/native-packages.md`.
 

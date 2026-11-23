@@ -47,8 +47,9 @@ lists, and provide unit and property-test APIs that normal packages can use.
 6. **Optional SRFI 78.** Add a `check`/`check-report` compatibility layer if
    external suites need it.
 7. **Unify remaining adapters.** Port stage0/bootstrap/driver/install/GC
-   checks where NPL can express the assertions; keep shell only for
-   bootstrapping and container-specific setup.
+   checks where NPL can express the assertions; stage0 and its checks now
+   live under `bootstrap/stage0/`; keep shell only for bootstrapping and
+   container-specific setup.
 
 ## Verification
 

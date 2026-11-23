@@ -27,7 +27,7 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 NPLC0 = os.path.join(ROOT, "build", "stage0", "nplc0")
 # P5 exercises the current reader (arrays, datum labels), which the frozen
 # stage0 predates.  Fall back to stage0 when the toolchain is absent.

@@ -141,9 +141,10 @@ tools/check_linux.sh                           # the same gate in a Debian conta
 tools/run_chibi_suite.sh --native              # external conformance suite
 ```
 
-The gate builds the toolchain, checks the permanent bootstrap chain, runs the
-compiler suites and contracts, exercises the shared native/`npli`/Guile
-fixtures, and checks the runtime and GC. The orchestrator is
+The gate builds the toolchain, runs the compiler suites and contracts,
+exercises the shared native/`npli`/Guile fixtures, and checks the runtime and
+GC. Frozen stage0 and the permanent bootstrap chain are checked separately
+under `bootstrap/stage0/tools/`. The orchestrator is
 `tools/run-tests.npl`; fixture tests use `(npl test expect)`, unit tests use
 `(npl test)` / `(srfi 64)`, and property tests use `(npl test property)` /
 `(srfi 252)`. See [Verification](docs/testing.md) for stage details and

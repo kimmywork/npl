@@ -4,7 +4,7 @@ The repository stores compiler source and canonical QBE SSA, not a compiler bina
 
 ## Verify The Relay
 
-The permanent chain (stage0 `nplc0`, `bootstrap/compiler/`, `bootstrap/bootstrap.ssa`) is frozen together with its runtime, `bootstrap/runtime/`: a verbatim copy of `runtime/` at commit `43d2a14`, built as `npl_runtime_frozen`. `tools/check_bootstrap.sh`, stage0, and the stage0 checks link only against it, so the current runtime may change object layouts and entry points freely.
+The permanent chain (`bootstrap/stage0/nplc0`, `bootstrap/compiler/`, `bootstrap/bootstrap.ssa`) is frozen together with its runtime, `bootstrap/runtime/`: a verbatim copy of `runtime/` at commit `43d2a14`, built as `npl_runtime_frozen`. `tools/check_bootstrap.sh`, `bootstrap/stage0/`, and `bootstrap/stage0/tools/` link only against it, so the current runtime may change object layouts and entry points freely.
 
 `bootstrap/current.ssa` is the current full-compiler recovery artifact. Verify the historical relay with:
 
@@ -169,4 +169,4 @@ Run the full repository gate with:
 ./tools/run_tests.sh
 ```
 
-The gate builds the toolchain once, then runs permanent bootstrap recovery, the current fixed point, compiler language and contract suites, the driver, install layout, `npli`, shared R7RS fixtures (native/`npli`/Guile), runtime GC and numeric checks, stage0 checks, and property tests. After the relay has passed for the exact same tree, `./tools/run_tests.sh --skip-current-fixed-point` runs the rest. `tools/check_linux.sh` runs the same gate on Linux.
+The gate builds the toolchain once, then runs the current fixed point (NPL), compiler language and contract suites, the driver, install layout, `npli`, shared fixtures (native/`npli`/Guile), runtime GC and numeric checks, unit tests, and property tests. Frozen stage0 and the permanent bootstrap chain are checked separately with `bootstrap/stage0/tools/run.sh` and `bootstrap/tools/check_bootstrap.sh`. After the relay has passed for the exact same tree, `./tools/run_tests.sh --skip-current-fixed-point` runs the rest. `tools/check_linux.sh` runs the same gate on Linux.

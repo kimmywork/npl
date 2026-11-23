@@ -6,7 +6,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 BUILD_DIR="$PROJECT_DIR/build"
 NPLC0="$BUILD_DIR/stage0/nplc0"
 WORK="$(mktemp -d)"
@@ -36,7 +36,7 @@ run_expect_stdout() { # prog expected_file label
 }
 
 # ---------- positive suite ----------
-SRC="$PROJECT_DIR/stage0/tests/test_core.npl"
+SRC="$PROJECT_DIR/bootstrap/stage0/tests/test_core.npl"
 BIN="$WORK/core_bin"
 
 nplc0_ok "$SRC" "$BIN"
@@ -120,7 +120,7 @@ echo "=== All core feature tests passed ==="
 echo ""
 echo "=== String / symbol builtin tests ==="
 
-SRC2="$PROJECT_DIR/stage0/tests/test_strings.npl"
+SRC2="$PROJECT_DIR/bootstrap/stage0/tests/test_strings.npl"
 BIN2="$WORK/str_bin"
 nplc0_ok "$SRC2" "$BIN2"
 

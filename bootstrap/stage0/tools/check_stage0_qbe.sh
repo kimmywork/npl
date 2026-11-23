@@ -6,7 +6,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 BUILD_DIR="$PROJECT_DIR/build"
 NPLC0="$BUILD_DIR/stage0/nplc0"
 
@@ -99,12 +99,12 @@ result=$(/tmp/npl_test_fib; echo $?)
 
 # Test 7: QBE IL emit mode
 echo "Test 7: QBE IL emit mode"
-output=$($NPLC0 --emit-qbe stage0/tests/hello.npl 2>&1)
+output=$($NPLC0 --emit-qbe "$PROJECT_DIR/bootstrap/stage0/tests/hello.npl" 2>&1)
 echo "$output" | grep -q "function l \$square" && pass "QBE IL contains function" || fail "QBE IL missing function"
 
 # Test 8: Phase 1 regression check
 echo "Test 8: Phase 1 regression check (reader tests)"
-output=$($NPLC0 --print-ast stage0/tests/test_special.npl 2>&1)
+output=$($NPLC0 --print-ast "$PROJECT_DIR/bootstrap/stage0/tests/test_special.npl" 2>&1)
 expected='((define x 5) (if (> x 3) "yes" "no") (lambda (a b) (+ a b)) (let ((x 1) (y 2)) (+ x y)) (begin (display "hello") (display "world")) (set! x 10))'
 [ "$output" = "$expected" ] && pass "Phase 1 reader regression" || fail "Phase 1 regression"
 

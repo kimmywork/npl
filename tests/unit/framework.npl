@@ -5,7 +5,7 @@
 (test-equal 4 (+ 2 2))
 (test-error (car '()))
 (test-skip 1)
-(test-assert #f)
+(test-assert "skipped" #f)
 (test-expect-fail 1)
 (test-assert #f)
 (test-group "nested" (test-assert #t))

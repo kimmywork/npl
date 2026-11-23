@@ -21,7 +21,7 @@ add_custom_command(
 
 add_custom_target(smoke DEPENDS ${HELLO_BIN})
 
-# Running the binary is the assertion (tools/check_stage0*.sh use these
+# Running the binary is the assertion (bootstrap/stage0/tools/check_stage0*.sh use these
 # targets); there is no CTest test.
 add_custom_target(smoke_run
   COMMAND ${HELLO_BIN}

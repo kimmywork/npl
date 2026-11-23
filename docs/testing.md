@@ -22,6 +22,19 @@ number of failures. Legacy shell checks are called as adapters; fixture and
 property discovery is already NPL-native. `NPL_TEST_LC_ALL` overrides the
 UTF-8 locale used for Guile comparisons.
 
+The main gate intentionally excludes the frozen bootstrap chain
+(`bootstrap/bootstrap.ssa`, `bootstrap/compiler/`, `bootstrap/runtime/`) and
+stage0. Run those separately:
+
+```bash
+bootstrap/stage0/tools/run.sh
+```
+
+That script owns the stage0 reader/QBE/core/R7RS checks, the permanent
+bootstrap fixed point, and the stage0 property tests. Keeping it outside the
+main gate lets the evolving compiler and libraries move without treating
+frozen recovery artifacts as current behavior.
+
 ## Test layers
 
 | Layer | Location | Purpose | Driver |
@@ -32,7 +45,9 @@ UTF-8 locale used for Guile comparisons.
 | Property tests | `tests/property/` | deterministic generated inputs | `(npl test property)` |
 | Numeric oracle | `tests/numeric/` | exact numeric substrate against Guile | `check_numeric_reference.sh` |
 | Upstream suite | `tests/chibi/` | independent chibi R7RS suite | `run_chibi_suite.sh` |
-| Toolchain checks | `tools/check_*.sh` | stage0, bootstrap, driver, install, GC, relay | legacy adapters |
+| Toolchain checks (NPL) | `(npl test toolchain)` | current fixed point, GC stress | `tools/run-tests.npl` |
+| Toolchain checks (legacy) | `tools/check_*.sh` | driver, install, relay, numeric | shell adapters |
+| Frozen bootstrap | `bootstrap/stage0/tools/`, `bootstrap/tools/` | stage0, permanent bootstrap chain | separate script |
 
 `tests/fixtures/` now contains both R7RS cases and NPL extension cases
 (`native-packages`, `native-zlib`, `unix`, `time`, `match-extensions`,
@@ -149,6 +164,17 @@ The implementation is `lib/npl/test/expect.sld`; the CLI is
 
 Fixtures outside the gate (`core-bindings`, `smoke`, `integer-io`,
 `port-wrappers`) are still runnable directly with the same command.
+
+## Toolchain checks in NPL
+
+`(npl test toolchain)` runs the current fixed-point relay and the GC stress
+program directly through `run-process*`, compares SSA files, and checks the
+GC output. They are normal NPL functions, not shell subprocesses.
+
+`check_driver.sh`, `check_install.sh`, `check_repl.sh`, and
+`check_numeric_reference.sh` are still shell adapters. They exercise `ar`,
+`file`, `sed`, container paths, and REPL transcripts that have not been
+ported yet; each is a candidate for the same `(npl test toolchain)` API.
 
 ## Compiler suites and contracts
 

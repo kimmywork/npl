@@ -11,7 +11,8 @@
         (npl process)
         (npl platform)
         (npl unix)
-        (npl test expect))
+        (npl test expect)
+        (npl test toolchain))
 
 (define ROOT (current-directory))
 ; Guile encodes non-ASCII output according to the locale; keep the gate
@@ -74,11 +75,12 @@
       (begin
         (display "R7RS ")
         (display name)
+        (newline)
         (if (run-fixture-directory (join-path "tests/fixtures" name)
                                    NPLC NPLI)
-            (begin (display " PASS") (newline))
+            (begin (display "  PASS") (newline))
             (begin
-              (display " FAIL")
+              (display "  FAIL")
               (newline)
               (set! FAILED (+ FAILED 1)))))))
 
@@ -167,23 +169,18 @@
     (substring name 0 dot)))
 
 (define (legacy-steps)
-  (run-script "stage0 reader/executable" "tools/check_stage0.sh")
-  (run-script "stage0 QBE" "tools/check_stage0_qbe.sh")
-  (run-script "bootstrap SSA" "tools/check_bootstrap.sh")
   (if SKIP-FIXED-POINT
       (display "current compiler fixed point SKIP\n")
-      (run-script "current compiler fixed point"
-                  "tools/check_current_fixed_point.sh"))
+      (report "current compiler fixed point"
+              (check-current-fixed-point ROOT)))
   (run-script "full compiler language" "tools/check_full_compiler.sh")
   (run-script "unified nplc driver" "tools/check_driver.sh")
   (run-script "install layout" "tools/check_install.sh")
   (run-script "npli REPL and scripts" "tools/check_repl.sh")
   (run-script "core semantic consistency" "tools/check_core_consistency.sh")
   (run-script "relay orchestration" "tools/check_relay_scripts.sh")
-  (run-script "runtime GC" "tools/check_gc.sh")
-  (run-script "R7RS baseline" "tools/check_r7rs.sh")
-  (run-script "exact numeric substrate" "tools/check_numeric_reference.sh")
-  (run-program "property reference (stage0)" (list "python3" "tools/prop_tests.py")))
+  (report "runtime GC" (check-gc ROOT))
+  (run-script "exact numeric substrate" "tools/check_numeric_reference.sh"))
 
 (define (main)
   (let ((arguments (cdr (command-line))))

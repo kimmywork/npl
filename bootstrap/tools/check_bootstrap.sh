@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eu
 
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD="$ROOT/build"
 STAGE0="$BUILD/stage0/nplc0"
 QBE="$BUILD/qbe/qbe"
