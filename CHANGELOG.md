@@ -57,6 +57,8 @@ behavior).
 - SRFI 170 POSIX as the core `(npl unix)` / `(srfi 170)` package: file
   metadata and directories, links, process state, users/groups, environment,
   time, terminals, and file-descriptor ports.
+- `(npl demo zlib)` external package: caller-owned buffers around
+  `compress`/`uncompress`, built only when zlib is available.
 - Forward references to value-defined procedures now compile: a procedure
   may call a global that is defined later with `(define name (lambda ...))`
   or `(define name (case-lambda ...))`, as R7RS library and program bodies

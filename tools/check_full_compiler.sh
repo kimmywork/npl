@@ -14,6 +14,8 @@ trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
 ninja -C "$BUILD" qbe_build npl_runtime npl_time npl_unix npl_demo_crc32 >/dev/null
+# zlib is optional; the target exists only when CMake found the library.
+ninja -C "$BUILD" npl_demo_zlib >/dev/null 2>&1 || true
 
 build_ssa() {
     "$QBE" -o "$2.s" "$1"
@@ -123,6 +125,10 @@ run_suite srfi-19 "PASS srfi-19 30"
 run_suite srfi-170 "PASS srfi-170 30"
 run_suite platform "PASS platform 5"
 run_suite native-crc32 "PASS native-crc32 4"
+if [ -f "$NATIVE/libnpl_demo_zlib.so" ] || \
+   [ -f "$NATIVE/libnpl_demo_zlib.dylib" ]; then
+    run_suite native-zlib "PASS native-zlib 5"
+fi
 run_suite npl-lambda "PASS npl-lambda 9"
 run_suite derived-forms "PASS derived-forms 17"
 run_suite explicit-control "PASS explicit-control 2"

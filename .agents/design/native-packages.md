@@ -37,6 +37,7 @@ Implemented packages:
 - `(npl time)` -> `libnpl_time`, core A.
 - `(npl unix)` / `(srfi 170)` -> `libnpl_unix`, core A.
 - `(npl demo crc32)` -> `libnpl_demo_crc32`, external B.
+- `(npl demo zlib)` -> `libnpl_demo_zlib`, external B over system zlib.
 
 `(npl platform)` is a thin NPL wrapper over the runtime feature hook, not a
 native package. The driver reads `lib/npl/native/core.meta` and links every
@@ -143,11 +144,13 @@ Why this package:
 - no system library, so it runs on every gate host;
 - clearly external (`npl demo`), so it cannot be confused with core.
 
-Second sample: `(npl demo zlib)` wrapping `zlibVersion` and
-`compress`/`uncompress` with `-lz`. It exercises a system dependency,
-caller-provided output buffers, and status/error handling. Build it only when
-zlib development files are present. Do not start with sqlite/curl: their API
-surface and lifecycle would obscure the package mechanics.
+Second sample: `(npl demo zlib)` wraps `zlibVersion`, `compressBound`,
+`compress`, and `uncompress` with `-lz`. It exercises a system dependency,
+caller-provided output buffers, and status/error handling. CMake builds it
+only when zlib development files are present. Implemented 2026-11-23:
+`lib/npl/demo/zlib.sld`, `lib/npl/demo/zlib/native/zlib.c`, and
+`native-zlib` tests. Do not start with sqlite/curl: their API surface and
+lifecycle would obscure the package mechanics.
 
 ## Core Boundary
 

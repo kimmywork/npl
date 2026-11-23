@@ -61,6 +61,13 @@ for fixture in integer-arithmetic rational-arithmetic radix-exact \
     run "R7RS $fixture" \
         "$ROOT/tools/run_r7rs_fixture.sh" "$ROOT/tests/r7rs/fixtures/$fixture"
 done
+# zlib is optional; build it here when CMake found it, then run its fixture.
+ninja -C "$ROOT/build" npl_demo_zlib >/dev/null 2>&1 || true
+if [ -f "$ROOT/build/lib/npl/native/libnpl_demo_zlib.so" ] || \
+   [ -f "$ROOT/build/lib/npl/native/libnpl_demo_zlib.dylib" ]; then
+    run "R7RS native-zlib" \
+        "$ROOT/tools/run_r7rs_fixture.sh" "$ROOT/tests/r7rs/fixtures/native-zlib"
+fi
 run "stage0 dynamic core" "$ROOT/tools/check_core.sh"
 run "R7RS baseline" "$ROOT/tools/check_r7rs.sh"
 run "properties" python3 "$ROOT/tools/prop_tests.py"

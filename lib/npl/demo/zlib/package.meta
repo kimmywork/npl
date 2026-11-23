@@ -1,0 +1,21 @@
+(package
+  (name npl-demo-zlib)
+  (library (npl demo zlib))
+  (tier external)
+  (version "0.1.0")
+  (abi-version 1)
+  (abi nplval)
+  (native
+    (sources ("native/zlib.c"))
+    (headers "native")
+    (include-dirs)
+    (system-libraries ((darwin "z") (linux "z")))
+    (shared-name "npl_demo_zlib")
+    (static-name "npl_demo_zlib")
+    (bindings
+      (zlib-version "npl_demo_zlib_version" 1)
+      (zlib-compress-bound "npl_demo_zlib_bound" 1)
+      (zlib-compress "npl_demo_zlib_compress" 2)
+      (zlib-uncompress "npl_demo_zlib_uncompress" 2)))
+  (platforms (or darwin linux))
+  (dependencies ()))

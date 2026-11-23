@@ -1,0 +1,2 @@
+(import (scheme base) (scheme write) (npl demo zlib))
+(include "behavior.scm")

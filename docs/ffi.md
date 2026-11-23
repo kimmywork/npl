@@ -432,7 +432,7 @@ There are two deployment modes over one `NplVal` ABI:
   library calls `ffi-load-library` and `ffi-procedure` (or the helpers in
   `(npl native)`) to bind exported functions at load time. No compiler,
   seed, or primitive-table change is needed. `(npl demo crc32)` is the
-  sample.
+  sample. `(npl demo zlib)` is the second sample and links the system zlib.
 
 ```scheme
 (import (npl native))

@@ -57,6 +57,22 @@ set_target_properties(npl_demo_crc32 PROPERTIES
   OUTPUT_NAME npl_demo_crc32
   LIBRARY_OUTPUT_DIRECTORY ${NPL_NATIVE_DIR})
 
+# External zlib sample.  zlib is optional: when the development files are
+# not present, only this package is skipped.
+find_package(ZLIB QUIET)
+if(ZLIB_FOUND)
+  add_library(npl_demo_zlib MODULE
+    ${CMAKE_CURRENT_SOURCE_DIR}/npl/demo/zlib/native/zlib.c
+  )
+  target_include_directories(npl_demo_zlib PRIVATE ${CMAKE_SOURCE_DIR}/runtime)
+  target_link_libraries(npl_demo_zlib PRIVATE ZLIB::ZLIB)
+  set_target_properties(npl_demo_zlib PROPERTIES
+    PREFIX "lib"
+    OUTPUT_NAME npl_demo_zlib
+    LIBRARY_OUTPUT_DIRECTORY ${NPL_NATIVE_DIR})
+  install(TARGETS npl_demo_zlib LIBRARY DESTINATION lib/npl/native)
+endif()
+
 # nplc reads this beside libnpl_runtime.a and links every listed archive.
 file(WRITE ${NPL_NATIVE_DIR}/core.meta
   "(core-native \"npl_time\")\n(core-native \"npl_unix\")\n")
