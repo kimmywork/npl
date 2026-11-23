@@ -1,9 +1,10 @@
 ; SRFI 19 time, built on F2 C structs (struct timespec / struct tm).
 ;
-; The probe in define-c-struct runs when this library is expanded and uses
-; the host C compiler once; the resulting layout descriptor is a quoted value.
-; The package's native entry points live in lib/npl/time/native/time.c and
-; are declared below; both nplc and npli use the same path.
+; define-c-struct reads the build-time layout cache
+; (lib/npl/native/c-struct-layouts.meta), so expanding this library does not
+; run a C compiler.  The package's native entry points live in
+; lib/npl/time/native/time.c and are declared below; both nplc and npli use
+; the same path.
 (define-library (npl time)
   (export time-utc time-monotonic time-duration time-tai time-thread
           make-time time? time-type time-second time-nanosecond

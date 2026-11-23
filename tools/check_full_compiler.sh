@@ -13,7 +13,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime npl_time npl_unix npl_demo_crc32 >/dev/null
+ninja -C "$BUILD" qbe_build npl_runtime npl_time npl_unix npl_demo_crc32 npl_c_struct_layouts >/dev/null
 # zlib is optional; the target exists only when CMake found the library.
 ninja -C "$BUILD" npl_demo_zlib >/dev/null 2>&1 || true
 
@@ -108,7 +108,7 @@ reject_literal_mutation() {
 }
 
 run_suite dynamic-core "PASS dynamic-core 4"
-run_suite reader-datum "PASS reader-datum 24"
+run_suite reader-datum "PASS reader-datum 26"
 run_suite macros-basic "PASS macros-basic 10"
 run_suite macro-ellipsis "PASS macro-ellipsis 11"
 run_suite macro-scopes "PASS macro-scopes 10"
@@ -118,11 +118,18 @@ run_suite srfi-46 "PASS srfi-46 5"
 run_suite srfi-149 "PASS srfi-149 5"
 run_suite syntax-case "PASS syntax-case 4"
 run_suite syntax-case-procedural "PASS syntax-case-procedural 20"
-run_suite ffi-memory "PASS ffi-memory 42"
+run_suite ffi-memory "PASS ffi-memory 62"
 run_suite runtime-hardening "PASS runtime-hardening 7"
-run_suite c-structs "PASS c-structs 7"
-run_suite srfi-19 "PASS srfi-19 31"
-run_suite srfi-170 "PASS srfi-170 83"
+run_suite c-structs "PASS c-structs 8"
+# R6: importing core native packages reads the build-time layout cache and
+# never runs a C compiler.
+printf '(import (scheme base) (npl time) (npl unix))\n(define now (current-time))\n' \
+    > "$WORK/cache-import.npl"
+NPL_C_STRUCT_LAYOUTS="$NATIVE/c-struct-layouts.meta" NPL_CC=/usr/bin/false \
+    "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
+    "$WORK/cache-import.npl" > "$WORK/cache-import.ssa"
+run_suite srfi-19 "PASS srfi-19 36"
+run_suite srfi-170 "PASS srfi-170 95"
 run_suite platform "PASS platform 5"
 run_suite native-crc32 "PASS native-crc32 4"
 if [ -f "$NATIVE/libnpl_demo_zlib.so" ] || \
@@ -548,6 +555,10 @@ reject_reader bad-empty-hex-escape \
 reject_reader bad-quasiquote-cycle "circular datum label in quasiquote"
 reject_reader bad-delimiter \
     "unmatched ( at line 1 col 1; expected ) before end of input"
+reject_reader bad-bracket-close "mismatched ]"
+reject_reader bad-bracket-open "mismatched )"
+reject_reader bad-bracket-extra "unmatched ]"
+reject_reader bad-bracket-dotted "mismatched )"
 
 reject_compile macro-errors/duplicate-pattern-variable.npl \
     duplicate-pattern-variable "duplicate pattern variable"

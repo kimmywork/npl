@@ -16,6 +16,7 @@ Output kinds (default exe):
   --emit=exe        executable
   --emit-qbe        same as --emit=ssa
   --emit=c-stubs    C stubs for define-c-function (standard output unless -o)
+  --emit=c-structs  define-c-struct layout cache (standard output unless -o)
   --emit=staticlib, --emit=dylib are reserved and not yet supported
 
 Options:
@@ -65,7 +66,7 @@ Options:
       #f
       (string=? prefix (substring text 0 (string-length prefix)))))
 
-(define DRIVER-KINDS '("exe" "obj" "asm" "ssa" "c-stubs"))
+(define DRIVER-KINDS '("exe" "obj" "asm" "ssa" "c-stubs" "c-structs"))
 (define DRIVER-RESERVED-KINDS '("staticlib" "dylib"))
 
 ; Single predicate tests: control conversion copies an if's continuation
@@ -426,6 +427,18 @@ Options:
       (write-c-stubs (current-output-port)))
   0)
 
+; Build and package cache: expand the program and its libraries, which probes
+; every define-c-struct, then write the layouts for later imports to read.
+(define (driver-c-structs config)
+  (library-set-standard-root! (driver-stdlib config))
+  (expand-for-c-stubs (driver-get config DRIVER-SOURCE))
+  (if (driver-get config DRIVER-OUTPUT)
+      (let ((port (open-output-file (driver-get config DRIVER-OUTPUT))))
+        (write-c-struct-layouts port)
+        (close-port port))
+      (write-c-struct-layouts (current-output-port)))
+  0)
+
 (define (driver-ssa-to-stdout? config)
   (if (string=? (driver-get config DRIVER-KIND) "ssa")
       (not (driver-get config DRIVER-OUTPUT))
@@ -449,6 +462,8 @@ Options:
      2)
     ((string=? (driver-get config DRIVER-KIND) "c-stubs")
      (driver-c-stubs config))
+    ((string=? (driver-get config DRIVER-KIND) "c-structs")
+     (driver-c-structs config))
     ((driver-ssa-to-stdout? config) (driver-emit-ssa-in-process config))
     (else (driver-build config))))
 

@@ -237,4 +237,14 @@ grep -Fx 'PASS runtime-errors 14' "$WORK/runtime-errors-suite.out" >/dev/null
     -e '(write (+ 40 2))' > "$WORK/expr.out"
 printf '42' | cmp - "$WORK/expr.out"
 
+# R6: core native packages import from the build-time layout cache.  A false
+# C compiler proves no define-c-struct probe runs.
+cat > "$WORK/no-cc.scm" <<'SCHEME'
+(import (scheme base) (scheme write) (npl time) (npl unix))
+(write (list (time? (current-time)) (time-monotonic? (monotonic-time))))
+SCHEME
+NPL_CC=/usr/bin/false "$ROOT/build/bin/npli" "$WORK/no-cc.scm" \
+    > "$WORK/no-cc.out"
+printf '(#t #t)' | cmp - "$WORK/no-cc.out"
+
 echo "npli REPL and script mode: PASS"

@@ -5,6 +5,8 @@
   "reader/datum.npl"
   "frontend/derived.npl"
   "frontend/derived-match.npl"
+  "frontend/syntax-bindings.npl"
+  "frontend/syntax-validation.npl"
   "frontend/syntax.npl"
   "frontend/syntax-eval.npl"
   "frontend/syntax-eval-syntax.npl"

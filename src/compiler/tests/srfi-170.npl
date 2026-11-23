@@ -16,6 +16,11 @@
   (call-with-output-file path
     (lambda (port) (display text port))))
 
+(define (raises? thunk)
+  (guard (condition (#t #t))
+    (thunk)
+    #f))
+
 (define (main)
   (let* ((root (make-temporary-directory))
          (file (string-append root "/file.txt"))
@@ -236,6 +241,64 @@
                        #t)
         (test-identity "nice"
                        (lambda () (integer? (nice 0)))
+                       #t)
+        ; Numeric arguments are validated before any C call (R3).
+        (test-identity "set-file-mode rejects a symbol"
+                       (lambda ()
+                         (raises? (lambda () (set-file-mode renamed 'abc))))
+                       #t)
+        (test-identity "set-file-mode rejects an out-of-range mode"
+                       (lambda ()
+                         (raises? (lambda () (set-file-mode renamed #o10000))))
+                       #t)
+        (test-identity "create-directory rejects a string mode"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (create-directory
+                                      (string-append root "/bad-dir") "rwx"))))
+                       #t)
+        (test-identity "rejected create-directory has no side effect"
+                       (lambda () (file-exists? (string-append root "/bad-dir")))
+                       #f)
+        (test-identity "create-fifo rejects a negative mode"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (create-fifo
+                                      (string-append root "/bad-fifo") -1))))
+                       #t)
+        (test-identity "truncate-file rejects a symbol"
+                       (lambda ()
+                         (raises? (lambda () (truncate-file renamed 'x))))
+                       #t)
+        (test-identity "truncate-file rejects a negative length"
+                       (lambda ()
+                         (raises? (lambda () (truncate-file renamed -1))))
+                       #t)
+        (test-identity "set-file-owner rejects a symbol"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (set-file-owner renamed 'x 'y))))
+                       #t)
+        (test-identity "set-file-times rejects a bad time"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (set-file-times renamed 'x time/now))))
+                       #t)
+        (test-identity "set-file-times rejects a bad nanosecond"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (set-file-times
+                                      renamed
+                                      (make-time 'time-utc 1000000000 0)
+                                      time/now))))
+                       #t)
+        (test-identity "set-umask! rejects a symbol"
+                       (lambda ()
+                         (raises? (lambda () (set-umask! 'x))))
+                       #t)
+        (test-identity "nice rejects a symbol"
+                       (lambda ()
+                         (raises? (lambda () (nice 'x))))
                        #t)
         (test-identity "user-effective-uid"
                        (lambda () (integer? (user-effective-uid)))

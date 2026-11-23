@@ -168,6 +168,8 @@ NplVal npl_ffi_foreign_copy(NplVal value, NplVal size_value,
     NplPointer *source = ffi_pointer_object(value, "foreign-copy");
     size_t size = ffi_size_value(size_value, "foreign-copy");
     size_t alignment = ffi_alignment_value(alignment_value, "foreign-copy");
+    if (source->sized && !ffi_base_live(source->base))
+        npl_primitive_error("foreign-copy", "allocation was freed", value);
     if (source->sized && size > source->size)
         npl_primitive_error("foreign-copy",
             "copy size exceeds the source allocation", size_value);
@@ -187,6 +189,8 @@ NplVal npl_ffi_pointer_add(NplVal value, NplVal offset_value)
 {
     NplPointer *pointer = ffi_pointer_object(value, "pointer+offset");
     size_t offset = ffi_size_value(offset_value, "pointer+offset");
+    if (pointer->sized && !ffi_base_live(pointer->base))
+        npl_primitive_error("pointer+offset", "allocation was freed", value);
     if (pointer->address == NULL && offset != 0)
         npl_primitive_error("pointer+offset",
             "cannot offset a null pointer", value);

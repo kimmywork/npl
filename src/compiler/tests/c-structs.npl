@@ -37,6 +37,11 @@
     (test-identity "unknown c-struct field raises"
                    (lambda ()
                      (raises? (lambda () (c-struct-ref value 'missing))))
+                   #t)
+    (free-c-struct value)
+    (test-identity "freed c-struct access raises"
+                   (lambda ()
+                     (raises? (lambda () (c-struct-ref value 'tv_sec))))
                    #t))
   (finish-tests "c-structs"))
 

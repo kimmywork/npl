@@ -20,6 +20,8 @@
   (include "../../../src/compiler/reader/datum.npl")
   (include "../../../src/compiler/frontend/derived.npl")
   (include "../../../src/compiler/frontend/derived-match.npl")
+  (include "../../../src/compiler/frontend/syntax-bindings.npl")
+  (include "../../../src/compiler/frontend/syntax-validation.npl")
   (include "../../../src/compiler/frontend/syntax.npl")
   (include "../../../src/compiler/frontend/syntax-eval.npl")
   (include "../../../src/compiler/frontend/syntax-eval-syntax.npl")

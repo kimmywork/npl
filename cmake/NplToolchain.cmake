@@ -28,6 +28,23 @@ add_custom_command(
   VERBATIM)
 add_custom_target(nplc ALL DEPENDS ${NPLC_BIN})
 
+# Build-time define-c-struct layouts.  The generator imports the core native
+# packages once; later imports read this file instead of invoking the host C
+# compiler.  Install it beside core.meta so an installed npli needs no cc.
+set(NPL_STRUCT_CACHE ${CMAKE_BINARY_DIR}/lib/npl/native/c-struct-layouts.meta)
+add_custom_command(
+  OUTPUT ${NPL_STRUCT_CACHE}
+  DEPENDS ${NPLC_BIN}
+          ${CMAKE_SOURCE_DIR}/tools/c-struct-cache.npl
+          ${CMAKE_SOURCE_DIR}/lib/npl/time.sld
+          ${CMAKE_SOURCE_DIR}/lib/npl/unix.sld
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/lib/npl/native
+  COMMAND ${NPLC_BIN} --emit=c-structs -o ${NPL_STRUCT_CACHE}
+          ${CMAKE_SOURCE_DIR}/tools/c-struct-cache.npl
+  COMMENT "nplc: define-c-struct layout cache"
+  VERBATIM)
+add_custom_target(npl_c_struct_layouts ALL DEPENDS ${NPL_STRUCT_CACHE})
+
 # The build tree mirrors the install layout with links, so build/bin/nplc and
 # build/bin/npli resolve tools and libraries exactly as an installation does.
 set(NPL_TREE_LINKS
@@ -72,11 +89,12 @@ add_custom_command(
   COMMENT "npli: nplc src/repl/main.npl"
   VERBATIM)
 add_custom_target(npli ALL DEPENDS ${NPLI_BIN})
-add_dependencies(npli npl_time_shared npl_unix_shared)
+add_dependencies(npli npl_time_shared npl_unix_shared npl_c_struct_layouts)
 
 install(PROGRAMS ${NPLC_BIN} ${NPLI_BIN} DESTINATION bin)
 install(PROGRAMS ${QBE_BIN} DESTINATION libexec/npl)
 install(FILES ${NPL_RUNTIME_ARCHIVE} DESTINATION lib/npl)
+install(FILES ${NPL_STRUCT_CACHE} DESTINATION lib/npl/native)
 # The runtime ABI for C functions called from NPL (docs/ffi.md).
 install(FILES ${CMAKE_SOURCE_DIR}/runtime/npl.h DESTINATION include/npl)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/lib/ DESTINATION share/npl/lib)

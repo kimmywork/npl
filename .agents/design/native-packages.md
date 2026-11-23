@@ -2,9 +2,9 @@
 
 Public documentation: `docs/native-packages.md` (pure NPL packages, core A, external B, `package.meta`, and testing).
 
-Status: accepted direction, 2026-11-23. Core packages use linked (A) mode;
-external packages use loaded (B) mode. Both share one NplVal ABI and one
-binding manifest. Not yet implemented.
+Status: implemented, 2026-11-23. Core packages use linked (A) mode; external
+packages use loaded (B) mode. Both share one NplVal ABI and one binding
+manifest. `define-c-struct` layouts are generated once at build/install time.
 
 ## Problem
 
@@ -49,6 +49,13 @@ listed core archive, so a new core package does not need a driver change.
 
 A and B are two deployment modes of the same native package, not two C APIs.
 Both use the same exported `NplVal` entry points and the same binding list.
+
+Artifact form (static archive vs shared object) is orthogonal to tier and to
+consumption mode (linked vs loaded). The target is to build and install both
+forms for every native package, so `nplc` can produce one static executable
+or an executable plus shared objects, while `npli` stays dynamic and never
+runs a C compiler at import time. The concrete gap list and increments are
+in [link-modes](link-modes.md).
 
 | Tier | Mode | Who builds/loads it | Why |
 |---|---|---|---|
@@ -105,8 +112,8 @@ arity, and result kind once. Core and external builds read the same record.
 2. Mark the package `tier=core`; build `libnpl_time.a` and the shared object.
 3. The toolchain links the core archive into `nplc`/`npli`; the `.sld` uses
    the shared binding metadata, and the six primitive-table rows disappear.
-4. Keep `define-c-struct` for `timespec`/`tm`; the probe already compiles a
-   tiny C program and needs no runtime change.
+4. Keep `define-c-struct` for `timespec`/`tm`; generate its layout cache at
+   build time with `nplc --emit=c-structs` so imports do not need a C compiler.
 5. Verify the `time` fixture on nplc/npli without user `-l` flags, then test
    the same library in loaded mode with `NPL_NATIVE_MODE=loaded`.
 

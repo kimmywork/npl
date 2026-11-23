@@ -302,10 +302,14 @@ returns an address-only pointer with unknown size.
 
 ### C Structs
 
-`define-c-struct` is a top-level declaration. It compiles and runs a tiny
-probe with `sizeof`/`offsetof` (using `NPL_CC`, else `CC`, else `cc`) and
-binds the name to a quoted layout descriptor. Only pointers to structs cross
-the FFI boundary; by-value structs are out of scope.
+`define-c-struct` is a top-level declaration. It reads the layout from
+`c-struct-layouts.meta` when present (generated at build time by
+`nplc --emit=c-structs`, or installed with a native package) and otherwise
+compiles and runs a tiny `sizeof`/`offsetof` probe (using `NPL_CC`, else
+`CC`, else `cc`). The declaration binds the name to a quoted layout
+descriptor. Only pointers to structs cross the FFI boundary; by-value
+structs are out of scope. `NPL_C_STRUCT_LAYOUTS` names an explicit cache
+file for a package that ships its own layouts.
 
 ```scheme
 (define-c-struct timespec
@@ -337,9 +341,10 @@ every temporary `timespec`/`tm` view.
 
 Field types are `u8 u16 u32 u64 i8 i16 i32 i64 int long int64 size_t bool
 float double pointer`. A `define-c-function` argument of type
-`struct:name` takes a matching view and passes its pointer; the generated
-stub includes the common POSIX headers. The probe and stubs use
-`_GNU_SOURCE`/`_DARWIN_C_SOURCE`.
+`struct:name` takes a matching view and passes its pointer. Generated stubs
+put `_GNU_SOURCE`/`_DARWIN_C_SOURCE` first, include only `npl.h` and
+standard headers, and forward-declare the `struct` tags they use, so a
+libc declaration with different NPL types still compiles.
 
 ### C Arrays
 
@@ -459,7 +464,10 @@ runtime helpers because they are part of the same build.
 `package.meta` (provisional) records the tier, ABI version, sources,
 system libraries, shared/static names, and bindings. The current CMake flow
 builds the checked-in packages and writes `lib/npl/native/core.meta`, the
-small manifest `nplc` reads at link time.
+small manifest `nplc` reads at link time. It also runs
+`nplc --emit=c-structs` once and installs
+`lib/npl/native/c-struct-layouts.meta`, so importing the core packages does
+not invoke a C compiler.
 
 ## Platform Features
 

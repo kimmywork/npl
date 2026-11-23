@@ -62,6 +62,18 @@ There are two deployment modes over one `NplVal` ABI:
   `ffi-load-library` / `ffi-procedure`. It does not require a compiler or
   seed change. Examples: `(npl demo crc32)`, `(npl demo zlib)`.
 
+Artifact form and tier are separate axes. A native package can install both
+an archive and a shared object; `nplc` defaults to static linking, while
+`npli` uses shared objects and loads external packages dynamically. The
+target is to support both deliverables for core and third-party packages:
+
+- one self-contained executable linked from archives;
+- an executable plus a directory of shared objects.
+
+`npli` never invokes a C compiler at run time: layouts come from
+`c-struct-layouts.meta`, and `define-c-function` uses a prebuilt stub
+shared object. See [native link modes](../.agents/design/link-modes.md).
+
 ### `package.meta`
 
 The provisional manifest is a Scheme datum:
@@ -95,8 +107,11 @@ The provisional manifest is a Scheme datum:
 - Unknown keys are ignored; `abi-version` versions the format.
 
 CMake currently builds the checked-in native packages from
-`lib/CMakeLists.txt` and writes `core.meta` from the same list. The zlib
-sample is built only when `find_package(ZLIB)` succeeds.
+`lib/CMakeLists.txt` and writes `core.meta` from the same list. It also
+generates and installs `c-struct-layouts.meta` with
+`nplc --emit=c-structs`, so `define-c-struct` imports do not run a C
+compiler; `NPL_C_STRUCT_LAYOUTS` overrides the cache file for a package.
+The zlib sample is built only when `find_package(ZLIB)` succeeds.
 
 ### ABI and safety
 

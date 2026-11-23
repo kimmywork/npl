@@ -74,14 +74,18 @@ M0a is implemented on `feature/0.1.3-ffi`:
   the bootstrap feature hook; `(npl time)` is the first core linked package
   (`libnpl_time`); `(npl demo crc32)` is the first external loaded package.
   `package.meta`, `core.meta`, driver auto-linking, and `(npl native)` path
-  discovery are in place.
+  discovery are in place. `nplc --emit=c-structs` generates
+  `c-struct-layouts.meta` at build/install time, so core imports do not run a
+  C compiler. Static/shared artifacts are still being decoupled from package
+  tier; see `.agents/design/link-modes.md`.
 - H1 runtime/reader hardening is implemented: record index bounds in both
   the inline and primitive paths, catchable rest-arity errors, linear lexer
   string accumulation, short-read detection, a P5 reader corpus, and the
   documented cross-form continuation deviation.
-- F2 C structs are implemented: `define-c-struct` uses a compile-time
-  `sizeof`/`offsetof` probe, `make-c-struct`/`c-struct-ref`/`c-struct-set!`
-  and `struct:name` typed stubs work. `timespec` and `tm` are the first
+- F2 C structs are implemented: `define-c-struct` reads the build-time
+  layout cache and falls back to a `sizeof`/`offsetof` probe for uncached
+  types; `make-c-struct`/`free-c-struct`/`c-struct-ref`/`c-struct-set!` and
+  `struct:name` typed stubs work. `timespec` and `tm` are the first
   descriptors; the rest of the POSIX catalog moves with P2.
 - Thread direction is recorded in `.agents/design/threads.md`: a public NPL
   thread object and scheduler interface on a 1:1 pthread substrate first;
@@ -91,16 +95,22 @@ M0a is implemented on `feature/0.1.3-ffi`:
 - P2-P4 SRFI 170 is implemented as the core `(npl unix)` / `(srfi 170)`
   package: `libnpl_unix`, file metadata/directories/links, process state,
   users/groups, environment, time, terminals, and fd ports. Tests:
-  `srfi-170` 30 and the nplc/npli `unix` fixture.
+  `srfi-170` 95 and the nplc/npli `unix` fixture.
 - P1 SRFI 19 is complete: `(npl time)` / `(srfi 19)` provide time/date
   values, nanoseconds resolution, full formatting and parsing, Julian-day
   conversions, and TAI/monotonic aliases. The six time primitive rows are
   gone; the C entry points are in `lib/npl/time/native/time.c`.
 - F1 C memory core is implemented: `foreign-alloc`/`foreign-free`/
   `foreign-size`/`foreign-copy`, typed `pointer-ref`/`pointer-set!` and
-  views, `c-array`, and `with-resource` release tests. `ffi-memory` has 42
+  views, `c-array`, and `with-resource` release tests. `ffi-memory` has 62
   tests and an nplc/npli fixture.
 - Deferred: full syntax-object mark histories and multi-arrow `λ` currying.
+- Native link modes are recorded in `.agents/design/link-modes.md`:
+  artifact form (static/shared) is orthogonal to tier and consumption mode.
+  L1 builds both artifacts for external packages; L2 adds `nplc` link-mode
+  selection; L3 makes external packages compiler-visible for static linking;
+  L4 adds dynamic-bundle packaging tests. Current core builds already produce
+  both `libnpl_time`/`libnpl_unix` archives and shared objects.
 - The older sections below are historical. Where they say `syntax-case` is
   deferred, this 0.1.3 macro foundation section supersedes them.
 
@@ -471,9 +481,10 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 327,719 lines; SHA-256
-  `352a3a9636a2b393a1a38a847721f8b69a142c92a8957e63b65661b6a552639c`
-  (strict relay, 2026-11-23, platform features, c-stub header order, and struct forward declarations). The seed calls
+- `bootstrap/current.ssa`: 332,404 lines; SHA-256
+  `7f34e3bb292c622dab4a2286be3f493f9d8dcdc03a05e24d9f64f1ca6d1cfae1`
+  (strict relay, 2026-11-23, syntax split, cached struct layouts, and paired
+  bracket tokens). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

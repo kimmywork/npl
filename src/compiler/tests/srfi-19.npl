@@ -58,6 +58,50 @@
                                      (time-second (date->time-utc value)))
                                '(1 3600 0))))
                    #t)
+    (test-identity "negative zone offset"
+                   (lambda ()
+                     (let ((value (time-utc->date
+                                    (make-time 'time-utc 0 0) -3600)))
+                       (equal? (list (date-hour value) (date-day value)
+                                     (date-zone-offset value)
+                                     (time-second (date->time-utc value)))
+                               '(23 31 -3600 0))))
+                   #t)
+    (test-identity "half-hour zone offset"
+                   (lambda ()
+                     (let ((value (time-utc->date
+                                    (make-time 'time-utc 0 0) 19800)))
+                       (equal? (list (date-hour value) (date-minute value)
+                                     (date-zone-offset value)
+                                     (time-second (date->time-utc value)))
+                               '(5 30 19800 0))))
+                   #t)
+    (test-identity "zone offset formatting"
+                   (lambda ()
+                     (equal? (list (date->string
+                                     (time-utc->date (make-time 'time-utc 0 0)
+                                                     19800)
+                                     "~z")
+                                   (date->string
+                                     (time-utc->date (make-time 'time-utc 0 0)
+                                                     -18000)
+                                     "~z"))
+                             '("+0530" "-0500")))
+                   #t)
+    (test-equal "nanosecond round trip"
+                (lambda ()
+                  (date-nanosecond
+                    (time-utc->date
+                      (date->time-utc
+                        (make-date 999999999 0 0 0 1 1 1970 0 0 0 #f)))))
+                999999999)
+    (test-equal "leap day round trip"
+                (lambda ()
+                  (date-day
+                    (time-utc->date
+                      (date->time-utc
+                        (make-date 0 0 0 0 29 2 2000 0 0 0 #f)))))
+                29)
     (test-identity "12-hour clock and padding"
                    (lambda ()
                      (equal? (date->string epoch "~I ~p ~k ~l ~e")

@@ -164,6 +164,40 @@
             (error (string-append name ": expected a non-negative integer")
                    value))))
 
+    ; Permission masks fit mode_t's low 12 bits.
+    (define (require-mode name value)
+      (let ((value (require-nonnegative name value)))
+        (if (<= value #o7777)
+            value
+            (error (string-append name ": permission bits out of range")
+                   value))))
+
+    ; uid_t and gid_t are unsigned 32-bit values on the supported hosts.
+    (define (require-id name value)
+      (let ((value (require-nonnegative name value)))
+        (if (<= value 4294967295)
+            value
+            (error (string-append name ": id out of range") value))))
+
+    ; off_t and time_t are signed 64-bit values here.
+    (define (require-offset name value)
+      (let ((value (require-integer name value)))
+        (if (if (>= value 0) (<= value 9223372036854775807) #f)
+            value
+            (error (string-append name ": length out of range") value))))
+
+    (define (require-int name value)
+      (let ((value (require-integer name value)))
+        (if (if (>= value -2147483648) (<= value 2147483647) #f)
+            value
+            (error (string-append name ": integer out of range") value))))
+
+    (define (require-nanosecond name value)
+      (let ((value (require-integer name value)))
+        (if (if (>= value 0) (<= value 999999999) #f)
+            value
+            (error (string-append name ": nanosecond out of range") value))))
+
     (define (posix-error? object)
       (npl_unix_posix_error_p object))
 
@@ -178,8 +212,7 @@
             (buffer (if (if (null? rest) #t (null? (cdr rest)))
                         buffer-block
                         (car (cdr rest)))))
-        (if (not (exact-integer? mode))
-            (error "open-file: permission bits must be an integer" mode))
+        (require-mode "open-file" mode)
         (if (not (memq buffer (list buffer-none buffer-block buffer-line)))
             (error "open-file: invalid buffer mode" buffer))
         (require-integer "open-file" flags)
@@ -277,13 +310,13 @@
 
     (define (create-directory fname . rest)
       (npl_unix_create_directory
-        fname (require-integer "create-directory"
-                               (if (null? rest) #o775 (car rest)))))
+        fname (require-mode "create-directory"
+                            (if (null? rest) #o775 (car rest)))))
 
     (define (create-fifo fname . rest)
       (npl_unix_create_fifo
-        fname (require-integer "create-fifo"
-                               (if (null? rest) #o664 (car rest)))))
+        fname (require-mode "create-fifo"
+                            (if (null? rest) #o664 (car rest)))))
 
     (define (create-hard-link old-fname new-fname)
       (npl_unix_create_hard_link old-fname new-fname))
@@ -299,16 +332,18 @@
       (npl_unix_set_file_owner
         fname
         (if (eq? uid owner/unchanged) -1
-            (require-integer "set-file-owner" uid))
+            (require-id "set-file-owner" uid))
         (if (eq? gid group/unchanged) -1
-            (require-integer "set-file-owner" gid))))
+            (require-id "set-file-owner" gid))))
 
     (define (time-parts value)
       (cond
         ((eq? value time/now) (cons -2 0))
         ((eq? value time/unchanged) (cons -1 0))
         ((time-utc? value)
-         (cons (time-second value) (time-nanosecond value)))
+         (cons (require-integer "set-file-times" (time-second value))
+               (require-nanosecond "set-file-times"
+                                   (time-nanosecond value))))
         (else (error "set-file-times: expected a time-utc" value))))
 
     (define (set-file-times fname . rest)
@@ -324,13 +359,13 @@
                                     (car modify) (cdr modify))))))
 
     (define (truncate-file fname/port length)
-      (let ((length (require-nonnegative "truncate-file" length)))
+      (let ((length (require-offset "truncate-file" length)))
         (if (string? fname/port)
             (npl_unix_truncate_file fname/port length)
             (npl_unix_truncate_port fname/port length))))
 
     (define (set-file-mode fname mode)
-      (npl_unix_set_file_mode fname (require-integer "set-file-mode" mode)))
+      (npl_unix_set_file_mode fname (require-mode "set-file-mode" mode)))
     (define (real-path path) (npl_unix_real_path path))
     (define (file-space path-or-port)
       (if (string? path-or-port)
@@ -341,13 +376,13 @@
 
     (define (umask) (npl_unix_umask))
     (define (set-umask! mask)
-      (npl_unix_set_umask (require-integer "set-umask!" mask)))
+      (npl_unix_set_umask (require-mode "set-umask!" mask)))
     (define (current-directory) (npl_unix_current_directory))
     (define (set-current-directory! directory)
       (npl_unix_set_current_directory directory))
     (define (pid) (npl_unix_pid))
     (define (nice . rest)
-      (npl_unix_nice (require-integer "nice" (if (null? rest) 1 (car rest)))))
+      (npl_unix_nice (require-int "nice" (if (null? rest) 1 (car rest)))))
     (define (user-uid) (npl_unix_getuid))
     (define (user-gid) (npl_unix_getgid))
     (define (user-effective-uid) (npl_unix_geteuid))

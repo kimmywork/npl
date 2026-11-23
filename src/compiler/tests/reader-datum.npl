@@ -91,5 +91,9 @@
               (lambda () (car '(100 101 102))) 100)
   (test-equal "quoted numeric tag tail"
               (lambda () (second '(100 101 102))) 101)
+  (test-equal "bracket list"
+              (lambda () (car '[7 8])) 7)
+  (test-equal "nested bracket list"
+              (lambda () (car (second '[a [b c]]))) 'b)
   (finish-tests "reader-datum"))
 (main)

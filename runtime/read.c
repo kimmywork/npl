@@ -716,7 +716,8 @@ static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof)
         read_error("unexpected EOF");
     }
     if (code == '(' || code == '[') return read_list_datum(reader, code);
-    if (code == ')' || code == ']') read_error("unexpected )");
+    if (code == ')') read_error("unexpected )");
+    if (code == ']') read_error("unexpected ]");
     if (code == '"') return read_string_datum(reader);
     if (code == '\'') return quoted_datum(read_datum_inner(reader, 0));
     if (code == '`')
