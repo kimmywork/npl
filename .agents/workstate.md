@@ -7,6 +7,8 @@
   implemented. `src/compiler/tests/framework.npl` includes the same
   `lib/npl/test/core.scm`, so importless suites and imported tests share one
   implementation.
+- `(tools libraries)` derives exports, imports, cycles, and layering from
+  the `.sld` sources and included `.scm` files; the old alias table is gone.
 - `(npl test expect)` and `tools/run-tests.npl` replace the fixture loop and
   expect shell logic. Fixtures moved to `tests/fixtures`, discovered from
   `tests/fixtures/manifest.scm`; PBT suites live in `tests/property`.
