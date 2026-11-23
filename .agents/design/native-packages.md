@@ -97,6 +97,48 @@ arity, and result kind once. Core and external builds read the same record.
 5. Verify the `time` fixture on nplc/npli without user `-l` flags, then test
    the same library in loaded mode with `NPL_NATIVE_MODE=loaded`.
 
+## Sample External Package
+
+The first B sample should prove the loader/ABI without adding a system
+dependency or a large API. Recommended: `(npl demo crc32)`.
+
+```
+lib/npl/demo/crc32/
+  crc32.sld
+  native/crc32.c
+  native/crc32.h
+  native/CMakeLists.txt
+  package.meta
+```
+
+C entry point:
+
+```c
+NplVal npl_demo_crc32(NplVal bytes);
+```
+
+It reads the bytevector layout directly from `npl.h` (inline tag/length/data
+access), returns a fixnum, and links no runtime. The NPL side loads the
+shared library and binds the symbol with `npl_ffi_procedure`. Tests are
+deterministic:
+
+- `(crc32 #u8())` => 0
+- bytes of `"123456789"` => `#xCBF43926`
+- a one-byte vector => `#xD202EF8D`
+
+Why this package:
+
+- one stateless function, no allocation, no cleanup;
+- bytevector input exercises the NplVal ABI and `npl.h` layout;
+- no system library, so it runs on every gate host;
+- clearly external (`npl demo`), so it cannot be confused with core.
+
+Second sample: `(npl demo zlib)` wrapping `zlibVersion` and
+`compress`/`uncompress` with `-lz`. It exercises a system dependency,
+caller-provided output buffers, and status/error handling. Build it only when
+zlib development files are present. Do not start with sqlite/curl: their API
+surface and lifecycle would obscure the package mechanics.
+
 ## Core Boundary
 
 Keep in the runtime:
