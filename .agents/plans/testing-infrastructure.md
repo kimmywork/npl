@@ -38,15 +38,19 @@ lists, and provide unit and property-test APIs that normal packages can use.
    `lib/npl/test/expect.sld`, `tools/expect-runner.npl`,
    `tools/run-tests.npl`, `tests/fixtures/manifest.scm`; fixture directories
    moved from `tests/r7rs/fixtures` to `tests/fixtures`.
-4. **Compiler suite manifest (next).** Replace the `run_suite` lines and
+4. **Port shell checks (in progress).** `check_current_fixed_point` and
+   `check_gc` are NPL functions in `(npl test toolchain)`. `check_driver`,
+   `check_install`, `check_repl`, and the compiler acceptance script remain
+   shell adapters.
+5. **Compiler suite manifest (next).** Replace the `run_suite` lines and
    expected counts in `check_full_compiler.sh` with a Scheme manifest and an
    NPL runner; keep C-extension/SSA probes as typed adapters.
-5. **First-class definitions (optional).** Add SRFI 269-style `test`,
+6. **First-class definitions (optional).** Add SRFI 269-style `test`,
    `testing`, `suite`, and `metadata` entities on top of the runner; use it
    for filtering and re-running subsets without changing test bodies.
-6. **Optional SRFI 78.** Add a `check`/`check-report` compatibility layer if
+7. **Optional SRFI 78.** Add a `check`/`check-report` compatibility layer if
    external suites need it.
-7. **Unify remaining adapters.** Port stage0/bootstrap/driver/install/GC
+8. **Unify remaining adapters.** Port stage0/bootstrap/driver/install/GC
    checks where NPL can express the assertions; stage0 and its checks now
    live under `bootstrap/stage0/`; keep shell only for bootstrapping and
    container-specific setup.
