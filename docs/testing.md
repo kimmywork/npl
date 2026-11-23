@@ -45,8 +45,8 @@ frozen recovery artifacts as current behavior.
 | Property tests | `tests/property/` | deterministic generated inputs | `(npl test property)` |
 | Numeric oracle | `tests/numeric/` | exact numeric substrate against Guile | `(tools toolchain)` |
 | Upstream suite | `tests/chibi/` | independent chibi R7RS suite | `run_chibi_suite.sh` |
-| Toolchain checks (NPL) | `(tools toolchain)` | current fixed point, GC stress | `tools/run-tests.npl` |
-| Toolchain checks (legacy) | `tools/check_*.sh` | driver, install, relay | shell adapters |
+| Toolchain checks (NPL) | `(tools toolchain)` | current fixed point, GC, numeric oracle, driver, install, core consistency | `tools/run-tests.npl` |
+| Toolchain checks (legacy) | `tools/check_*.sh` | REPL, full compiler, relay | shell adapters |
 | Frozen bootstrap | `bootstrap/stage0/tools/`, `bootstrap/tools/` | stage0, permanent bootstrap chain | separate script |
 
 `tests/fixtures/` now contains both R7RS cases and NPL extension cases
@@ -167,11 +167,12 @@ Fixtures outside the gate (`core-bindings`, `smoke`, `integer-io`,
 
 ## Toolchain checks in NPL
 
-`(tools toolchain)` runs the current fixed-point relay and the GC stress
-program directly through `run-process*`, compares SSA files, and checks the
-GC output. They are normal NPL functions, not shell subprocesses.
+`(tools toolchain)` runs the current fixed-point relay, GC stress, numeric
+oracle, driver, install-layout, and core-consistency checks through
+`run-process*` and file assertions. They are normal NPL functions, not shell
+subprocesses.
 
-`check_driver.sh`, `check_install.sh`, `check_repl.sh`, and
+`check_repl.sh`, `check_full_compiler.sh`, and
 `check_relay_scripts.sh` are still shell adapters. They exercise `ar`,
 `file`, `sed`, container paths, and REPL transcripts that have not been
 ported yet; each is a candidate for the same `(tools toolchain)` API.
