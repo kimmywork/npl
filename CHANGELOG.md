@@ -41,6 +41,8 @@ behavior).
   declarative/procedural `syntax-case`, `with-syntax`, syntax helpers,
   `begin-for-syntax`/`for-syntax`, and phase-1 transformer macros.
 - Differential `syntax-case` fixtures run on nplc, npli, and Guile.
+- `syntax-case` fenders and binding-aware `free-identifier=?`; the SRFI 41
+  `stream-match` matcher now uses the reference procedural implementation.
 - `(npl lambda)` with `λ` and `fn` shorthand.
 - Forward references to value-defined procedures now compile: a procedure
   may call a global that is defined later with `(define name (lambda ...))`

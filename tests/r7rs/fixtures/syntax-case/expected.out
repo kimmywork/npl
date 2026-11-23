@@ -17,6 +17,8 @@
 (nested-macro inner)
 (identifier-true identifier)
 (identifier-false datum)
+(fender-identifier identifier)
+(fender-datum datum)
 (datum-equal #t)
 (datum-diff #f)
 (syntax-list-count 3)

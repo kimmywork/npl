@@ -166,41 +166,65 @@
           (validate-pattern-list (cdr pattern) literals ellipsis 0 ())
           (fatal "malformed syntax-case pattern"))))
 
+; A clause is (pattern body ...) or (pattern fender body).  A fender that
+; evaluates false falls through to the next clause with the same subject
+; (Guile/R6RS syntax-case accepts the three-element form).
+(define (syntax-eval-syntax-clause-parts clause)
+  (let ((rest (cdr clause)))
+    (if (null? rest)
+        (fatal "syntax-case clause needs a body"))
+    (if (null? (cdr rest))
+        (cons #f rest)
+        (cons (car rest) (cdr rest)))))
+
 (define (syntax-eval-syntax-clauses clauses subject transformer env outer)
   (if (null? clauses)
       (fatal "syntax-case: no matching clause")
       (let ((clause (car clauses)))
         (if (not (pair? clause))
             (fatal "malformed syntax-case clause"))
-        (let ((pattern (car clause))
-              (body (cdr clause)))
-          (let ((variables
-                  (syntax-eval-match-pattern
-                    pattern (transformer-literals transformer)
-                    (transformer-ellipsis transformer))))
-            (let ((captures
-                    (if (datum-symbol? pattern)
-                        (match-pattern pattern subject transformer
-                                       (cell-get SYNTAX-EVAL-USE-ENV) () ())
-                        (if (pair? subject)
-                            (match-pattern-list
-                              (cdr pattern) (cdr subject) transformer
-                              (cell-get SYNTAX-EVAL-USE-ENV) () ())
-                            MATCH-FAIL))))
-              (if (eq? captures MATCH-FAIL)
-                  (syntax-eval-syntax-clauses
-                    (cdr clauses) subject transformer env outer)
-                  (let ((clause-env
-                          (syntax-bind-pattern-values
-                            variables captures (syntax-env-push env))))
-                    (let ((context
-                            (syntax-context-extend
-                              outer transformer captures variables)))
-                      (cell-set! SYNTAX-EVAL-CONTEXT context)
-                      (let ((result
-                              (syntax-eval-body body clause-env context)))
-                        (cell-set! SYNTAX-EVAL-CONTEXT outer)
-                        result))))))))))
+        (let ((pattern (car clause)))
+          (let ((parts (syntax-eval-syntax-clause-parts clause)))
+            (let ((fender (car parts))
+                  (body (cdr parts)))
+              (let ((variables
+                      (syntax-eval-match-pattern
+                        pattern (transformer-literals transformer)
+                        (transformer-ellipsis transformer))))
+                (let ((captures
+                        (if (datum-symbol? pattern)
+                            (match-pattern pattern subject transformer
+                                           (cell-get SYNTAX-EVAL-USE-ENV) () ())
+                            (if (pair? subject)
+                                (match-pattern-list
+                                  (cdr pattern) (cdr subject) transformer
+                                  (cell-get SYNTAX-EVAL-USE-ENV) () ())
+                                MATCH-FAIL))))
+                  (if (eq? captures MATCH-FAIL)
+                      (syntax-eval-syntax-clauses
+                        (cdr clauses) subject transformer env outer)
+                      (let ((clause-env
+                              (syntax-bind-pattern-values
+                                variables captures (syntax-env-push env))))
+                        (let ((context
+                                (syntax-context-extend
+                                  outer transformer captures variables)))
+                          (cell-set! SYNTAX-EVAL-CONTEXT context)
+                          (let ((passed
+                                  (if fender
+                                      (syntax-eval fender clause-env)
+                                      (syntax-eval-true))))
+                            (if (syntax-eval-false? passed)
+                                (begin
+                                  (cell-set! SYNTAX-EVAL-CONTEXT outer)
+                                  (syntax-eval-syntax-clauses
+                                    (cdr clauses) subject transformer env
+                                    outer))
+                                (let ((result
+                                        (syntax-eval-body
+                                          body clause-env context)))
+                                  (cell-set! SYNTAX-EVAL-CONTEXT outer)
+                                  result))))))))))))))
 
 (define (syntax-eval-syntax-case form env)
   (let ((subject (syntax-eval (car (cdr form)) env)))

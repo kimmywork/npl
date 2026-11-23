@@ -195,6 +195,28 @@
 
 (define (syntax-eval-void) SYNTAX-EVAL-UNSPECIFIED)
 
+; free-identifier=? compares bindings, not spelling.  A use-site identifier
+; keeps a local binding; a template identifier falls back to the macro
+; definition environment.  Unbound identifiers compare by name.
+(define (syntax-eval-identifier-binding identifier)
+  (let ((use (lookup-value-binding identifier (cell-get SYNTAX-EVAL-USE-ENV))))
+    (if (> (string-length use) 0)
+        use
+        (lookup-value-binding-key (datum-symbol-name identifier) 0 0
+                                  (cell-get SYNTAX-EVAL-DEFINITION-ENV)))))
+
+(define (syntax-eval-free-identifier=? left right)
+  (if (if (datum-symbol? left) (datum-symbol? right) #f)
+      (let ((left-binding (syntax-eval-identifier-binding left))
+            (right-binding (syntax-eval-identifier-binding right)))
+        (if (if (= (string-length left-binding) 0)
+                (= (string-length right-binding) 0)
+                #f)
+            (string=? (datum-symbol-name left) (datum-symbol-name right))
+            (string=? (literal-binding-key left left-binding)
+                      (literal-binding-key right right-binding))))
+      (syntax-eval-equal? left right)))
+
 (define (syntax-eval-procedure? value)
   (if (syntax-closure? value) #t (procedure? value)))
 
@@ -396,7 +418,8 @@
           (lambda (value) (syntax-eval-syntax->list value)))
     (cons "free-identifier=?"
           (lambda (left right)
-            (syntax-eval-boolean (syntax-identifier= left right))))
+            (syntax-eval-boolean
+              (syntax-eval-free-identifier=? left right))))
     (cons "bound-identifier=?"
           (lambda (left right)
             (syntax-eval-boolean (syntax-identifier= left right))))

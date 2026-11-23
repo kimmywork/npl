@@ -36,6 +36,12 @@
            (syntax 'identifier)
            (syntax 'other))])))
 
+(define-syntax fender-classify
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ x) (identifier? (syntax x)) (syntax 'identifier)]
+      [(_ x) (syntax 'datum)])))
+
 (define-syntax same-name?
   (lambda (stx)
     (syntax-case stx ()
@@ -143,6 +149,12 @@
                  #t)
   (test-identity "identifier? rejects a datum"
                  (lambda () (eq? (classify 42) 'other))
+                 #t)
+  (test-identity "fender accepts an identifier"
+                 (lambda () (eq? (fender-classify foo) 'identifier))
+                 #t)
+  (test-identity "fender falls through"
+                 (lambda () (eq? (fender-classify 42) 'datum))
                  #t)
   (test-identity "free-identifier=? on the same use"
                  (lambda () (same-name? foo foo))

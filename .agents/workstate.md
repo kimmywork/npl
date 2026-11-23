@@ -11,8 +11,9 @@ M0a is implemented on `feature/0.1.3-ffi`:
 - template-introduced top-level definitions use per-expansion emitted names
   (M4), matching Guile/npli hygiene in nplc too.
 - reader N2: bare `\` is rejected by both readers; nplc reports location.
-- seed relayed: `bootstrap/current.ssa` SHA-256
-  `be5c7ba70126d76603e2e52f6b4e9b88bb4f2f141a99e4d5c738cad4a0526e74`.
+- M0a seed relayed: `bootstrap/current.ssa` SHA-256
+  `be5c7ba70126d76603e2e52f6b4e9b88bb4f2f141a99e4d5c738cad4a0526e74`;
+  the current seed is in `Accepted Seed` below.
 - `macro-conformance` 7, `libraries` 24; gate is 58 suites / 81 negative
   checks.
 - M0b is implemented: SRFI 46 tail patterns/custom ellipsis and SRFI 149
@@ -43,11 +44,15 @@ M0a is implemented on `feature/0.1.3-ffi`:
   when core syntax is imported, and named `let` in transformer code binds its
   loop name correctly.
 - `tests/r7rs/fixtures/syntax-case` (Guile oracle) and
-  `syntax-case-npl` (nplc/npli differential) cover clauses, ellipsis,
-  with-syntax, hygiene, helpers, phase forms, local macros, and
+  `syntax-case-npl` (nplc/npli differential) cover clauses, fenders,
+  ellipsis, with-syntax, hygiene, helpers, phase forms, local macros, and
   definition-producing output.
-- Deferred: full syntax-object mark histories, library migration, and
-  multi-arrow `λ` currying.
+- M4 (lambda shorthand and library migration) is complete: `(npl lambda)`
+  provides `λ`/`fn`, and `(npl data stream)` / `(srfi 41)` uses the
+  reference procedural syntax-case `stream-match` matcher with fenders.
+- Deferred: full syntax-object mark histories and multi-arrow `λ` currying.
+- The older sections below are historical. Where they say `syntax-case` is
+  deferred, this 0.1.3 macro foundation section supersedes them.
 
 ## 0.1.3 (planned, 2026-11-13)
 
@@ -58,8 +63,9 @@ The Appendix review of
 [2026-11-12-features-and-roadmap](reviews/2026-11-12-features-and-roadmap.md)
 is the review intake: F3/F4/F5/F6 and the cross-form continuation
 documentation gap are accepted as H1 hardening; F1/F2 and the roadmap's
-version-selector, `syntax-case`, and "fix F1 before threads" entries are not
-adopted. 0.1.2 merged at `d688cac`.
+version-selector and "fix F1 before threads" entries are not adopted.
+`syntax-case`, originally deferred, is implemented in the macro foundation
+above. 0.1.2 merged at `d688cac`.
 
 ## 0.1.2 (merged, 2026-11-13)
 
@@ -414,9 +420,10 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 268,699 lines; SHA-256
-  `a92cd38d3152502f7702612a22b8681effcf74811d72110d78c7e1cb3516f601`
-  (strict relay, 2026-11-13, endianness and tagged array row checks). The seed calls
+- `bootstrap/current.ssa`: 319,626 lines; SHA-256
+  `b295f1c91e064f6fc0a30c2773b70eab4d61fc831180936394cf601783918339`
+  (strict relay, 2026-11-23, syntax-case fenders, M4 lambda/library
+  migration, and differential fixtures). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure
@@ -434,12 +441,10 @@ want it while it is deferred.
   uncaught-error exit status, SRFI 1/13/113, and separate compilation.
 - Macro/reader follow-ups: [syntax-rules review](reviews/2026-11-14-syntax-rules-ellipsis-and-lambda-shorthand.md)
   and [macro system review](reviews/2026-11-14-macro-system-review.md).
-  Fix first: M1 (macro-produced single `define` not bound in bodies; nplc
-  rejects or miscompiles) and M2 (depth-0 pattern variables in ellipsis
-  templates). Then M3 hygiene, M5 body macro order, and decisions on M4
-  (top-level introduced definitions), M6 (core syntax exports), and N1
-  (multiple same-level ellipses). syntax-case stays deferred; SRFI 211
-  er/ir macros come first if procedural macros are needed.
+  M1/M2/M3/M4/M5/M6/M7/M10 and N1 are implemented, including declarative and
+  procedural `syntax-case`, fenders, phase-1 macros, and the SRFI 41
+  migration. Remaining: full syntax-object mark histories; SRFI 211 er/ir
+  macros are no longer needed as a substitute.
 - `(sqrt -1.0-0.0i)` branch convention: follow IEEE signed-zero convention
   (Guile and Racket precedent) when sqrt is implemented. Not blocking.
 - Operand evaluation order differs between native and npli: in

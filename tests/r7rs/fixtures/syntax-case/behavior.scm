@@ -126,6 +126,15 @@
 (report 'identifier-true (identifier-kind foo))
 (report 'identifier-false (identifier-kind 42))
 
+(define-syntax fender-classify
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ x) (identifier? (syntax x)) (syntax 'identifier)]
+      [(_ x) (syntax 'datum)])))
+
+(report 'fender-identifier (fender-classify foo))
+(report 'fender-datum (fender-classify 42))
+
 (define-syntax same-datum?
   (lambda (stx)
     (syntax-case stx ()

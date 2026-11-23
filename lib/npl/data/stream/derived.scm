@@ -1,7 +1,7 @@
 ; SRFI 41 derived stream operations.
 ;
-; Port of the SRFI 41 reference implementation by Philip L. Bewig (MIT),
-; with a syntax-rules stream-match instead of syntax-case.
+; Port of the SRFI 41 reference implementation by Philip L. Bewig (MIT).
+; stream-match uses the reference procedural syntax-case pattern matcher.
 
 (define (stream-any pred items)
   (if (null? items) #f (if (pred (car items)) #t (stream-any pred (cdr items)))))
@@ -217,24 +217,37 @@
      (stream-match-pattern stream pattern () expression
                            (stream-match-clauses stream clause ...)))))
 
+; The reference implementation's syntax-case pattern matcher.  A fender
+; distinguishes the wildcard _ from an ordinary pattern variable; the
+; accumulated bindings are carried as a list of (name value) pairs.
 (define-syntax stream-match-pattern
-  (syntax-rules (_)
-    ((_ stream () bindings body fail)
-     (if (stream-null? stream) (let bindings body) fail))
-    ((_ stream (_ . rest) bindings body fail)
-     (if (stream-pair? stream)
-         (stream-match-pattern (stream-cdr stream) rest bindings body fail)
-         fail))
-    ((_ stream (pattern . rest) bindings body fail)
-     (if (stream-pair? stream)
-         (stream-match-pattern
-          (stream-cdr stream) rest
-          ((pattern (stream-car stream)) . bindings)
-          body fail)
-         fail))
-    ((_ stream _ bindings body fail) (let bindings body))
-    ((_ stream pattern bindings body fail)
-     (let ((pattern stream) . bindings) body))))
+  (lambda (x)
+    (define (wildcard? identifier)
+      (and (identifier? identifier)
+           (free-identifier=? identifier (syntax _))))
+    (syntax-case x ()
+      [(_ stream () bindings body fail)
+       (syntax (if (stream-null? stream)
+                   (let bindings body)
+                   fail))]
+      [(_ stream (head . rest) bindings body fail)
+       (wildcard? (syntax head))
+       (syntax (if (stream-pair? stream)
+                   (stream-match-pattern
+                     (stream-cdr stream) rest bindings body fail)
+                   fail))]
+      [(_ stream (head . rest) bindings body fail)
+       (syntax (if (stream-pair? stream)
+                   (let ((temp (stream-car stream))
+                         (next (stream-cdr stream)))
+                     (stream-match-pattern
+                       next rest ((head temp) . bindings) body fail))
+                   fail))]
+      [(_ stream head bindings body fail)
+       (wildcard? (syntax head))
+       (syntax (let bindings body))]
+      [(_ stream head bindings body fail)
+       (syntax (let ((head stream) . bindings) body))])))
 
 (define-syntax stream-of
   (syntax-rules ()

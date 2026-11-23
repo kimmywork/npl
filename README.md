@@ -123,8 +123,8 @@ supported, and there is no cross-compilation path at this stage.
 - [R7RS-small reference](docs/reference/r7rs.html) and
   [SRFI 125 reference](docs/reference/srfi-125.html)
 
-Deliberate omissions (R7RS-large features, `syntax-case`, keyword arguments,
-record inheritance, and separate compilation) are listed in
+Deliberate omissions (R7RS-large features, keyword arguments, record
+inheritance, and separate compilation) are listed in
 the [conformance statement](docs/r7rs-conformance.md#deliberately-outside-the-language-stage).
 
 ## Testing
