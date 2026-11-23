@@ -99,7 +99,7 @@
 
 (define (resolve-marked-identifier form name definition-env definition-macros)
   (let ((binding (lookup-value-binding-key name 0 0 definition-env))
-        (keyword (lookup-macro-cell-key name 0 definition-macros)))
+        (keyword (lookup-macro-cell-key name 0 0 definition-macros)))
     (cond
       ((> (string-length binding) 0)
        (transcription-alias form TRANSCRIPTION-ALIASES binding))

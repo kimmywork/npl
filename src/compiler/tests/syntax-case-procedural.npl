@@ -72,7 +72,39 @@
 
 (begin-for-syntax
   (define phase-answer 41)
-  (define (phase-add-one value) (+ value 1)))
+  (define (phase-add-one value) (+ value 1))
+  (define-syntax phase-double
+    (syntax-rules ()
+      ((_ x) (* 2 x))))
+  (define-syntax phase-list
+    (lambda (s)
+      (syntax-case s ()
+        [(_ x ...) (length (syntax->list (syntax (x ...))))]))))
+
+(define-syntax use-phase-double
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_) (phase-double 21)])))
+
+(define-syntax use-phase-list
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_) (phase-list 1 2 3)])))
+
+(define-syntax local-recursive-count
+  (lambda (stx)
+    (letrec-syntax ((count
+                      (syntax-rules ()
+                        ((_) 0)
+                        ((_ x rest ...) (+ 1 (count rest ...))))))
+      (syntax-case stx ()
+        [(_ a b c) (count a b c)]))))
+
+(define-syntax local-shadowing-sum
+  (lambda (stx)
+    (let-syntax ((double (syntax-rules () ((_ x) (+ x x)))))
+      (syntax-case stx ()
+        [(_ x) (double x)]))))
 
 (for-syntax
   (define for-syntax-answer 42))
@@ -129,6 +161,18 @@
                  #t)
   (test-equal "begin-for-syntax binding"
               (lambda () (phase-constant))
+              42)
+  (test-equal "phase syntax-rules macro"
+              (lambda () (use-phase-double))
+              42)
+  (test-equal "phase procedural macro"
+              (lambda () (use-phase-list))
+              3)
+  (test-equal "transformer letrec-syntax"
+              (lambda () (local-recursive-count a b c))
+              3)
+  (test-equal "transformer let-syntax"
+              (lambda () (local-shadowing-sum 21))
               42)
   (test-equal "for-syntax binding"
               (lambda () (for-syntax-constant))

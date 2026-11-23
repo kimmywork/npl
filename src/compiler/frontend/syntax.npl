@@ -15,6 +15,11 @@
 (define TOP-VALUE-ENVIRONMENT (cell ()))
 (define MATCH-FAIL '(_syntax_match_fail_))
 (define CURRENT-PATTERN-VARIABLES (cell ()))
+; The captures and pattern variables of the most recent transcription, so a
+; transformer body that uses a macro can evaluate the expansion with its
+; clause context.
+(define CURRENT-TRANSCRIPTION-CAPTURES (cell ()))
+(define CURRENT-TRANSCRIPTION-VARIABLES (cell ()))
 (define NO-REPEAT-COUNT 1000000000)
 (define CORE-SYNTAX-PREFIX "_core_syntax_")
 
@@ -73,8 +78,26 @@
     (let ((binding (lookup-value-binding-key name mark source environment)))
       (if (> (string-length binding) 0)
           binding
-          (lookup-value-binding-key
+          (lookup-value-alias
             name mark source (cell-get TRANSCRIPTION-ALIASES))))))
+
+; A transcription alias is keyed by the alias mark. A template copy gets a
+; fresh mark and carries the alias mark as its source mark, so the source
+; match is what lets a nested template refer back to the binding recorded at
+; the definition site. Only the alias table uses this rule; ordinary lexical
+; entries must not match by source (a user binding at mark 0 would capture a
+; template identifier whose source mark is 0).
+(define (lookup-value-alias name mark source aliases)
+  (if (null? aliases)
+      ""
+      (let ((entry (car aliases)))
+        (if (string=? name (car entry))
+            (if (if (= mark (car (cdr entry)))
+                    #t
+                    (= source (car (cdr entry))))
+                (car (cdr (cdr entry)))
+                (lookup-value-alias name mark source (cdr aliases)))
+            (lookup-value-alias name mark source (cdr aliases))))))
 
 ; Compute the lookup key once, not once per environment entry.
 ; An entry is (name mark emitted); an alias layer (#f mark definition-env)
@@ -163,29 +186,44 @@
 ; Cell for a keyword; spliced macro output falls back to its aliases.
 (define (lookup-macro-cell identifier environment)
   (let ((name (datum-symbol-name identifier))
-        (mark (identifier-mark identifier)))
-    (let ((found (lookup-macro-cell-key name mark environment)))
+        (mark (identifier-mark identifier))
+        (source (identifier-source-mark identifier)))
+    (let ((found (lookup-macro-cell-key name mark source environment)))
       (if (null? found)
-          (lookup-macro-cell-key
-            name mark (cell-get TRANSCRIPTION-MACRO-ALIASES))
+          (lookup-macro-alias
+            name mark source (cell-get TRANSCRIPTION-MACRO-ALIASES))
           found))))
 
+(define (lookup-macro-alias name mark source aliases)
+  (if (null? aliases)
+      ()
+      (let ((entry (car aliases)))
+        (if (string=? name (car entry))
+            (if (if (= mark (car (cdr entry)))
+                    #t
+                    (= source (car (cdr entry))))
+                (macro-entry-cell entry)
+                (lookup-macro-alias name mark source (cdr aliases)))
+            (lookup-macro-alias name mark source (cdr aliases))))))
+
 ; Alias layers as in lookup-value-binding-key.
-(define (lookup-macro-cell-key name mark environment)
+(define (lookup-macro-cell-key name mark source environment)
   (if (null? environment)
       ()
       (let ((entry (car environment)))
         (if (car entry)
-            (if (if (string=? name (car entry)) (= mark (car (cdr entry))) #f)
+            (if (if (string=? name (car entry))
+                    (= mark (car (cdr entry)))
+                    #f)
                 (macro-entry-cell entry)
-                (lookup-macro-cell-key name mark (cdr environment)))
+                (lookup-macro-cell-key name mark source (cdr environment)))
             (let ((aliased
                     (if (= mark (car (cdr entry)))
                         (lookup-macro-cell-any-mark
                           name (car (cdr (cdr entry))))
                         ())))
               (if (null? aliased)
-                  (lookup-macro-cell-key name mark (cdr environment))
+                  (lookup-macro-cell-key name mark source (cdr environment))
                   aliased))))))
 
 (define (lookup-macro-cell-any-mark name environment)
@@ -1020,6 +1058,9 @@
           (let ((captures
                   (match-pattern-list (cdr pattern) (cdr use)
                     transformer use-env () ())))
+            (cell-set! CURRENT-TRANSCRIPTION-CAPTURES captures)
+            (cell-set! CURRENT-TRANSCRIPTION-VARIABLES
+                       (car (cdr (cdr rule))))
             (if (eq? captures MATCH-FAIL)
                 (transcribe-rules (cdr rules) use transformer use-env)
                 (let ((mark (fresh-syntax-mark)))

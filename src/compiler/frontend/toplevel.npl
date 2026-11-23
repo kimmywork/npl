@@ -115,7 +115,10 @@
         (if (string=? (datum-symbol-name head) name)
             (if (head-value-bound? head value-env)
                 #f
-                (null? (lookup-macro-binding head macro-env)))
+                (let ((transformer (lookup-macro-binding head macro-env)))
+                  (if (null? transformer)
+                      #t
+                      (core-syntax-value? transformer))))
             #f)
         #f)))
 

@@ -300,3 +300,108 @@
           (cell-set! SYNTAX-EVAL-CONTEXT previous-context)
           (cons result mark))))))
 
+
+; ---------------- compile-time macros inside transformer bodies ----------------
+
+(define (syntax-eval-macro-assoc name entries)
+  (if (null? entries)
+      ()
+      (if (string=? name (car (car entries)))
+          (car entries)
+          (syntax-eval-macro-assoc name (cdr entries)))))
+
+; Local let-syntax bindings shadow phase-1 and definition-site macros.
+(define (syntax-eval-macro-binding identifier)
+  (let ((name (datum-symbol-name identifier)))
+    (let ((local (syntax-eval-macro-assoc
+                   name (cell-get SYNTAX-EVAL-LOCAL-MACROS))))
+      (if (not (null? local))
+          (cdr local)
+          (let ((phase (syntax-eval-macro-assoc
+                         name (cell-get PHASE-MACRO-ENV))))
+            (if (not (null? phase))
+                (cdr phase)
+                (let ((global
+                        (lookup-macro-binding
+                          identifier
+                          (cell-get SYNTAX-EVAL-DEFINITION-MACRO-ENV))))
+                  (if (null? global)
+                      ()
+                      (if (eq? global UNINITIALIZED-SYNTAX)
+                          ()
+                          (if (core-syntax-value? global) () global))))))))))
+
+(define (syntax-eval-expand-macro transformer expression env)
+  (if (procedural-transformer? transformer)
+      (let ((transcription
+              (eval-procedural-transformer
+                transformer expression (cell-get SYNTAX-EVAL-USE-ENV))))
+        (syntax-eval (car transcription) env))
+      (let ((transcription
+              (transcribe-macro
+                transformer expression (cell-get SYNTAX-EVAL-USE-ENV))))
+        (let ((output (car transcription))
+              (outer (cell-get SYNTAX-EVAL-CONTEXT))
+              (captures (cell-get CURRENT-TRANSCRIPTION-CAPTURES))
+              (variables (cell-get CURRENT-TRANSCRIPTION-VARIABLES)))
+          (cell-set! SYNTAX-EVAL-CONTEXT
+                     (syntax-context-extend
+                       outer transformer captures variables))
+          (let ((result (syntax-eval output env)))
+            (cell-set! SYNTAX-EVAL-CONTEXT outer)
+            result)))))
+
+(define (syntax-eval-define-syntax form env)
+  (if (not (pair? (cdr form)))
+      (fatal "malformed transformer define-syntax"))
+  (let ((name (car (cdr form))))
+    (if (not (datum-symbol? name))
+        (fatal "transformer define-syntax needs an identifier"))
+    (let ((transformer
+            (parse-syntax-rules
+              (car (cdr (cdr form)))
+              (cell-get SYNTAX-EVAL-DEFINITION-ENV)
+              (cell-get SYNTAX-EVAL-DEFINITION-MACRO-ENV))))
+      (cell-set! PHASE-MACRO-ENV
+                 (cons (cons (datum-symbol-name name) transformer)
+                       (cell-get PHASE-MACRO-ENV)))
+      SYNTAX-EVAL-UNSPECIFIED)))
+
+(define (syntax-eval-local-macro-specs bindings)
+  (if (null? bindings)
+      ()
+      (let ((binding (car bindings)))
+        (if (not (pair? binding))
+            (fatal "malformed transformer let-syntax binding"))
+        (cons
+          (cons (datum-symbol-name (car binding))
+                (parse-syntax-rules
+                  (car (cdr binding))
+                  (cell-get SYNTAX-EVAL-DEFINITION-ENV)
+                  (cell-get SYNTAX-EVAL-DEFINITION-MACRO-ENV)))
+          (syntax-eval-local-macro-specs (cdr bindings))))))
+
+(define (syntax-eval-local-macro-placeholders bindings)
+  (if (null? bindings)
+      ()
+      (cons (cons (datum-symbol-name (car (car bindings)))
+                  UNINITIALIZED-SYNTAX)
+            (syntax-eval-local-macro-placeholders (cdr bindings)))))
+
+(define (syntax-eval-let-syntax form env recursive)
+  (let ((bindings (car (cdr form)))
+        (body (cdr (cdr form))))
+    (let ((saved (cell-get SYNTAX-EVAL-LOCAL-MACROS)))
+      (if recursive
+          (cell-set! SYNTAX-EVAL-LOCAL-MACROS
+                     (syntax-append
+                       (syntax-eval-local-macro-placeholders bindings)
+                       saved))
+          ())
+      (let ((parsed (syntax-eval-local-macro-specs bindings)))
+        (cell-set! SYNTAX-EVAL-LOCAL-MACROS
+                   (syntax-append parsed saved))
+        (let ((result
+                (syntax-eval-body body env (cell-get SYNTAX-EVAL-CONTEXT))))
+          (cell-set! SYNTAX-EVAL-LOCAL-MACROS saved)
+          result)))))

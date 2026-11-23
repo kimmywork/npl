@@ -23,6 +23,8 @@
 ; (transformer captures variables) for the innermost syntax-case clause.
 (define SYNTAX-EVAL-CONTEXT (cell ()))
 (define PHASE-VALUE-ENV (cell ()))
+(define PHASE-MACRO-ENV (cell ()))
+(define SYNTAX-EVAL-LOCAL-MACROS (cell ()))
 (define SYNTAX-EVAL-UNSPECIFIED (cons '(_syntax_eval_unspecified_) ()))
 (define SYNTAX-EVAL-PRIMITIVES (cell ()))
 
@@ -294,8 +296,14 @@
             ((string=? name "for-syntax")
              (syntax-eval-body (cdr expression) env
                                (cell-get SYNTAX-EVAL-CONTEXT)))
-            (else (syntax-eval-application expression env))))
-        (syntax-eval-application expression env))))
+            ((string=? name "define-syntax")
+             (syntax-eval-define-syntax expression env))
+            ((string=? name "let-syntax")
+             (syntax-eval-let-syntax expression env #f))
+            ((string=? name "letrec-syntax")
+             (syntax-eval-let-syntax expression env #t))
+            (else (syntax-eval-macro-or-application expression env))))
+        (syntax-eval-macro-or-application expression env))))
 
 (define (syntax-eval-if form env)
   (let ((test (syntax-eval (car (cdr form)) env)))
@@ -329,11 +337,15 @@
             (syntax-eval (car (cdr binding)) env))))))
 
 (define (syntax-eval-let form env)
-  (let ((bindings (car (cdr form)))
-        (body (cdr (cdr form))))
+  (let ((bindings (car (cdr form))))
     (if (datum-symbol? bindings)
-        (syntax-eval-named-let bindings (car (cdr form)) body env)
-        (syntax-eval-body body
+        (syntax-eval-named-let
+          bindings
+          (car (cdr (cdr form)))
+          (cdr (cdr (cdr form)))
+          env)
+        (syntax-eval-body
+          (cdr (cdr form))
           (syntax-eval-bindings bindings env (syntax-env-push env))
           (cell-get SYNTAX-EVAL-CONTEXT)))))
 
@@ -532,6 +544,32 @@
 (define (syntax-eval-application expression env)
   (syntax-eval-call (syntax-eval (car expression) env)
                     (syntax-eval-arguments (cdr expression) env)))
+
+; Value bindings shadow macros (R7RS separate namespaces at use time), and
+; macros in the transformer's definition environment are expanded at
+; compile time rather than called.
+(define (syntax-eval-value-bound? identifier env)
+  (if (not (null? (syntax-env-lookup (pattern-key identifier) env)))
+      #t
+      (if (not (null? (syntax-env-lookup
+                        (datum-symbol-name identifier) env)))
+          #t
+          (if (not (null? (syntax-phase-lookup
+                            (datum-symbol-name identifier))))
+              #t
+              (not (null? (syntax-primitive-lookup
+                            (datum-symbol-name identifier))))))))
+
+(define (syntax-eval-macro-or-application expression env)
+  (let ((head (car expression)))
+    (if (datum-symbol? head)
+        (if (syntax-eval-value-bound? head env)
+            (syntax-eval-application expression env)
+            (let ((transformer (syntax-eval-macro-binding head)))
+              (if (null? transformer)
+                  (syntax-eval-application expression env)
+                  (syntax-eval-expand-macro transformer expression env))))
+        (syntax-eval-application expression env))))
 
 (define (syntax-eval-call procedure arguments)
   (if (syntax-closure? procedure)

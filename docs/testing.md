@@ -37,10 +37,10 @@ runs the Linux gate without the relay on pull requests and pushes to
 | 11 | `check_relay_scripts.sh` | relay orchestration with tiny tool substitutes |
 | 12 | `check_gc.sh` | GC stress: 1M allocations, 64 KiB nursery with `NPL_GC_VERIFY` |
 | 13 | `check_numeric_reference.sh` | exact numeric substrate against Guile |
-| 14-54 | 41 × `run_r7rs_fixture.sh` | three-way fixtures (native, npli, Guile) |
-| 55 | `check_core.sh` | stage0 dynamic core |
-| 56 | `check_r7rs.sh` | R7RS baseline through stage0 |
-| 57 | `prop_tests.py` | property tests for the stage0 compiler |
+| 14-56 | 43 × `run_r7rs_fixture.sh` | three-way fixtures (native, npli, Guile) |
+| 57 | `check_core.sh` | stage0 dynamic core |
+| 58 | `check_r7rs.sh` | R7RS baseline through stage0 |
+| 59 | `prop_tests.py` | property tests for the stage0 compiler |
 
 Optional, not in the gate:
 
@@ -100,7 +100,7 @@ Differences with Guile are classified `npl-bug`, `guile-extension`,
 
 ### Fixtures outside the gate
 
-45 fixture directories exist; 41 are in the loop above. The others:
+47 fixture directories exist; 43 are in the loop above. The others:
 
 - `core-bindings` — run by `tools/check_core_consistency.sh` (stage 10).
 - `smoke`, `integer-io`, `port-wrappers` — manual; run

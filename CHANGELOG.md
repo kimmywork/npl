@@ -38,8 +38,9 @@ behavior).
   persistent red-black tree.
 - SRFI 178 bitvectors as `(npl data bitvector)` / `(srfi 178)`.
 - SRFI 46/149 syntax-rules extensions, core syntax exports, and
-  declarative/procedural `syntax-case`, `with-syntax`, syntax helpers, and
-  `begin-for-syntax`/`for-syntax`.
+  declarative/procedural `syntax-case`, `with-syntax`, syntax helpers,
+  `begin-for-syntax`/`for-syntax`, and phase-1 transformer macros.
+- Differential `syntax-case` fixtures run on nplc, npli, and Guile.
 - `(npl lambda)` with `λ` and `fn` shorthand.
 - Forward references to value-defined procedures now compile: a procedure
   may call a global that is defined later with `(define name (lambda ...))`
