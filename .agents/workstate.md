@@ -471,9 +471,9 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 327,751 lines; SHA-256
-  `9652e4444618412ec8468c02a9867bf0436ce1f71d0a988ae49fc7d29823ad90`
-  (strict relay, 2026-11-23, platform features and the feature split). The seed calls
+- `bootstrap/current.ssa`: 327,719 lines; SHA-256
+  `352a3a9636a2b393a1a38a847721f8b69a142c92a8957e63b65661b6a552639c`
+  (strict relay, 2026-11-23, platform features, c-stub header order, and struct forward declarations). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure
