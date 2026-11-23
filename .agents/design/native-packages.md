@@ -147,6 +147,8 @@ Keep in the runtime:
 - GC, allocator, pointer boxes.
 - `foreign-alloc` / typed access / `c-array` / `c-struct` helpers.
 - `npl_ffi_load_library` / `npl_ffi_procedure`.
+- The minimal target/feature bootstrap hook used by `cond-expand` (platform
+  identity is compiler semantics, not package business logic).
 
 Move out:
 
@@ -181,11 +183,21 @@ Proposed additions (same vocabulary for `cond-expand`, `(features)`, and
   (else ...))
 ```
 
-Centralize the list in one primitive (for example
-`npl_platform_features`) so `(features)` and the frontend's feature predicate
-cannot drift. The triple is for diagnostics and build metadata; `cond-expand`
-should use feature symbols, not string parsing. C code keeps `#ifdef`;
-`package.meta` uses the same platform symbols.
+`cond-expand` runs before libraries load, so its feature predicate is a
+**bootstrap hook**, not a package. Keep one minimal source for it (for
+example `npl_platform_features`/`npl_platform_triple`) so `(features)` and
+the frontend predicate cannot drift. `(npl platform)` is then a thin NPL-only
+wrapper over that hook; it is not a native package and adds no C of its own.
+
+The alternative is a generated frontend include produced by the build
+system. That avoids a primitive but makes the seed relay and cross-target
+builds platform-specific, and `(features)` still needs the same data. The
+small bootstrap primitive is the cleaner boundary; the rule is “primitive
+only for the bootstrap entry point, NPL for the user-facing library”.
+
+The triple is for diagnostics and build metadata; `cond-expand` should use
+feature symbols, not string parsing. C code keeps `#ifdef`; `package.meta`
+uses the same platform symbols.
 
 Cross-compilation caveat: the triple must describe the target, not the build
 host. Today `nplc` is a native compiler, so the two coincide; a future
