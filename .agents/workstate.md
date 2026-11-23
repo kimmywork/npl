@@ -487,7 +487,7 @@ want it while it is deferred.
 ## Accepted Seed
 
 - `bootstrap/current.ssa`: 341,544 lines; SHA-256
-  `0c44ba696b3b8b5e6a6ac5a696b56ad3af532fff2d376a388cd1889225af7b32`
+  `6cbf693cf58d57e231ad85d865bdf2b172413551c4db86509bb2a27817d031af`
   (strict relay, 2026-11-24, static/shared link modes, shared runtime,
   dynamic data slots, and typed struct arguments). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or

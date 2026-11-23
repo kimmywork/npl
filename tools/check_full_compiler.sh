@@ -130,7 +130,7 @@ run_suite syntax-case "PASS syntax-case 4"
 run_suite syntax-case-procedural "PASS syntax-case-procedural 20"
 run_suite ffi-memory "PASS ffi-memory 84"
 run_suite runtime-hardening "PASS runtime-hardening 10"
-run_suite c-structs "PASS c-structs 13"
+run_suite c-structs "PASS c-structs 15"
 # R6: importing core native packages reads the build-time layout cache and
 # never runs a C compiler.
 printf '(import (scheme base) (npl time) (npl unix))\n(define now (current-time))\n' \
