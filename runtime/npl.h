@@ -710,12 +710,6 @@ NplVal npl_jiffies_per_second(void);
 NplVal npl_current_jiffy(void);
 NplVal npl_current_second(void);
 
-NplVal npl_time_now_prim(NplVal which, NplVal view);
-NplVal npl_time_resolution_prim(NplVal which, NplVal view);
-NplVal npl_time_gmtime_prim(NplVal value, NplVal out);
-NplVal npl_time_localtime_prim(NplVal value, NplVal out);
-NplVal npl_time_mktime_prim(NplVal value, NplVal out);
-NplVal npl_time_timegm_prim(NplVal value, NplVal out);
 void npl_exit(NplVal code);                   /* R7RS exit status mapping */
 
 /* bootstrap lexer hooks — all take TAGGED values */

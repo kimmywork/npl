@@ -14,6 +14,7 @@
         (npl test expect)
         (tools libraries)
         (tools link-modes)
+        (tools repl-suites)
         (tools toolchain))
 
 (define ROOT (current-directory))
@@ -181,7 +182,7 @@
   (run-script "full compiler language" "tools/check_full_compiler.sh")
   (report "unified nplc driver" (check-driver ROOT))
   (report "install layout" (check-install ROOT))
-  (run-script "npli REPL and scripts" "tools/check_repl.sh")
+  (report "npli REPL and scripts" (check-repl-suites ROOT NPLC NPLI))
   (report "core semantic consistency" (check-core-consistency ROOT))
   (run-script "relay orchestration" "tools/check_relay_scripts.sh")
   (report "runtime GC" (check-gc ROOT))

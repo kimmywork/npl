@@ -41,9 +41,11 @@ lists, and provide unit and property-test APIs that normal packages can use.
 4. **Port shell checks (in progress).** `check_current_fixed_point`,
    `check_gc`, `check_driver`, `check_install`, and the library coverage
    scan are NPL functions in `(tools toolchain)` / `(tools libraries)`.
-   `check_full_compiler.sh`, `check_repl.sh`, and `check_relay_scripts.sh`
-   remain shell adapters because they still carry C-extension builds, SSA
-   text assertions, and process-group cancellation checks.
+   `check_repl.sh` is also now `(tools repl-suites)`: the NPL library owns
+   transcript checks, script mode, C-extension loading, contract errors, and
+   the no-cc import probe. Only `check_full_compiler.sh` (SSA text assertions
+   and C-extension probes) and `check_relay_scripts.sh` (process-group
+   cancellation over the bootstrap relay) remain shell adapters.
 5. **Compiler suite manifest (next).** Replace the `run_suite` lines and
    expected counts in `check_full_compiler.sh` with a Scheme manifest and an
    NPL runner; keep C-extension/SSA probes as typed adapters.
@@ -59,7 +61,7 @@ lists, and provide unit and property-test APIs that normal packages can use.
 
 ## Verification
 
-- `tools/check_full_compiler.sh`, `tools/check_repl.sh`, and the NPL gate
+- `tools/check_full_compiler.sh`, `(tools repl-suites)`, and the NPL gate
   pass.
 - `tools/run-tests.npl --skip-legacy` discovers all fixtures from
   `tests/fixtures/manifest.scm` and passes.

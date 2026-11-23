@@ -49,7 +49,7 @@ frozen recovery artifacts as current behavior.
 | Native link modes | `(tools link-modes)` | static/shared artifacts, dependencies, size and import footprint | `tools/run-tests.npl` |
 | Toolchain checks (NPL) | `(tools toolchain)` | current fixed point, GC, numeric oracle, driver, install, core consistency | `tools/run-tests.npl` |
 | Library test coverage | `(tools libraries)` | every exported name of the data libraries appears in a test | `tools/run-tests.npl` |
-| Toolchain checks (legacy) | `tools/check_*.sh` | REPL, full compiler, relay | shell adapters (remaining migration debt) |
+| Toolchain checks (legacy) | `tools/check_*.sh` | full compiler, relay | shell adapters (remaining migration debt) |
 | Frozen bootstrap | `bootstrap/stage0/tools/`, `bootstrap/tools/` | stage0, permanent bootstrap chain | separate script |
 
 `tests/fixtures/` now contains both R7RS cases and NPL extension cases
@@ -194,10 +194,10 @@ oracle, driver, install-layout, and core-consistency checks through
 `run-process*` and file assertions. They are normal NPL functions, not shell
 subprocesses.
 
-`check_repl.sh`, `check_full_compiler.sh`, and
-`check_relay_scripts.sh` are still shell adapters. They exercise `ar`,
-`file`, `sed`, container paths, and REPL transcripts that have not been
-ported yet; each is a candidate for the same `(tools toolchain)` API.
+`(tools repl-suites)` is the NPL REPL/script acceptance layer. The remaining
+shell adapters are `check_full_compiler.sh` (SSA text assertions and C
+extension probes) and `check_relay_scripts.sh` (process-group cancellation
+over the bootstrap relay); each is a candidate for the same NPL helper API.
 
 ## Compiler suites and contracts
 

@@ -16,8 +16,9 @@
   `bootstrap/compiler`, or `bootstrap/runtime`; those live under
   `bootstrap/stage0/tools/run.sh` and `bootstrap/tools/check_bootstrap.sh`.
   The library coverage scan is now `(tools libraries)`; the Python checker
-  is deleted. Shell adapters remain for the full compiler language suite,
-  REPL/script suites, relay orchestration, and the build/container wrappers.
+  is deleted. REPL/script acceptance is `(tools repl-suites)`; its shell
+  adapter is deleted. Shell adapters remain only for the full compiler
+  language suite, relay orchestration, and build/container wrappers.
   Compiler-suite manifest migration is the next testing increment.
 - Plan: `.agents/plans/testing-infrastructure.md`; docs:
   `docs/testing.md` and `docs/native-packages.md`.
