@@ -100,6 +100,13 @@ void npl_primitive_error(const char *who, const char *message,
     raise_error_object(make_error_object("error", who, message, irritant));
 }
 
+/* Raise an already constructed error record.  Core native packages use this
+ * to attach their own kind (for example "posix") to the standard layout. */
+void npl_raise_record(NplVal object)
+{
+    raise_error_object(object);
+}
+
 /* A syntax error from the datum reader: satisfies read-error?. The message
  * carries no "read:" prefix and the irritants are empty, as in the error
  * (scheme read) builds from read-result. */

@@ -66,13 +66,13 @@ file(GLOB_RECURSE NPLI_SOURCES CONFIGURE_DEPENDS
 add_custom_command(
   OUTPUT ${NPLI_BIN}
   DEPENDS ${NPLC_BIN} ${NPL_TREE_LINKS} ${NPLI_SOURCES} ${CMAKE_SOURCE_DIR}/tools/build_npli.sh
-          npl_time_shared
+          npl_time_shared npl_unix_shared
   COMMAND ${CMAKE_COMMAND} -E env NPL_SKIP_NPLC_BUILD=1
           bash ${CMAKE_SOURCE_DIR}/tools/build_npli.sh ${NPLI_BIN}
   COMMENT "npli: nplc src/repl/main.npl"
   VERBATIM)
 add_custom_target(npli ALL DEPENDS ${NPLI_BIN})
-add_dependencies(npli npl_time_shared)
+add_dependencies(npli npl_time_shared npl_unix_shared)
 
 install(PROGRAMS ${NPLC_BIN} ${NPLI_BIN} DESTINATION bin)
 install(PROGRAMS ${QBE_BIN} DESTINATION libexec/npl)

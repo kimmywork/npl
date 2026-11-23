@@ -686,6 +686,8 @@ NplVal npl_delete_directory(NplVal path);
 NplVal npl_executable_path(void);
 NplVal npl_try_open_file(NplVal path, NplVal kind); /* port or #f */
 NplVal npl_port_parameter(NplVal kind); /* current-*-port parameter */
+NplVal npl_port_fileno(NplVal port);
+NplVal npl_port_from_fd(int fd, int input, int output, int textual);
 NplVal npl_port_ready_p(NplVal port);     /* char-ready? (a whole character) */
 NplVal npl_byte_ready_p(NplVal port);     /* u8-ready? */
 NplVal npl_jiffies_per_second(void);
@@ -728,6 +730,7 @@ uintptr_t npl_gc_stack_bottom_internal(void);
 NplVal npl_box_bytes_internal(const char *bytes, uint32_t len,
                               uint32_t box_tag);
 const NplString *npl_require_bytes_internal(NplVal value, const char *who);
+char *npl_c_string_internal(const NplString *string);
 /* Strings (string.c). */
 NplVal npl_string_from_chars_internal(const uint32_t *chars, uint32_t length,
                                       uint32_t tag);
@@ -754,6 +757,7 @@ NplVal npl_char_case(NplVal character, NplVal kind);
 NplVal npl_char_full_case(NplVal character, NplVal kind);
 NplVal npl_string_full_case(NplVal string, NplVal kind);
 NplVal npl_little_endian_p(void);
+void npl_raise_record(NplVal object);
 NplVal npl_platform_feature(NplVal name);
 NplVal npl_platform_features(void);
 NplVal npl_platform_triple(void);

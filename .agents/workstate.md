@@ -63,6 +63,10 @@ M0a is implemented on `feature/0.1.3-ffi`:
   `sizeof`/`offsetof` probe, `make-c-struct`/`c-struct-ref`/`c-struct-set!`
   and `struct:name` typed stubs work. `timespec` and `tm` are the first
   descriptors; the rest of the POSIX catalog moves with P2.
+- P2-P4 SRFI 170 is implemented as the core `(npl unix)` / `(srfi 170)`
+  package: `libnpl_unix`, file metadata/directories/links, process state,
+  users/groups, environment, time, terminals, and fd ports. Tests:
+  `srfi-170` 30 and the nplc/npli `unix` fixture.
 - P1 SRFI 19 is complete: `(npl time)` / `(srfi 19)` provide time/date
   values, nanoseconds resolution, full formatting and parsing, Julian-day
   conversions, and TAI/monotonic aliases. The six time primitive rows are

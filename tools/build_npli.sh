@@ -50,7 +50,8 @@ esac
 # Core native packages are linked as shared objects: define-c-primitive
 # resolves their symbols through dlsym when a library is evaluated.
 "${NPL_CC:-${CC:-cc}}" -o "$OUTPUT" "$work/repl.o" \
-    -L"$NATIVE" -lnpl_time -Wl,-rpath,"$NATIVE" "${whole[@]}" -lm
+    -L"$NATIVE" -lnpl_time -lnpl_unix -Wl,-rpath,"$NATIVE" \
+    "${whole[@]}" -lm
 # The pre-rename binary is no longer produced or used.
 rm -f "$ROOT/build/bin/npl-repl"
 printf 'built npli: %s\n' "$OUTPUT"

@@ -54,6 +54,9 @@ behavior).
   `(npl platform)` exposes the target triple and feature list.
 - SRFI 19 completion: `string->date`, the full `date->string` directive
   set, Julian-day conversions, and TAI/monotonic aliases.
+- SRFI 170 POSIX as the core `(npl unix)` / `(srfi 170)` package: file
+  metadata and directories, links, process state, users/groups, environment,
+  time, terminals, and file-descriptor ports.
 - Forward references to value-defined procedures now compile: a procedure
   may call a global that is defined later with `(define name (lambda ...))`
   or `(define name (case-lambda ...))`, as R7RS library and program bodies

@@ -199,6 +199,35 @@ static NplVal open_file_port(NplVal path, const char *mode,
     return port;
 }
 
+/* File descriptor behind a port, or #f for memory ports.  Core native
+ * packages use this for isatty()/fd-level operations without reaching into
+ * the port layout. */
+NplVal npl_port_fileno(NplVal value)
+{
+    NplPort *port;
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PORT)
+        return npl_false();
+    port = (NplPort *)npl_header(value);
+    if (!port->stream) return npl_false();
+    return npl_fixnum((int64_t)fileno(port->stream));
+}
+
+/* Wrap an already open file descriptor as a port.  The port owns the
+ * descriptor.  input/output select the access mode; textual selects UTF-8
+ * text rather than binary. */
+NplVal npl_port_from_fd(int fd, int input, int output, int textual)
+{
+    const char *mode = output ? (input ? "r+" : "w") : "r";
+    uint32_t flags = NPL_PORT_OWNED |
+        (input ? NPL_PORT_INPUT : 0) | (output ? NPL_PORT_OUTPUT : 0) |
+        (textual ? NPL_PORT_TEXTUAL : NPL_PORT_BINARY);
+    FILE *stream = fdopen(fd, mode);
+    if (!stream)
+        npl_primitive_error("fd->port", "cannot wrap file descriptor",
+                            npl_fixnum(fd));
+    return make_port(stream, flags);
+}
+
 NplVal npl_current_input_port(void)
 {
     return npl_parameter_ref(g_current_input_port);

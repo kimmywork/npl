@@ -13,11 +13,11 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime npl_time npl_demo_crc32 >/dev/null
+ninja -C "$BUILD" qbe_build npl_runtime npl_time npl_unix npl_demo_crc32 >/dev/null
 
 build_ssa() {
     "$QBE" -o "$2.s" "$1"
-    cc -o "$2" "$2.s" "$NATIVE/libnpl_time.a" "$RUNTIME" -lm
+    cc -o "$2" "$2.s" "$NATIVE/libnpl_time.a" "$NATIVE/libnpl_unix.a" "$RUNTIME" -lm
 }
 
 emit() {
@@ -120,6 +120,7 @@ run_suite ffi-memory "PASS ffi-memory 42"
 run_suite runtime-hardening "PASS runtime-hardening 7"
 run_suite c-structs "PASS c-structs 7"
 run_suite srfi-19 "PASS srfi-19 30"
+run_suite srfi-170 "PASS srfi-170 30"
 run_suite platform "PASS platform 5"
 run_suite native-crc32 "PASS native-crc32 4"
 run_suite npl-lambda "PASS npl-lambda 9"

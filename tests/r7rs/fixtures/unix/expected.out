@@ -1,0 +1,8 @@
+(regular #t)
+(size 5)
+(symlink #t)
+(target #t)
+(missing ENOENT)
+(environment "yes")
+(user #t)
+(process #t)

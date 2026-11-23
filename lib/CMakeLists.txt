@@ -10,7 +10,7 @@
 set(NPL_NATIVE_DIR ${CMAKE_BINARY_DIR}/lib/npl/native)
 file(MAKE_DIRECTORY ${NPL_NATIVE_DIR})
 
-set(NPL_CORE_NATIVE_LIBS npl_time)
+set(NPL_CORE_NATIVE_LIBS npl_time npl_unix)
 
 add_library(npl_time_objects OBJECT
   ${CMAKE_CURRENT_SOURCE_DIR}/npl/time/native/time.c
@@ -30,6 +30,23 @@ if(APPLE)
   target_link_options(npl_time_shared PRIVATE -undefined dynamic_lookup)
 endif()
 
+add_library(npl_unix_objects OBJECT
+  ${CMAKE_CURRENT_SOURCE_DIR}/npl/unix/native/unix.c
+)
+target_include_directories(npl_unix_objects PRIVATE ${CMAKE_SOURCE_DIR}/runtime)
+set_target_properties(npl_unix_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+add_library(npl_unix STATIC $<TARGET_OBJECTS:npl_unix_objects>)
+add_library(npl_unix_shared SHARED $<TARGET_OBJECTS:npl_unix_objects>)
+set_target_properties(npl_unix PROPERTIES
+  ARCHIVE_OUTPUT_DIRECTORY ${NPL_NATIVE_DIR})
+set_target_properties(npl_unix_shared PROPERTIES
+  OUTPUT_NAME npl_unix
+  LIBRARY_OUTPUT_DIRECTORY ${NPL_NATIVE_DIR})
+if(APPLE)
+  target_link_options(npl_unix_shared PRIVATE -undefined dynamic_lookup)
+endif()
+
 # External sample: no runtime link, loaded with (npl native).
 add_library(npl_demo_crc32 MODULE
   ${CMAKE_CURRENT_SOURCE_DIR}/npl/demo/crc32/native/crc32.c
@@ -42,8 +59,8 @@ set_target_properties(npl_demo_crc32 PROPERTIES
 
 # nplc reads this beside libnpl_runtime.a and links every listed archive.
 file(WRITE ${NPL_NATIVE_DIR}/core.meta
-  "(core-native \"npl_time\")\n")
+  "(core-native \"npl_time\")\n(core-native \"npl_unix\")\n")
 
-install(TARGETS npl_time npl_time_shared npl_demo_crc32
+install(TARGETS npl_time npl_time_shared npl_unix npl_unix_shared npl_demo_crc32
   ARCHIVE DESTINATION lib/npl/native
   LIBRARY DESTINATION lib/npl/native)

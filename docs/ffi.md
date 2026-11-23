@@ -426,8 +426,8 @@ There are two deployment modes over one `NplVal` ABI:
 - **Core (linked, A).** CMake builds `libnpl_<name>.a` and a shared object.
   `nplc` links the archive automatically from `core.meta`; `npli` links the
   shared object with an rpath, so `define-c-primitive` resolves at expansion
-  time. The library does not pass `-l` flags. `(npl time)` is the first core
-  package.
+  time. The library does not pass `-l` flags. `(npl time)` and
+  `(npl unix)` are core packages.
 - **External (loaded, B).** The package build makes a shared object; the NPL
   library calls `ffi-load-library` and `ffi-procedure` (or the helpers in
   `(npl native)`) to bind exported functions at load time. No compiler,
