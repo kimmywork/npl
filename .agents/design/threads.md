@@ -78,6 +78,64 @@ later without changing user code.
 - Blocking primitives (`thread-sleep!`, mutex/condition waits) park the
   native thread; GC continues while it is parked.
 
+## T2b: Virtual Threads (JVM-Style)
+
+Append this after T2, before T3. NPL already has full multi-shot
+continuations, so virtual threads can reuse the CPS machinery, but the
+public virtual-thread scheduler must use a **restricted, one-shot** view.
+
+### NPL vs JVM continuations
+
+| Property | NPL `call/cc` | JVM `Continuation` |
+|---|---|---|
+| Representation | heap CPS closure from control conversion | copied stack frames |
+| Extent | unlimited; can resume after return | only while the continuation is mounted/yielded |
+| Shots | multi-shot; the same continuation can be invoked again | one-shot; resuming after completion is illegal |
+| Delimitation | undelimited | delimited by the virtual-thread mount |
+| Exposed as | first-class Scheme procedure | internal JVM object, not a Scheme value |
+| Dynamic state | wind/handler/parameter chains captured by the runtime | carrier/thread state managed by the scheduler |
+
+They are not the same primitive. NPL's is stronger (multi-shot), while the
+JVM's is a stackful, one-shot suspension token. A virtual-thread scheduler
+therefore adds a **scheduler continuation**:
+
+- one-shot: a second resume raises an error;
+- scoped to one virtual thread, never usable from another thread;
+- not exported as `call/cc`;
+- captures the virtual thread's dynamic-wind/handler/parameter chains, not
+  the carrier's;
+- resumes only at a scheduler safepoint.
+
+A user `call/cc` inside a virtual thread captures only that virtual thread's
+continuation up to the scheduler boundary. It must not capture carrier
+frames or leak a continuation that another virtual thread could resume.
+
+### Scheduler
+
+- M carrier pthreads run an N-way run queue of virtual threads.
+- `virtual-thread-yield!` captures the one-shot scheduler continuation and
+  returns to the carrier loop; another carrier can mount it later.
+- `thread-sleep!`, mutex waits, condition waits, and wrapped blocking I/O
+  yield the virtual thread instead of blocking the carrier.
+- The first version may run one virtual thread per carrier and add work
+  stealing after correctness.
+- Native SRFI 18 threads remain 1:1 and can coexist with virtual threads.
+
+### API
+
+A separate library, for example `(npl thread virtual)`, exports
+`virtual-thread?`, `make-virtual-thread`, `virtual-thread-start!`,
+`virtual-thread-yield!`, `virtual-thread-join!`, and
+`current-virtual-thread`. Do not change the SRFI 18 exports.
+
+### GC
+
+Suspended scheduler continuations are heap roots owned by their virtual
+thread record. When the substrate copies C stacks instead of using heap CPS
+closures, every suspended stack chunk must be scanned and registered like a
+running thread stack. Start with the CPS representation; only add stack
+copying if a continuation boundary cannot be expressed as CPS.
+
 ## T3 SRFI 230
 
 Atomics need runtime support regardless of scheduler: fixnum/cell
@@ -92,7 +150,8 @@ and the prompt/mark model are implemented.
 
 ## Later M:N Option
 
-If M:N is wanted after T2/T4:
+T2b is the M:N direction. The remaining work after T2b/T4 is scale and
+substrate tuning:
 
 - Add a run queue, carrier threads, work stealing, and a netpoller.
 - Make NPL thread stacks growable or copyable, and give the collector

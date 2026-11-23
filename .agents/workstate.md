@@ -65,8 +65,9 @@ M0a is implemented on `feature/0.1.3-ffi`:
   descriptors; the rest of the POSIX catalog moves with P2.
 - Thread direction is recorded in `.agents/design/threads.md`: a public NPL
   thread object and scheduler interface on a 1:1 pthread substrate first;
-  M:N green threads are a later scheduler, not part of SRFI 18. T1 is the
-  next runtime increment.
+  T2b then adds JVM-style virtual threads on a one-shot scheduler
+  continuation (NPL `call/cc` itself is multi-shot, not the JVM primitive).
+  T1 is the next runtime increment, then T2, T2b, T3, T4.
 - P2-P4 SRFI 170 is implemented as the core `(npl unix)` / `(srfi 170)`
   package: `libnpl_unix`, file metadata/directories/links, process state,
   users/groups, environment, time, terminals, and fd ports. Tests:
