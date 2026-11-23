@@ -50,9 +50,10 @@ M0a is implemented on `feature/0.1.3-ffi`:
 - M4 (lambda shorthand and library migration) is complete: `(npl lambda)`
   provides `λ`/`fn`, and `(npl data stream)` / `(srfi 41)` uses the
   reference procedural syntax-case `stream-match` matcher with fenders.
-- Native-package extraction is proposed in
-  `.agents/design/native-packages.md`: package-owned C + dynamic library
-  loaded through the FFI, with `(npl time)` as the first candidate.
+- Native-package extraction is accepted in
+  `.agents/design/native-packages.md`: core packages use linked mode (A),
+  external packages use loaded mode (B), both over one NplVal ABI. `(npl
+  time)` is the first core candidate; implementation is pending.
 - H1 runtime/reader hardening is implemented: record index bounds in both
   the inline and primitive paths, catchable rest-arity errors, linear lexer
   string accumulation, short-read detection, a P5 reader corpus, and the

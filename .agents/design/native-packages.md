@@ -1,6 +1,8 @@
 # Native Packages
 
-Status: proposal, 2026-11-23. Not yet an approved 0.1.3 increment.
+Status: accepted direction, 2026-11-23. Core packages use linked (A) mode;
+external packages use loaded (B) mode. Both share one NplVal ABI and one
+binding manifest. Not yet implemented.
 
 ## Problem
 
@@ -30,52 +32,70 @@ lib/npl/time/
 `(npl time)` remains the import name. C may use `npl.h` for layout and the
 F1/F2 helpers, but must not link a second `libnpl_runtime`.
 
-## Binding Models
+## Deployment Modes And Tiering
 
-### A. Linked native library
+A and B are two deployment modes of the same native package, not two C APIs.
+Both use the same exported `NplVal` entry points and the same binding list.
 
-`(npl time)` uses `define-c-primitive` / `define-c-function`; `nplc` links
-`-lnpl_time`, and `npli` loads the shared library with `-l`.
+| Tier | Mode | Who builds/loads it | Why |
+|---|---|---|---|
+| Core | A: linked | the toolchain build links `libnpl_<name>` into `nplc`/`npli`; the driver auto-links programs importing it | version lock with the runtime, predictable startup, common imports, no path ambiguity |
+| External | B: loaded | the package build produces the shared library; `(npl <name>)` resolves it through `npl_ffi_load_library` | optional/separate install, no toolchain relink, platform-specific packages |
 
-- Fast direct calls.
-- Needs driver/install support for per-package `-L`/`-l` flags and a manifest.
-- Keeps declarations in the `.sld`, but the symbols must be present at load.
+### Shared ABI
 
-### B. Runtime-loaded plugin (recommended for optional packages)
-
-The package exports a small NplVal ABI, e.g.
+A package exports NplVal functions, e.g.
 
 ```c
 NplVal npl_time_now(NplVal which, NplVal timespec_view);
 ```
 
-`(npl time)` loads `libnpl_time` with `npl_ffi_load_library` and binds each
-entry with `npl_ffi_procedure`. The functions take struct views as NplVal,
-use the generic struct-pointer helper, write into the supplied views, and
-return fixnums/status values. No compiler table or seed change is needed.
+`package.meta` (or the `.sld` native declaration) records the name, C symbol,
+arity, and result kind once. Core and external builds read the same record.
 
-- The library is discovered under `NPL_STDLIB_ROOT` / install prefix; a small
-  `(npl ffi)` path helper picks `.dylib` vs `.so`.
-- The C library must not link the runtime; it may use only `npl.h` inline
-  layout access and must not allocate unless it resolves the allocator from
-  the host.
-- Slightly slower (indirect call) and startup dlopen.
-- Best fit for third-party packages and for moving `time.c` out of core.
+### A. Core Linked Mode
 
-Use A for code that needs tight integration or static deployment; use B for
-the default package path.
+- `nplc` links `libnpl_<name>.a` (or the shared object) and emits direct
+  primitive calls; the native symbols need not be exported for `dlsym`.
+- `npli` links the same core libraries, so a core import works in the REPL.
+- The driver adds the link request when the library is loaded; the user does
+  not pass `-l` for core packages.
+- A core package may call `npl_*` runtime helpers, because it is part of the
+  same build and runtime version.
+
+### B. External Loaded Mode
+
+- `(npl <name>)` loads `libnpl_<name>` with `npl_ffi_load_library` and binds
+  each entry with `npl_ffi_procedure`.
+- The package C must not link a second runtime. It may use `npl.h` inline
+  layout access and caller-provided buffers; allocation and error raising go
+  through a small host callback table (or return status values to NPL).
+- The package path is resolved under `NPL_STDLIB_ROOT` / install prefix; the
+  loader picks `.dylib` vs `.so`.
+- Slightly slower indirect calls and startup dlopen are acceptable for
+  optional packages.
+
+### Boundary Rules
+
+- Core must not depend on external packages.
+- External packages import core behavior through NPL APIs, not by calling
+  core C symbols directly (the host need not export them).
+- One C source can produce both an archive for core and a shared object for
+  external use; the mode is metadata, not a source fork.
+- `NPL_NATIVE_MODE=linked|loaded` overrides the default for tests.
 
 ## Suggested First Migration: Time
 
 1. Move the wrappers from `runtime/clock.c` to `lib/npl/time/native/time.c`
    (`npl_time_now`, `resolution`, `gmtime`, `localtime`, `mktime`,
    `timegm`), keeping NplVal arguments and struct-view extraction.
-2. Build `libnpl_time` and install it beside the time library.
-3. Replace the six primitive-table rows with `npl_ffi_load_library` plus
-   `npl_ffi_procedure` bindings in `(npl time)`.
+2. Mark the package `tier=core`; build `libnpl_time.a` and the shared object.
+3. The toolchain links the core archive into `nplc`/`npli`; the `.sld` uses
+   the shared binding metadata, and the six primitive-table rows disappear.
 4. Keep `define-c-struct` for `timespec`/`tm`; the probe already compiles a
    tiny C program and needs no runtime change.
-5. Verify the `time` fixture on nplc/npli without `-l` flags.
+5. Verify the `time` fixture on nplc/npli without user `-l` flags, then test
+   the same library in loaded mode with `NPL_NATIVE_MODE=loaded`.
 
 ## Core Boundary
 
