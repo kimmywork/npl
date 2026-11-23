@@ -154,17 +154,115 @@ Move out:
 - Constants expressed only for one library.
 - Formatting/parsing policy that can live in NPL.
 
-## Open Questions
+## Platform Features
 
-- Error raising from a plugin that must not call the runtime: return status
-  values and let NPL raise, or export a runtime error callback.
-- GC safety for plugins that allocate: require an explicit allocator hook or
-  forbid allocation and pass caller-owned buffers.
-- Build/install manifest: `package.meta` fields for C sources, system libs,
-  include dirs, and shared-library name.
-- Cross-compilation: a package's C must match the target, unlike the current
-  host-side `define-c-struct` probe.
-- Windows naming and loader differences are out of scope for 0.1.3.
+NPL already has `cond-expand` as a library declaration and as an expression,
+and `(features)` returns a symbol list. The current list is generic: `r7rs`,
+`npl`, `full-unicode`, `ratios`, `exact-closed`, `exact-complex`,
+`ieee-float`, `posix`, `unix`, the SRFI features, and endianness. It does not
+expose the OS, architecture, or a target triple.
+
+Proposed additions (same vocabulary for `cond-expand`, `(features)`, and
+`package.meta`):
+
+- OS: `darwin`, `linux` (keep `posix`/`unix`)
+- architecture: `aarch64`, `x86_64` (optionally `arm64`/`amd64` aliases)
+- width: `64-bit`
+- endianness: existing `little-endian` / `big-endian`
+- `(npl platform)` library: `platform-triple` and `platform-features`
+- triple examples: `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`
+
+`cond-expand` becomes:
+
+```scheme
+(cond-expand
+  ((and darwin aarch64) ...)
+  (linux ...)
+  (else ...))
+```
+
+Centralize the list in one primitive (for example
+`npl_platform_features`) so `(features)` and the frontend's feature predicate
+cannot drift. The triple is for diagnostics and build metadata; `cond-expand`
+should use feature symbols, not string parsing. C code keeps `#ifdef`;
+`package.meta` uses the same platform symbols.
+
+Cross-compilation caveat: the triple must describe the target, not the build
+host. Today `nplc` is a native compiler, so the two coincide; a future
+`--target` option must feed both the triple and the feature list.
+
+## GC And Error Handling
+
+### GC
+
+- B packages should be allocation-free first: read NplVal bytevectors/views,
+  write into caller-provided buffers, return immediates or status codes, and
+  let NPL construct strings/lists/records.
+- Never store an `NplVal` in C globals or foreign memory. If a B package
+  must allocate or retain values, the host passes a small callback table
+  (`alloc`, `cons`, `string`, `gc-root`, `gc-unroot`); do not link a second
+  runtime.
+- Core A packages may use runtime allocation and GC helpers, but must follow
+  the normal root/write-barrier rules and should still avoid hidden global
+  state.
+- Opaque handles are explicit resources: return a pointer, release with a
+  package function, and use `with-resource`. There are no implicit
+  finalizers.
+
+### Errors
+
+- B package C returns status codes (0 success, negative errno-like values)
+  and writes results through caller-provided views/buffers; the NPL wrapper
+  raises `error` or `file-error` with package/symbol context.
+- Do not call `npl_primitive_error` from a B package; the symbol need not be
+  exported by the host.
+- Loader failures (missing library, missing symbol, wrong ABI version) raise
+  at import time with the package name, path, and symbol.
+- Validate lengths, null pointers, alignment, and arithmetic overflow in C
+  before touching memory. Do not `longjmp` across the FFI boundary or invoke
+  NPL callbacks in the first iteration.
+- Core A packages may raise directly, but package APIs should use the same
+  status convention so A and B behavior stays identical.
+
+## Provisional `package.meta`
+
+Use one Scheme datum so the NPL reader can parse it and build tools can read
+the same file. Draft:
+
+```scheme
+(package
+  (name npl-demo-crc32)
+  (library (npl demo crc32))
+  (tier external)                 ; core | external
+  (version "0.1.0")
+  (abi-version 1)
+  (abi nplval)
+  (native
+    (sources ("native/common.c")
+             ("native/darwin.c" (platform darwin))
+             ("native/linux.c" (platform linux)))
+    (headers "native")
+    (include-dirs)
+    (system-libraries ((darwin "z") (linux "z")))
+    (shared-name "npl_demo_crc32")
+    (static-name "npl_demo_crc32")
+    (bindings
+      (crc32 "npl_demo_crc32" 1)))
+  (platforms (or darwin linux))
+  (dependencies ()))
+```
+
+- `tier=core` lets the driver auto-link the static/shared name; `external`
+  makes the loader bind the shared name.
+- `sources` entries may carry a `(platform feature-requirement)` condition.
+- `bindings` maps the NPL name, C symbol, and arity; both modes read it.
+- `system-libraries` is conditional so one manifest covers macOS and Linux.
+- The format is provisional; keep unknown keys ignored and version it with
+  `abi-version`.
+
+Remaining open questions: Windows loader/naming, callback table shape,
+target-vs-host triple plumbing, and how a manifest declares non-CMake build
+steps.
 
 ## Test Plan
 
