@@ -39,7 +39,7 @@ lists, and provide unit and property-test APIs that normal packages can use.
    `tools/run-tests.npl`, `tests/fixtures/manifest.scm`; fixture directories
    moved from `tests/r7rs/fixtures` to `tests/fixtures`.
 4. **Port shell checks (in progress).** `check_current_fixed_point` and
-   `check_gc` are NPL functions in `(npl test toolchain)`. `check_driver`,
+   `check_gc` are NPL functions in `(tools toolchain)`. `check_driver`,
    `check_install`, `check_repl`, and the compiler acceptance script remain
    shell adapters.
 5. **Compiler suite manifest (next).** Replace the `run_suite` lines and

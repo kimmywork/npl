@@ -43,10 +43,10 @@ frozen recovery artifacts as current behavior.
 | Framework self-tests | `tests/unit/` | `(npl test)` behavior | `(npl test)` |
 | Expect fixtures | `tests/fixtures/` | identical observable result on native, npli, and Guile | `(npl test expect)` |
 | Property tests | `tests/property/` | deterministic generated inputs | `(npl test property)` |
-| Numeric oracle | `tests/numeric/` | exact numeric substrate against Guile | `check_numeric_reference.sh` |
+| Numeric oracle | `tests/numeric/` | exact numeric substrate against Guile | `(tools toolchain)` |
 | Upstream suite | `tests/chibi/` | independent chibi R7RS suite | `run_chibi_suite.sh` |
-| Toolchain checks (NPL) | `(npl test toolchain)` | current fixed point, GC stress | `tools/run-tests.npl` |
-| Toolchain checks (legacy) | `tools/check_*.sh` | driver, install, relay, numeric | shell adapters |
+| Toolchain checks (NPL) | `(tools toolchain)` | current fixed point, GC stress | `tools/run-tests.npl` |
+| Toolchain checks (legacy) | `tools/check_*.sh` | driver, install, relay | shell adapters |
 | Frozen bootstrap | `bootstrap/stage0/tools/`, `bootstrap/tools/` | stage0, permanent bootstrap chain | separate script |
 
 `tests/fixtures/` now contains both R7RS cases and NPL extension cases
@@ -167,14 +167,14 @@ Fixtures outside the gate (`core-bindings`, `smoke`, `integer-io`,
 
 ## Toolchain checks in NPL
 
-`(npl test toolchain)` runs the current fixed-point relay and the GC stress
+`(tools toolchain)` runs the current fixed-point relay and the GC stress
 program directly through `run-process*`, compares SSA files, and checks the
 GC output. They are normal NPL functions, not shell subprocesses.
 
 `check_driver.sh`, `check_install.sh`, `check_repl.sh`, and
-`check_numeric_reference.sh` are still shell adapters. They exercise `ar`,
+`check_relay_scripts.sh` are still shell adapters. They exercise `ar`,
 `file`, `sed`, container paths, and REPL transcripts that have not been
-ported yet; each is a candidate for the same `(npl test toolchain)` API.
+ported yet; each is a candidate for the same `(tools toolchain)` API.
 
 ## Compiler suites and contracts
 
@@ -206,7 +206,7 @@ The installed seed line count and SHA-256 are recorded in
 |---|---|
 | `lib/**` only | `tools/run_tests.sh --skip-current-fixed-point`; add/extend a unit, property, or expect test |
 | `src/compiler/**` | as above plus `tools/update_current_ssa.sh` (two-step if codegen changed) |
-| `runtime/**` | as above plus `tools/check_gc.sh`; ABI changes need a relay |
+| `runtime/**` | as above plus the `runtime GC` suite in `(tools toolchain)`; ABI changes need a relay |
 | `tools/**` | the affected check plus `tools/check_relay_scripts.sh` |
 | documentation only | every `](…)` target under `docs/` and `.agents/` exists |
 

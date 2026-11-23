@@ -12,7 +12,7 @@
         (npl platform)
         (npl unix)
         (npl test expect)
-        (npl test toolchain))
+        (tools toolchain))
 
 (define ROOT (current-directory))
 ; Guile encodes non-ASCII output according to the locale; keep the gate
@@ -177,10 +177,10 @@
   (run-script "unified nplc driver" "tools/check_driver.sh")
   (run-script "install layout" "tools/check_install.sh")
   (run-script "npli REPL and scripts" "tools/check_repl.sh")
-  (run-script "core semantic consistency" "tools/check_core_consistency.sh")
+  (report "core semantic consistency" (check-core-consistency ROOT))
   (run-script "relay orchestration" "tools/check_relay_scripts.sh")
   (report "runtime GC" (check-gc ROOT))
-  (run-script "exact numeric substrate" "tools/check_numeric_reference.sh"))
+  (report "exact numeric substrate" (check-numeric-reference ROOT)))
 
 (define (main)
   (let ((arguments (cdr (command-line))))
