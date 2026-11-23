@@ -15,9 +15,10 @@
 - The main NPL gate no longer runs stage0, `bootstrap/bootstrap.ssa`,
   `bootstrap/compiler`, or `bootstrap/runtime`; those live under
   `bootstrap/stage0/tools/run.sh` and `bootstrap/tools/check_bootstrap.sh`.
-  Shell scripts remain as legacy adapters for driver, install, GC, and relay
-  checks. Compiler-suite manifest
-  migration is the next testing increment.
+  The library coverage scan is now `(tools libraries)`; the Python checker
+  is deleted. Shell adapters remain for the full compiler language suite,
+  REPL/script suites, relay orchestration, and the build/container wrappers.
+  Compiler-suite manifest migration is the next testing increment.
 - Plan: `.agents/plans/testing-infrastructure.md`; docs:
   `docs/testing.md` and `docs/native-packages.md`.
 
@@ -104,8 +105,10 @@ M0a is implemented on `feature/0.1.3-ffi`:
   gone; the C entry points are in `lib/npl/time/native/time.c`.
 - F1 C memory core is implemented: `foreign-alloc`/`foreign-free`/
   `foreign-size`/`foreign-copy`, typed `pointer-ref`/`pointer-set!` and
-  views, `c-array`, and `with-resource` release tests. `ffi-memory` has 62
-  tests and an nplc/npli fixture.
+  views, `c-array`, and `with-resource` release tests. Every foreign
+  allocation has a GC-managed `FfiBlock` shared with its views, so liveness
+  is O(1) and an address reused by malloc cannot revive an old view.
+  `ffi-memory` has 84 tests and an nplc/npli fixture.
 - Deferred: full syntax-object mark histories and multi-arrow `λ` currying.
 - Native link modes are implemented (`.agents/design/link-modes.md`):
   artifact form (static/shared) is orthogonal to tier and consumption mode.
@@ -483,10 +486,10 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 341,494 lines; SHA-256
-  `2ffda681405b925ea15c4624a96b983435aa0c388a469392c87f790dc7adb824`
-  (strict relay, 2026-11-24, static/shared link modes, shared runtime, and
-  dynamic data slots). The seed calls
+- `bootstrap/current.ssa`: 341,544 lines; SHA-256
+  `0c44ba696b3b8b5e6a6ac5a696b56ad3af532fff2d376a388cd1889225af7b32`
+  (strict relay, 2026-11-24, static/shared link modes, shared runtime,
+  dynamic data slots, and typed struct arguments). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

@@ -128,9 +128,9 @@ run_suite srfi-46 "PASS srfi-46 5"
 run_suite srfi-149 "PASS srfi-149 5"
 run_suite syntax-case "PASS syntax-case 4"
 run_suite syntax-case-procedural "PASS syntax-case-procedural 20"
-run_suite ffi-memory "PASS ffi-memory 62"
-run_suite runtime-hardening "PASS runtime-hardening 7"
-run_suite c-structs "PASS c-structs 8"
+run_suite ffi-memory "PASS ffi-memory 84"
+run_suite runtime-hardening "PASS runtime-hardening 10"
+run_suite c-structs "PASS c-structs 13"
 # R6: importing core native packages reads the build-time layout cache and
 # never runs a C compiler.
 printf '(import (scheme base) (npl time) (npl unix))\n(define now (current-time))\n' \
@@ -138,8 +138,8 @@ printf '(import (scheme base) (npl time) (npl unix))\n(define now (current-time)
 NPL_C_STRUCT_LAYOUTS="$NATIVE/c-struct-layouts.meta" NPL_CC=/usr/bin/false \
     "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
     "$WORK/cache-import.npl" > "$WORK/cache-import.ssa"
-run_suite srfi-19 "PASS srfi-19 36"
-run_suite srfi-170 "PASS srfi-170 95"
+run_suite srfi-19 "PASS srfi-19 52"
+run_suite srfi-170 "PASS srfi-170 112"
 run_suite platform "PASS platform 5"
 run_suite native-crc32 "PASS native-crc32 4"
 if [ -f "$NATIVE/libnpl_demo_zlib.so" ] || \
@@ -173,7 +173,7 @@ run_suite standard-io "PASS standard-io 6"
 run_suite binary-io "PASS binary-io 15"
 run_suite string-io "PASS string-io 12"
 run_suite first-wave-libraries "PASS first-wave-libraries 16"
-run_suite process "PASS process 9"
+run_suite process "PASS process 15"
 run_suite error-objects "PASS error-objects 6"
 run_suite primitive-errors "PASS primitive-errors 37"
 run_suite runtime-errors "PASS runtime-errors 14"
@@ -408,6 +408,16 @@ cmp "$EXTENSION/values.out" "$WORK/values.out"
 # define-c-function: stubs from --emit=c-stubs, linked with plain C code.
 "$WORK/compiler" --emit=c-stubs --stdlib-root "$ROOT/lib" "$EXTENSION/typed.npl" \
     > "$WORK/typed-stubs.c"
+awk 'BEGIN { feature = 0; include = 0 }
+     /^#define _GNU_SOURCE$/ { feature = NR }
+     /^#include/ && include == 0 { include = NR }
+     END { exit !(feature != 0 && include != 0 && feature < include) }' \
+    "$WORK/typed-stubs.c"
+if grep -E '#include <(time|sys/stat|dirent|pwd|grp|sys/utsname|sys/resource)\.h>' \
+        "$WORK/typed-stubs.c" >/dev/null; then
+    echo "C stub includes a POSIX header" >&2
+    exit 1
+fi
 cc -std=c99 -Wall -Wextra -Wpedantic -Werror -I "$ROOT/runtime" -c \
     -o "$WORK/typed-stubs.o" "$WORK/typed-stubs.c"
 cc -std=c99 -Wall -Wextra -Werror -c -o "$WORK/typed.o" "$EXTENSION/typed.c"
@@ -522,6 +532,10 @@ reject_compile contracts/library-duplicate.npl \
     library-duplicate "duplicate library"
 reject_compile contracts/library-unimported-standard.npl \
     library-unimported-standard "unbound identifier: display"
+reject_compile contracts/c-struct-type.npl \
+    c-struct-type "define-c-struct: unknown field type: nope"
+reject_compile contracts/c-struct-probe.npl \
+    c-struct-probe "C probe compilation failed"
 reject_compile contracts/c-primitive-nested.npl \
     c-primitive-nested "define-c-primitive is valid at top level only"
 reject_compile contracts/c-primitive-type.npl \
@@ -627,7 +641,6 @@ reject_reader backslash-identifier "bad character byte 92"
 reject_compile contracts/duplicate-definition.npl \
     duplicate-definition "duplicate top-level definition"
 
-python3 "$ROOT/tools/check_library_test_coverage.py"
 
 echo "full compiler dynamic core: PASS"
 echo "full compiler reader/datum: PASS"

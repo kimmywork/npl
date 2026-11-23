@@ -1,0 +1,2 @@
+(import (scheme base) (npl ffi))
+(define-c-struct bad "struct npl_no_such_type" (field int))

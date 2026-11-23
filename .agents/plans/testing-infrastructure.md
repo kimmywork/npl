@@ -38,10 +38,12 @@ lists, and provide unit and property-test APIs that normal packages can use.
    `lib/npl/test/expect.sld`, `tools/expect-runner.npl`,
    `tools/run-tests.npl`, `tests/fixtures/manifest.scm`; fixture directories
    moved from `tests/r7rs/fixtures` to `tests/fixtures`.
-4. **Port shell checks (in progress).** `check_current_fixed_point` and
-   `check_gc` are NPL functions in `(tools toolchain)`. `check_driver`,
-   `check_install`, `check_repl`, and the compiler acceptance script remain
-   shell adapters.
+4. **Port shell checks (in progress).** `check_current_fixed_point`,
+   `check_gc`, `check_driver`, `check_install`, and the library coverage
+   scan are NPL functions in `(tools toolchain)` / `(tools libraries)`.
+   `check_full_compiler.sh`, `check_repl.sh`, and `check_relay_scripts.sh`
+   remain shell adapters because they still carry C-extension builds, SSA
+   text assertions, and process-group cancellation checks.
 5. **Compiler suite manifest (next).** Replace the `run_suite` lines and
    expected counts in `check_full_compiler.sh` with a Scheme manifest and an
    NPL runner; keep C-extension/SSA probes as typed adapters.

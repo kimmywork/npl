@@ -264,17 +264,30 @@
         (make-time-record type (+ second carry) rest)))
 
     (define (time-difference left right)
+      (if (not (if (time? left) (time? right) #f))
+          (error "time-difference: expected two times" left right))
+      (if (not (eq? (time-type left) (time-type right)))
+          (error "time-difference: time types differ"
+                 (time-type left) (time-type right)))
       (normalize-time 'time-duration
                       (- (time-second left) (time-second right))
                       (- (time-nanosecond left) (time-nanosecond right))))
 
     (define (add-duration time duration)
-      (normalize-time (if (time? time) (time-type time) 'time-utc)
+      (if (not (time? time))
+          (error "add-duration: expected a time" time))
+      (if (not (time-duration? duration))
+          (error "add-duration: expected a duration" duration))
+      (normalize-time (time-type time)
                       (+ (time-second time) (time-second duration))
                       (+ (time-nanosecond time) (time-nanosecond duration))))
 
     (define (subtract-duration time duration)
-      (normalize-time (if (time? time) (time-type time) 'time-utc)
+      (if (not (time? time))
+          (error "subtract-duration: expected a time" time))
+      (if (not (time-duration? duration))
+          (error "subtract-duration: expected a duration" duration))
+      (normalize-time (time-type time)
                       (- (time-second time) (time-second duration))
                       (- (time-nanosecond time) (time-nanosecond duration))))
 

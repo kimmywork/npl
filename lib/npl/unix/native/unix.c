@@ -363,6 +363,15 @@ NplVal npl_unix_rename_file(NplVal old_path, NplVal new_path)
     return unix_fixnum_result("rename-file", status, code, old_path);
 }
 
+NplVal npl_unix_delete_directory(NplVal path)
+{
+    char *name = unix_path(path, "delete-directory");
+    int status = rmdir(name);
+    int code = errno;
+    free(name);
+    return unix_fixnum_result("delete-directory", status, code, path);
+}
+
 NplVal npl_unix_set_file_owner(NplVal path, NplVal uid, NplVal gid)
 {
     char *name = unix_path(path, "set-file-owner");

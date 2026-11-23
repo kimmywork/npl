@@ -13,7 +13,7 @@
           (scheme write)
           (only (npl internal primitive) read-file)
           (npl process)
-          (npl unix))
+          (except (npl unix) delete-directory))
   (begin
     (define (join-path directory name)
       (if (if (= (string-length directory) 0)

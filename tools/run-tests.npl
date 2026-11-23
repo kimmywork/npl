@@ -10,7 +10,7 @@
         (only (npl internal primitive) read-file)
         (npl process)
         (npl platform)
-        (npl unix)
+        (except (npl unix) delete-directory)
         (npl test expect)
         (tools libraries)
         (tools link-modes)
@@ -176,6 +176,7 @@
       (report "current compiler fixed point"
               (check-current-fixed-point ROOT)))
   (report "library metadata" (check-libraries ROOT))
+  (report "library test coverage" (check-library-test-coverage ROOT))
   (report "native link modes" (check-link-modes ROOT NPLC))
   (run-script "full compiler language" "tools/check_full_compiler.sh")
   (report "unified nplc driver" (check-driver ROOT))

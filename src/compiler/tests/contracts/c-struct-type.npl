@@ -1,0 +1,2 @@
+(import (scheme base) (npl ffi))
+(define-c-struct bad "struct timespec" (tv_sec nope))

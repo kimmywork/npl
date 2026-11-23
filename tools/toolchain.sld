@@ -11,7 +11,7 @@
           (scheme process-context)
           (scheme write)
           (npl process)
-          (npl unix)
+          (except (npl unix) delete-directory)
           (npl test expect))
   (begin
     (define (string-contains? text needle)
@@ -446,6 +446,8 @@
                           (path-join prefix "bin/npli")
                           (path-join prefix "libexec/npl/qbe")
                           (path-join prefix "lib/npl/libnpl_runtime.a")
+                          (path-join prefix "lib/npl/native/native.meta")
+                          (path-join prefix "lib/npl/native/c-struct-layouts.meta")
                           (path-join prefix "share/npl/lib/scheme/base.sld")
                           (path-join prefix "share/npl/lib/npl/internal/frontend.sld")
                           (path-join prefix "share/npl/src/compiler/main.npl")

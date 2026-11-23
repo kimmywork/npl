@@ -1,7 +1,7 @@
 (import (scheme base)
         (scheme write)
         (scheme file)
-        (only (npl process) make-temporary-directory delete-directory)
+        (only (npl process) make-temporary-directory)
         (npl time)
         (npl unix))
 (include "behavior.scm")

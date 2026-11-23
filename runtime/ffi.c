@@ -34,6 +34,7 @@ NplVal npl_pointer(void *address)
     pointer->offset = 0;
     pointer->sized = 0;
     pointer->owned = 0;
+    pointer->block = npl_nil();
     return (NplVal)(uintptr_t)pointer | TAG_PTR;
 }
 
@@ -240,16 +241,46 @@ NplVal npl_ffi_from_pointer(void *address)
     return npl_pointer(address);
 }
 
-void *npl_ffi_struct_pointer(NplVal value, const char *who)
+static int ffi_pair_p(NplVal value)
 {
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_PAIR;
+}
+
+static int ffi_string_is(NplVal value, const char *text)
+{
+    return npl_string_equal(value, npl_string(text, (uint32_t)strlen(text)));
+}
+
+static NplVal ffi_assq(NplVal key, NplVal list)
+{
+    while (ffi_pair_p(list)) {
+        NplVal entry = npl_car(list);
+        if (ffi_pair_p(entry) && npl_car(entry) == key) return entry;
+        list = npl_cdr(list);
+    }
+    return npl_false();
+}
+
+/* A struct argument must be a matching define-c-struct view.  Checking the
+ * descriptor type and the record length keeps an ordinary record or another
+ * struct type from being treated as a C pointer. */
+void *npl_ffi_struct_pointer(NplVal value, const char *expected,
+                             const char *who)
+{
+    NplVector *record;
+    NplVal descriptor;
+    NplVal type_entry;
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_RECORD)
         npl_primitive_error(who, "expected a C struct view", value);
-    {
-        NplVector *record = (NplVector *)npl_header(value);
-        if (record->length < 3)
-            npl_primitive_error(who, "expected a C struct view", value);
-        return npl_pointer_address(record->data[1], who);
-    }
+    record = (NplVector *)npl_header(value);
+    if (record->length < 3)
+        npl_primitive_error(who, "expected a C struct view", value);
+    descriptor = record->data[2];
+    type_entry = ffi_assq(npl_symbol("c-type", 6), descriptor);
+    if (npl_is_false(type_entry) || !ffi_pair_p(type_entry) ||
+        !ffi_string_is(npl_cdr(type_entry), expected))
+        npl_primitive_error(who, "C struct view has the wrong type", value);
+    return npl_pointer_address(record->data[1], who);
 }
 
 NplVal npl_ffi_unspecified(void)

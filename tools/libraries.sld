@@ -5,7 +5,7 @@
 ; an export is valid when it is defined once locally or resolves through an
 ; import (including C/primitive roots).
 (define-library (tools libraries)
-  (export check-libraries)
+  (export check-libraries check-library-test-coverage)
   (import (scheme base)
           (scheme read)
           (scheme file)
@@ -558,5 +558,98 @@
             (display " findings)")
             (newline)
             #f)))
+    ; ---- library test coverage ------------------------------------------
+    (define (coverage-libraries)
+      '(("lib/npl/comparator.sld" "src/compiler/tests/srfi-128.npl")
+        ("lib/npl/data/set.sld" "src/compiler/tests/srfi-113.npl")
+        ("lib/npl/data/bag.sld" "src/compiler/tests/srfi-113.npl")
+        ("lib/npl/sort.sld" "src/compiler/tests/srfi-132.npl")
+        ("lib/npl/data/collection.sld" "src/compiler/tests/srfi-44.npl"
+         "src/compiler/tests/srfi-44-surface.npl")
+        ("lib/npl/data/map.sld" "src/compiler/tests/srfi-146.npl"
+         "src/compiler/tests/srfi-146-surface.npl")
+        ("lib/npl/data/bitvector.sld" "src/compiler/tests/srfi-178.npl"
+         "src/compiler/tests/srfi-178-surface.npl")))
+
+    (define (coverage-export-name entry)
+      (name-string
+        (if (pair? entry)
+            (if (eq? (car entry) 'rename)
+                (car (cdr entry))
+                entry)
+            entry)))
+
+    (define (coverage-exports path)
+      (map coverage-export-name (car (parse-library path))))
+
+    (define (coverage-name-parts name)
+      (let loop ((start 0) (index 0) (out '()))
+        (cond
+          ((= index (string-length name))
+           (reverse (cons (substring name start index) out)))
+          ((char=? (string-ref name index) #\:)
+           (loop (+ index 1) (+ index 1)
+                 (cons (substring name start index) out)))
+          (else (loop start (+ index 1) out)))))
+
+    (define (symbols-in value acc)
+      (cond
+        ((symbol? value)
+         (append (coverage-name-parts (symbol->string value)) acc))
+        ((pair? value)
+         (symbols-in (car value) (symbols-in (cdr value) acc)))
+        ((vector? value)
+         (let loop ((index 0) (out acc))
+           (if (= index (vector-length value))
+               out
+               (loop (+ index 1)
+                     (symbols-in (vector-ref value index) out)))))
+        (else acc)))
+
+    (define (coverage-test-symbols paths)
+      (let loop ((rest paths) (out '()))
+        (if (null? rest)
+            out
+            (let ((forms (read-forms (car rest))))
+              (loop (cdr rest) (symbols-in forms out))))))
+
+    (define (coverage-missing names symbols)
+      (let loop ((rest names) (out '()))
+        (if (null? rest)
+            (reverse out)
+            (loop (cdr rest)
+                  (if (member (car rest) symbols)
+                      out
+                      (cons (car rest) out))))))
+
+    (define (check-library-test-coverage root)
+      (let loop ((rest (coverage-libraries)) (failed #f))
+        (if (null? rest)
+            (if failed
+                #f
+                (begin
+                  (display "library test coverage: PASS")
+                  (newline)
+                  #t))
+            (let* ((entry (car rest))
+                   (path (car entry))
+                   (tests (cdr entry))
+                   (names (coverage-exports path))
+                   (symbols (coverage-test-symbols tests))
+                   (missing (coverage-missing names symbols)))
+              (if (null? missing)
+                  (loop (cdr rest) failed)
+                  (begin
+                    (display path)
+                    (display ": ")
+                    (display (length missing))
+                    (display " exported names not mentioned in tests")
+                    (newline)
+                    (display "  ")
+                    (for-each (lambda (name) (display name) (display " "))
+                              missing)
+                    (newline)
+                    (loop (cdr rest) #t)))))))
+
 ))
 

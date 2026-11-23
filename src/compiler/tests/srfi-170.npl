@@ -21,6 +21,13 @@
     (thunk)
     #f))
 
+(define (error-name thunk)
+  (guard (condition
+          ((posix-error? condition) (posix-error-name condition))
+          (else 'not-posix))
+    (thunk)
+    'no-error))
+
 (define (main)
   (let* ((root (make-temporary-directory))
          (file (string-append root "/file.txt"))
@@ -161,6 +168,50 @@
                            (let ((first (generator)))
                              (string? first))))
                        #t)
+        (write-test-file (string-append root "/.hidden") "hidden")
+        (test-identity "directory dotfiles"
+                       (lambda ()
+                         (if (member ".hidden" (directory-files root #t))
+                             #t #f))
+                       #t)
+        (test-identity "directory handle eof"
+                       (lambda ()
+                         (let ((handle (open-directory root)))
+                           (let loop ((item (read-directory handle)))
+                             (if (eof-object? item)
+                                 (let ((again (read-directory handle)))
+                                   (close-directory handle)
+                                   (eof-object? again))
+                                 (loop (read-directory handle))))))
+                       #t)
+        (test-identity "directory read after close raises"
+                       (lambda ()
+                         (let ((handle (open-directory root)))
+                           (close-directory handle)
+                           (raises? (lambda () (read-directory handle)))))
+                       #t)
+        (test-identity "directory double close raises"
+                       (lambda ()
+                         (let ((handle (open-directory root)))
+                           (close-directory handle)
+                           (raises? (lambda () (close-directory handle)))))
+                       #t)
+        (test-equal "directory create EEXIST"
+                    (lambda () (error-name (lambda () (create-directory root))))
+                    'EEXIST)
+        (test-equal "directory ENOTDIR"
+                    (lambda ()
+                      (error-name (lambda ()
+                                    (file-info (string-append renamed "/child") #t))))
+                    'ENOTDIR)
+        (let ((nonempty (string-append root "/nonempty")))
+          (create-directory nonempty #o755)
+          (write-test-file (string-append nonempty "/child") "x")
+          (test-equal "directory ENOTEMPTY"
+                      (lambda () (error-name (lambda () (delete-directory nonempty))))
+                      'ENOTEMPTY)
+          (delete-file (string-append nonempty "/child"))
+          (delete-directory nonempty))
         (test-identity "truncate-file on a port"
                        (lambda ()
                          (let ((port (open-file (string-append root "/io.txt")
@@ -384,6 +435,58 @@
           (delete-file temporary))
         (test-identity "temp-file-prefix"
                        (lambda () (string? (temp-file-prefix)))
+                       #t)
+        (test-identity "temp file in missing directory raises"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (create-temp-file
+                                      (string-append root "/missing/prefix")))))
+                       #t)
+        (let ((first (create-temp-file))
+              (second (create-temp-file)))
+          (test-identity "temp files differ"
+                         (lambda () (not (string=? first second)))
+                         #t)
+          (delete-file first)
+          (delete-file second))
+        (test-identity "environment overwrite"
+                       (lambda ()
+                         (set-environment-variable! "NPL_TEST_VARIABLE" "one")
+                         (set-environment-variable! "NPL_TEST_VARIABLE" "two")
+                         (equal? (get-environment-variable "NPL_TEST_VARIABLE")
+                                 "two"))
+                       #t)
+        (test-identity "environment delete missing"
+                       (lambda ()
+                         (delete-environment-variable! "NPL_TEST_MISSING")
+                         (get-environment-variable "NPL_TEST_MISSING"))
+                       #f)
+        (test-equal "environment name with equals"
+                    (lambda ()
+                      (error-name
+                        (lambda () (set-environment-variable! "NPL=BAD" "x"))))
+                    'EINVAL)
+        (test-equal "glob with no match"
+                    (lambda () (glob (string-append root "/no-such-*")))
+                    '())
+        (test-identity "non-file port fileno"
+                       (lambda () (port-fileno (open-input-string "x")))
+                       #f)
+        (test-identity "non-file port is not a terminal"
+                       (lambda () (terminal? (open-input-string "x")))
+                       #f)
+        (test-identity "set-file-times needs two times"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (set-file-times renamed time/now))))
+                       #t)
+        (test-identity "non-posix error is not a posix error"
+                       (lambda ()
+                         (guard (condition
+                                 ((posix-error? condition) #f)
+                                 (else #t))
+                           (error "plain error")
+                           #f))
                        #t)
         (test-identity "binary constants"
                        (lambda ()

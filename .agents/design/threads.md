@@ -58,6 +58,12 @@ later without changing user code.
 - **Synchronization.** Mutex and condition-variable primitives over
   pthreads, with timeout and error mapping. SRFI 18 builds on these; it does
   not call pthreads directly.
+- **Runtime registries.** The `(npl unix)` directory-handle registry and the
+  FFI block/pointer state are process-global today. T1 puts every mutable
+  runtime registry behind the runtime lock (or a per-thread table where the
+  handle is thread-owned) before threads can call those APIs. In particular,
+  `open-directory`/`read-directory`/`close-directory` must not race on the
+  handle list or reuse a closed `DIR *`.
 - **Blocking.** A native blocking call marks the thread blocked, releases
   the runtime lock, performs the call, then reacquires. The first version
   keeps the GC from running while a thread is in an unknown C call unless

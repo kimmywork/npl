@@ -78,7 +78,7 @@
       ((string=? name "long") 7)
       ((string=? name "int64") 7)
       ((string=? name "size_t") 3)
-      ((string=? name "bool") 0)
+      ((string=? name "bool") 11)
       (else (fatal (string-append
                      "define-c-struct: unknown field type: " name))))))
 

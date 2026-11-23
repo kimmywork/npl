@@ -19,7 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define FFI_TYPE_COUNT 11
+#define FFI_TYPE_COUNT 12
 #define FFI_U8 0
 #define FFI_U16 1
 #define FFI_U32 2
@@ -31,11 +31,12 @@
 #define FFI_FLOAT 8
 #define FFI_DOUBLE 9
 #define FFI_POINTER 10
+#define FFI_BOOL 11
 
 static size_t ffi_type_width(int code)
 {
     switch (code) {
-    case FFI_U8: case FFI_I8: return 1;
+    case FFI_U8: case FFI_I8: case FFI_BOOL: return 1;
     case FFI_U16: case FFI_I16: return 2;
     case FFI_U32: case FFI_I32: case FFI_FLOAT: return 4;
     case FFI_U64: case FFI_I64: case FFI_DOUBLE: return 8;
@@ -44,39 +45,30 @@ static size_t ffi_type_width(int code)
     }
 }
 
-typedef struct FfiLiveBase {
-    void *base;
-    struct FfiLiveBase *next;
-} FfiLiveBase;
-
-static FfiLiveBase *ffi_live_bases = NULL;
-
-static void ffi_register_base(void *base)
+static NplFfiBlock *ffi_block(NplPointer *pointer)
 {
-    FfiLiveBase *entry = (FfiLiveBase *)malloc(sizeof(FfiLiveBase));
-    if (!entry) npl_runtime_oom_internal();
-    entry->base = base;
-    entry->next = ffi_live_bases;
-    ffi_live_bases = entry;
+    if (npl_is_ptr(pointer->block) &&
+        npl_header(pointer->block)->tag == BOX_FFI_BLOCK)
+        return (NplFfiBlock *)npl_header(pointer->block);
+    return NULL;
 }
 
-static void ffi_unregister_base(void *base)
+static int ffi_block_live(NplPointer *pointer)
 {
-    FfiLiveBase **link = &ffi_live_bases;
-    while (*link && (*link)->base != base) link = &(*link)->next;
-    if (*link) {
-        FfiLiveBase *entry = *link;
-        *link = entry->next;
-        free(entry);
-    }
+    NplFfiBlock *block = ffi_block(pointer);
+    return block && block->live;
 }
 
-static int ffi_base_live(void *base)
+static NplFfiBlock *ffi_new_block(void *base, size_t size)
 {
-    FfiLiveBase *entry;
-    for (entry = ffi_live_bases; entry; entry = entry->next)
-        if (entry->base == base) return 1;
-    return 0;
+    NplFfiBlock *block =
+        (NplFfiBlock *)npl_alloc_object(sizeof(NplFfiBlock));
+    block->header.tag = BOX_FFI_BLOCK;
+    block->header.flags = 0;
+    block->base = base;
+    block->size = size;
+    block->live = 1;
+    return block;
 }
 
 static NplPointer *ffi_pointer_object(NplVal value, const char *who)
@@ -117,15 +109,16 @@ static NplVal ffi_alloc_block(size_t size, size_t alignment)
     if (posix_memalign(&memory, alignment, actual) != 0)
         npl_runtime_oom_internal();
     memset(memory, 0, actual);
-    ffi_register_base(memory);
     {
         NplVal value = npl_pointer(memory);
         NplPointer *pointer = ffi_pointer_object(value, "foreign-alloc");
+        NplFfiBlock *block = ffi_new_block(memory, size);
         pointer->base = memory;
         pointer->size = size;
         pointer->offset = 0;
         pointer->sized = 1;
         pointer->owned = 1;
+        pointer->block = (NplVal)(uintptr_t)block | TAG_PTR;
         return value;
     }
 }
@@ -145,7 +138,10 @@ NplVal npl_ffi_foreign_free(NplVal value)
     if (!pointer->owned)
         npl_primitive_error("foreign-free",
             "pointer was not allocated by foreign-alloc", value);
-    ffi_unregister_base(pointer->base);
+    {
+        NplFfiBlock *block = ffi_block(pointer);
+        if (block) block->live = 0;
+    }
     free(pointer->base);
     pointer->address = NULL;
     pointer->base = NULL;
@@ -168,7 +164,7 @@ NplVal npl_ffi_foreign_copy(NplVal value, NplVal size_value,
     NplPointer *source = ffi_pointer_object(value, "foreign-copy");
     size_t size = ffi_size_value(size_value, "foreign-copy");
     size_t alignment = ffi_alignment_value(alignment_value, "foreign-copy");
-    if (source->sized && !ffi_base_live(source->base))
+    if (source->sized && !ffi_block_live(source))
         npl_primitive_error("foreign-copy", "allocation was freed", value);
     if (source->sized && size > source->size)
         npl_primitive_error("foreign-copy",
@@ -189,7 +185,7 @@ NplVal npl_ffi_pointer_add(NplVal value, NplVal offset_value)
 {
     NplPointer *pointer = ffi_pointer_object(value, "pointer+offset");
     size_t offset = ffi_size_value(offset_value, "pointer+offset");
-    if (pointer->sized && !ffi_base_live(pointer->base))
+    if (pointer->sized && !ffi_block_live(pointer))
         npl_primitive_error("pointer+offset", "allocation was freed", value);
     if (pointer->address == NULL && offset != 0)
         npl_primitive_error("pointer+offset",
@@ -207,6 +203,7 @@ NplVal npl_ffi_pointer_add(NplVal value, NplVal offset_value)
         view->sized = pointer->sized;
         view->size = pointer->sized ? pointer->size - offset : 0;
         view->owned = 0;
+        view->block = pointer->block;
         return result;
     }
 }
@@ -230,7 +227,7 @@ static unsigned char *ffi_access_address(NplVal value, int code,
     size_t width = ffi_type_width(code);
     if (pointer->address == NULL)
         npl_primitive_error(who, "null pointer access", value);
-    if (pointer->sized && !ffi_base_live(pointer->base))
+    if (pointer->sized && !ffi_block_live(pointer))
         npl_primitive_error(who, "allocation was freed", value);
     if (pointer->sized &&
         (offset > pointer->size || width > pointer->size - offset))
@@ -304,6 +301,11 @@ NplVal npl_ffi_pointer_ref(NplVal value, NplVal code_value,
         void *item;
         memcpy(&item, address, sizeof item);
         return npl_pointer(item);
+    }
+    case FFI_BOOL: {
+        uint8_t item;
+        memcpy(&item, address, sizeof item);
+        return npl_ffi_from_bool(item != 0);
     }
     default:
         npl_primitive_error("pointer-ref", "unknown C type", code_value);
@@ -379,6 +381,17 @@ NplVal npl_ffi_pointer_set(NplVal value, NplVal code_value,
     }
     case FFI_POINTER: {
         void *narrowed = npl_pointer_address(item, "pointer-set!");
+        memcpy(address, &narrowed, sizeof narrowed);
+        break;
+    }
+    case FFI_BOOL: {
+        uint8_t narrowed;
+        if (npl_is_true(item)) narrowed = 1;
+        else if (npl_is_false(item)) narrowed = 0;
+        else {
+            npl_primitive_error("pointer-set!", "expected a boolean", item);
+            narrowed = 0;
+        }
         memcpy(address, &narrowed, sizeof narrowed);
         break;
     }

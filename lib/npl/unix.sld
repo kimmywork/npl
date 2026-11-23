@@ -40,7 +40,6 @@
           (scheme char)
           (scheme file)
           (scheme process-context)
-          (only (npl process) delete-directory)
           (npl time)
           (npl data generator))
   (begin
@@ -78,6 +77,8 @@
       "npl_unix_read_symlink")
     (define-c-primitive (npl_unix_rename_file (old any) (new any)) any
       "npl_unix_rename_file")
+    (define-c-primitive (npl_unix_delete_directory (path any)) any
+      "npl_unix_delete_directory")
     (define-c-primitive (npl_unix_set_file_owner
                          (path any) (uid any) (gid any)) any
       "npl_unix_set_file_owner")
@@ -329,6 +330,8 @@
     (define (read-symlink fname) (npl_unix_read_symlink fname))
     (define (rename-file old-fname new-fname)
       (npl_unix_rename_file old-fname new-fname))
+    (define (delete-directory fname)
+      (npl_unix_delete_directory fname))
 
     (define (set-file-owner fname uid gid)
       (npl_unix_set_file_owner

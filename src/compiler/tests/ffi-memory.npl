@@ -235,6 +235,114 @@
                          (escape #t))))
                    released-escape)
                  #t)
+  (test-identity "free null pointer is a no-op"
+                 (lambda () (foreign-free (null-pointer)) #t)
+                 #t)
+
+  (let ((p (foreign-alloc 16)))
+    (pointer-set-u64! p 18446744073709551615)
+    (test-equal "u64 maximum round trip"
+                (lambda () (pointer-ref-u64 p)) 18446744073709551615)
+    (test-identity "u64 overflow raises"
+                   (lambda ()
+                     (raises? (lambda () (pointer-set-u64! p
+                                            18446744073709551616))))
+                   #t)
+    (pointer-set-i64! p -9223372036854775808)
+    (test-equal "i64 minimum round trip"
+                (lambda () (pointer-ref-i64 p)) -9223372036854775808)
+    (pointer-set-i64! p 9223372036854775807)
+    (test-equal "i64 maximum round trip"
+                (lambda () (pointer-ref-i64 p)) 9223372036854775807)
+    (test-identity "i64 overflow raises"
+                   (lambda ()
+                     (raises? (lambda () (pointer-set-i64! p
+                                            9223372036854775808))))
+                   #t)
+    (test-identity "i8 underflow raises"
+                   (lambda () (raises? (lambda () (pointer-set-i8! p -129))))
+                   #t)
+    (pointer-set-double! p +nan.0)
+    (test-identity "NaN round trip"
+                   (lambda () (let ((value (pointer-ref-double p)))
+                                (not (= value value))))
+                   #t)
+    (pointer-set-double! p +inf.0)
+    (test-identity "positive infinity round trip"
+                   (lambda () (= (pointer-ref-double p) +inf.0))
+                   #t)
+    (pointer-set-double! p -inf.0)
+    (test-identity "negative infinity round trip"
+                   (lambda () (= (pointer-ref-double p) -inf.0))
+                   #t)
+    (foreign-free p))
+
+  (test-identity "zero alignment raises"
+                 (lambda () (raises? (lambda () (foreign-alloc 1 0))))
+                 #t)
+  (test-identity "non-integer alignment raises"
+                 (lambda () (raises? (lambda () (foreign-alloc 1 'x))))
+                 #t)
+  (test-identity "alignment above the limit raises"
+                 (lambda ()
+                   (raises? (lambda () (foreign-alloc 1 1048577))))
+                 #t)
+  (let ((p (foreign-alloc 1 1048576)))
+    (test-equal "large alignment is honored"
+                (lambda () (modulo (pointer->integer p) 1048576)) 0)
+    (foreign-free p))
+  (let ((p (foreign-alloc 1 1)))
+    (test-equal "small alignment rounds to pointer width"
+                (lambda () (modulo (pointer->integer p) 8)) 0)
+    (foreign-free p))
+
+  (let ((p (foreign-alloc 16))
+        (q (foreign-alloc 8)))
+    (pointer-set-pointer! p q)
+    (let ((unknown (pointer-ref-pointer p)))
+      (test-equal "unknown pointer has no size"
+                  (lambda () (foreign-size unknown)) 0)
+      (test-equal "unknown pointer offsets are unchecked"
+                  (lambda () (pointer-offset (pointer+offset unknown 1024)))
+                  1024))
+    (foreign-free q)
+    (foreign-free p))
+
+  (test-identity "c-array negative length raises"
+                 (lambda ()
+                   (raises? (lambda () (make-c-array -1 'u8))))
+                 #t)
+  (test-identity "c-array unknown type raises"
+                 (lambda ()
+                   (raises? (lambda () (make-c-array 1 'not-a-c-type))))
+                 #t)
+  (let ((p (foreign-alloc 4)))
+    (test-identity "c-array length beyond the view raises"
+                   (lambda ()
+                     (raises? (lambda () (c-array p 5 'u8))))
+                   #t)
+    (test-identity "vector->c-array beyond the view raises"
+                   (lambda ()
+                     (raises? (lambda ()
+                                (vector->c-array '#(1 2) 'u32 p))))
+                   #t)
+    (foreign-free p))
+
+  (test-identity "alloc/free stress"
+                 (lambda ()
+                   (let loop ((index 0))
+                     (if (= index 10000)
+                         #t
+                         (begin
+                           (let ((p (foreign-alloc 16)))
+                             (pointer-set-u8! p 1)
+                             (foreign-free p))
+                           (with-resource (p (foreign-alloc 8)
+                                             (lambda (pointer)
+                                               (foreign-free pointer)))
+                             (pointer-set-u8! p 1))
+                           (loop (+ index 1))))))
+                 #t)
 
   (finish-tests "ffi-memory"))
 

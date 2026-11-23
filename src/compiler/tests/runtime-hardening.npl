@@ -41,6 +41,14 @@
     (test-identity "record set index 0 raises"
                    (lambda ()
                      (raises? (lambda () (npl_record_set p type 0 9))))
+                   #t)
+    (test-identity "negative record index raises"
+                   (lambda ()
+                     (raises? (lambda () (npl_record_ref p type -1))))
+                   #t)
+    (test-identity "non-fixnum record index raises"
+                   (lambda ()
+                     (raises? (lambda () (npl_record_ref p type 'x))))
                    #t))
   (test-identity "rest arity raises instead of exiting"
                  (lambda ()
@@ -60,6 +68,9 @@
                    (lambda ()
                      (file-error?/read
                        "/tmp/npl-runtime-hardening-missing.txt"))
+                   #t)
+    (test-identity "read-file on a directory is a file error"
+                   (lambda () (file-error?/read "/tmp"))
                    #t))
   (finish-tests "runtime-hardening"))
 

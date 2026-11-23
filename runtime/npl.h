@@ -56,8 +56,9 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_COMPLEX 21
 #define BOX_RECORD 22   /* NplVector layout: data[0] = type, data[1..] = fields */
 #define BOX_STRING_DATA 23  /* out-of-line wide string characters (string.c) */
-#define BOX_POINTER 24  /* C address (ffi.c); holds no references */
+#define BOX_POINTER 24  /* C address (ffi.c); references an ffi block */
 #define BOX_HASHTABLE 25  /* NplHashTable (hashtable.c) */
+#define BOX_FFI_BLOCK 26 /* FfiBlock shared by an allocation and its views */
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -254,8 +255,20 @@ typedef struct {
     uint32_t limbs[];
 } NplBigint;
 
-/* A C address from a foreign call. The collector never follows or frees
- * it; whatever it points to is released by the C library's own calls. */
+/* Shared state for a foreign-alloc block and every view of it.  The owner
+ * and views hold this object in their pointer box; the collector keeps it
+ * alive, and freeing the owner flips live to 0.  A fresh block is allocated
+ * for every foreign-alloc, so an old view cannot revive when malloc reuses
+ * the address. */
+typedef struct {
+    NplHeader header;
+    void *base;
+    size_t size;
+    int live;
+} NplFfiBlock;
+
+/* A C address from a foreign call.  External addresses have block = nil and
+ * unknown size; foreign-alloc owners and views share an NplFfiBlock. */
 typedef struct {
     NplHeader header;
     void *address;   /* current address (may be base + offset) */
@@ -264,6 +277,7 @@ typedef struct {
     size_t offset;   /* address - base */
     int sized;       /* size/remaining length is known */
     int owned;       /* base was allocated by foreign-alloc */
+    NplVal block;    /* BOX_FFI_BLOCK or nil */
 } NplPointer;
 
 /* SRFI 125 hash table (hashtable.c): open addressing with linear probing
@@ -701,7 +715,7 @@ NplVal npl_time_resolution_prim(NplVal which, NplVal view);
 NplVal npl_time_gmtime_prim(NplVal value, NplVal out);
 NplVal npl_time_localtime_prim(NplVal value, NplVal out);
 NplVal npl_time_mktime_prim(NplVal value, NplVal out);
-NplVal npl_time_timegm_prim(NplVal value, NplVal out);            /* absolute path or #f */
+NplVal npl_time_timegm_prim(NplVal value, NplVal out);
 void npl_exit(NplVal code);                   /* R7RS exit status mapping */
 
 /* bootstrap lexer hooks — all take TAGGED values */
@@ -801,7 +815,8 @@ NplVal npl_ffi_pointer_ref(NplVal pointer, NplVal code, NplVal offset);
 NplVal npl_ffi_pointer_set(NplVal pointer, NplVal code, NplVal offset,
                            NplVal value);
 /* A (npl ffi) c-struct view is a record (type pointer descriptor). */
-void *npl_ffi_struct_pointer(NplVal value, const char *who);
+void *npl_ffi_struct_pointer(NplVal value, const char *expected,
+                             const char *who);
 NplVal npl_ffi_from_int64(int64_t value);
 NplVal npl_ffi_from_uint64(uint64_t value);
 NplVal npl_ffi_from_double(double value);

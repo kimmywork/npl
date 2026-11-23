@@ -162,6 +162,11 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(table->hash);
             break;
         }
+        case BOX_POINTER: {
+            NplPointer *pointer = (NplPointer *)header;
+            visit(pointer->block);
+            break;
+        }
         case BOX_PORT: {
             NplPort *port = (NplPort *)header;
             visit(port->buffer);

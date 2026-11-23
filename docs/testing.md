@@ -48,7 +48,8 @@ frozen recovery artifacts as current behavior.
 | Library metadata | `(tools libraries)` | exports, imports, cycles, layering, alias re-exports | `tools/run-tests.npl` |
 | Native link modes | `(tools link-modes)` | static/shared artifacts, dependencies, size and import footprint | `tools/run-tests.npl` |
 | Toolchain checks (NPL) | `(tools toolchain)` | current fixed point, GC, numeric oracle, driver, install, core consistency | `tools/run-tests.npl` |
-| Toolchain checks (legacy) | `tools/check_*.sh` | REPL, full compiler, relay | shell adapters |
+| Library test coverage | `(tools libraries)` | every exported name of the data libraries appears in a test | `tools/run-tests.npl` |
+| Toolchain checks (legacy) | `tools/check_*.sh` | REPL, full compiler, relay | shell adapters (remaining migration debt) |
 | Frozen bootstrap | `bootstrap/stage0/tools/`, `bootstrap/tools/` | stage0, permanent bootstrap chain | separate script |
 
 `tests/fixtures/` now contains both R7RS cases and NPL extension cases

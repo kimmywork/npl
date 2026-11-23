@@ -11,16 +11,17 @@
 
 #include "npl.h"
 
+#include <errno.h>
 #include <time.h>
 
 static struct timespec *time_view(NplVal value, const char *who)
 {
-    return (struct timespec *)npl_ffi_struct_pointer(value, who);
+    return (struct timespec *)npl_ffi_struct_pointer(value, "struct timespec", who);
 }
 
 static struct tm *time_tm_view(NplVal value, const char *who)
 {
-    return (struct tm *)npl_ffi_struct_pointer(value, who);
+    return (struct tm *)npl_ffi_struct_pointer(value, "struct tm", who);
 }
 
 NplVal npl_time_now_prim(NplVal which, NplVal view)
@@ -63,8 +64,10 @@ NplVal npl_time_localtime_prim(NplVal value, NplVal out)
 NplVal npl_time_mktime_prim(NplVal value, NplVal out)
 {
     struct timespec *stamp = time_view(out, "date->time-utc");
-    time_t seconds = mktime(time_tm_view(value, "date->time-utc"));
-    if (seconds == (time_t)-1) return npl_fixnum(-1);
+    time_t seconds;
+    errno = 0;
+    seconds = mktime(time_tm_view(value, "date->time-utc"));
+    if (seconds == (time_t)-1 && errno != 0) return npl_fixnum(-1);
     stamp->tv_sec = seconds;
     stamp->tv_nsec = 0;
     return npl_fixnum(0);
@@ -73,8 +76,10 @@ NplVal npl_time_mktime_prim(NplVal value, NplVal out)
 NplVal npl_time_timegm_prim(NplVal value, NplVal out)
 {
     struct timespec *stamp = time_view(out, "date->time-utc");
-    time_t seconds = timegm(time_tm_view(value, "date->time-utc"));
-    if (seconds == (time_t)-1) return npl_fixnum(-1);
+    time_t seconds;
+    errno = 0;
+    seconds = timegm(time_tm_view(value, "date->time-utc"));
+    if (seconds == (time_t)-1 && errno != 0) return npl_fixnum(-1);
     stamp->tv_sec = seconds;
     stamp->tv_nsec = 0;
     return npl_fixnum(0);
