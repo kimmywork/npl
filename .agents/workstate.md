@@ -174,9 +174,22 @@ M0a is implemented on `feature/0.1.3-ffi`:
   descriptors; the rest of the POSIX catalog moves with P2.
 - Thread direction is recorded in `.agents/design/threads.md`: a public NPL
   thread object and scheduler interface on a 1:1 pthread substrate first;
-  T2b then adds JVM-style virtual threads on a one-shot scheduler
-  continuation (NPL `call/cc` itself is multi-shot, not the JVM primitive).
-  T1 is the next runtime increment, then T2, T2b, T3, T4.
+  T1 must define parked-thread stack/register snapshots, per-thread roots,
+  stop-the-world lock order, mutable-global ownership, and cooperative
+  cancellation polls. QBE native TLS can locate the current context, subject
+  to target/link-mode support; all contexts remain explicitly registered for
+  GC. T2b requires a private CPS scheduler root
+  and defined `call/cc` behavior before virtual threads; synchronous C frames
+  cannot be suspended. Sequence: T1, T2, T2b boundary and API, T3, T4.
+- [QBE backend audit](reviews/2026-11-24-qbe-backend-capabilities.md): literals
+  already use `data`; records retain tagged heap layout and inline access.
+  Aggregate ABI emission is absent and would serve an explicit by-value FFI
+  extension; current partial C struct descriptors are insufficient. Native
+  macOS arm64 aggregate and static/shared TLS probes passed; other targets
+  have emission evidence only. No backend/runtime behavior changed. The
+  thread design now distinguishes SRFI 18 user continuations from scheduler
+  tokens and aligns termination, parameter inheritance, and SRFI 230 types
+  with the local specifications.
 - P2-P4 SRFI 170 is implemented as the core `(npl unix)` / `(srfi 170)`
   package: `libnpl_unix`, file metadata/directories/links, process state,
   users/groups, environment, time, terminals, and fd ports. Tests:
