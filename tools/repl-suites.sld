@@ -276,6 +276,19 @@
                            (contains? (read-file (join work "npli.out"))
                                       "(arguments (\"7\" \"two words\"))"))))
 
+        (let ((source (join work "shebang.scm"))
+              (out (join work "shebang.out")))
+          (write-text source
+            (string-append
+              "#!/usr/bin/env npli\n"
+              "(import (scheme base) (scheme write))\n"
+              "(display 42)\n"))
+          (set! ok (expect ok "shebang"
+                           (if (run-ok? (list npli source)
+                                        #f out (join work "shebang.err"))
+                               (string=? (read-file out) "42")
+                               #f))))
+
         (let ((bad (join work "bad.scm"))
               (err (join work "bad.err")))
           (write-text bad "(import (scheme base))\n(car 1)\n")

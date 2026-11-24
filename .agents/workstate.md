@@ -17,8 +17,10 @@
   `bootstrap/stage0/tools/run.sh` and `bootstrap/tools/check_bootstrap.sh`.
   The library coverage scan is now `(tools libraries)`; the Python checker
   is deleted. REPL/script acceptance is `(tools repl-suites)`; its shell
-  adapter is deleted. Shell adapters remain only for the full compiler
-  language suite, relay orchestration, and build/container wrappers.
+  adapter is deleted. npli accepts a leading shebang in script files without
+  shifting line numbers; `#!fold-case` remains a reader directive. Shell
+  adapters remain only for the full compiler language suite, relay
+  orchestration, and build/container wrappers.
   Compiler-suite manifest migration is the next testing increment.
 - Plan: `.agents/plans/testing-infrastructure.md`; docs:
   `docs/testing.md` and `docs/native-packages.md`.

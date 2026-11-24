@@ -107,7 +107,7 @@ SSA to standard output is emitted in-process; this is the relay path. File-produ
 
 ## npli
 
-`npli` is the REPL and program runner, built by `nplc` from `src/repl/main.npl` over the shared evaluator:
+`npli` is the REPL and program runner, built by `nplc` from `src/repl/main.npl` over the shared evaluator. A script file may start with a shebang (`#!/usr/bin/env npli` or `#! /path/to/npli`); npli replaces that first line with spaces before reading the file, so line numbers stay stable. `#!fold-case` and other reader directives are not treated as shebangs. This applies only to files run by npli, not to `read` or to nplc source files.
 
 ```bash
 npli                                  # interactive REPL (--no-prompt for transcripts)
