@@ -1,0 +1,98 @@
+(import (scheme base)
+        (scheme file)
+        (scheme process-context)
+        (scheme write)
+        (npl test)
+        (npl util)
+        (npl process)
+        (npl test util)
+        (npl test expect))
+
+(test-begin "tools-util")
+
+; ---- (npl util) ----
+
+(test-equal "path-join" (lambda () (path-join "a" "b")) "a/b")
+(test-equal "path-join keeps one slash" (lambda () (path-join "a/" "b")) "a/b")
+(test-equal "path-join empty left" (lambda () (path-join "" "b")) "b")
+(test-equal "path-directory" (lambda () (path-directory "a/b")) "a/")
+(test-equal "path-directory without slash" (lambda () (path-directory "b")) "")
+(test-equal "path-normalize parent"
+            (lambda () (path-normalize "lib/scheme/internal/../x.scm"))
+            "lib/scheme/x.scm")
+(test-equal "path-normalize dot and doubled slash"
+            (lambda () (path-normalize "./a//b/./c"))
+            "a/b/c")
+(test-equal "path-normalize absolute"
+            (lambda () (path-normalize "/a/b/../c"))
+            "/a/c")
+(test-equal "path-normalize keeps a leading parent"
+            (lambda () (path-normalize "../a/b/.."))
+            "../a")
+(test-equal "path-normalize empty result" (lambda () (path-normalize "a/..")) ".")
+(test-identity "exact-natural? zero" (lambda () (exact-natural? 0)) #t)
+(test-identity "exact-natural? negative" (lambda () (exact-natural? -1)) #f)
+(test-identity "exact-natural? inexact" (lambda () (exact-natural? 2.0)) #f)
+
+; ---- (npl test util) ----
+
+(let ((root (make-temporary-directory)))
+  (let ((text (path-join root "a.txt"))
+        (empty (path-join root "empty.txt"))
+        (copy (path-join root "copy.txt"))
+        (meta (path-join root "fixture.meta")))
+    (write-text text "hello\n")
+    (write-text copy "hello\n")
+    (write-text empty "")
+    (write-text meta "name=demo\nignored line\nstatus=0\n")
+    (test-equal "write-text and read-text-file"
+                (lambda () (read-text-file text)) "hello\n")
+    (test-assert "text-lines"
+                 (equal? (text-lines "a\nb\n\nc") '("a" "b" "" "c")))
+    (test-assert "text-lines empty" (null? (text-lines "")))
+    (test-equal "file-size" (lambda () (file-size text)) 6)
+    (test-identity "file-empty?" (lambda () (file-empty? empty)) #t)
+    (test-identity "file-equal?" (lambda () (file-equal? text copy)) #t)
+    (test-identity "file-equal? differs"
+                   (lambda () (file-equal? text empty)) #f)
+    (test-equal "trim-newline" (lambda () (trim-newline "a\n\n")) "a")
+    (test-identity "with-directory"
+                   (lambda ()
+                     (with-directory root
+                       (lambda () (file-exists? "a.txt"))))
+                   #t)
+    (test-identity "with-environment"
+                   (lambda ()
+                     (with-environment "NPL_TEST_TOOLS_UTIL" "yes"
+                       (lambda ()
+                         (equal? (get-environment-variable
+                                   "NPL_TEST_TOOLS_UTIL")
+                                 "yes"))))
+                   #t)
+    (test-identity "with-environment restores"
+                   (lambda () (get-environment-variable "NPL_TEST_TOOLS_UTIL"))
+                   #f)
+    (test-equal "run-status" (lambda () (run-status (list "/usr/bin/true"))) 0)
+    (test-identity "run-ok?"
+                   (lambda () (run-ok? (list "/usr/bin/true") #f #f #f))
+                   #t)
+    (test-identity "run-ok? failure"
+                   (lambda () (run-ok? (list "/usr/bin/false") #f #f #f))
+                   #f)
+    (test-identity "expect passes ok through" (lambda () (expect #t "ok" #t)) #t)
+
+    ; ---- (npl test expect) metadata ----
+    (test-assert "parse-fixture-meta"
+                 (equal? (parse-fixture-meta meta)
+                         '(("name" . "demo") ("status" . "0"))))
+    (test-equal "fixture-meta"
+                (lambda () (fixture-meta (parse-fixture-meta meta) "name"))
+                "demo")
+    (test-equal "fixture-meta default"
+                (lambda () (fixture-meta (parse-fixture-meta meta) "oracle" "guile"))
+                "guile")
+    (test-identity "remove-tree"
+                   (lambda () (remove-tree root) (file-exists? root))
+                   #f)))
+
+(finish-tests "tools-util")

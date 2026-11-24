@@ -825,6 +825,8 @@ void npl_primitive_error(const char *who, const char *message,
 void npl_report_error_object(NplVal object);
 void npl_primitive_file_error(const char *who, const char *message,
                               NplVal irritant);
+/* kind "posix" with the symbolic errno name as the first irritant. */
+void npl_primitive_posix_error(const char *who, int code, NplVal irritant);
 void npl_primitive_read_error(const char *message);
 void npl_symbol_mark_roots(void);
 void npl_io_init(void);

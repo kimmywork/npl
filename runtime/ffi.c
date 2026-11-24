@@ -248,7 +248,15 @@ static int ffi_pair_p(NplVal value)
 
 static int ffi_string_is(NplVal value, const char *text)
 {
-    return npl_string_equal(value, npl_string(text, (uint32_t)strlen(text)));
+    const NplString *string;
+    size_t length = strlen(text);
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_STRING)
+        return 0;
+    /* Descriptor type strings are ASCII and stored inline; compare them
+     * without allocating a temporary string on every C call. */
+    string = (const NplString *)npl_header(value);
+    return string->length == length &&
+           memcmp(string->data, text, length) == 0;
 }
 
 static NplVal ffi_assq(NplVal key, NplVal list)
@@ -261,15 +269,29 @@ static NplVal ffi_assq(NplVal key, NplVal list)
     return npl_false();
 }
 
+static size_t ffi_struct_size(NplVal descriptor, NplVal view, const char *who)
+{
+    NplVal entry = ffi_assq(npl_symbol("size", 4), descriptor);
+    if (!ffi_pair_p(entry) || !npl_is_fixnum(npl_cdr(entry)))
+        npl_primitive_error(who, "malformed C struct descriptor", view);
+    if (npl_fixnum_value(npl_cdr(entry)) < 0)
+        npl_primitive_error(who, "malformed C struct descriptor", view);
+    return (size_t)npl_fixnum_value(npl_cdr(entry));
+}
+
 /* A struct argument must be a matching define-c-struct view.  Checking the
- * descriptor type and the record length keeps an ordinary record or another
- * struct type from being treated as a C pointer. */
+ * descriptor type, the record length, and the pointer's live extent keeps an
+ * ordinary record, another struct type, a freed allocation, or a short view
+ * from reaching C. */
 void *npl_ffi_struct_pointer(NplVal value, const char *expected,
                              const char *who)
 {
     NplVector *record;
     NplVal descriptor;
     NplVal type_entry;
+    NplVal pointer_value;
+    NplPointer *pointer;
+    size_t size;
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_RECORD)
         npl_primitive_error(who, "expected a C struct view", value);
     record = (NplVector *)npl_header(value);
@@ -280,7 +302,25 @@ void *npl_ffi_struct_pointer(NplVal value, const char *expected,
     if (npl_is_false(type_entry) || !ffi_pair_p(type_entry) ||
         !ffi_string_is(npl_cdr(type_entry), expected))
         npl_primitive_error(who, "C struct view has the wrong type", value);
-    return npl_pointer_address(record->data[1], who);
+    size = ffi_struct_size(descriptor, value, who);
+    pointer_value = record->data[1];
+    if (!npl_is_pointer(pointer_value))
+        npl_primitive_error(who, "C struct view has no pointer", value);
+    pointer = (NplPointer *)npl_header(pointer_value);
+    if (pointer->address == NULL)
+        npl_primitive_error(who, "C struct view is not live", value);
+    if (pointer->sized) {
+        NplFfiBlock *block = NULL;
+        if (npl_is_ptr(pointer->block) &&
+            npl_header(pointer->block)->tag == BOX_FFI_BLOCK)
+            block = (NplFfiBlock *)npl_header(pointer->block);
+        if (block == NULL || !block->live)
+            npl_primitive_error(who, "C struct view was freed", value);
+        if (pointer->size < size)
+            npl_primitive_error(who,
+                "C struct view is shorter than its C type", value);
+    }
+    return pointer->address;
 }
 
 NplVal npl_ffi_unspecified(void)

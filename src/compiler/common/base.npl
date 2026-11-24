@@ -30,6 +30,32 @@
 (define (rev-into lst acc)
   (if (null? lst) acc (rev-into (cdr lst) (cons (car lst) acc))))
 
+; Shared list lookups for the frontend's string-keyed tables; one copy keeps
+; the many registries (structs, macros, syntax environments) consistent.
+(define (string-member? name names)
+  (if (null? names)
+      #f
+      (if (string=? name (car names))
+          #t
+          (string-member? name (cdr names)))))
+
+; The (key . value) entry for KEY, or () when absent.
+(define (string-assoc key entries)
+  (if (null? entries)
+      ()
+      (if (string=? key (car (car entries)))
+          (car entries)
+          (string-assoc key (cdr entries)))))
+
+(define (number-list=? left right)
+  (if (null? left)
+      (null? right)
+      (if (null? right)
+          #f
+          (if (= (car left) (car right))
+              (number-list=? (cdr left) (cdr right))
+              #f))))
+
 (define DATUM-SYMBOL-TAG '(_datum_symbol_tag_))
 
 (define (pair-shape? x) (pair? x))

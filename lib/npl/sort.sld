@@ -16,6 +16,7 @@
     vector-select! vector-separate!
     sorted? merge merge! sort sort!)
   (import (scheme base) (scheme char) (npl list)
+          (only (npl vector) vector-swap!)
           (only (npl hashtable)
                 make-hash-table hash-table-ref/default hash-table-set!
                 hash-table-contains?))
@@ -246,11 +247,6 @@
                 (vector-set! vector (+ start i) (vector-ref kept i))
                 (loop (+ i 1)))))
         (+ start (vector-length kept))))
-
-    (define (vector-swap! vector left right)
-      (let ((value (vector-ref vector left)))
-        (vector-set! vector left (vector-ref vector right))
-        (vector-set! vector right value)))
 
     (define (median-of-three less? left middle right)
       (cond ((less? left middle)

@@ -108,6 +108,7 @@
             "#include <time.h>\n#include <sys/time.h>\n#include <sys/stat.h>\n"
             "#include <dirent.h>\n#include <pwd.h>\n#include <grp.h>\n"
             "#include <sys/utsname.h>\n#include <sys/resource.h>\n#include <sys/uio.h>\n"
+            "#include <sys/select.h>\n#include <stdlib.h>\n"
             "int main(void) {\n  printf(\"((size . %zu)\", sizeof("
             c-type "));\n")))
     (let loop ((items fields) (text header))
@@ -161,28 +162,36 @@
       (delete-directory directory)
       (c-struct-parse-layout text))))
 
-; A cache path is a single file: NPL_C_STRUCT_LAYOUTS when set, then the
-; build/install layout beside the native packages.  A package without a
-; build step can ship its own file and point to it explicitly.
+; NPL_C_STRUCT_LAYOUTS is a search path: colon-separated explicit files
+; first, then the build/install cache beside the native packages.  A package
+; that ships its own cache therefore still sees the core layouts.
+(define (c-struct-explicit-cache-paths text start index paths)
+  (if (= index (string-length text))
+      (rev (if (= start index) paths
+               (cons (substring text start index) paths)))
+      (if (= (string-byte-ref text index) 58)
+          (c-struct-explicit-cache-paths
+            text (+ index 1) (+ index 1)
+            (if (= start index) paths
+                (cons (substring text start index) paths)))
+          (c-struct-explicit-cache-paths text start (+ index 1) paths))))
+
+(define (c-struct-default-cache-paths)
+  (let ((stdlib (string-append (cell-get LIBRARY-STANDARD-ROOT)
+                               "npl/native/c-struct-layouts.meta"))
+        (self (executable-path)))
+    (if self
+        (cons (string-append (path-dir self)
+                             "../lib/npl/native/c-struct-layouts.meta")
+              (cons stdlib ()))
+        (cons stdlib ()))))
+
 (define (c-struct-cache-candidates)
   (let ((explicit (get-environment-variable "NPL_C_STRUCT_LAYOUTS")))
     (if (if explicit (> (string-length explicit) 0) #f)
-        (cons explicit ())
-        (let ((stdlib (string-append (cell-get LIBRARY-STANDARD-ROOT)
-                                     "npl/native/c-struct-layouts.meta"))
-              (self (executable-path)))
-          (if self
-              (cons (string-append (path-dir self)
-                                   "../lib/npl/native/c-struct-layouts.meta")
-                    (cons stdlib ()))
-              (cons stdlib ()))))))
-
-(define (c-struct-cache-file paths)
-  (if (null? paths)
-      #f
-      (if (file-exists? (car paths))
-          (car paths)
-          (c-struct-cache-file (cdr paths)))))
+        (append (c-struct-explicit-cache-paths explicit 0 0 ())
+                (c-struct-default-cache-paths))
+        (c-struct-default-cache-paths))))
 
 (define (c-struct-cache-entries form entries)
   (if (null? form)
@@ -203,20 +212,21 @@
               (c-struct-cache-entries (cdr form) ())
               (fatal (string-append "bad c-struct layout cache: " path)))))))
 
+(define (c-struct-read-caches paths layouts)
+  (if (null? paths)
+      layouts
+      (c-struct-read-caches
+        (cdr paths)
+        (if (file-exists? (car paths))
+            (append layouts (c-struct-cache-read (car paths)))
+            layouts))))
+
 (define (c-struct-disk-layouts)
   (if (cell-get C-STRUCT-CACHE)
       (cell-get C-STRUCT-CACHE)
-      (let ((path (c-struct-cache-file (c-struct-cache-candidates))))
-        (let ((layouts (if path (c-struct-cache-read path) ())))
-          (cell-set! C-STRUCT-CACHE layouts)
-          layouts))))
-
-(define (c-struct-cache-entry c-type entries)
-  (if (null? entries)
-      ()
-      (if (string=? c-type (car (car entries)))
-          (car entries)
-          (c-struct-cache-entry c-type (cdr entries)))))
+      (let ((layouts (c-struct-read-caches (c-struct-cache-candidates) ())))
+        (cell-set! C-STRUCT-CACHE layouts)
+        layouts)))
 
 (define (c-struct-disk-entry c-type entries)
   (if (null? entries)
@@ -244,22 +254,40 @@
               layout
               ())))))
 
+; Keep earlier offsets while adding the fields a new declaration needs, so
+; one type can be described by several declarations in one compilation.
+(define (c-struct-layout-merge old new)
+  (if (null? old)
+      new
+      (if (null? (c-struct-layout-entry (car (car old)) new))
+          (cons (car old) (c-struct-layout-merge (cdr old) new))
+          (c-struct-layout-merge (cdr old) new))))
+
+(define (c-struct-cache-store c-type layout)
+  (cell-set! C-STRUCT-LAYOUTS
+             (cons (cons c-type layout) (cell-get C-STRUCT-LAYOUTS)))
+  layout)
+
+; The in-process cache is keyed by C type, so a layout that lacks a field a
+; later declaration needs is not a hit: consult the disk cache, then probe,
+; and merge instead of replacing (R20).
 (define (c-struct-layout c-type fields)
-  (let ((cached (c-struct-cache-entry c-type (cell-get C-STRUCT-LAYOUTS))))
-    (if (pair? cached)
+  (let ((cached (string-assoc c-type (cell-get C-STRUCT-LAYOUTS))))
+    (if (if (pair? cached)
+            (c-struct-layout-complete? fields (cdr cached))
+            #f)
         (cdr cached)
         (let ((disk (c-struct-cache-layout c-type fields)))
           (if (pair? disk)
-              (begin
-                (cell-set! C-STRUCT-LAYOUTS
-                           (cons (cons c-type disk)
-                                 (cell-get C-STRUCT-LAYOUTS)))
-                disk)
-              (let ((layout (c-struct-probe c-type fields)))
-                (cell-set! C-STRUCT-LAYOUTS
-                           (cons (cons c-type layout)
-                                 (cell-get C-STRUCT-LAYOUTS)))
-                layout))))))
+              (c-struct-cache-store c-type
+                (if (pair? cached)
+                    (c-struct-layout-merge (cdr cached) disk)
+                    disk))
+              (c-struct-cache-store c-type
+                (if (pair? cached)
+                    (c-struct-layout-merge
+                      (cdr cached) (c-struct-probe c-type fields))
+                    (c-struct-probe c-type fields))))))))
 
 ; nplc --emit=c-structs writes this file for the build and for packages.
 (define (c-struct-layout-text layout)
@@ -350,13 +378,6 @@
           (cons name
             (cons (c-struct-descriptor-datum c-type fields layout) ())))))))
 
-(define (c-struct-entry name entries)
-  (if (null? entries)
-      ()
-      (if (string=? name (car (car entries)))
-          (car entries)
-          (c-struct-entry name (cdr entries)))))
-
 (define (c-struct-type-name type)
   (let ((name (datum-symbol-name type)))
     (if (>= (string-length name) 7)
@@ -369,7 +390,7 @@
   (let ((name (c-struct-type-name type)))
     (if (not name)
         (fatal "not a struct type")
-        (if (null? (c-struct-entry name (cell-get C-STRUCTS)))
+        (if (null? (string-assoc name (cell-get C-STRUCTS)))
             (fatal (string-append
                      "define-c-function: unknown struct type: " name))
             (string-append "struct:" name)))))
@@ -378,7 +399,7 @@
   (let ((name (c-struct-type-name type)))
     (if (not name)
         (fatal "not a struct type")
-        (let ((entry (c-struct-entry name (cell-get C-STRUCTS))))
+        (let ((entry (string-assoc name (cell-get C-STRUCTS))))
           (if (null? entry)
               (fatal (string-append
                        "define-c-function: unknown struct type: " name))

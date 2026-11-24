@@ -458,6 +458,62 @@
             (library-primitive-bindings)
             (library-load import-set)))))
 
+; ---- conflict diagnostics ----
+; A value payload is the defining library's prefix (_npl_lib_N_, recorded in
+; library-entry-info by library-record-load!) followed by the sanitized
+; name, or a bare primitive name.  The origin is recovered only when a
+; conflict is reported, so binding shapes and the normal import path are
+; unchanged.  Prefixes end in "_", so _npl_lib_1_ never matches _npl_lib_10_.
+(define (library-payload-has-prefix? payload prefix)
+  (if (< (string-length payload) (string-length prefix))
+      #f
+      (string=? prefix (substring payload 0 (string-length prefix)))))
+
+; Registry keys join name parts with "/"; show them as written in source.
+(define (library-key-display key)
+  (let loop ((index 0) (start 0) (out "("))
+    (if (= index (string-length key))
+        (string-append out (string-append (substring key start index) ")"))
+        (if (= (string-byte-ref key index) 47)
+            (loop (+ index 1) (+ index 1)
+                  (string-append out
+                    (string-append (substring key start index) " ")))
+            (loop (+ index 1) start out)))))
+
+(define (library-payload-origin payload entries)
+  (if (null? entries)
+      (if (library-payload-has-prefix? payload "_npl_lib_")
+          "a library"
+          "(npl internal primitive)")
+      (let ((info (cell-get (library-entry-info (car entries)))))
+        (if (if (pair? info)
+                (library-payload-has-prefix? payload (car info))
+                #f)
+            (library-key-display (library-entry-key (car entries)))
+            (library-payload-origin payload (cdr entries))))))
+
+(define (library-loading-key entries)
+  (if (null? entries)
+      ()
+      (if (= (cell-get (library-entry-state (car entries))) 1)
+          (library-entry-key (car entries))
+          (library-loading-key (cdr entries)))))
+
+(define (library-conflict-message name existing incoming)
+  (let ((loading (library-loading-key (cell-get LIBRARY-REGISTRY))))
+    (string-append "conflicting imported binding: " name
+      (string-append " (from "
+        (string-append
+          (library-payload-origin existing (cell-get LIBRARY-REGISTRY))
+          (string-append " and "
+            (string-append
+              (library-payload-origin incoming (cell-get LIBRARY-REGISTRY))
+              (string-append ")"
+                (if (null? loading)
+                    ""
+                    (string-append " while loading "
+                                   (library-key-display loading)))))))))))
+
 ; Import bundle is (value-env macro-env).
 (define (library-import-binding binding bundle)
   (let ((identifier (datum-symbol (library-binding-name binding))))
@@ -467,7 +523,9 @@
           (if (> (string-length existing) 0)
               (if (not (string=? existing
                          (library-binding-payload binding)))
-                  (fatal "conflicting imported binding")))
+                  (fatal (library-conflict-message
+                           (library-binding-name binding) existing
+                           (library-binding-payload binding)))))
           (if (> (string-length existing) 0)
               bundle
               (cons
@@ -488,7 +546,8 @@
                                          (core-syntax-value-name
                                            (cell-get (library-binding-payload binding))))
                                #f)))
-                  (fatal "conflicting imported syntax")))
+                  (fatal (string-append "conflicting imported syntax: "
+                                        (library-binding-name binding)))))
           (if (not (null? existing))
               bundle
               (cons (car bundle)

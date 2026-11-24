@@ -1,0 +1,58 @@
+; Retained foreign allocations across minor collections.  ffi_alloc_block
+; stores the young FfiBlock into the (possibly promoted) pointer box, so it
+; must record a write barrier; otherwise the block is swept while the owner
+; and its views still point at the malloc'd memory.  Run this suite with a
+; small nursery (check_full_compiler.sh) so the stores cross a collection.
+
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl ffi))
+
+(include "framework.npl")
+
+(define COUNT 20000)
+(define FILLER 8)
+
+(define (main)
+  (let ((owners (make-vector COUNT #f))
+        (views (make-vector COUNT #f)))
+    (let loop ((index 0))
+      (if (< index COUNT)
+          (begin
+            (vector-set! owners index (foreign-alloc 8))
+            (vector-set! views index (pointer+offset (vector-ref owners index) 1))
+            (let fill ((step 0))
+              (if (< step FILLER)
+                  (begin (make-vector 4 step) (fill (+ step 1)))))
+            (loop (+ index 1)))))
+    (test-equal "retained owners stay live"
+      (lambda ()
+        (let loop ((index 0) (bad 0))
+          (if (= index COUNT)
+              bad
+              (loop (+ index 1)
+                    (+ bad
+                       (guard (condition (#t 1))
+                         (pointer-set-u8! (vector-ref owners index) 7)
+                         0))))))
+      0)
+    (test-equal "retained views stay live"
+      (lambda ()
+        (let loop ((index 0) (bad 0))
+          (if (= index COUNT)
+              bad
+              (loop (+ index 1)
+                    (+ bad
+                       (guard (condition (#t 1))
+                         (pointer-ref-u8 (vector-ref views index))
+                         0))))))
+      0)
+    (let loop ((index 0))
+      (if (< index COUNT)
+          (begin
+            (foreign-free (vector-ref owners index))
+            (loop (+ index 1)))))
+    (finish-tests "ffi-gc")))
+
+(main)

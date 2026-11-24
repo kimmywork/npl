@@ -17,15 +17,11 @@
   (import (scheme base)
           (scheme file)
           (scheme process-context)
+          (only (npl string) string-suffix?)
+          (only (npl util) path-directory)
           (npl process)
           (npl ffi))
   (begin
-    (define (string-suffix? suffix text)
-      (let ((offset (- (string-length text) (string-length suffix))))
-        (if (< offset 0)
-            #f
-            (string=? (substring text offset (string-length text)) suffix))))
-
     (define (native-file? path)
       (if (if (string-suffix? ".dylib" path) #t
               (if (string-suffix? ".so" path) #t #f))
@@ -58,14 +54,6 @@
                  (string-append directory file)
                  (string-append directory "/" file)))
            (native-file-names name)))
-
-    (define (path-directory path)
-      (let loop ((index (- (string-length path) 1)))
-        (cond
-          ((< index 0) "")
-          ((char=? (string-ref path index) #\/)
-           (substring path 0 (+ index 1)))
-          (else (loop (- index 1))))))
 
     (define (split-colon text)
       (let loop ((start 0) (index 0) (parts '()))

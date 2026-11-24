@@ -308,8 +308,10 @@ returns an address-only pointer with unknown size.
 compiles and runs a tiny `sizeof`/`offsetof` probe (using `NPL_CC`, else
 `CC`, else `cc`). The declaration binds the name to a quoted layout
 descriptor. Only pointers to structs cross the FFI boundary; by-value
-structs are out of scope. `NPL_C_STRUCT_LAYOUTS` names an explicit cache
-file for a package that ships its own layouts.
+structs are out of scope. `NPL_C_STRUCT_LAYOUTS` is a colon-separated search
+path of explicit cache files for packages that ship their own layouts; the
+build/install core cache is still consulted after them, so a package file
+that lacks `timespec` or `tm` does not hide the core layouts.
 
 ```scheme
 (define-c-struct timespec
@@ -341,10 +343,12 @@ every temporary `timespec`/`tm` view.
 
 Field types are `u8 u16 u32 u64 i8 i16 i32 i64 int long int64 size_t bool
 float double pointer`. A `define-c-function` argument of type
-`struct:name` takes a matching view and passes its pointer. Generated stubs
-put `_GNU_SOURCE`/`_DARWIN_C_SOURCE` first, include only `npl.h` and
-standard headers, and forward-declare the `struct` tags they use, so a
-libc declaration with different NPL types still compiles.
+`struct:name` takes a matching live view whose remaining extent covers the C
+type; a freed or short view raises before the C call. Generated stubs put
+`_GNU_SOURCE`/`_DARWIN_C_SOURCE` first, include only `npl.h` and standard
+headers, and pass struct arguments as `void *`, so a libc declaration with
+different NPL types still compiles and typedef names such as `ldiv_t` need no
+forward declaration.
 
 ### C Arrays
 

@@ -26,6 +26,8 @@ void npl_port_write_bytes_internal(NplPort *port, const uint8_t *bytes,
                                    size_t count, const char *who);
 void npl_port_unread_bytes_internal(NplPort *port, const uint8_t *bytes,
                                     size_t count);
+/* One raw input byte, or EOF (port-ready.c). */
+int npl_port_read_byte_raw_internal(NplPort *port);
 /* One UTF-8 character as a code point, or EOF; invalid input is U+FFFD. */
 int npl_port_read_char_internal(NplPort *port);
 /* Write one character as UTF-8. */

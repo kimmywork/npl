@@ -118,8 +118,9 @@ CMake currently builds the checked-in native packages from
 `lib/CMakeLists.txt`, writes `core.meta` for compatibility, and writes the
 full `native.meta` index. It also generates and installs
 `c-struct-layouts.meta` with `nplc --emit=c-structs`, so `define-c-struct`
-imports do not run a C compiler; `NPL_C_STRUCT_LAYOUTS` overrides the cache
-file for a package. The zlib sample is built only when `find_package(ZLIB)`
+imports do not run a C compiler; `NPL_C_STRUCT_LAYOUTS` adds a
+colon-separated list of package cache files ahead of the core cache. The
+zlib sample is built only when `find_package(ZLIB)`
 succeeds; its static archive carries `-lz` through `native.meta`.
 
 ### ABI and safety

@@ -3,30 +3,20 @@
 (define-library (tools toolchain)
   (export check-gc check-current-fixed-point
           check-numeric-reference check-core-consistency
-          check-install check-driver
-          run-command capture-command string-contains? file-equal?
-          line-count)
+          check-install check-driver)
   (import (scheme base)
           (scheme file)
           (scheme process-context)
           (scheme write)
+          (only (npl string) string-contains)
+          (only (npl util) path-join)
           (npl process)
-          (except (npl unix) delete-directory)
-          (npl test expect))
+          (npl unix)
+          (only (npl test util) read-text-file write-text text-lines
+                file-equal? with-directory)
+          (only (npl test expect) run-fixture-directory))
+    (include "toolchain/install.scm")
   (begin
-    (define (string-contains? text needle)
-      (let ((limit (- (string-length text) (string-length needle))))
-        (let loop ((index 0))
-          (cond
-            ((> index limit) #f)
-            ((string=? (substring text index (+ index (string-length needle)))
-                       needle)
-             #t)
-            (else (loop (+ index 1)))))))
-
-    (define (file-equal? left right)
-      (string=? (read-text-file left) (read-text-file right)))
-
     (define (line-count path)
       (let ((text (read-text-file path)))
         (let loop ((index 0) (count 0))
@@ -42,13 +32,6 @@
             (car arguments)
             arguments)
         #f #f #f))
-
-    (define (capture-command arguments input output error)
-      (run-process* arguments input output error))
-
-    (define (temp-file directory name)
-      (let ((path (string-append directory "/" name)))
-        path))
 
     (define (cleanup-file path)
       (if (file-exists? path) (delete-file path) #f))
@@ -76,35 +59,35 @@
                 (display "gc_stress build failed")
                 (newline)
                 #f)
-              (let* ((first-out (temp-file work "first.out"))
-                     (first-err (temp-file work "first.err"))
+              (let* ((first-out (path-join work "first.out"))
+                     (first-err (path-join work "first.err"))
                      (first-status
-                       (capture-command (list (string-append build
+                       (run-process* (list (string-append build
                                                              "/runtime/gc_stress"))
                                         #f first-out first-err))
                      (first-text (read-text-file first-out))
                      (first-ok
                        (if (= first-status 0)
-                           (string-contains? first-text
+                           (string-contains first-text
                                              "PASS: 1000000 allocations")
                            #f)))
                 (display first-text)
                 (set-environment-variable! "NPL_GC_NURSERY_BYTES" "65536")
                 (set-environment-variable! "NPL_GC_VERIFY" "1")
-                (let* ((second-out (temp-file work "second.out"))
-                       (second-err (temp-file work "second.err"))
+                (let* ((second-out (path-join work "second.out"))
+                       (second-err (path-join work "second.err"))
                        (second-status
-                         (capture-command (list (string-append build
+                         (run-process* (list (string-append build
                                                                "/runtime/gc_stress"))
                                           #f second-out second-err))
                        (second-text (read-text-file second-out))
                        (second-ok
                          (if (= second-status 0)
-                             (if (string-contains? second-text
+                             (if (string-contains second-text
                                                    "PASS: 1000000 allocations")
-                                 (if (string-contains? second-text
+                                 (if (string-contains second-text
                                                        " minor collections")
-                                     (if (string-contains?
+                                     (if (string-contains
                                            second-text ", 0 minor collections")
                                          #f
                                          #t)
@@ -138,7 +121,7 @@
 
     (define (emit-ssa compiler stdlib source output error)
       (let ((status
-              (capture-command
+              (run-process*
                 (list compiler "--emit-qbe" "--stdlib-root" stdlib source)
                 #f output error)))
         (if (= status 0)
@@ -232,15 +215,15 @@
               (expected (string-append work "/expected"))
               (actual (string-append work "/actual"))
               (error (string-append work "/error")))
-          (capture-command (list numeric) #f table-out table-err)
+          (run-process* (list numeric) #f table-out table-err)
           (display (read-text-file table-out))
           (let ((input-status
-                  (capture-command (list "guile" "--r7rs" "-q"
+                  (run-process* (list "guile" "--r7rs" "-q"
                                          "--no-auto-compile" "-s" reference
                                          "input")
                                    #f input error))
                 (expected-status
-                  (capture-command (list "guile" "--r7rs" "-q"
+                  (run-process* (list "guile" "--r7rs" "-q"
                                          "--no-auto-compile" "-s" reference
                                          "expected")
                                    #f expected error)))
@@ -248,7 +231,7 @@
                 (begin (display "numeric reference generation failed")
                        (newline) #f)
                 (let ((oracle-status
-                        (capture-command (list numeric "--oracle")
+                        (run-process* (list numeric "--oracle")
                                          input actual error)))
                   (if (not (= oracle-status 0))
                       (begin (display (read-text-file error)) #f)
@@ -269,7 +252,7 @@
                                 (let* ((operation (car operations))
                                        (out (string-append work "/zero.out"))
                                        (err (string-append work "/zero.err"))
-                                       (status (capture-command
+                                       (status (run-process*
                                                  (list numeric operation "1" "0")
                                                  #f out err))
                                        (who (if (string=? operation "divide")
@@ -294,17 +277,6 @@
                                         (newline)
                                         (loop (cdr operations) #f))))))))))))))
 
-    (define (split-lines text)
-      (let loop ((start 0) (index 0) (lines '()))
-        (cond
-          ((= index (string-length text))
-           (reverse (if (= start index) lines
-                        (cons (substring text start index) lines))))
-          ((char=? (string-ref text index) #\newline)
-           (loop (+ index 1) (+ index 1)
-                 (cons (substring text start index) lines)))
-          (else (loop start (+ index 1) lines)))))
-
     (define (split-tab line)
       (let loop ((index 0))
         (cond
@@ -319,7 +291,7 @@
          (nplc (string-append root "/build/bin/nplc"))
          (npli (string-append root "/build/bin/npli"))
          (work (make-temporary-directory))
-         (forms (split-lines
+         (forms (text-lines
                   (read-text-file
                     (string-append fixture "/invalid-forms.tsv")))))
     (if (not (run-fixture-directory fixture nplc npli))
@@ -347,32 +319,32 @@
                      (guile (string-append work "/invalid.scm"))
                      (guile-out (string-append work "/guile.out"))
                      (guile-err (string-append work "/guile.err")))
-                (write-text-file invalid
+                (write-text invalid
                   (string-append "(import (scheme base))\n(define (main) "
                                  form " 0)\n"))
-                (write-text-file repl
+                (write-text repl
                   (string-append "(import (scheme base) (scheme write))\n"
                                  form "\n(write 'recovered)\n(newline)\n(exit)\n"))
-                (write-text-file guile
+                (write-text guile
                   (string-append "(import (scheme base))\n" form "\n"))
                 (let ((compile-status
-                        (capture-command (list nplc invalid "-o" binary)
+                        (run-process* (list nplc invalid "-o" binary)
                                          #f native-out native-err))
                       (repl-status
-                        (capture-command (list npli "--no-prompt")
+                        (run-process* (list npli "--no-prompt")
                                          repl repl-out repl-err))
                       (guile-status
-                        (capture-command
+                        (run-process*
                           (list "guile" "--r7rs" "-q" "--no-auto-compile"
                                 "-s" guile)
                           #f guile-out guile-err)))
                   (let ((compile-ok
                           (if (not (= compile-status 0))
                               (if (not (file-exists? binary))
-                                  (if (string-contains?
+                                  (if (string-contains
                                         (read-text-file native-out) diagnostic)
                                       #t
-                                      (string-contains?
+                                      (string-contains
                                         (read-text-file native-err) diagnostic))
                                   #f)
                               #f))
@@ -400,221 +372,11 @@
                           (loop (cdr rest) (+ count 1) #f)))))))))))
 
 
-    (define (path-join left right)
-      (if (char=? (string-ref left (- (string-length left) 1)) #\/)
-          (string-append left right)
-          (string-append left "/" right)))
-
     (define (driver-fail name)
       (display "toolchain check failed: ")
       (display name)
       (newline)
       #f)
-
-    (define (with-current-directory directory thunk)
-      (let ((saved (current-directory)))
-        (dynamic-wind
-          (lambda () (set-current-directory! directory))
-          thunk
-          (lambda () (set-current-directory! saved)))))
-
-    (define (clean-command root work . arguments)
-      (let ((home (if (get-environment-variable "HOME")
-                      (get-environment-variable "HOME")
-                      "/tmp")))
-        (append (list "/usr/bin/env" "-i" "PATH=/usr/bin:/bin"
-                      (string-append "HOME=" home)
-                      (string-append "TMPDIR=" work))
-                arguments)))
-
-    (define (check-install root)
-      (let* ((build (string-append root "/build"))
-             (work (make-temporary-directory))
-             (prefix (path-join work "prefix with space"))
-             (project (path-join work "project"))
-             (source (string-append root "/src/compiler/tests/driver-hello.npl"))
-             (extension (string-append root "/src/compiler/tests/c-extension"))
-             (version (trim-trailing-newline (read-text-file (string-append root "/VERSION"))))
-             (nplc (path-join prefix "bin/nplc"))
-             (npli (path-join prefix "bin/npli"))
-             (runtime (path-join prefix "lib/npl/libnpl_runtime.a")))
-        (create-directory project)
-        (if (not (= (run-command "cmake" "--install" build "--prefix" prefix) 0))
-            (driver-fail "install")
-            (let ((required
-                    (list (path-join prefix "bin/nplc")
-                          (path-join prefix "bin/npli")
-                          (path-join prefix "libexec/npl/qbe")
-                          (path-join prefix "lib/npl/libnpl_runtime.a")
-                          (path-join prefix "lib/npl/native/native.meta")
-                          (path-join prefix "lib/npl/native/c-struct-layouts.meta")
-                          (path-join prefix "share/npl/lib/scheme/base.sld")
-                          (path-join prefix "share/npl/lib/npl/internal/frontend.sld")
-                          (path-join prefix "share/npl/src/compiler/main.npl")
-                          (path-join prefix "include/npl/npl.h"))))
-              (if (not (let loop ((rest required))
-                         (if (null? rest) #t
-                             (if (file-exists? (car rest))
-                                 (loop (cdr rest))
-                                 #f))))
-                  (driver-fail "install files")
-                  (if (file-exists? (path-join prefix
-                                               "share/npl/src/compiler/tests"))
-                      (driver-fail "tests installed")
-                      (let* ((hello (path-join project "hello.npl"))
-                             (script (path-join project "script.scm")))
-                        (write-text-file hello (read-text-file source))
-                        (write-text-file script
-                          (string-append
-                            "(import (scheme base) (scheme write) (scheme char)"
-                            " (scheme process-context))\n"
-                            "(write (list (char-upcase #\\a) (cdr (command-line))))\n"
-                            "(newline)\n"))
-                        (with-current-directory project
-                          (lambda ()
-                            (if (not (= (run-command (clean-command root work
-                                                       nplc "hello.npl")) 0))
-                                (driver-fail "installed nplc")
-                                (let ((hello-out (path-join work "hello.out")))
-                                  (capture-command (list (path-join project "hello"))
-                                                   #f hello-out
-                                                   (path-join work "hello.err"))
-                                  (if (not (string=? (read-text-file hello-out)
-                                                     "hello from nplc\n"))
-                                      (driver-fail "installed hello output")
-                                      (if (not (= (run-command
-                                                   (clean-command root work nplc
-                                                                  "-c" "hello.npl"))
-                                                  0))
-                                          (driver-fail "installed -c")
-                                          (if (not (= (run-command
-                                                       (clean-command root work "cc"
-                                                                      "-o" "linked"
-                                                                      "hello.o" runtime
-                                                                      "-lm"))
-                                                      0))
-                                              (driver-fail "installed link")
-                                              (if (not (= (run-command
-                                                           (clean-command root work "cc"
-                                                                          "-std=c99" "-Wall"
-                                                                          "-Werror" "-I"
-                                                                          (path-join prefix
-                                                                                     "include/npl")
-                                                                          "-c" "-o" "clamp.o"
-                                                                          (path-join extension "clamp.c")))
-                                                          0))
-                                                  (driver-fail "installed header")
-                                                  (if (not (= (run-command
-                                                               (clean-command root work "cc"
-                                                                              "-std=c99" "-c"
-                                                                              "-o" "typed.o"
-                                                                              (path-join extension "typed.c")))
-                                                              0))
-                                                      (driver-fail "typed object")
-                                                      (if (not (= (run-command
-                                                                   (clean-command root work "ar"
-                                                                                  "rcs" "libdemotyped.a"
-                                                                                  "typed.o"))
-                                                                  0))
-                                                          (driver-fail "ar")
-                                                          (begin
-                                                            (write-text-file
-                                                              (path-join project "typed.npl")
-                                                              (read-text-file
-                                                                (path-join extension "typed.npl")))
-                                                            (if (not (= (run-command
-                                                                         (clean-command root work nplc
-                                                                                        "typed.npl" "-L" "."
-                                                                                        "-l" "demotyped"))
-                                                                        0))
-                                                                (driver-fail "typed link")
-                                                                (let ((typed-out (path-join work "typed.out")))
-                                                                  (capture-command
-                                                                    (list (path-join project "typed"))
-                                                                    #f typed-out
-                                                                    (path-join work "typed.err"))
-                                                                  (if (not (file-equal?
-                                                                            (path-join extension "typed.out")
-                                                                            typed-out))
-                                                                      (driver-fail "typed output")
-                                                                      (let ((version-out
-                                                                              (path-join work "v1")))
-                                                                        (capture-command
-                                                                          (clean-command root work nplc "--version")
-                                                                          #f version-out
-                                                                          (path-join work "v1.err"))
-                                                                        (if (not (string=?
-                                                                                   (trim-trailing-newline (read-text-file version-out))
-                                                                                   (string-append "nplc " version)))
-                                                                            (driver-fail "installed version")
-                                                                            (let ((script-out
-                                                                                    (path-join work "script.out")))
-                                                                              (capture-command
-                                                                                (clean-command root work npli
-                                                                                               "script.scm" "x")
-                                                                                #f script-out
-                                                                                (path-join work "script.err"))
-                                                                              (if (not (string=?
-                                                                                         (trim-trailing-newline (read-text-file script-out))
-                                                                                         "(#\\A (\"x\"))"))
-                                                                                  (driver-fail "installed npli script")
-                                                                                  (let ((prompt (path-join work "prompt.in"))
-                                                                                        (prompt-out (path-join work "prompt.out")))
-                                                                                    (write-text-file prompt "(+ 40 2)\n")
-                                                                                    (capture-command
-                                                                                      (clean-command root work npli "--no-prompt")
-                                                                                      prompt prompt-out
-                                                                                      (path-join work "prompt.err"))
-                                                                                    (if (not (string=?
-                                                                                               (trim-trailing-newline (read-text-file prompt-out))
-                                                                                               "42"))
-                                                                                        (driver-fail "installed prompt")
-                                                                                        (let ((installed-ssa
-                                                                                                (path-join work "installed.ssa"))
-                                                                                              (tree-ssa
-                                                                                                (path-join work "tree.ssa")))
-                                                                                          (capture-command
-                                                                                            (clean-command root work nplc
-                                                                                                           "--emit=ssa" "hello.npl")
-                                                                                            #f installed-ssa
-                                                                                            (path-join work "ssa.err"))
-                                                                                          (capture-command
-                                                                                            (list (path-join root "build/bin/nplc")
-                                                                                                  "--emit=ssa" "hello.npl")
-                                                                                            #f tree-ssa
-                                                                                            (path-join work "ssa2.err"))
-                                                                                          (if (file-equal? installed-ssa tree-ssa)
-                                                                                              (begin
-                                                                                                (display "install layout: PASS")
-                                                                                                (newline)
-                                                                                                #t)
-                                                                                              (driver-fail "installed SSA"))))))))))))))))))))))))))))
-)
-)
-
-    (define (empty-directory? directory)
-      (null? (directory-files directory #t)))
-
-    (define (string-contains-index text needle)
-      (let loop ((index 0))
-        (cond
-          ((> index (- (string-length text) (string-length needle))) #f)
-          ((string=? (substring text index (+ index (string-length needle)))
-                     needle) index)
-          (else (loop (+ index 1))))))
-
-    (define (line-after-prefix text prefix)
-      (let ((index (string-contains-index text prefix)))
-        (if (not index)
-            #f
-            (let ((start (+ index (string-length prefix)))
-                  (end (let loop ((cursor (+ index (string-length prefix))))
-                         (if (= cursor (string-length text))
-                             cursor
-                             (if (char=? (string-ref text cursor) #\newline)
-                                 cursor
-                                 (loop (+ cursor 1)))))))
-              (substring text start end)))))
 
     (define (delete-tree directory)
       (let loop ((names (directory-files directory #t)))
@@ -661,46 +423,46 @@
                 (newline))))
         (create-directory space)
         (create-directory tmp)
-        (write-text-file expected "hello from nplc\n")
+        (write-text expected "hello from nplc\n")
         (let ((version-out (path-join work "version"))
               (version-err (path-join work "version.err")))
-          (capture-command (list nplc "--version") #f version-out version-err)
+          (run-process* (list nplc "--version") #f version-out version-err)
           (check "version"
                  (string=? (trim-trailing-newline (read-text-file version-out))
                            (string-append "nplc " version))))
         (let* ((spaced-source (path-join space "source program.npl"))
                (spaced-output (path-join space "native program")))
-          (write-text-file spaced-source (read-text-file source))
+          (write-text spaced-source (read-text-file source))
           (with-tempdir tmp
             (lambda ()
               (check "spaced compile"
                      (= (run-command nplc spaced-source "-o" spaced-output) 0))
               (let ((out (path-join work "native.out")))
-                (capture-command (list spaced-output) #f out
+                (run-process* (list spaced-output) #f out
                                  (path-join work "native.err"))
                 (check "spaced output" (file-equal? expected out)))))
           (with-tempdir tmp
             (lambda ()
-              (with-current-directory
+              (with-directory
                 space
                 (lambda ()
                   (check "default output"
                          (= (run-command nplc "source program.npl") 0))))))
           (let ((stem-out (path-join work "stem.out")))
-            (capture-command (list (path-join space "source program")) #f stem-out
+            (run-process* (list (path-join space "source program")) #f stem-out
                              (path-join work "stem.err"))
             (check "default stem output" (file-equal? expected stem-out)))
           (let ((stdout-ssa (path-join work "stdout.ssa"))
                 (file-ssa (path-join work "file.ssa"))
                 (alias-ssa (path-join work "alias.ssa")))
-            (capture-command (list nplc "--emit=ssa" source) #f stdout-ssa
+            (run-process* (list nplc "--emit=ssa" source) #f stdout-ssa
                              (path-join work "ssa.err"))
             (with-tempdir tmp
               (lambda ()
                 (check "file SSA"
                        (= (run-command nplc "--emit=ssa" source "-o" file-ssa)
                           0))))
-            (capture-command (list nplc "--emit-qbe" source) #f alias-ssa
+            (run-process* (list nplc "--emit-qbe" source) #f alias-ssa
                              (path-join work "alias.err"))
             (check "SSA stdout/file" (file-equal? stdout-ssa file-ssa))
             (check "SSA alias" (file-equal? stdout-ssa alias-ssa))
@@ -718,7 +480,7 @@
               (check "link object"
                      (= (run-command cc "-o" linked object runtime "-lm") 0))
               (let ((out (path-join work "linked.out")))
-                (capture-command (list linked) #f out (path-join work "linked.err"))
+                (run-process* (list linked) #f out (path-join work "linked.err"))
                 (check "linked output" (file-equal? expected out)))))
           (let ((clamp-object (path-join work "clamp.o"))
                 (lib-dir (path-join work "c lib"))
@@ -740,7 +502,7 @@
                                       "-L" lib-dir "-l" "democlamp" "-o"
                                       (path-join work "extension"))
                           0))))
-            (capture-command (list (path-join work "extension")) #f extension-out
+            (run-process* (list (path-join work "extension")) #f extension-out
                              (path-join work "extension.err"))
             (check "extension output"
                    (file-equal? (path-join extension "expected.out") extension-out)))
@@ -762,18 +524,18 @@
                                       (path-join work "typed"))
                           0))))
             (let ((out (path-join work "typed.out")))
-              (capture-command (list (path-join work "typed")) #f out
+              (run-process* (list (path-join work "typed")) #f out
                                (path-join work "typed.err"))
               (check "typed output"
                      (file-equal? (path-join extension "typed.out") out)))))
-        (with-current-directory
+        (with-directory
           "/tmp"
           (lambda ()
             (check "outside repository"
                    (= (run-command nplc source "-o" (path-join work "outside"))
                       0))))
         (let ((outside-out (path-join work "outside.out")))
-          (capture-command (list (path-join work "outside")) #f outside-out
+          (run-process* (list (path-join work "outside")) #f outside-out
                            (path-join work "outside.err"))
           (check "outside output" (file-equal? expected outside-out)))
         (let ((rejected (path-join work "rejected"))
@@ -781,34 +543,34 @@
           (with-tempdir tmp
             (lambda ()
               (check "compile error status"
-                     (not (= (capture-command
+                     (not (= (run-process*
                                (list nplc (path-join root
                                                      "src/compiler/tests/contracts/library-unknown-import.npl")
                                      "-o" rejected)
                                #f (path-join work "rejected.out") rejected-err)
                              0)))))
           (check "compile error diagnostic"
-                 (string-contains? (read-text-file rejected-err)
+                 (string-contains (read-text-file rejected-err)
                                    "only import name not exported"))
           (check "compile error output absent" (not (file-exists? rejected))))
         (let ((qbe-err (path-join work "qbe.err")))
           (with-tempdir tmp
             (lambda ()
               (check "missing qbe status"
-                     (= (capture-command
+                     (= (run-process*
                           (list nplc "--qbe" (path-join work "missing-qbe")
                                 source "-o" (path-join work "qbe-failure"))
                           #f (path-join work "qbe.out") qbe-err)
                         127))))
           (check "missing qbe diagnostic"
-                 (string-contains? (read-text-file qbe-err) "nplc: qbe failed")))
+                 (string-contains (read-text-file qbe-err) "nplc: qbe failed")))
         (let loop ((options '("--emit=dylib" "--emit=staticlib"
                               "--emit=bogus" "--bogus")))
           (if (null? options)
               #t
               (let ((err (path-join work "option.err")))
                 (check (string-append "option " (car options))
-                       (= (capture-command (list nplc (car options) source)
+                       (= (run-process* (list nplc (car options) source)
                                            #f (path-join work "option.out") err)
                           2))
                 (check (string-append "option diagnostic " (car options))
@@ -816,21 +578,21 @@
                 (loop (cdr options)))))
         (let ((err (path-join work "option.err")))
           (check "-l value"
-                 (= (capture-command (list nplc source "-l")
+                 (= (run-process* (list nplc source "-l")
                                      #f (path-join work "option.out") err)
                     2))
           (check "-l diagnostic"
-                 (string-contains? (read-text-file err) "nplc: -l needs a value")))
+                 (string-contains (read-text-file err) "nplc: -l needs a value")))
         (check "help"
                (let ((help-out (path-join work "help.out")))
-                 (capture-command (list nplc "--help") #f help-out
+                 (run-process* (list nplc "--help") #f help-out
                                   (path-join work "help.err"))
-                 (string-contains? (read-text-file help-out) "usage: nplc")))
+                 (string-contains (read-text-file help-out) "usage: nplc")))
         (let ((keep-err (path-join work "keep.err")))
           (with-tempdir tmp
             (lambda ()
               (check "keep temps"
-                     (= (capture-command
+                     (= (run-process*
                           (list nplc "--keep-temps" source "-o"
                                 (path-join work "kept"))
                           #f (path-join work "keep.out") keep-err)

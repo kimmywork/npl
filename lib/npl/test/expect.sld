@@ -5,57 +5,25 @@
 ; runner compiles and runs the native source, feeds the REPL transcript, and
 ; compares all three surfaces with the expected files.
 (define-library (npl test expect)
-  (export run-fixture run-fixture-directory read-text-file write-text-file
+  (export run-fixture run-fixture-directory read-text-file
           parse-fixture-meta fixture-meta)
   (import (scheme base)
           (scheme file)
           (scheme process-context)
           (scheme write)
-          (only (npl internal primitive) read-file)
+          (only (npl string) string-index)
+          (only (npl util) path-join)
+          (only (npl test util) read-text-file write-text text-lines
+                file-equal?)
           (npl process)
-          (except (npl unix) delete-directory))
+          (npl unix))
   (begin
-    (define (join-path directory name)
-      (if (if (= (string-length directory) 0)
-              #t
-              (char=? (string-ref directory
-                                  (- (string-length directory) 1))
-                      #\/))
-          (string-append directory name)
-          (string-append directory "/" name)))
-
-    (define (read-text-file path)
-      (read-file path))
-
-    (define (write-text-file path text)
-      (call-with-output-file path
-        (lambda (port) (display text port))))
-
-    (define (string-index-char text character)
-      (let loop ((index 0))
-        (cond
-          ((= index (string-length text)) #f)
-          ((char=? (string-ref text index) character) index)
-          (else (loop (+ index 1))))))
-
-    (define (line-list text)
-      (let loop ((start 0) (index 0) (lines '()))
-        (cond
-          ((= index (string-length text))
-           (reverse (if (= start index)
-                        lines
-                        (cons (substring text start index) lines))))
-          ((char=? (string-ref text index) #\newline)
-           (loop (+ index 1) (+ index 1)
-                 (cons (substring text start index) lines)))
-          (else (loop start (+ index 1) lines)))))
-
     (define (parse-fixture-meta path)
-      (let loop ((lines (line-list (read-text-file path))) (entries '()))
+      (let loop ((lines (text-lines (read-text-file path))) (entries '()))
         (if (null? lines)
             (reverse entries)
             (let* ((line (car lines))
-                   (equal (string-index-char line #\=)))
+                   (equal (string-index line #\=)))
               (if (not equal)
                   (loop (cdr lines) entries)
                   (loop (cdr lines)
@@ -76,12 +44,6 @@
             value
             (error "fixture.meta: missing key" key))))
 
-    (define (run-capture arguments input output error)
-      (run-process* arguments input output error))
-
-    (define (files-equal? left right)
-      (string=? (read-text-file left) (read-text-file right)))
-
     (define (surface-pass? name surface expected-out expected-err
                            expected-status status output error)
       (cond
@@ -97,7 +59,7 @@
          (display " classification=unclassified" (current-error-port))
          (newline (current-error-port))
          #f)
-        ((not (files-equal? expected-out output))
+        ((not (file-equal? expected-out output))
          (display "fixture=" (current-error-port))
          (display name (current-error-port))
          (display " surface=" (current-error-port))
@@ -106,7 +68,7 @@
                   (current-error-port))
          (newline (current-error-port))
          #f)
-        ((not (files-equal? expected-err error))
+        ((not (file-equal? expected-err error))
          (display "fixture=" (current-error-port))
          (display name (current-error-port))
          (display " surface=" (current-error-port))
@@ -119,9 +81,9 @@
 
     (define (guile-version)
       (let* ((directory (make-temporary-directory))
-             (output (join-path directory "version"))
-             (error (join-path directory "error"))
-             (status (run-capture (list "guile" "-c" "(display (version))")
+             (output (path-join directory "version"))
+             (error (path-join directory "error"))
+             (status (run-process* (list "guile" "-c" "(display (version))")
                                   #f output error)))
         (if (= status 0)
             (let ((value (read-text-file output)))
@@ -136,45 +98,45 @@
               #f))))
 
     (define (run-fixture-directory directory nplc npli)
-      (let* ((meta (parse-fixture-meta (join-path directory "fixture.meta")))
+      (let* ((meta (parse-fixture-meta (path-join directory "fixture.meta")))
              (name (required-meta meta "name"))
-             (native (join-path directory (required-meta meta "native")))
-             (repl (join-path directory (required-meta meta "repl")))
-             (expected-out (join-path directory
+             (native (path-join directory (required-meta meta "native")))
+             (repl (path-join directory (required-meta meta "repl")))
+             (expected-out (path-join directory
                                      (required-meta meta "expected-out")))
-             (expected-err (join-path directory
+             (expected-err (path-join directory
                                      (required-meta meta "expected-err")))
              (expected-status
                (string->number (required-meta meta "expected-status")))
              (oracle (fixture-meta meta "oracle" "guile"))
              (guile-defect (fixture-meta meta "guile-defect" ""))
              (work (make-temporary-directory))
-             (native-out (join-path work "native.out"))
-             (native-err (join-path work "native.err"))
-             (repl-out (join-path work "repl.out"))
-             (repl-err (join-path work "repl.err"))
-             (guile-out (join-path work "guile.out"))
-             (guile-err (join-path work "guile.err"))
-             (native-bin (join-path work "native"))
+             (native-out (path-join work "native.out"))
+             (native-err (path-join work "native.err"))
+             (repl-out (path-join work "repl.out"))
+             (repl-err (path-join work "repl.err"))
+             (guile-out (path-join work "guile.out"))
+             (guile-err (path-join work "guile.err"))
+             (native-bin (path-join work "native"))
              (repl-input repl)
              (oracle-skip (if (string=? oracle "none") "oracle-unavailable" #f)))
         (if (fixture-meta meta "repl-body")
-            (let ((combined (join-path work "repl.in")))
-              (write-text-file
+            (let ((combined (path-join work "repl.in")))
+              (write-text
                 combined
                 (string-append
                   (read-text-file repl)
-                  (read-text-file (join-path directory
+                  (read-text-file (path-join directory
                                              (fixture-meta meta "repl-body")))
                   "\n(exit)\n"))
               (set! repl-input combined))
             #f)
         (let ((compile-status
-                (run-capture
+                (run-process*
                   (list nplc native "-o" native-bin)
                   #f
-                  (join-path work "compile.out")
-                  (join-path work "compile.err"))))
+                  (path-join work "compile.out")
+                  (path-join work "compile.err"))))
           (if (not (= compile-status 0))
               (begin
                 (display "fixture=" (current-error-port))
@@ -184,9 +146,9 @@
                 (newline (current-error-port))
                 #f)
               (let ((native-status
-                      (run-capture (list native-bin) #f native-out native-err))
+                      (run-process* (list native-bin) #f native-out native-err))
                     (repl-status
-                      (run-capture (list npli "--no-prompt")
+                      (run-process* (list npli "--no-prompt")
                                    repl-input repl-out repl-err)))
                 (if (if oracle-skip #f (if guile-defect #t #f))
                     (let ((version (guile-version)))
@@ -197,12 +159,12 @@
                 (let ((guile-status
                         (if oracle-skip
                             0
-                            (run-capture
+                            (run-process*
                               (list "guile" "--r7rs" "-q"
                                     "--no-auto-compile" "-s"
                                     (if (string=? oracle "none")
                                         native
-                                        (join-path directory
+                                        (path-join directory
                                                    (fixture-meta meta "guile"
                                                                  "native.npl"))))
                               #f guile-out guile-err))))
@@ -239,10 +201,10 @@
                                 (display " surface=guile status=PASS")
                                 (display " classification=matched-expected")
                                 (newline)))
-                          (if (if (files-equal? native-out repl-out)
+                          (if (if (file-equal? native-out repl-out)
                                   (if oracle-skip
                                       #t
-                                      (files-equal? native-out guile-out))
+                                      (file-equal? native-out guile-out))
                                   #f)
                               (begin
                                 (display "fixture=") (display name)

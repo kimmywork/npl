@@ -104,6 +104,7 @@
           (else
            (let ((fast (cdr (cdr fast))) (slow (cdr slow)))
              (if (eq? fast slow) #f (loop fast slow))))))))
-  (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
+  (include "ordered-chain.scm"
+           "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
            "vector.scm" "string.scm"
            "error.scm" "text-io.scm"))

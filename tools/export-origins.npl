@@ -1,0 +1,17 @@
+; Cross-file export-origin report for everything under lib/.
+;   npli tools/export-origins.npl
+;   npli tools/export-origins.npl --coverage-baseline
+; The first form prints every external name whose import paths reach
+; different final definitions and checks them against the reviewed
+; exceptions in tools/libraries/export-origin-exceptions.scm (exit 0 when
+; nothing new, changed, or stale).  The second rewrites
+; tools/libraries/coverage-baseline.scm from the current test coverage; use
+; it only to record gaps that a review accepted.
+(import (scheme base)
+        (scheme process-context)
+        (tools libraries))
+
+(exit
+  (if (member "--coverage-baseline" (command-line))
+      (if (write-coverage-baseline ".") 0 1)
+      (if (check-export-origins ".") 0 1)))

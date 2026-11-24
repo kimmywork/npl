@@ -81,21 +81,14 @@
 (define (syntax-env-bind env key value)
   (cons (cons (cons key value) (car env)) (cdr env)))
 
-(define (syntax-env-entry key entries)
-  (if (null? entries)
-      ()
-      (if (string=? key (car (car entries)))
-          (car entries)
-          (syntax-env-entry key (cdr entries)))))
-
 (define (syntax-env-lookup key env)
   (if (null? env)
       ()
-      (let ((entry (syntax-env-entry key (car env))))
+      (let ((entry (string-assoc key (car env))))
         (if (null? entry) (syntax-env-lookup key (cdr env)) entry))))
 
 (define (syntax-env-set! env key value)
-  (let ((entry (syntax-env-entry key (car env))))
+  (let ((entry (string-assoc key (car env))))
     (if (null? entry)
         (set-car! env (cons (cons key value) (car env)))
         (set-cdr! entry value))))

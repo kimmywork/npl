@@ -9,4 +9,4 @@
           (scheme write)
           (only (npl internal primitive) npl_freeze_literal)
           (npl internal frontend))
-  (include "evaluator-compile.scm" "evaluator-session.scm"))
+  (include "../ordered-chain.scm" "evaluator-compile.scm" "evaluator-session.scm"))

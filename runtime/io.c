@@ -5,6 +5,7 @@
  * exit. See port.h for the module split. */
 
 #include "port.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -315,10 +316,10 @@ NplVal npl_delete_directory(NplVal path_value)
 {
     char *path = npl_c_string_internal(process_string(path_value, "delete-directory"));
     int failed = rmdir(path) != 0;
+    int code = errno;
     free(path);
     if (failed)
-        npl_primitive_file_error("delete-directory", "cannot delete directory",
-                                 path_value);
+        npl_primitive_posix_error("delete-directory", code, path_value);
     return npl_unspecified();
 }
 

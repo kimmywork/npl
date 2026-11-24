@@ -453,4 +453,4 @@
       (cell-set! SYNTAX-EVAL-PRIMITIVES
                  (syntax-eval-primitive-bindings))
       ())
-  (syntax-env-entry name (cell-get SYNTAX-EVAL-PRIMITIVES)))
+  (string-assoc name (cell-get SYNTAX-EVAL-PRIMITIVES)))

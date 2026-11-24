@@ -157,13 +157,6 @@
       value
       (eval-fold operator (operator value (car operands)) (cdr operands))))
 
-(define (eval-chain? compare values)
-  (cond
-    ((null? (cdr values)) #t)
-    ((compare (car values) (car (cdr values)))
-     (eval-chain? compare (cdr values)))
-    (else #f)))
-
 (define (eval-arithmetic native required)
   (lambda operands
     (if (> (length operands) (+ required EVAL-SPREAD-LIMIT))
@@ -173,7 +166,7 @@
 (define (eval-comparison native)
   (lambda operands
     (if (> (length operands) (+ 2 EVAL-SPREAD-LIMIT))
-        (eval-chain? native operands)
+        (ordered-chain? native operands)
         (apply native operands))))
 
 (define (eval-primitive-binding binding)

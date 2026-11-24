@@ -1,0 +1,8 @@
+(import (scheme base) (scheme write) (npl ffi) (npl unix))
+(define p (foreign-alloc 64))
+(write (guard (e (#t (list 'raised (error-object-message e)))) (close-directory p) 'closed))
+(newline)
+(write (list 'null? (pointer-null? p)))
+(newline)
+(write (guard (e (#t (list 'raised (error-object-message e)))) (foreign-free p) 'freed))
+(newline)

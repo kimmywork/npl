@@ -8,68 +8,21 @@
           (scheme file)
           (scheme process-context)
           (scheme write)
-          (srfi 13)
           (only (npl internal primitive) read-file)
           (only (npl process) make-temporary-directory run-process*)
           (npl platform)
-          (npl unix))
+          (npl unix)
+          (only (npl string) string-contains)
+          (only (npl util) path-join)
+          (only (npl test util) write-text file-size file-empty?
+                file-equal? expect remove-tree run-ok?
+                with-directory with-environment trim-newline))
   (begin
     (define FAILURES '())
 
     (define (fail message)
       (set! FAILURES (cons message FAILURES))
       #f)
-
-    (define (join directory name)
-      (string-append directory "/" name))
-
-    (define (write-text path text)
-      (call-with-output-file path
-        (lambda (port) (display text port))))
-
-    (define (file-size path)
-      (file-info:size (file-info path #t)))
-
-    (define (file-empty? path)
-      (= (file-size path) 0))
-
-    (define (file-equal? left right)
-      (string=? (read-file left) (read-file right)))
-
-    (define (contains? text needle)
-      (if (string-contains text needle) #t #f))
-
-    (define (trim-newline text)
-      (let loop ((end (string-length text)))
-        (if (if (> end 0) (char=? (string-ref text (- end 1)) #\newline) #f)
-            (loop (- end 1))
-            (substring text 0 end))))
-
-    (define (run args input output error)
-      (run-process* args input output error))
-
-    (define (run-ok? args input output error)
-      (= (run args input output error) 0))
-
-    (define (with-directory directory thunk)
-      (let ((saved (current-directory)))
-        (dynamic-wind
-          (lambda () (set-current-directory! directory))
-          thunk
-          (lambda () (set-current-directory! saved)))))
-
-    (define (with-environment name value thunk)
-      (let ((saved (get-environment-variable name)))
-        (dynamic-wind
-          (lambda ()
-            (if value
-                (set-environment-variable! name value)
-                (delete-environment-variable! name)))
-          thunk
-          (lambda ()
-            (if saved
-                (set-environment-variable! name saved)
-                (delete-environment-variable! name))))))
 
     (define (find-text text needle start index)
       (if (> (+ index (string-length needle)) (string-length text))
@@ -106,29 +59,13 @@
     (define (copy-file source output)
       (write-text output (read-file source)))
 
-    (define (expect ok name condition)
-      (if condition
-          ok
-          (begin
-            (display "repl-suites: FAIL " (current-error-port))
-            (display name (current-error-port))
-            (newline (current-error-port))
-            #f)))
-
-    (define (remove-tree directory)
-      (if (file-exists? directory)
-          (begin
-            (run (list "rm" "-rf" directory) #f #f #f)
-            #f)
-          #f))
-
     (define (run-repl root npli work cwd input expected-out expected-err label)
-      (let ((out (join work (string-append label ".out")))
-            (err (join work (string-append label ".err"))))
+      (let ((out (path-join work (string-append label ".out")))
+            (err (path-join work (string-append label ".err"))))
         (let ((status (with-directory
                         cwd
                         (lambda ()
-                          (run (list npli "--no-prompt") input out err)))))
+                          (run-process* (list npli "--no-prompt") input out err)))))
           (if (not (= status 0))
               (expect #f label #f)
               (let ((ok (file-equal? out expected-out)))
@@ -149,15 +86,15 @@
         (lambda ()
           (cond
             ((string=? surface "npli")
-             (= (run (list npli (join script "program.scm")
+             (= (run-process* (list npli (path-join script "program.scm")
                           "7" "two words")
                      #f out (string-append out ".err")) 7))
             ((string=? surface "native")
-             (= (run (list native "7" "two words") #f out
+             (= (run-process* (list native "7" "two words") #f out
                      (string-append out ".err")) 7))
             (else
-             (= (run (list "guile" "--r7rs" "-q" "--no-auto-compile"
-                          "-s" (join script "program.scm")
+             (= (run-process* (list "guile" "--r7rs" "-q" "--no-auto-compile"
+                          "-s" (path-join script "program.scm")
                           "7" "two words")
                      #f out (string-append out ".err")) 7))))))
 
@@ -165,52 +102,52 @@
       (let ((nplc (absolute-path nplc))
             (npli (absolute-path npli))
             (work (make-temporary-directory))
-            (tests (join root "src/compiler/tests"))
-            (extension (join root "src/compiler/tests/c-extension"))
-            (repl-tests (join root "src/repl/tests"))
+            (tests (path-join root "src/compiler/tests"))
+            (extension (path-join root "src/compiler/tests/c-extension"))
+            (repl-tests (path-join root "src/repl/tests"))
             (ok #t))
         (set! FAILURES '())
         (let ((version (trim-newline
-                         (let ((out (join work "version.out")))
-                           (run (list npli "--version") #f out #f)
+                         (let ((out (path-join work "version.out")))
+                           (run-process* (list npli "--version") #f out #f)
                            (read-file out)))))
           (set! ok (expect ok "npli version"
                            (string=? version
                                      (string-append
                                        "npli "
                                        (trim-newline
-                                         (read-file (join root "VERSION"))))))))
+                                         (read-file (path-join root "VERSION"))))))))
         (set! ok (expect ok "evaluator core compile"
-                         (run-ok? (list nplc (join root "src/evaluator/core-tests.npl")
-                                        "-o" (join work "evaluator-core"))
+                         (run-ok? (list nplc (path-join root "src/evaluator/core-tests.npl")
+                                        "-o" (path-join work "evaluator-core"))
                                   #f #f #f)))
-        (let ((out (join work "evaluator.out")))
+        (let ((out (path-join work "evaluator.out")))
           (set! ok (expect ok "evaluator core run"
-                           (if (run-ok? (list (join work "evaluator-core"))
+                           (if (run-ok? (list (path-join work "evaluator-core"))
                                         #f out #f)
-                               (contains? (read-file out)
+                               (string-contains (read-file out)
                                           "PASS evaluator-core 42")
                                #f))))
         (set! ok (expect ok "differential native compile"
                          (run-ok? (list nplc
-                                        (join root "src/repl/differential-native.npl")
-                                        "-o" (join work "differential-native"))
+                                        (path-join root "src/repl/differential-native.npl")
+                                        "-o" (path-join work "differential-native"))
                                   #f #f #f)))
         (set! ok (expect ok "differential evaluator compile"
                          (run-ok? (list nplc
-                                        (join root "src/repl/differential-evaluator.npl")
-                                        "-o" (join work "differential-evaluator"))
+                                        (path-join root "src/repl/differential-evaluator.npl")
+                                        "-o" (path-join work "differential-evaluator"))
                                   #f #f #f)))
-        (let ((native-out (join work "differential-native.out"))
-              (native-err (join work "differential-native.err"))
-              (eval-out (join work "differential-evaluator.out"))
-              (eval-err (join work "differential-evaluator.err")))
+        (let ((native-out (path-join work "differential-native.out"))
+              (native-err (path-join work "differential-native.err"))
+              (eval-out (path-join work "differential-evaluator.out"))
+              (eval-err (path-join work "differential-evaluator.err")))
           (set! ok (expect ok "differential native run"
-                           (run-ok? (list (join work "differential-native"))
+                           (run-ok? (list (path-join work "differential-native"))
                                     #f native-out native-err)))
           (set! ok (expect ok "differential evaluator run"
-                           (run-ok? (list (join work "differential-evaluator")
-                                          (join root
+                           (run-ok? (list (path-join work "differential-evaluator")
+                                          (path-join root
                                                 "src/repl/tests/differential-fixture.scm"))
                                     #f eval-out eval-err)))
           (set! ok (expect ok "differential stdout"
@@ -223,7 +160,7 @@
         (for-each
           (lambda (name)
             (let ((label (car name))
-                  (input (join repl-tests (car (cdr name)))))
+                  (input (path-join repl-tests (car (cdr name)))))
               (let ((cwd (if (if (string=? label "libraries")
                                  #t
                                  (string=? label "load"))
@@ -231,9 +168,9 @@
                              work)))
                 (set! ok (expect ok label
                                  (run-repl root npli work cwd input
-                                           (join repl-tests
+                                           (path-join repl-tests
                                                  (string-append label ".out"))
-                                           (join repl-tests
+                                           (path-join repl-tests
                                                  (string-append label ".err"))
                                            label))))))
           '(("persistent" "persistent.in")
@@ -243,10 +180,10 @@
             ("interop" "interop.in")
             ("load" "load.in")))
 
-        (let ((input (join work "prompt.in"))
-              (expected (join work "prompt.expected"))
-              (out (join work "prompt.out"))
-              (err (join work "prompt.err")))
+        (let ((input (path-join work "prompt.in"))
+              (expected (path-join work "prompt.expected"))
+              (out (path-join work "prompt.out"))
+              (err (path-join work "prompt.err")))
           (write-text input "(+ 40 2)\n")
           (write-text expected "> 42\n> ")
           (set! ok (expect ok "prompt output"
@@ -255,29 +192,29 @@
                                #f)))
           (set! ok (expect ok "prompt stderr" (file-empty? err))))
 
-        (let ((script (join root "src/repl/tests/script"))
-              (native (join work "script-native")))
+        (let ((script (path-join root "src/repl/tests/script"))
+              (native (path-join work "script-native")))
           (set! ok (expect ok "script native compile"
-                           (run-ok? (list nplc (join script "native.npl")
+                           (run-ok? (list nplc (path-join script "native.npl")
                                           "-o" native) #f #f #f)))
           (for-each
             (lambda (surface)
-              (let ((out (join work (string-append surface ".out"))))
+              (let ((out (path-join work (string-append surface ".out"))))
                 (set! ok (expect ok (string-append "script " surface)
                                  (script-surface npli native script surface out)))))
             '("npli" "native" "guile"))
           (set! ok (expect ok "script npli/native output"
-                           (file-equal? (join work "npli.out")
-                                        (join work "native.out"))))
+                           (file-equal? (path-join work "npli.out")
+                                        (path-join work "native.out"))))
           (set! ok (expect ok "script npli/guile output"
-                           (file-equal? (join work "npli.out")
-                                        (join work "guile.out"))))
+                           (file-equal? (path-join work "npli.out")
+                                        (path-join work "guile.out"))))
           (set! ok (expect ok "script arguments"
-                           (contains? (read-file (join work "npli.out"))
+                           (string-contains (read-file (path-join work "npli.out"))
                                       "(arguments (\"7\" \"two words\"))"))))
 
-        (let ((source (join work "shebang.scm"))
-              (out (join work "shebang.out")))
+        (let ((source (path-join work "shebang.scm"))
+              (out (path-join work "shebang.out")))
           (write-text source
             (string-append
               "#!/usr/bin/env npli\n"
@@ -285,25 +222,42 @@
               "(display 42)\n"))
           (set! ok (expect ok "shebang"
                            (if (run-ok? (list npli source)
-                                        #f out (join work "shebang.err"))
+                                        #f out (path-join work "shebang.err"))
                                (string=? (read-file out) "42")
-                               #f))))
+                               #f)))
+          (let ((err (path-join work "shebang-nplc.err")))
+            (set! ok (expect ok "nplc shebang diagnostic"
+                             (if (not (run-ok?
+                                        (list nplc source "-o"
+                                              (path-join work "shebang-native"))
+                                        #f #f err))
+                                 (if (string-contains (read-file err) "line 1")
+                                     (string-contains (read-file err) "shebang")
+                                     #f)
+                                 #f)))))
 
-        (let ((bad (join work "bad.scm"))
-              (err (join work "bad.err")))
+        (let ((bad (path-join work "bad.scm"))
+              (err (path-join work "bad.err")))
           (write-text bad "(import (scheme base))\n(car 1)\n")
           (set! ok (expect ok "runtime error status"
-                           (= (run (list npli bad) #f #f err) 70)))
+                           (= (run-process* (list npli bad) #f #f err) 70)))
           (set! ok (expect ok "runtime error message"
-                           (contains? (read-file err)
+                           (string-contains (read-file err)
                                       "error: car: expected a pair"))))
         (set! ok (expect ok "missing script status"
-                         (= (run (list npli (join work "missing.scm"))
-                                 #f #f (join work "missing.err"))
+                         (= (run-process* (list npli (path-join work "missing.scm"))
+                                 #f #f (path-join work "missing.err"))
                             66)))
+        (set! ok (expect ok "directory script status"
+                         (= (run-process* (list npli work) #f #f
+                                 (path-join work "directory-script.err"))
+                            70)))
+        (set! ok (expect ok "directory script diagnostic"
+                         (string-contains (read-file (path-join work "directory-script.err"))
+                                    "error: ")))
         (set! ok (expect ok "bad option status"
-                         (= (run (list npli "--bogus") #f #f
-                                 (join work "option.err")) 2)))
+                         (= (run-process* (list npli "--bogus") #f #f
+                                 (path-join work "option.err")) 2)))
 
         (let* ((darwin? (platform-feature? 'darwin))
                (suffix (if darwin? "dylib" "so"))
@@ -313,78 +267,78 @@
                (cc (if (get-environment-variable "CC")
                        (get-environment-variable "CC")
                        "cc"))
-               (clamp (join work (string-append "libdemoclamp." suffix)))
-               (pointers (join work (string-append "libdemopointers." suffix)))
-               (values (join work (string-append "libdemovalues." suffix)))
-               (typed (join work (string-append "libdemotyped." suffix))))
+               (clamp (path-join work (string-append "libdemoclamp." suffix)))
+               (pointers (path-join work (string-append "libdemopointers." suffix)))
+               (values (path-join work (string-append "libdemovalues." suffix)))
+               (typed (path-join work (string-append "libdemotyped." suffix))))
           (set! ok (expect ok "clamp shared library"
                            (run-ok? (append
                                       (list cc "-std=c99" "-Wall" "-Werror"
-                                            "-I" (join root "runtime"))
+                                            "-I" (path-join root "runtime"))
                                       (append shared
                                               (list "-o" clamp
-                                                    (join extension "clamp.c"))))
+                                                    (path-join extension "clamp.c"))))
                                     #f #f #f)))
-          (copy-file (join extension "main.npl")
-                     (join work "c-extension.scm"))
+          (copy-file (path-join extension "main.npl")
+                     (path-join work "c-extension.scm"))
           (set! ok (expect ok "pointers shared library"
                            (run-ok? (append
                                       (list cc "-std=c99" "-Wall" "-Werror"
-                                            "-I" (join root "runtime"))
+                                            "-I" (path-join root "runtime"))
                                       (append shared
                                               (list "-o" pointers
-                                                    (join extension "pointers.c"))))
+                                                    (path-join extension "pointers.c"))))
                                     #f #f #f)))
           (set! ok (expect ok "pointers under npli"
                            (if (run-ok? (list npli "-l" pointers
-                                              (join extension "pointers.npl"))
-                                        #f (join work "pointers.out") #f)
-                               (file-equal? (join extension "pointers.out")
-                                            (join work "pointers.out"))
+                                              (path-join extension "pointers.npl"))
+                                        #f (path-join work "pointers.out") #f)
+                               (file-equal? (path-join extension "pointers.out")
+                                            (path-join work "pointers.out"))
                                #f)))
           (set! ok (expect ok "values shared library"
                            (run-ok? (append
                                       (list cc "-std=c99" "-Wall" "-Werror"
-                                            "-I" (join root "runtime"))
+                                            "-I" (path-join root "runtime"))
                                       (append shared
                                               (list "-o" values
-                                                    (join extension "values.c"))))
+                                                    (path-join extension "values.c"))))
                                     #f #f #f)))
           (set! ok (expect ok "values under npli"
                            (if (run-ok? (list npli "-l" values
-                                              (join extension "values.npl"))
-                                        #f (join work "values.out") #f)
-                               (file-equal? (join extension "values.out")
-                                            (join work "values.out"))
+                                              (path-join extension "values.npl"))
+                                        #f (path-join work "values.out") #f)
+                               (file-equal? (path-join extension "values.out")
+                                            (path-join work "values.out"))
                                #f)))
           (set! ok (expect ok "typed stubs"
                            (run-ok? (list nplc "--emit=c-stubs"
-                                            (join extension "typed.npl"))
-                                    #f (join work "typed-stubs.c") #f)))
+                                            (path-join extension "typed.npl"))
+                                    #f (path-join work "typed-stubs.c") #f)))
           (set! ok (expect ok "typed shared library"
                            (run-ok? (append
                                       (list cc "-std=c99" "-Wall" "-Werror"
-                                            "-I" (join root "runtime"))
+                                            "-I" (path-join root "runtime"))
                                       (append shared
                                               (list "-o" typed
-                                                    (join work "typed-stubs.c")
-                                                    (join extension "typed.c"))))
+                                                    (path-join work "typed-stubs.c")
+                                                    (path-join extension "typed.c"))))
                                     #f #f #f)))
           (set! ok (expect ok "typed under npli"
                            (if (run-ok? (list npli "-l" typed
-                                              (join extension "typed.npl"))
-                                        #f (join work "typed.out") #f)
-                               (file-equal? (join extension "typed.out")
-                                            (join work "typed.out"))
+                                              (path-join extension "typed.npl"))
+                                        #f (path-join work "typed.out") #f)
+                               (file-equal? (path-join extension "typed.out")
+                                            (path-join work "typed.out"))
                                #f)))
           (set! ok (expect ok "CExtension under npli"
                            (if (run-ok? (list npli "-l" clamp
-                                              (join work "c-extension.scm"))
-                                        #f (join work "c-extension.out") #f)
-                               (file-equal? (join extension "expected.out")
-                                            (join work "c-extension.out"))
+                                              (path-join work "c-extension.scm"))
+                                        #f (path-join work "c-extension.out") #f)
+                               (file-equal? (path-join extension "expected.out")
+                                            (path-join work "c-extension.out"))
                                #f)))
-          (write-text (join work "c-environments.scm")
+          (write-text (path-join work "c-environments.scm")
             (string-append
               "(import (scheme base) (scheme write) (scheme eval))\n"
               "(define-c-primitive (clamp (x fixnum) (lo fixnum) (hi fixnum))"
@@ -397,42 +351,42 @@
               " (any any any)) 9 0 3) env)))\n"))
           (set! ok (expect ok "C environments"
                            (if (run-ok? (list npli "-l" clamp
-                                              (join work "c-environments.scm"))
-                                        #f (join work "c-environments.out") #f)
+                                              (path-join work "c-environments.scm"))
+                                        #f (path-join work "c-environments.out") #f)
                                (string=? (read-file
-                                           (join work "c-environments.out"))
+                                           (path-join work "c-environments.out"))
                                          "(10 0 3)")
                                #f))))
 
-        (replace-lines (join tests "c-primitives.npl")
+        (replace-lines (path-join tests "c-primitives.npl")
           (list (cons "(include \"framework.npl\")"
                       "(import (npl test))"))
-          (join work "c-primitives.scm"))
+          (path-join work "c-primitives.scm"))
         (set! ok (expect ok "c-primitives under npli"
                          (with-directory
                            tests
                            (lambda ()
                              (run-ok? (list npli
-                                            (join work "c-primitives.scm"))
-                                      #f (join work "c-primitives.out") #f)))))
+                                            (path-join work "c-primitives.scm"))
+                                      #f (path-join work "c-primitives.out") #f)))))
         (set! ok (expect ok "c-primitives count"
-                         (contains? (read-file (join work "c-primitives.out"))
+                         (string-contains (read-file (path-join work "c-primitives.out"))
                                     "PASS c-primitives 11")))
 
         (for-each
           (lambda (contract)
             (let ((name (car contract))
                   (message (cdr contract)))
-              (copy-file (join tests
+              (copy-file (path-join tests
                                (string-append "contracts/c-primitive-"
                                               name ".npl"))
-                         (join work "contract.scm"))
-              (let ((status (run (list npli (join work "contract.scm"))
-                                 #f #f (join work "rejected.err"))))
+                         (path-join work "contract.scm"))
+              (let ((status (run-process* (list npli (path-join work "contract.scm"))
+                                 #f #f (path-join work "rejected.err"))))
                 (set! ok (expect ok (string-append "c-primitive " name)
                                  (if (= status 70)
-                                     (contains? (read-file
-                                                  (join work "rejected.err"))
+                                     (string-contains (read-file
+                                                  (path-join work "rejected.err"))
                                                 (string-append "error: "
                                                                message))
                                      #f))))))
@@ -444,16 +398,16 @@
           (lambda (contract)
             (let ((name (car contract))
                   (message (cdr contract)))
-              (let ((status (run (list npli
-                                        (join tests
+              (let ((status (run-process* (list npli
+                                        (path-join tests
                                               (string-append
                                                 "contracts/c-function-"
                                                 name ".npl")))
-                                 #f #f (join work "rejected.err"))))
+                                 #f #f (path-join work "rejected.err"))))
                 (set! ok (expect ok (string-append "c-function " name)
                                  (if (= status 70)
-                                     (contains? (read-file
-                                                  (join work "rejected.err"))
+                                     (string-contains (read-file
+                                                  (path-join work "rejected.err"))
                                                 (string-append "error: "
                                                                message))
                                      #f))))))
@@ -462,98 +416,98 @@
             ("void-argument" . "void is valid only as a define-c-function result")
             ("pointer-out-result" . "pointer-out is valid only as a define-c-function argument")
             ("arrow" . "malformed define-c-function")))
-        (let ((status (run (list npli (join extension "typed.npl"))
-                           #f #f (join work "rejected.err"))))
+        (let ((status (run-process* (list npli (path-join extension "typed.npl"))
+                           #f #f (path-join work "rejected.err"))))
           (set! ok (expect ok "typed stub missing"
                            (if (= status 70)
-                               (contains? (read-file (join work "rejected.err"))
+                               (string-contains (read-file (path-join work "rejected.err"))
                                           "error: C stub not found: npl_cfn_demo_add")
                                #f))))
-        (let ((status (run (list npli (join work "c-extension.scm"))
-                           #f #f (join work "rejected.err"))))
+        (let ((status (run-process* (list npli (path-join work "c-extension.scm"))
+                           #f #f (path-join work "rejected.err"))))
           (set! ok (expect ok "C function missing"
                            (if (= status 70)
-                               (contains? (read-file (join work "rejected.err"))
+                               (string-contains (read-file (path-join work "rejected.err"))
                                           "error: C function not found: demo_clamp")
                                #f))))
-        (let ((status (run (list npli "-l" (join work "missing-library")
-                                 (join work "c-extension.scm"))
-                           #f #f (join work "rejected.err"))))
+        (let ((status (run-process* (list npli "-l" (path-join work "missing-library")
+                                 (path-join work "c-extension.scm"))
+                           #f #f (path-join work "rejected.err"))))
           (set! ok (expect ok "missing npli library"
                            (if (= status 66)
-                               (contains? (read-file (join work "rejected.err"))
+                               (string-contains (read-file (path-join work "rejected.err"))
                                           (string-append
                                             "npli: cannot load "
-                                            (join work "missing-library")))
+                                            (path-join work "missing-library")))
                                #f))))
 
-        (replace-lines (join tests "primitive-errors.npl")
+        (replace-lines (path-join tests "primitive-errors.npl")
           (list (cons "(include \"framework.npl\")"
                       "(import (npl test))"))
-          (join work "primitive-errors.scm"))
+          (path-join work "primitive-errors.scm"))
         (set! ok (expect ok "primitive-errors under npli"
                          (if (run-ok? (list npli
-                                             (join work "primitive-errors.scm"))
-                                      #f (join work "primitive-errors-suite.out")
+                                             (path-join work "primitive-errors.scm"))
+                                      #f (path-join work "primitive-errors-suite.out")
                                       #f)
-                             (contains? (read-file
-                                          (join work "primitive-errors-suite.out"))
+                             (string-contains (read-file
+                                          (path-join work "primitive-errors-suite.out"))
                                         "PASS primitive-errors 37")
                              #f)))
 
-        (let ((edited (join work "stdlib-edited")))
+        (let ((edited (path-join work "stdlib-edited")))
           (set! ok (expect ok "copy stdlib"
-                           (run-ok? (list "cp" "-R" (join root "lib") edited)
+                           (run-ok? (list "cp" "-R" (path-join root "lib") edited)
                                     #f #f #f)))
-          (replace-lines (join root "lib/scheme/time.sld")
+          (replace-lines (path-join root "lib/scheme/time.sld")
             (list (cons "(define (current-jiffy) (npl_current_jiffy))"
                         "(define (current-jiffy) 42)"))
-            (join edited "scheme/time.sld"))
+            (path-join edited "scheme/time.sld"))
           (set! ok (expect ok "edited library differs"
-                           (not (file-equal? (join root "lib/scheme/time.sld")
-                                             (join edited "scheme/time.sld")))))
-          (write-text (join work "edited-library.scm")
+                           (not (file-equal? (path-join root "lib/scheme/time.sld")
+                                             (path-join edited "scheme/time.sld")))))
+          (write-text (path-join work "edited-library.scm")
             (string-append
               "(import (scheme base) (scheme write) (scheme time))\n"
               "(write (list (current-jiffy) (+ 20 22)))\n"))
-          (set! ok (expect ok "edited library run"
+          (set! ok (expect ok "edited library run-process*"
                            (if (run-ok? (list npli "--stdlib-root" edited
-                                              (join work "edited-library.scm"))
-                                        #f (join work "edited-library.out") #f)
+                                              (path-join work "edited-library.scm"))
+                                        #f (path-join work "edited-library.out") #f)
                                (string=? (read-file
-                                           (join work "edited-library.out"))
+                                           (path-join work "edited-library.out"))
                                          "(42 42)")
                                #f)))
-          (set! ok (expect ok "native library run"
+          (set! ok (expect ok "native library run-process*"
                            (if (run-ok? (list npli
-                                              (join work "edited-library.scm"))
-                                        #f (join work "native-library.out") #f)
+                                              (path-join work "edited-library.scm"))
+                                        #f (path-join work "native-library.out") #f)
                                (not (string=? (read-file
-                                                (join work "native-library.out"))
+                                                (path-join work "native-library.out"))
                                               "(42 42)"))
                                #f))))
 
-        (replace-lines (join tests "runtime-errors.npl")
+        (replace-lines (path-join tests "runtime-errors.npl")
           (list (cons "(include \"framework.npl\")"
                       "(import (npl test))"))
-          (join work "runtime-errors.scm"))
+          (path-join work "runtime-errors.scm"))
         (set! ok (expect ok "runtime-errors under npli"
                          (if (run-ok? (list npli
-                                             (join work "runtime-errors.scm"))
-                                      #f (join work "runtime-errors-suite.out")
+                                             (path-join work "runtime-errors.scm"))
+                                      #f (path-join work "runtime-errors-suite.out")
                                       #f)
-                             (contains? (read-file
-                                          (join work "runtime-errors-suite.out"))
+                             (string-contains (read-file
+                                          (path-join work "runtime-errors-suite.out"))
                                         "PASS runtime-errors 14")
                              #f)))
         (set! ok (expect ok "npli -e"
                          (if (run-ok? (list npli "-e"
                                             "(import (scheme base) (scheme write))"
                                             "-e" "(write (+ 40 2))")
-                                      #f (join work "expr.out") #f)
-                             (string=? (read-file (join work "expr.out")) "42")
+                                      #f (path-join work "expr.out") #f)
+                             (string=? (read-file (path-join work "expr.out")) "42")
                              #f)))
-        (write-text (join work "no-cc.scm")
+        (write-text (path-join work "no-cc.scm")
           (string-append
             "(import (scheme base) (scheme write) (npl time) (npl unix))\n"
             "(write (list (time? (current-time))"
@@ -562,9 +516,9 @@
                          (with-environment
                            "NPL_CC" "/usr/bin/false"
                            (lambda ()
-                             (if (run-ok? (list npli (join work "no-cc.scm"))
-                                          #f (join work "no-cc.out") #f)
-                                 (string=? (read-file (join work "no-cc.out"))
+                             (if (run-ok? (list npli (path-join work "no-cc.scm"))
+                                          #f (path-join work "no-cc.out") #f)
+                                 (string=? (read-file (path-join work "no-cc.out"))
                                            "(#t #t)")
                                  #f)))))
         (remove-tree work)

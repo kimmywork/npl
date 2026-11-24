@@ -16,12 +16,6 @@
                               (- 1 (bitvector-ref/int bvec index)))
               (loop (+ index 1))))))
 
-    (define (operands-at bvecs index)
-      (if (null? bvecs)
-          '()
-          (cons (bitvector-ref/int (car bvecs) index)
-                (operands-at (cdr bvecs) index))))
-
     (define (fold-operands op values seed)
       (if (null? values)
           seed
@@ -42,7 +36,7 @@
                 (begin
                   (bitvector-set! result index
                                   (fold-operands
-                                   op (cdr (operands-at bvecs index))
+                                   op (cdr (elements-at bvecs index))
                                    (bitvector-ref/int first index)))
                   (loop (+ index 1)))))
           result)))

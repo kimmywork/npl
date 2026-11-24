@@ -16,7 +16,9 @@
           range-drop-while range-take-while-right
           range-drop-while-right vector->range range->string
           range->list range->generator range->vector)
-  (import (scheme base) (scheme case-lambda) (npl list))
+  (import (scheme base) (scheme case-lambda)
+          (only (npl util) exact-natural?)
+          (npl list))
   (include "assume.scm")
   (begin
     (define (vector-unfold f len)

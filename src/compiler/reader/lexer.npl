@@ -488,15 +488,17 @@
     (newline (current-error-port))
     (exit 20)))
 
+; The line and column of byte INDEX, scanning from the start of the source.
 (define (bad-char-position s index line col)
-  (if (>= index (string-length s))
-      (cons line (cons col ()))
-      (if (= (string-byte-ref s index) 10)
-          (bad-char-position s (+ index 1) (+ line 1) 1)
-          (bad-char-position s (+ index 1) line (+ col 1)))))
+  (let loop ((position 0) (line 1) (col 1))
+    (if (= position index)
+        (cons line (cons col ()))
+        (if (= (string-byte-ref s position) 10)
+            (loop (+ position 1) (+ line 1) 1)
+            (loop (+ position 1) line (+ col 1))))))
 
 (define (do-bad-char s index)
-  (let ((position (bad-char-position s 0 1 1)))
+  (let ((position (bad-char-position s index 1 1)))
     (display "nplc: bad character byte " (current-error-port))
     (display (string-byte-ref s index) (current-error-port))
     (display " at line " (current-error-port))
@@ -504,4 +506,13 @@
     (display " col " (current-error-port))
     (display (car (cdr position)) (current-error-port))
     (newline (current-error-port))
+    (if (if (= index 1)
+            (if (= (string-byte-ref s 0) 35)
+                (= (string-byte-ref s index) 33)
+                #f)
+            #f)
+        (begin
+          (display "nplc: shebang lines are supported only by npli"
+                   (current-error-port))
+          (newline (current-error-port))))
     (exit 20)))

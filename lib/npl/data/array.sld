@@ -12,7 +12,7 @@
           array-ref array-set!
           ac64 ac32 ar64 ar32 as64 as32 as16 as8
           au64 au32 au16 au8 at1)
-  (import (scheme base))
+  (import (scheme base) (only (npl util) exact-natural?))
   (begin
     (define ARRAY-TAG 'npl-array-literal-5f8d)
 
@@ -53,9 +53,6 @@
 
     (define (array-error who message . irritants)
       (apply error (string-append who ": " message) irritants))
-
-    (define (exact-natural? value)
-      (and (exact-integer? value) (<= 0 value)))
 
     (define (array-rank value)
       (cond ((array-literal? value)

@@ -70,7 +70,7 @@
              (not (identifier-member? form defined))
              #f)
          (let ((name (datum-symbol-name form)))
-           (let ((seen (lookup-string-entry name (cell-get aliases))))
+           (let ((seen (string-assoc name (cell-get aliases))))
              (if (pair? seen)
                  (cdr seen)
                  (let ((resolved
@@ -106,13 +106,6 @@
       ((not (null? keyword))
        (transcription-alias form TRANSCRIPTION-MACRO-ALIASES keyword))
       (else form))))
-
-(define (lookup-string-entry name entries)
-  (if (null? entries)
-      #f
-      (if (string=? name (car (car entries)))
-          (car entries)
-          (lookup-string-entry name (cdr entries)))))
 
 (define (transcription-alias form table meaning)
   (let ((alias (datum-symbol (datum-symbol-name form)))

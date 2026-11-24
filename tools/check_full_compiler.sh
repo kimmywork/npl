@@ -100,15 +100,18 @@ run_import() {
     emit "$WORK/compiler" "$TESTS/imports/$name.npl" "$WORK/import-$name.ssa"
 }
 
+# reject_import NAME [MESSAGE]: the import fails with the conflict
+# diagnostic, and MESSAGE (the name and both defining libraries) when given.
 reject_import() {
     name=$1
+    message=${2:-conflicting imported binding}
     set +e
     "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
         "$TESTS/imports/$name.npl" > "$WORK/import-$name.out" 2>&1
     rc=$?
     set -e
     [ "$rc" -ne 0 ]
-    grep -F "conflicting imported binding" "$WORK/import-$name.out" >/dev/null
+    grep -F "$message" "$WORK/import-$name.out" >/dev/null
 }
 
 reject_literal_mutation() {
@@ -129,8 +132,12 @@ run_suite srfi-149 "PASS srfi-149 5"
 run_suite syntax-case "PASS syntax-case 4"
 run_suite syntax-case-procedural "PASS syntax-case-procedural 20"
 run_suite ffi-memory "PASS ffi-memory 84"
+# A retained owner and its views must survive minor collections: the FfiBlock
+# store needs a write barrier.
+NPL_GC_NURSERY_BYTES=4096 NPL_GC_VERIFY=100 \
+    run_suite ffi-gc "PASS ffi-gc 2"
 run_suite runtime-hardening "PASS runtime-hardening 10"
-run_suite c-structs "PASS c-structs 15"
+run_suite c-structs "PASS c-structs 17"
 # R6: importing core native packages reads the build-time layout cache and
 # never runs a C compiler.
 printf '(import (scheme base) (npl time) (npl unix))\n(define now (current-time))\n' \
@@ -138,8 +145,18 @@ printf '(import (scheme base) (npl time) (npl unix))\n(define now (current-time)
 NPL_C_STRUCT_LAYOUTS="$NATIVE/c-struct-layouts.meta" NPL_CC=/usr/bin/false \
     "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
     "$WORK/cache-import.npl" > "$WORK/cache-import.ssa"
+# R19: NPL_C_STRUCT_LAYOUTS is a colon-separated search path.  The temporary
+# compiler has no installed cache beside it, so this names the core file
+# after the package file; the fallback to the cache beside an installed nplc
+# is checked by (tools link-modes) with build/bin/nplc.
+printf '(c-struct-layouts\n  ("struct iovec" (size . 16) (iov_base . 0) (iov_len . 8))\n)\n' \
+    > "$WORK/package-layouts.meta"
+NPL_C_STRUCT_LAYOUTS="$WORK/package-layouts.meta:$NATIVE/c-struct-layouts.meta" \
+    NPL_CC=/usr/bin/false \
+    "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
+    "$WORK/cache-import.npl" > "$WORK/cache-import-package.ssa"
 run_suite srfi-19 "PASS srfi-19 52"
-run_suite srfi-170 "PASS srfi-170 112"
+run_suite srfi-170 "PASS srfi-170 132"
 run_suite platform "PASS platform 5"
 run_suite native-crc32 "PASS native-crc32 4"
 if [ -f "$NATIVE/libnpl_demo_zlib.so" ] || \
@@ -205,13 +222,16 @@ run_suite srfi-review-vectors-arrays "PASS review-vectors-arrays 69"
 run_suite srfi-review-lazy-data "PASS review-lazy-data 60"
 
 run_import all-aliases-with-base
+run_import unix-process
+run_import test-expect-and-util
 run_import base-and-npl-string
 run_import base-and-npl-vector
 run_import box-111-and-195
 run_import srfi-140-readme-recipe
 run_import srfi-140-spec-names
 reject_import scheme-char-and-srfi-13-reject
-reject_import srfi-13-and-125-reject
+reject_import srfi-13-and-125-reject \
+    "conflicting imported binding: string-hash (from (npl string) and (npl hashtable))"
 reject_import srfi-13-and-130-reject
 run_suite srfi-196 "PASS srfi-196 29"
 run_suite srfi-189 "PASS srfi-189 39"

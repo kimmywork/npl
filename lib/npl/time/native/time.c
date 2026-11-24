@@ -65,6 +65,8 @@ NplVal npl_time_mktime_prim(NplVal value, NplVal out)
 {
     struct timespec *stamp = time_view(out, "date->time-utc");
     time_t seconds;
+    /* POSIX mktime/timegm set errno on failure.  A legitimate -1 result
+     * (1969-12-31 23:59:59) with errno still 0 is a success. */
     errno = 0;
     seconds = mktime(time_tm_view(value, "date->time-utc"));
     if (seconds == (time_t)-1 && errno != 0) return npl_fixnum(-1);
@@ -77,6 +79,7 @@ NplVal npl_time_timegm_prim(NplVal value, NplVal out)
 {
     struct timespec *stamp = time_view(out, "date->time-utc");
     time_t seconds;
+    /* Same POSIX contract as mktime above. */
     errno = 0;
     seconds = timegm(time_tm_view(value, "date->time-utc"));
     if (seconds == (time_t)-1 && errno != 0) return npl_fixnum(-1);

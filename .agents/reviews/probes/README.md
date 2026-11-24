@@ -80,3 +80,29 @@ core native packages); `observed.txt` records the output at `32cfa51`.
 | `09` | R8: `npl_time_now_ts` declared but not defined |
 | `10` | R9: mismatched brackets (Guile column) |
 | `11` | R10: stub headers conflict with a libc prototype |
+
+## 2026-11-24-ffi-posix-time-round2
+
+Review: [0.1.3 FFI, POSIX, and time, round 2](../2026-11-24-0.1.3-ffi-posix-time-review-round2.md).
+Uses `build/bin/npli` and `build/bin/nplc` directly; `observed.txt` records
+the output at `1b1f931`, including a rerun of the round-1 probes.
+
+```sh
+.agents/reviews/probes/2026-11-24-ffi-posix-time-round2/run.sh           # 13-15, 17-18, 20-22
+.agents/reviews/probes/2026-11-24-ffi-posix-time-round2/run.sh --gc      # R13
+.agents/reviews/probes/2026-11-24-ffi-posix-time-round2/run.sh --link    # R16
+.agents/reviews/probes/2026-11-24-ffi-posix-time-round2/run.sh --cache   # R19
+```
+
+| Probe | Finding |
+|---|---|
+| `13` | R13: `foreign-alloc` block store without a write barrier (`--gc` for small nurseries and `NPL_GC_VERIFY`) |
+| `14` | R14: freed c-struct passed to a `define-c-function` (SIGSEGV) |
+| `15` | R15: stale directory handle revived by address reuse |
+| `16` | R16: `NPL_NATIVE_LINK` ignored (`--link`) |
+| `17` | R17: `(npl process)` and `(npl unix)` both export `delete-directory` |
+| `18` | R18: typedef-named struct argument in a generated stub |
+| `19-*` | R19: `NPL_C_STRUCT_LAYOUTS` hides the core layout cache (`--cache`) |
+| `20` | R20: in-process layout cache keyed only by C type |
+| `21` | R21: bignum seconds and flags in `(npl unix)` |
+| `22` | R22: shebang accepted by npli, rejected by nplc |

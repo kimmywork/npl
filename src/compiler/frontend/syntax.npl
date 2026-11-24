@@ -129,15 +129,6 @@
 (define (add-capture name path value captures)
   (cons (make-syntax-capture name path value) captures))
 
-(define (path-equal? left right)
-  (if (null? left)
-      (null? right)
-      (if (null? right)
-          #f
-          (if (= (car left) (car right))
-              (path-equal? (cdr left) (cdr right))
-              #f))))
-
 (define (path-prefix? prefix path)
   (if (null? prefix)
       #t
@@ -170,7 +161,7 @@
       ()
       (let ((capture (car captures)))
         (if (if (string=? name (capture-name capture))
-                (path-equal? path (capture-path capture))
+                (number-list=? path (capture-path capture))
                 #f)
             capture
             (capture-exact name path (cdr captures))))))
@@ -303,7 +294,7 @@
   (cond
     ((datum-symbol? template)
      (let ((descriptor
-             (variable-descriptor
+             (string-assoc
                (pattern-key template)
                (cell-get CURRENT-PATTERN-VARIABLES))))
        (if (null? descriptor)
@@ -334,7 +325,7 @@
   (cond
     ((datum-symbol? template)
      (let ((descriptor
-             (variable-descriptor
+             (string-assoc
                (pattern-key template)
                (cell-get CURRENT-PATTERN-VARIABLES))))
        (if (null? descriptor)
@@ -379,7 +370,7 @@
   (cond
     ((datum-symbol? template)
      (let ((descriptor
-             (variable-descriptor
+             (string-assoc
                (pattern-key template)
                (cell-get CURRENT-PATTERN-VARIABLES))))
        (if (null? descriptor)

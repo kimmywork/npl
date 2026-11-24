@@ -1,43 +1,34 @@
-; Library metadata checks: exports, imports, cycles, and layering.
+; Library metadata checks: exports, imports, cycles, layering, and final
+; export origins (define / define-c-* / primitive).
 ;
 ; The scanner reads every .sld under lib/, follows include files, and derives
 ; the binding graph from the source itself.  It does not keep an alias table:
 ; an export is valid when it is defined once locally or resolves through an
 ; import (including C/primitive roots).
 (define-library (tools libraries)
-  (export check-libraries check-library-test-coverage)
+  (export check-libraries check-library-test-coverage
+          check-export-origins check-duplicate-definitions
+          write-coverage-baseline
+          identity-definition-form identity-forward-target)
   (import (scheme base)
           (scheme read)
           (scheme file)
           (scheme write)
+          (only (npl string) string-prefix? string-suffix?)
+          (only (npl util) path-directory path-join path-normalize)
+          (npl hashtable)
           (npl unix))
+  (include "libraries/origins.scm")
+  (include "libraries/coverage.scm")
+  (include "libraries/identity.scm")
+  (include "libraries/duplicates.scm")
   (begin
     (define LIBRARY-FILES '())
     (define LIBRARY-CACHE '())
     (define LIBRARY-VISITING '())
-    (define FAILURES '())
+    (define LIBRARY-FAILURES '())
     (define FILE-COUNT 0)
     (define SCM-COUNT 0)
-
-    (define (string-prefix? prefix text)
-      (if (> (string-length prefix) (string-length text))
-          #f
-          (string=? prefix (substring text 0 (string-length prefix)))))
-
-    (define (path-directory path)
-      (let loop ((index (- (string-length path) 1)))
-        (cond
-          ((< index 0) "")
-          ((char=? (string-ref path index) #\/)
-           (substring path 0 (+ index 1)))
-          (else (loop (- index 1))))))
-
-    (define (path-join left right)
-      (if (if (= (string-length left) 0)
-              #t
-              (char=? (string-ref left (- (string-length left) 1)) #\/))
-          (string-append left right)
-          (string-append left "/" right)))
 
     (define (extension path suffix)
       (let ((offset (- (string-length path) (string-length suffix))))
@@ -83,6 +74,15 @@
       (if (symbol? name) (symbol->string name)
           (if (number? name) (number->string name) "")))
 
+    ; The internal name an export spec refers to: NAME or (rename NAME EXT).
+    (define (export-internal-name entry)
+      (name-string
+        (if (pair? entry)
+            (if (eq? (car entry) 'rename)
+                (car (cdr entry))
+                entry)
+            entry)))
+
     (define (library-form forms)
       (let loop ((rest forms))
         (cond
@@ -123,11 +123,11 @@
       LIBRARY-FILES)
 
     (define (add-failure message)
-      (set! FAILURES (cons message FAILURES))
+      (set! LIBRARY-FAILURES (cons message LIBRARY-FAILURES))
       #f)
 
     (define (report-failures)
-      (let loop ((rest (reverse FAILURES)))
+      (let loop ((rest (reverse LIBRARY-FAILURES)))
         (if (null? rest)
             0
             (begin
@@ -227,6 +227,13 @@
             defs
             (loop (cdr rest) (append (form-defs (car rest) base) defs)))))
 
+    ; A definition entry is (name . kind), where kind is the form that
+    ; introduced the binding.  Keeping the kind makes the final origin
+    ; traceable to define / define-c-* / primitive, not just a library name.
+    (define (definition-entry name kind) (cons name kind))
+    (define (definition-name entry) (car entry))
+    (define (definition-kind entry) (cdr entry))
+
     (define (form-defs form base)
       (if (not (pair? form))
           '()
@@ -236,29 +243,40 @@
                (if (pair? (cdr form))
                    (let ((target (car (cdr form))))
                      (if (pair? target)
-                         (list (name-string (car target)))
-                         (list (name-string target))))
+                         (list (definition-entry
+                                 (name-string (car target)) "define"))
+                         (list (definition-entry
+                                 (name-string target) "define"))))
                    '()))
               ((eq? head 'define-syntax)
                (if (pair? (cdr form))
-                   (list (name-string (car (cdr form))))
+                   (list (definition-entry
+                           (name-string (car (cdr form))) "define-syntax"))
                    '()))
               ((eq? head 'define-values)
                (if (pair? (cdr form))
                    (let ((names (car (cdr form))))
                      (if (pair? names)
-                         (map name-string (cdr names))
-                         (list (name-string names))))
+                         (map (lambda (name)
+                                (definition-entry (name-string name)
+                                                  "define-values"))
+                              (cdr names))
+                         (list (definition-entry (name-string names)
+                                                 "define-values"))))
                    '()))
               ((eq? head 'define-record-type)
                (record-defs form))
               ((eq? head 'define-c-primitive)
                (if (if (pair? (cdr form)) (pair? (car (cdr form))) #f)
-                   (list (name-string (car (car (cdr form)))))
+                   (list (definition-entry
+                           (name-string (car (car (cdr form))))
+                           "define-c-primitive"))
                    '()))
               ((eq? head 'define-c-function)
                (if (pair? (cdr form))
-                   (list (name-string (car (cdr form))))
+                   (list (definition-entry
+                           (name-string (car (cdr form)))
+                           "define-c-function"))
                    '()))
               ((eq? head 'begin)
                (collect-defs (cdr form) base))
@@ -275,29 +293,43 @@
                 (constructor (car (cdr (cdr form))))
                 (predicate (car (cdr (cdr (cdr form)))))
                 (fields (cdr (cdr (cdr (cdr form))))))
-            (let loop ((rest fields) (out (list name)))
+            (let loop ((rest fields)
+                       (out (list (definition-entry name
+                                                    "define-record-type"))))
               (if (null? rest)
-                  (cons (name-string predicate)
-                        (cons (if (pair? constructor)
-                                  (name-string (car constructor))
-                                  (name-string constructor))
+                  (cons (definition-entry (name-string predicate)
+                                           "define-record-type")
+                        (cons (definition-entry
+                                (if (pair? constructor)
+                                    (name-string (car constructor))
+                                    (name-string constructor))
+                                "define-record-type")
                               out))
                   (let ((field (car rest)))
                     (loop (cdr rest)
                           (if (if (pair? field) (pair? (cdr field)) #f)
-                              (cons (name-string (car (cdr field))) out)
+                              (cons (definition-entry
+                                      (name-string (car (cdr field)))
+                                      "define-record-type")
+                                    out)
                               out))))))))
 
     ; cond-expand branches are alternatives: a name defined in more than one
     ; branch is one export, while a duplicate inside one branch is still an
     ; error.
-    (define (new-branch-names names known)
-      (if (null? names)
+    (define (new-branch-names entries known)
+      (if (null? entries)
           '()
-          (if (member (car names) known)
-              (new-branch-names (cdr names) known)
-              (cons (car names)
-                    (new-branch-names (cdr names) known)))))
+          (if (member (definition-name (car entries)) known)
+              (new-branch-names (cdr entries) known)
+              (cons (car entries)
+                    (new-branch-names (cdr entries) known)))))
+
+    (define (definition-name-list entries)
+      (if (null? entries)
+          '()
+          (cons (definition-name (car entries))
+                (definition-name-list (cdr entries)))))
 
     (define (collect-cond-defs clauses base)
       (let loop ((rest clauses) (out '()))
@@ -305,19 +337,26 @@
             out
             (let ((branch (collect-defs (cdr (car rest)) base)))
               (loop (cdr rest)
-                    (append out (new-branch-names branch out)))))))
+                    (append out (new-branch-names
+                                  branch (definition-name-list out))))))))
 
+    ; counts: (name count kind), one entry per name.  A duplicate
+    ; definition is an error; the kind is used for a unique definition's
+    ; final origin.
     (define (count-defs defs)
       (let loop ((rest defs) (counts '()))
         (if (null? rest)
             counts
-            (let* ((name (car rest))
+            (let* ((definition (car rest))
+                   (name (definition-name definition))
+                   (kind (definition-kind definition))
                    (entry (assoc name counts)))
               (if entry
                   (begin
-                    (set-cdr! entry (+ (cdr entry) 1))
+                    (set-car! (cdr entry) (+ (car (cdr entry)) 1))
                     (loop (cdr rest) counts))
-                  (loop (cdr rest) (cons (cons name 1) counts)))))))
+                  (loop (cdr rest)
+                        (cons (list name 1 kind) counts)))))))
 
     ; ---- import and export resolution -----------------------------------
 
@@ -482,7 +521,11 @@
 
     (define (definition-count name defs)
       (let ((entry (assoc name defs)))
-        (if entry (cdr entry) 0)))
+        (if entry (car (cdr entry)) 0)))
+
+    (define (definition-kind-of name defs)
+      (let ((entry (assoc name defs)))
+        (if entry (car (cdr (cdr entry))) "define")))
 
     (define (build-exports key exports imported primitive defs)
       (let loop ((rest exports) (out '()))
@@ -509,7 +552,9 @@
                          (error (string-append "SRFI alias defines " internal))
                          (loop (cdr rest)
                                (cons (cons external
-                                           (string-append key "#" internal))
+                                           (string-append
+                                             (definition-kind-of internal defs)
+                                             ":" key "#" internal))
                                      out))))
                     (imported-entry
                      (loop (cdr rest)
@@ -517,14 +562,13 @@
                     (primitive
                      (loop (cdr rest)
                            (cons (cons external
-                                       (string-append "primitive#" internal))
+                                       (string-append "primitive:" internal))
                                  out)))
                     (else
                      (error (string-append "unresolved export in " key ": "
                                            internal)))))))))
 
-    (define (check-libraries root)
-      (set! FAILURES '())
+    (define (resolve-all root)
       (set! LIBRARY-CACHE '())
       (set! LIBRARY-VISITING '())
       (scan-libraries root)
@@ -540,8 +584,13 @@
                                                "error")))))
                 (resolve-library (car (car entries))))
               (loop (cdr entries)))))
+      #t)
+
+    (define (check-libraries root)
+      (set! LIBRARY-FAILURES '())
+      (resolve-all root)
       (report-failures)
-      (if (null? FAILURES)
+      (if (null? LIBRARY-FAILURES)
           (begin
             (display "library metadata: PASS (")
             (display (length LIBRARY-FILES))
@@ -554,102 +603,10 @@
             #t)
           (begin
             (display "library metadata: FAILED (")
-            (display (length FAILURES))
+            (display (length LIBRARY-FAILURES))
             (display " findings)")
             (newline)
             #f)))
-    ; ---- library test coverage ------------------------------------------
-    (define (coverage-libraries)
-      '(("lib/npl/comparator.sld" "src/compiler/tests/srfi-128.npl")
-        ("lib/npl/data/set.sld" "src/compiler/tests/srfi-113.npl")
-        ("lib/npl/data/bag.sld" "src/compiler/tests/srfi-113.npl")
-        ("lib/npl/sort.sld" "src/compiler/tests/srfi-132.npl")
-        ("lib/npl/data/collection.sld" "src/compiler/tests/srfi-44.npl"
-         "src/compiler/tests/srfi-44-surface.npl")
-        ("lib/npl/data/map.sld" "src/compiler/tests/srfi-146.npl"
-         "src/compiler/tests/srfi-146-surface.npl")
-        ("lib/npl/data/bitvector.sld" "src/compiler/tests/srfi-178.npl"
-         "src/compiler/tests/srfi-178-surface.npl")))
-
-    (define (coverage-export-name entry)
-      (name-string
-        (if (pair? entry)
-            (if (eq? (car entry) 'rename)
-                (car (cdr entry))
-                entry)
-            entry)))
-
-    (define (coverage-exports path)
-      (map coverage-export-name (car (parse-library path))))
-
-    (define (coverage-name-parts name)
-      (let loop ((start 0) (index 0) (out '()))
-        (cond
-          ((= index (string-length name))
-           (reverse (cons (substring name start index) out)))
-          ((char=? (string-ref name index) #\:)
-           (loop (+ index 1) (+ index 1)
-                 (cons (substring name start index) out)))
-          (else (loop start (+ index 1) out)))))
-
-    (define (symbols-in value acc)
-      (cond
-        ((symbol? value)
-         (append (coverage-name-parts (symbol->string value)) acc))
-        ((pair? value)
-         (symbols-in (car value) (symbols-in (cdr value) acc)))
-        ((vector? value)
-         (let loop ((index 0) (out acc))
-           (if (= index (vector-length value))
-               out
-               (loop (+ index 1)
-                     (symbols-in (vector-ref value index) out)))))
-        (else acc)))
-
-    (define (coverage-test-symbols paths)
-      (let loop ((rest paths) (out '()))
-        (if (null? rest)
-            out
-            (let ((forms (read-forms (car rest))))
-              (loop (cdr rest) (symbols-in forms out))))))
-
-    (define (coverage-missing names symbols)
-      (let loop ((rest names) (out '()))
-        (if (null? rest)
-            (reverse out)
-            (loop (cdr rest)
-                  (if (member (car rest) symbols)
-                      out
-                      (cons (car rest) out))))))
-
-    (define (check-library-test-coverage root)
-      (let loop ((rest (coverage-libraries)) (failed #f))
-        (if (null? rest)
-            (if failed
-                #f
-                (begin
-                  (display "library test coverage: PASS")
-                  (newline)
-                  #t))
-            (let* ((entry (car rest))
-                   (path (car entry))
-                   (tests (cdr entry))
-                   (names (coverage-exports path))
-                   (symbols (coverage-test-symbols tests))
-                   (missing (coverage-missing names symbols)))
-              (if (null? missing)
-                  (loop (cdr rest) failed)
-                  (begin
-                    (display path)
-                    (display ": ")
-                    (display (length missing))
-                    (display " exported names not mentioned in tests")
-                    (newline)
-                    (display "  ")
-                    (for-each (lambda (name) (display name) (display " "))
-                              missing)
-                    (newline)
-                    (loop (cdr rest) #t)))))))
 
 ))
 

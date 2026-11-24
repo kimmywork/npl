@@ -86,14 +86,6 @@
         (string-append (datum-symbol-name identifier)
           (string-append (int->string 1) (number->string mark))))))
 
-; variable descriptor = (key . repetition-depth)
-(define (variable-descriptor name variables)
-  (if (null? variables)
-      ()
-      (if (string=? name (car (car variables)))
-          (car variables)
-          (variable-descriptor name (cdr variables)))))
-
 (define (validate-pattern pattern literals ellipsis depth variables)
   (cond
     ((datum-symbol? pattern)
@@ -104,7 +96,7 @@
            variables
            (if (active-ellipsis? pattern ellipsis literals)
                (fatal "misplaced ellipsis in pattern")
-               (if (not (null? (variable-descriptor
+               (if (not (null? (string-assoc
                                  (pattern-key pattern) variables)))
                    (fatal "duplicate pattern variable")
                    (cons (cons (pattern-key pattern) depth) variables))))))
@@ -188,7 +180,7 @@
   (cond
     ((datum-symbol? template)
      (let ((descriptor
-             (variable-descriptor (pattern-key template) variables)))
+             (string-assoc (pattern-key template) variables)))
        (if (null? descriptor) #f (> (cdr descriptor) depth))))
     ((datum-vector? template)
      (template-list-driver? (datum-vector-items template)
@@ -226,7 +218,7 @@
   (cond
     ((datum-symbol? template)
      (let ((descriptor
-             (variable-descriptor (pattern-key template) variables)))
+             (string-assoc (pattern-key template) variables)))
        (if (null? descriptor)
            #t
            (if (> (cdr descriptor) depth)

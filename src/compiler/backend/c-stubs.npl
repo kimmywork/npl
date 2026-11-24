@@ -21,8 +21,10 @@
     ((string=? type "string") "const char *")
     ((string=? type "pointer") "void *")
     ((string=? type "pointer-out") "void **")
-    ((c-struct-type-string? type)
-     (string-append (c-struct-c-type-for (datum-symbol type)) " *"))
+    ; A struct view always crosses the boundary as an opaque address.  The
+    ; stub only forwards it, so an incomplete type (or a typedef name with no
+    ; header) is enough; the C callee owns the complete declaration.
+    ((c-struct-type-string? type) "void *")
     (else type)))
 
 ; Octal escapes keep the literal valid for any byte of an NPL name.
@@ -121,10 +123,8 @@
     ((string=? type "string")
      (string-append "    npl_ffi_check_string(" argument ", " who ");"))
     ((c-struct-type-string? type)
-     (string-append "    " (c-struct-c-type-for (datum-symbol type))
-                    " *" c-name " = (" (c-struct-c-type-for
-                                         (datum-symbol type))
-                    " *)npl_ffi_struct_pointer(" argument ", "
+     (string-append "    void *" c-name " = npl_ffi_struct_pointer("
+                    argument ", "
                     (c-stub-literal (c-struct-c-type-for (datum-symbol type)))
                     ", " who ");"))
     (else (string-append "    void *" c-name " = NULL;"))))
@@ -280,31 +280,6 @@
         (c-stub-functions port (cdr entries)))
       #t))
 
-(define (c-stub-struct-declaration-line? c-type)
-  (if (>= (string-length c-type) 7)
-      (string=? (substring c-type 0 7) "struct ")
-      #f))
-
-(define (c-stub-struct-declaration c-type seen)
-  (if (if (c-stub-struct-declaration-line? c-type)
-          (if (primitive-name-listed? c-type seen) #f #t)
-          #f)
-      (string-append c-type ";")
-      #f))
-
-(define (c-stub-struct-declarations port)
-  (let loop ((entries (cell-get C-STRUCTS)) (seen ()))
-    (if (pair? entries)
-        (let* ((entry (car entries))
-               (c-type (car (cdr entry)))
-               (seen? (primitive-name-listed? c-type seen)))
-          (if (if (c-stub-struct-declaration-line? c-type) (not seen?) #f)
-              (begin
-                (c-stub-line port (string-append c-type ";"))
-                (loop (cdr entries) (cons c-type seen)))
-              (loop (cdr entries) seen)))
-        #t)))
-
 ; The stub file for the declarations made by this compilation, in source
 ; order; nothing when there are none.
 (define (write-c-stubs port)
@@ -319,8 +294,8 @@
           ; are deliberately absent: a define-c-function may intentionally
           ; declare a libc symbol with different NPL types, and including the
           ; system prototype here would turn that into a conflicting-type
-          ; error.  Struct pointers in generated prototypes work with
-          ; incomplete types.
+          ; error.  Struct parameters are void * in the generated prototype,
+          ; so no struct tag or typedef name needs to be declared here.
           (c-stub-line port "#define _GNU_SOURCE")
           (c-stub-line port "#define _DARWIN_C_SOURCE")
           (c-stub-line port "#include \"npl.h\"")
@@ -328,7 +303,6 @@
           (c-stub-line port "#include <stdbool.h>")
           (c-stub-line port "#include <stddef.h>")
           (c-stub-line port "#include <stdint.h>")
-          (c-stub-struct-declarations port)
           (c-stub-functions port entries))
         #t)))
 

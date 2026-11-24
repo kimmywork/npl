@@ -1,0 +1,73 @@
+# 1b1f931 (feature/0.1.3-ffi), build/bin/npli and build/bin/nplc built from it
+# by tools/run_tests.sh, macOS 15.5 arm64 (Darwin 24.5.0), Apple clang.
+# Recorded 2026-11-24.  The host `timeout` reports a SIGSEGV child as
+# "Child internal error ... Signal = 11 [exit 125]".
+13-alloc-write-barrier.scm
+  npli : bad owners: 0
+  nplc : bad owners: 12 (pointer-set!: allocation was freed)
+14-freed-struct-argument.scm
+  npli : error: C stub not found: npl_cfn_gmtime_r (build stubs with nplc --emit=c-stubs and load them with npli -l PATH) [exit 70]
+  nplc : 70 after free error: Child internal error, term:process.Child.Term{ .Signal = 11 } [exit 125]
+15-directory-handle-reuse.scm
+  npli : (stale-read from-etc) (stale-close ok) (b-after (error "read-directory: directory is closed"))
+  nplc : (stale-read from-etc) (stale-close ok) (b-after (error "read-directory: directory is closed"))
+17-unix-process-import.scm
+  npli : error: conflicting imported binding [exit 70]
+  nplc : COMPILE: nplc: conflicting imported binding nplc: compile failed (status 21)
+18-typedef-struct-stub.scm
+  npli : error: C stub not found: npl_cfn_bzero (build stubs with nplc --emit=c-stubs and load them with npli -l PATH) [exit 70]
+  nplc : COMPILE: <tmp>/stubs.c:12:12: error: unknown type name 'fd_set' <tmp>/stubs.c:15:5: error: use of undeclared identifier 'fd_set' ...
+20-struct-field-subset.scm
+  npli : error: define-c-struct: missing layout for tm_zone [exit 70]
+  nplc : COMPILE: nplc: define-c-struct: missing layout for tm_zone nplc: compile failed (status 21)
+21-unix-wide-integers.scm
+  npli : (set-file-times-2^70 (mtime 1093195028)) (open-file-flags-2^70 (error "car: expected a pair"))
+  nplc : (set-file-times-2^70 (mtime 1077401276)) (open-file-flags-2^70 (error "car: expected a pair"))
+22-shebang.scm
+  npli : ok
+  nplc : COMPILE: nplc: bad character byte 33 at line 7 col 1 nplc: compile failed (status 20)
+
+13 (run.sh --gc; N=20000 F=1; verify runs exit 70)
+nursery 2048           : bad owners: 91 (pointer-set!: allocation was freed)
+nursery 2048  verify=1 : npl gc verify: old tag 24 holds young tag 26 without a barrier npl gc verify: 1 missed write barriers
+nursery 4096           : bad owners: 39 (pointer-set!: allocation was freed)
+nursery 4096  verify=1 : npl gc verify: old tag 24 holds young tag 26 without a barrier npl gc verify: 1 missed write barriers
+nursery 8192           : bad owners: 28 (pointer-set!: allocation was freed)
+nursery 8192  verify=1 : npl gc verify: old tag 24 holds young tag 26 without a barrier npl gc verify: 1 missed write barriers
+
+16 (run.sh --link)
+NPL_NATIVE_LINK=shared      : exit 0, static, 477424 bytes
+--native=shared             : exit 0, shared, 347296 bytes
+NPL_NATIVE_LINK=dynamic     : exit 0, static, 477424 bytes
+
+19 (run.sh --cache; NPL_CC=/usr/bin/false)
+core cache only        : 5
+NPL_C_STRUCT_LAYOUTS set: error: define-c-struct: C probe compilation failed for struct timespec
+
+Round-1 probes (../2026-11-23-ffi-posix-time/run.sh) at 1b1f931
+01-directory-double-close.scm
+  npli : closed-once error: close-directory: directory is closed: #<pointer 0x...> [exit 70]
+  nplc : closed-once close-directory: directory is closed: #<pointer 0x...> [exit 1]
+02-directory-read-after-close.scm
+  npli : closed (error "read-directory: directory is closed")
+  nplc : closed (error "read-directory: directory is closed")
+03-time-offset-sign.scm
+  npli : (1 3600) 0
+  nplc : (1 3600) 0
+  guile: (1 3600) 0
+04-unix-unchecked-integers.scm
+  npli : error: conflicting imported binding [exit 70]          (R17)
+  nplc : COMPILE: nplc: conflicting imported binding ...         (R17)
+05-view-after-free.scm
+  npli : (owner-size 0 view-size 8) (error "pointer-ref: allocation was freed")
+  nplc : (owner-size 0 view-size 8) (error "pointer-ref: allocation was freed")
+09-undefined-time-helpers.scm
+  npli : error: C stub not found: npl_cfn_npl_time_now_ts ... [exit 70]
+  nplc : COMPILE: Undefined symbols for architecture arm64: "_npl_time_now_ts" ...
+10-bracket-mismatch.scm
+  npli : (error "mismatched closing bracket") (error "mismatched closing bracket") (error "unexpected ]")
+  nplc : (error "mismatched closing bracket") (error "mismatched closing bracket") (error "unexpected ]")
+  guile: (error read-error) (error read-error) (error read-error)
+11-stub-header-conflict.scm
+  npli : error: C stub not found: npl_cfn_time ... [exit 70]
+  nplc : #t

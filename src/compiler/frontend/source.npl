@@ -38,13 +38,6 @@
 (define (resolve-include-path base path)
   (if (absolute-path? path) path (string-append base path)))
 
-(define (path-on-stack? path stack)
-  (if (null? stack)
-      #f
-      (if (string=? path (car stack))
-          #t
-          (path-on-stack? path (cdr stack)))))
-
 (define (parse-source-text source)
   (check-parens source 0 1 1 () 0)
   (let ((cur (cell (lex-loop source 0 ()))))
@@ -59,7 +52,7 @@
       (if (datum-string? (car paths))
           (let ((path (resolve-include-path
                         base (datum-string-text (car paths)))))
-            (if (path-on-stack? path stack)
+            (if (string-member? path stack)
                 (fatal (string-append "include cycle: " path)))
             (append-forms
               (expand-includes (parse-source-file path)

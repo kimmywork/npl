@@ -31,7 +31,19 @@ and `npli` link it automatically. Importing the library needs no `-l` flag.
 
 `file-info` returns a record; times are `time-utc` values. `set-file-times`
 accepts `time/now` and `time/unchanged` constants as well as `time-utc`
-values. `owner/unchanged` and `group/unchanged` leave ownership alone.
+values; every second value is an ordinary timestamp (-1 is
+1969-12-31 23:59:59, not "unchanged"). Seconds and `truncate-file` lengths
+cover the full signed 64-bit range; a host that cannot store a far timestamp
+or length clamps it or raises a posix error. `owner/unchanged` and
+`group/unchanged` leave ownership alone.
+
+`open-directory` returns a directory object; `read-directory` and
+`close-directory` accept only such objects (a foreign pointer or any other
+value raises), and a closed object stays closed.
+
+`delete-directory` is one binding shared with `(npl process)`; through either
+library it raises a posix error (`posix-error?` is true, `file-error?` is
+not).
 
 ```scheme
 (import (scheme base) (npl unix))
@@ -45,9 +57,10 @@ values. `owner/unchanged` and `group/unchanged` leave ownership alone.
 - A POSIX failure is an `npl-error-object` with kind `posix`; the name is the
   symbolic `errno` (`ENOENT`, `EACCES`, ...). The numeric `errno`, procedure
   name, C function, and argument list are not exposed separately.
-- `open-file` accepts an integer flag bitmask. `buffer-block` is the
-  default; the buffer-mode argument is accepted but currently left to the
-  host's `fdopen` default.
+- `open-file` accepts the integer flag bitmask 0..31 (`open/append` through
+  `open/truncate`); unknown bits and out-of-range values are rejected before
+  the host call. `buffer-block` is the default; the buffer-mode argument is
+  accepted but currently left to the host's `fdopen` default.
 - `fd->port` wraps an already open descriptor and takes ownership. It does
   not yet detect that another port already owns the same descriptor.
 - `file-info` on a port ignores the follow flag, as SRFI 170 specifies.
@@ -58,4 +71,4 @@ values. `owner/unchanged` and `group/unchanged` leave ownership alone.
   adversarial concurrent processes.
 - `(srfi 170)` is an alias for `(npl unix)`.
 
-Tests: `srfi-170` (83 checks, all 97 exports referenced) and the nplc/npli `unix` fixture.
+Tests: `srfi-170` (119 checks, all 97 exports referenced) and the nplc/npli `unix` fixture.

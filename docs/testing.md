@@ -45,7 +45,7 @@ frozen recovery artifacts as current behavior.
 | Property tests | `tests/property/` | deterministic generated inputs | `(npl test property)` |
 | Numeric oracle | `tests/numeric/` | exact numeric substrate against Guile | `(tools toolchain)` |
 | Upstream suite | `tests/chibi/` | independent chibi R7RS suite | `run_chibi_suite.sh` |
-| Library metadata | `(tools libraries)` | exports, imports, cycles, layering, alias re-exports | `tools/run-tests.npl` |
+| Library metadata | `(tools libraries)` | exports, imports, cycles, layering, alias re-exports, final export origins | `tools/run-tests.npl` |
 | Native link modes | `(tools link-modes)` | static/shared artifacts, dependencies, size and import footprint | `tools/run-tests.npl` |
 | Toolchain checks (NPL) | `(tools toolchain)` | current fixed point, GC, numeric oracle, driver, install, core consistency | `tools/run-tests.npl` |
 | Library test coverage | `(tools libraries)` | every exported name of the data libraries appears in a test | `tools/run-tests.npl` |
@@ -186,6 +186,52 @@ source. It checks:
 No alias table is maintained: an alias export is valid when its origin
 resolves through the canonical library. The old `check_srfi_exports.py`
 table was removed.
+
+`(tools libraries)` runs three definition checks in the gate:
+
+1. **Export origins** (`check-export-origins`). Each external name is
+   followed through the import graph to its final `define:KEY#NAME`,
+   `define-c-primitive:KEY#NAME`, `define-c-function:KEY#NAME`, or
+   `primitive:NAME`. Re-exporting one definition is never a conflict. A name
+   that reaches different definitions must be listed, with its defining
+   libraries, in `tools/libraries/export-origin-exceptions.scm`; only names
+   a SRFI or R7RS library exports may be listed, and the report says "add an
+   exception" for those and "rename one definition" for anything else.
+   Listed overlaps are printed as notes. A listed name that no longer
+   conflicts fails as stale, so the list only shrinks.
+   `npli tools/export-origins.npl` runs it standalone. The compiler reports
+   a co-import of two such definitions as `conflicting imported binding:
+   NAME (from (LIB A) and (LIB B))`.
+2. **Duplicate definitions** (`check-duplicate-definitions`). Every
+   top-level definition in `lib/` and `tools/` is normalized
+   (`tools/libraries/identity.scm`: bound variables renamed by position;
+   `and`/`when`/`unless`/`cond` rewritten to `if`; `(<= 0 x)`,
+   `(not (negative? x))` rewritten to `(>= x 0)`). It fails when the same
+   name has the same normalized definition in two source files (define once
+   and import it), when one normalized definition of non-trivial size
+   appears under different names, when a library outside `scheme/` and
+   `srfi/` only forwards to another `npl/` library's export, and when two
+   source files define different private helpers with one name. A file
+   included by several libraries counts once.
+3. **Library test coverage** (`check-library-test-coverage`). Only test code
+   counts: `tests/unit`, `tests/fixtures` (expect), `tests/property` (PBT),
+   `src/compiler/tests` (without the negative fixtures), the evaluator's
+   `core-tests.npl`, and the gate's `report` forms in `tools/run-tests.npl`.
+   A local export is covered when it appears inside an assertion
+   (`test-*`, `check*`, `assert`, `report`, fixture `write`). The target is
+   80% of each library's local exports. Libraries still below it are listed
+   with their uncovered names in `tools/libraries/coverage-baseline.scm`;
+   the gate fails when a library gains an uncovered export, when a listed
+   gap becomes covered (remove it), or when the overall ratio falls below
+   the recorded one. The uncovered-library ratio must stay below 30%.
+
+`tools/libraries-tests.npl` (run by npli in the gate) builds small library
+trees and shows each rule above firing, including the stale-exception and
+re-export cases.
+
+Shared tooling helpers live in `(npl util)` (paths, `exact-natural?`) and
+`(npl test util)` (files, processes, environment); string searches come from
+`(npl string)`.
 
 ## Toolchain checks in NPL
 

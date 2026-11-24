@@ -324,24 +324,16 @@
           (cell-set! SYNTAX-EVAL-CONTEXT previous-context)
           (cons result mark))))))
 
-
 ; ---------------- compile-time macros inside transformer bodies ----------------
-
-(define (syntax-eval-macro-assoc name entries)
-  (if (null? entries)
-      ()
-      (if (string=? name (car (car entries)))
-          (car entries)
-          (syntax-eval-macro-assoc name (cdr entries)))))
 
 ; Local let-syntax bindings shadow phase-1 and definition-site macros.
 (define (syntax-eval-macro-binding identifier)
   (let ((name (datum-symbol-name identifier)))
-    (let ((local (syntax-eval-macro-assoc
+    (let ((local (string-assoc
                    name (cell-get SYNTAX-EVAL-LOCAL-MACROS))))
       (if (not (null? local))
           (cdr local)
-          (let ((phase (syntax-eval-macro-assoc
+          (let ((phase (string-assoc
                          name (cell-get PHASE-MACRO-ENV))))
             (if (not (null? phase))
                 (cdr phase)

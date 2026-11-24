@@ -1,0 +1,4 @@
+; (npl test expect) re-exports read-text-file from (npl test util): importing
+; both binds one definition, not a conflict.
+(import (scheme base) (scheme write) (npl test expect) (npl test util))
+(display "ok")

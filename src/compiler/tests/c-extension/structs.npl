@@ -9,8 +9,16 @@
   "struct passwd"
   (pw_name pointer))
 
+; A typedef name, not a "struct tag": the layout probe supplies the header,
+; while the generated stub must need no complete declaration.
+(define-c-struct div-result
+  "ldiv_t"
+  (quot long)
+  (rem long))
+
 (define-c-function time-now "npl_time_now_ts" (int struct:timespec) -> int)
 (define-c-function timespec-size "npl_time_timespec_size" () -> long)
+(define-c-function ldiv-quot "npl_ldiv_quot" (struct:div-result) -> long)
 
 (define-record-type ordinary (make-ordinary a b) ordinary?
   (a ordinary-a)
@@ -35,6 +43,15 @@
                    (raises? (lambda () (time-now 0 (make-ordinary 1 2))))
                    (raises? (lambda () (time-now 0 (vector 1 2))))))
       (newline)
-      (free-c-struct wrong))))
+      (free-c-struct wrong))
+    (free-c-struct value)
+    (write (list 'freed (raises? (lambda () (time-now 0 value)))))
+    (newline))
+  (let ((div (make-c-struct div-result)))
+    (c-struct-set! div 'quot 7)
+    (c-struct-set! div 'rem 2)
+    (write (list 'typedef (ldiv-quot div)))
+    (newline)
+    (free-c-struct div)))
 
 (main)

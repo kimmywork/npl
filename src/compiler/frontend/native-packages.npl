@@ -55,13 +55,6 @@
       (head-is-core? form "native-package" value-env macro-env)
       #f))
 
-(define (native-package-listed? name names)
-  (if (null? names)
-      #f
-      (if (string=? name (car names))
-          #t
-          (native-package-listed? name (cdr names)))))
-
 (define (declare-native-package form)
   (if (not (= (raw-list-count (cdr form) 0) 1))
       (fatal "native-package needs one name string"))
@@ -71,7 +64,7 @@
     (let ((name (datum-string-text value)))
       (if (not (native-package-name? name 0))
           (fatal (string-append "invalid native package name: " name)))
-      (if (not (native-package-listed? name (cell-get NATIVE-PACKAGES)))
+      (if (not (string-member? name (cell-get NATIVE-PACKAGES)))
           (cell-set! NATIVE-PACKAGES
                      (cons name (cell-get NATIVE-PACKAGES))))
       #t)))

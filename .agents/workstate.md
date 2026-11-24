@@ -1,5 +1,14 @@
 # Workstate
 
+## Reference index (2026-11-24)
+
+- `docs/reference/README.md` indexes all 67 SRFI copies and `r7rs.html`:
+  the 25 SRFI libraries backed by `(npl ...)` implementations, the SRFI
+  46/149 language-level extensions, and 40 unimplemented or planned specs.
+  The kept planned specs cover Red/Tangerine, selected Hypnos/Orange,
+  syntax ergonomics, runtime I/O, CLI/config, and the standalone
+  JSON/URI/bytevector/ordered-hash references. Link check: 68/68 documents
+  linked once.
 
 ## Test infrastructure (2026-11-23)
 
@@ -24,6 +33,76 @@
   Compiler-suite manifest migration is the next testing increment.
 - Plan: `.agents/plans/testing-infrastructure.md`; docs:
   `docs/testing.md` and `docs/native-packages.md`.
+
+## 0.1.3 FFI/POSIX/time review round 3 (2026-11-24)
+
+- R23-R30 from
+  [the third review](reviews/2026-11-24-0.1.3-ffi-posix-time-review-round3.md)
+  are fixed; the review file has a "后续修复" section.
+- `(npl unix)`: directory objects are a private record (foreign pointers
+  never reach readdir/closedir); `set-file-times` seconds and
+  `truncate-file` lengths are decoded with `npl_ffi_to_int64` (no fixnum
+  gap); the now/unchanged sentinels moved to the nanosecond slot, so -1 and
+  -2 seconds round-trip.
+- Import conflicts: `conflicting imported binding: NAME (from (LIB A) and
+  (LIB B))`, recovered from the payload prefix only when reporting.
+- Definition gates in `(tools libraries)`: export origins are checked
+  against `tools/libraries/export-origin-exceptions.scm` (68 reviewed
+  SRFI/R7RS overlaps; new or stale entries fail); duplicate definitions
+  compare normalized forms (`identity.scm`) by name, by form, and for
+  cross-library forwarders; coverage counts only test code and is ratcheted
+  by `tools/libraries/coverage-baseline.scm` (overall 1196/1667 = 71%, 27
+  libraries below the 80% target with listed gaps).
+- `(npl util)` keeps only `path-join`, `path-directory`, `path-normalize`,
+  `exact-natural?`; string helpers come from `(npl string)`.
+  `(npl test util)` is the single home of the tool file/process helpers.
+  Seven frontend copies of a string-keyed lookup became `string-assoc` /
+  `string-member?` / `number-list=?` in `common/base.npl`.
+- Next: raise the 27 libraries in the coverage baseline toward 80%.
+
+## 0.1.3 FFI/POSIX/time review round 2 (2026-11-24)
+
+- R13-R22 from
+  [the second review](reviews/2026-11-24-0.1.3-ffi-posix-time-review-round2.md)
+  are fixed; the review file now has a "后续修复" section.
+- FFI: `foreign-alloc` records the block write barrier, and struct arguments
+  reject freed or short views at the runtime boundary.  `ffi-gc` (20,000
+  retained owners/views under a small nursery) joins `ffi-memory`.
+- Directories: the global handle list is gone; closing clears the pointer
+  box address, so address reuse cannot revive an old handle.
+- `delete-directory` is one shared `(npl internal primitive)` binding,
+  re-exported by `(npl process)` and `(npl unix)`; runtime directory removal
+  now raises posix error objects.  The gate no longer uses `except`/`only`
+  to hide the pair, and `imports/unix-process.npl` compiles both together.
+  (Library metadata checks are per-library; same-name bindings across two
+  libraries are legal and only conflict when co-imported.)
+- Compiler: `NPL_NATIVE_LINK` works and is validated; stubs pass struct
+  arguments as `void *` (typedef names need no declaration); the c-struct
+  cache is a search path and the in-process cache merges later fields.
+  nplc reports shebang diagnostics at line 1 and points to npli.
+- Tests: `ffi-gc` 2, `c-structs` 17, `srfi-170` 119; `link-modes` and
+  `repl-suites` cover the environment and shebang paths.  The seed relay
+  passed (342,578 lines, SHA-256 in Accepted Seed), and
+  `tools/run_tests.sh --skip-current-fixed-point` reports `all suites: PASS`.
+- Library metadata now records definition kinds and exposes
+  `check-export-origins` (final `define` / `define-c-*` / `primitive`
+  origin through the import graph).  `check-library-test-coverage` scans
+  every `lib/npl`, `lib/scheme`, and `tools` `.sld` automatically; the old
+  `(coverage-libraries)` list is gone.  Re-exports are excluded from each
+  library's local symbol ratio.  Current: 56 libraries with local exports,
+  49 covered (23 full, 26 partial), 7 uncovered (12%, limit 30%).
+  Twenty-seven libraries are below the 80% local-symbol rule; the gate
+  prints their missing names and fails until assertions are added.
+  `check-duplicate-definitions` passes after moving shared helpers to
+  `(npl util)` / `(npl test util)` and sharing the map/range/string
+  includes.  `runtime/port.c` split into `port.c` + `port-ready.c`
+  (readiness), and `tools/toolchain.sld` split into `toolchain.sld` +
+  `toolchain/install.scm`; both are back inside the 800-line limit.
+  An in-compiler two-source import-conflict diagnostic was attempted and
+  reverted: it broke the npli evaluator's runtime library loading
+  (derived-syntax leak in `expand-library-program`); the compiler diagnostic
+  keeps the binding name and the static `check-export-origins` report
+  provides the symbol -> libraries mapping.
 
 ## 0.1.3 macro foundation (M0a, 2026-11-16)
 
@@ -489,10 +568,11 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 341,544 lines; SHA-256
-  `6cbf693cf58d57e231ad85d865bdf2b172413551c4db86509bb2a27817d031af`
-  (strict relay, 2026-11-24, static/shared link modes, shared runtime,
-  dynamic data slots, and typed struct arguments). The seed calls
+- `bootstrap/current.ssa`: 341,880 lines; SHA-256
+  `f0ab20a7ab278cf4cb80356f764f0c03a8c503c85d3d5972282d99edbd9dac4f`
+  (strict relay, 2026-11-24, round-3 review fixes: shared frontend
+  string-keyed lookups in `common/base.npl` and import-conflict diagnostics
+  naming both defining libraries). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure

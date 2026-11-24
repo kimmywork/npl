@@ -34,4 +34,5 @@
     lset-intersection! lset-difference lset-difference! lset-xor lset-xor!
     lset-diff+intersection lset-diff+intersection!)
   (import (scheme base) (scheme cxr))
-  (include "list/core.scm" "list/fold.scm" "list/search.scm"))
+  (include "data/receive.scm"
+           "list/core.scm" "list/fold.scm" "list/search.scm"))

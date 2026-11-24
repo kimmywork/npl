@@ -40,6 +40,7 @@
           (scheme char)
           (scheme file)
           (scheme process-context)
+          (only (npl process) delete-directory)
           (npl time)
           (npl data generator))
   (begin
@@ -77,8 +78,6 @@
       "npl_unix_read_symlink")
     (define-c-primitive (npl_unix_rename_file (old any) (new any)) any
       "npl_unix_rename_file")
-    (define-c-primitive (npl_unix_delete_directory (path any)) any
-      "npl_unix_delete_directory")
     (define-c-primitive (npl_unix_set_file_owner
                          (path any) (uid any) (gid any)) any
       "npl_unix_set_file_owner")
@@ -195,6 +194,22 @@
             value
             (error (string-append name ": integer out of range") value))))
 
+    ; time_t is a signed 64-bit value on the supported hosts.
+    (define (require-time-second name value)
+      (let ((value (require-integer name value)))
+        (if (if (>= value -9223372036854775808)
+                (<= value 9223372036854775807)
+                #f)
+            value
+            (error (string-append name ": second out of range") value))))
+
+    ; open/append through open/truncate occupy bits 0-4.
+    (define (require-flags name value)
+      (let ((value (require-integer name value)))
+        (if (if (>= value 0) (<= value 31) #f)
+            value
+            (error (string-append name ": flags out of range") value))))
+
     (define (require-nanosecond name value)
       (let ((value (require-integer name value)))
         (if (if (>= value 0) (<= value 999999999) #f)
@@ -218,8 +233,8 @@
         (require-mode "open-file" mode)
         (if (not (memq buffer (list buffer-none buffer-block buffer-line)))
             (error "open-file: invalid buffer mode" buffer))
-        (require-integer "open-file" flags)
-        (npl_unix_open_file fname port-type flags mode buffer)))
+        (npl_unix_open_file fname port-type
+                            (require-flags "open-file" flags) mode buffer)))
 
     (define (fd->port fd port-type . rest)
       (npl_unix_fd_port fd port-type))
@@ -295,15 +310,31 @@
       (npl_unix_directory_files directory
                                 (if (null? rest) #f (car rest))))
 
+    ; A directory object wraps the C handle's pointer box.  The record type
+    ; is private, so read/close accept only what open-directory returned:
+    ; an arbitrary foreign pointer can never reach readdir/closedir (R23),
+    ; and the handle's memory is not reachable through pointer-ref-*.
+    (define-record-type directory-object
+      (make-directory-object handle)
+      directory-object?
+      (handle directory-object-handle))
+
+    (define (require-directory-object name value)
+      (if (directory-object? value)
+          (directory-object-handle value)
+          (error (string-append name ": expected a directory object") value)))
+
     (define (open-directory directory . rest)
-      (npl_unix_open_directory directory))
+      (make-directory-object (npl_unix_open_directory directory)))
 
     (define (read-directory directory . rest)
-      (npl_unix_read_directory directory
-                               (if (null? rest) #f (car rest))))
+      (npl_unix_read_directory
+        (require-directory-object "read-directory" directory)
+        (if (null? rest) #f (car rest))))
 
     (define (close-directory directory)
-      (npl_unix_close_directory directory))
+      (npl_unix_close_directory
+        (require-directory-object "close-directory" directory)))
 
     (define (make-directory-files-generator directory . rest)
       (list->generator
@@ -330,8 +361,6 @@
     (define (read-symlink fname) (npl_unix_read_symlink fname))
     (define (rename-file old-fname new-fname)
       (npl_unix_rename_file old-fname new-fname))
-    (define (delete-directory fname)
-      (npl_unix_delete_directory fname))
 
     (define (set-file-owner fname uid gid)
       (npl_unix_set_file_owner
@@ -341,12 +370,15 @@
         (if (eq? gid group/unchanged) -1
             (require-id "set-file-owner" gid))))
 
+    ; (seconds . nanoseconds).  The sentinels live in the nanosecond slot,
+    ; which a real time-utc keeps in 0..999999999, so every second value
+    ; (including -1 and -2) stays an ordinary timestamp (R25).
     (define (time-parts value)
       (cond
-        ((eq? value time/now) (cons -2 0))
-        ((eq? value time/unchanged) (cons -1 0))
+        ((eq? value time/now) (cons 0 -1))
+        ((eq? value time/unchanged) (cons 0 -2))
         ((time-utc? value)
-         (cons (require-integer "set-file-times" (time-second value))
+         (cons (require-time-second "set-file-times" (time-second value))
                (require-nanosecond "set-file-times"
                                    (time-nanosecond value))))
         (else (error "set-file-times: expected a time-utc" value))))

@@ -54,8 +54,10 @@ Options:
 ; native-package declarations of the expanded program.
 (define DRIVER-PACKAGES 11)
 
+; DRIVER-NATIVE is #f until --native is seen or the environment supplies the
+; mode; a literal default would hide NPL_NATIVE_LINK.
 (define (driver-config)
-  (vector "exe" #f #f #f #f #f #f #f () #f "static" #f))
+  (vector "exe" #f #f #f #f #f #f #f () #f #f #f))
 (define (driver-get config slot) (vector-ref config slot))
 (define (driver-set! config slot value) (vector-set! config slot value))
 
@@ -95,10 +97,13 @@ Options:
                       " is not yet supported (see docs/toolchain.md)")))
     (else (driver-error (string-append "unknown output kind: " kind)))))
 
-(define (driver-set-native-mode! config mode)
+(define (driver-check-native-mode mode)
   (if (if (string=? mode "static") #t (string=? mode "shared"))
-      (driver-set! config DRIVER-NATIVE mode)
+      mode
       (driver-error (string-append "unknown native link mode: " mode))))
+
+(define (driver-set-native-mode! config mode)
+  (driver-set! config DRIVER-NATIVE (driver-check-native-mode mode)))
 
 (define (driver-native-mode config)
   (let ((explicit (driver-get config DRIVER-NATIVE)))
@@ -106,7 +111,7 @@ Options:
         explicit
         (let ((environment (get-environment-variable "NPL_NATIVE_LINK")))
           (if (if environment (> (string-length environment) 0) #f)
-              environment
+              (driver-check-native-mode environment)
               "static")))))
 
 (define (driver-value option rest)

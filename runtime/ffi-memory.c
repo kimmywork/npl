@@ -119,6 +119,10 @@ static NplVal ffi_alloc_block(size_t size, size_t alignment)
         pointer->sized = 1;
         pointer->owned = 1;
         pointer->block = (NplVal)(uintptr_t)block | TAG_PTR;
+        /* ffi_new_block allocated after the pointer box, so a minor
+         * collection may have promoted the box.  Record the old-to-young
+         * edge before the box can outlive the block. */
+        npl_gc_write_barrier(pointer, pointer->block);
         return value;
     }
 }

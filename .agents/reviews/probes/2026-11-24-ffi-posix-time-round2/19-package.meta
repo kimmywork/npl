@@ -1,0 +1,3 @@
+(c-struct-layouts
+  ("struct iovec" (size . 16) (iov_base . 0) (iov_len . 8))
+)

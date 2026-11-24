@@ -14,6 +14,12 @@
   "struct tm"
   (tm_isdst bool))
 
+; The same C type with an extra field: the in-process layout cache must not
+; hide tm_zone after the first declaration.
+(define-c-struct tm-extra
+  "struct tm"
+  (tm_zone pointer))
+
 (define-c-struct passwd
   "struct passwd"
   (pw_name pointer)
@@ -65,6 +71,18 @@
     (test-identity "c-struct bool false"
                    (lambda () (c-struct-ref flags 'tm_isdst)) #f)
     (free-c-struct flags))
+  (let ((extra (make-c-struct tm-extra))
+        (zone (foreign-alloc 1)))
+    (test-identity "c-struct layout cache extends fields"
+                   (lambda () (> (c-struct-size extra) 0)) #t)
+    (c-struct-set! extra 'tm_zone zone)
+    (test-identity "c-struct layout cache field"
+                   (lambda ()
+                     (= (pointer->integer (c-struct-ref extra 'tm_zone))
+                        (pointer->integer zone)))
+                   #t)
+    (free-c-struct extra)
+    (foreign-free zone))
   (let ((entry (make-c-struct passwd))
         (pointer (foreign-alloc 8)))
     (c-struct-set! entry 'pw_name pointer)

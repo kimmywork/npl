@@ -40,39 +40,11 @@ static char *unix_path(NplVal value, const char *who)
     return npl_c_string_internal(npl_require_bytes_internal(value, who));
 }
 
-static const char *errno_name(int code)
-{
-    switch (code) {
-#define CASE(name) case name: return #name
-        CASE(EACCES); CASE(EEXIST); CASE(EINVAL); CASE(EISDIR);
-        CASE(ENOENT); CASE(ENOTDIR); CASE(ENOTEMPTY); CASE(EPERM);
-        CASE(ENOSPC); CASE(EROFS); CASE(EMFILE); CASE(ENFILE);
-        CASE(ELOOP); CASE(ENAMETOOLONG); CASE(ENOTSUP); CASE(EBADF);
-        CASE(EAGAIN); CASE(EINTR); CASE(ENOMEM); CASE(EXDEV);
-        CASE(ESRCH); CASE(ECHILD); CASE(ENOSYS);
-#undef CASE
-        default: return "EUNKNOWN";
-    }
-}
-
-/* Raise an error object whose kind is "posix"; irritants carry the symbolic
- * errno name first, then the caller's value. */
+/* Raise a posix error object; the runtime owns the layout and the symbolic
+ * errno name (runtime/error.c). */
 static void unix_raise(const char *who, int code, NplVal irritant)
 {
-    NplVal fields[4];
-    NplVal name = npl_symbol(errno_name(code),
-                             (uint32_t)strlen(errno_name(code)));
-    NplVal message = npl_string(strerror(code),
-                                (uint32_t)strlen(strerror(code)));
-    NplVal irritants = npl_cons(name, npl_cons(irritant, npl_nil()));
-    fields[0] = npl_symbol("npl-error-object", 16);
-    fields[1] = npl_symbol("posix", 5);
-    fields[2] = message;
-    fields[3] = irritants;
-    {
-        NplVal object = npl_make_record(4, fields);
-        npl_raise_record(object);
-    }
+    npl_primitive_posix_error(who, code, irritant);
 }
 
 static int unix_check_string_equals(NplVal value, const char *text,
@@ -194,19 +166,22 @@ static int unix_dotfile(const char *name)
 
 typedef struct NplDirHandle {
     DIR *directory;
-    struct NplDirHandle *next;
 } NplDirHandle;
 
-static NplDirHandle *open_directories = NULL;
-
+/* The handle is the pointer box created by open-directory; its address is
+ * the malloc'd NplDirHandle.  Closing the directory clears the address, so
+ * an old handle stays closed even if a later open-directory reuses the same
+ * malloc address.  There is no process-global handle list.  (npl unix) wraps
+ * the box in a private record, so only boxes made here reach this check. */
 static NplDirHandle *find_directory(NplVal handle, const char *who)
 {
-    NplDirHandle *entry;
-    void *address = npl_pointer_address(handle, who);
-    for (entry = open_directories; entry; entry = entry->next)
-        if ((void *)entry == address) return entry;
-    npl_primitive_error(who, "directory is closed", handle);
-    return NULL;
+    NplPointer *pointer;
+    if (!npl_is_pointer(handle))
+        npl_primitive_error(who, "expected a directory handle", handle);
+    pointer = (NplPointer *)npl_header(handle);
+    if (pointer->address == NULL)
+        npl_primitive_error(who, "directory is closed", handle);
+    return (NplDirHandle *)pointer->address;
 }
 
 NplVal npl_unix_directory_files(NplVal path_value, NplVal dotfiles_value)
@@ -261,8 +236,6 @@ NplVal npl_unix_open_directory(NplVal path_value)
     handle = (NplDirHandle *)malloc(sizeof(NplDirHandle));
     if (!handle) npl_runtime_oom_internal();
     handle->directory = directory;
-    handle->next = open_directories;
-    open_directories = handle;
     return npl_pointer(handle);
 }
 
@@ -285,11 +258,9 @@ NplVal npl_unix_read_directory(NplVal handle, NplVal dotfiles_value)
 NplVal npl_unix_close_directory(NplVal handle)
 {
     NplDirHandle *entry = find_directory(handle, "close-directory");
-    NplDirHandle **link = &open_directories;
-    while (*link && *link != entry) link = &(*link)->next;
-    if (*link) *link = entry->next;
     closedir(entry->directory);
     free(entry);
+    ((NplPointer *)npl_header(handle))->address = NULL;
     return npl_unspecified();
 }
 
@@ -363,15 +334,6 @@ NplVal npl_unix_rename_file(NplVal old_path, NplVal new_path)
     return unix_fixnum_result("rename-file", status, code, old_path);
 }
 
-NplVal npl_unix_delete_directory(NplVal path)
-{
-    char *name = unix_path(path, "delete-directory");
-    int status = rmdir(name);
-    int code = errno;
-    free(name);
-    return unix_fixnum_result("delete-directory", status, code, path);
-}
-
 NplVal npl_unix_set_file_owner(NplVal path, NplVal uid, NplVal gid)
 {
     char *name = unix_path(path, "set-file-owner");
@@ -391,22 +353,34 @@ NplVal npl_unix_set_file_mode(NplVal path, NplVal mode)
     return unix_fixnum_result("set-file-mode", status, code, path);
 }
 
+/* (npl unix) time-parts: nanoseconds 0..999999999 are a real time; -1 is
+ * time/now and -2 is time/unchanged.  The seconds slot carries no sentinel,
+ * so -1 and -2 seconds are ordinary timestamps (R25). */
+static long unix_time_nsec(NplVal value)
+{
+    int64_t nsec = npl_ffi_to_int64(value, -2, 999999999, "long",
+                                    "set-file-times");
+    if (nsec == -1) return UTIME_NOW;
+    if (nsec == -2) return UTIME_OMIT;
+    return (long)nsec;
+}
+
 NplVal npl_unix_set_file_times(NplVal path, NplVal access_sec,
                                NplVal access_nsec, NplVal modify_sec,
                                NplVal modify_nsec)
 {
-    char *name = unix_path(path, "set-file-times");
     struct timespec times[2];
-    long access_seconds = (long)npl_fixnum_value(access_sec);
-    long modify_seconds = (long)npl_fixnum_value(modify_sec);
-    times[0].tv_sec = (time_t)(access_seconds == -2 ? 0 : access_seconds);
-    times[0].tv_nsec = access_seconds == -2 ? UTIME_NOW
-                     : access_seconds == -1 ? UTIME_OMIT
-                     : (long)npl_fixnum_value(access_nsec);
-    times[1].tv_sec = (time_t)(modify_seconds == -2 ? 0 : modify_seconds);
-    times[1].tv_nsec = modify_seconds == -2 ? UTIME_NOW
-                     : modify_seconds == -1 ? UTIME_OMIT
-                     : (long)npl_fixnum_value(modify_nsec);
+    /* Decode before unix_path allocates, so a range error leaks nothing.
+     * Seconds may be bignums above the 62-bit fixnum range (R24). */
+    times[0].tv_sec = (time_t)npl_ffi_to_int64(access_sec, INT64_MIN,
+                                               INT64_MAX, "time_t",
+                                               "set-file-times");
+    times[0].tv_nsec = unix_time_nsec(access_nsec);
+    times[1].tv_sec = (time_t)npl_ffi_to_int64(modify_sec, INT64_MIN,
+                                               INT64_MAX, "time_t",
+                                               "set-file-times");
+    times[1].tv_nsec = unix_time_nsec(modify_nsec);
+    char *name = unix_path(path, "set-file-times");
     int status = utimensat(AT_FDCWD, name, times, 0);
     int code = errno;
     free(name);
@@ -415,8 +389,10 @@ NplVal npl_unix_set_file_times(NplVal path, NplVal access_sec,
 
 NplVal npl_unix_truncate_file(NplVal path, NplVal length)
 {
+    off_t size = (off_t)npl_ffi_to_int64(length, 0, INT64_MAX, "off_t",
+                                         "truncate-file");
     char *name = unix_path(path, "truncate-file");
-    int status = truncate(name, (off_t)npl_fixnum_value(length));
+    int status = truncate(name, size);
     int code = errno;
     free(name);
     return unix_fixnum_result("truncate-file", status, code, path);
@@ -424,11 +400,12 @@ NplVal npl_unix_truncate_file(NplVal path, NplVal length)
 
 NplVal npl_unix_truncate_port(NplVal port, NplVal length)
 {
+    off_t size = (off_t)npl_ffi_to_int64(length, 0, INT64_MAX, "off_t",
+                                         "truncate-file");
     NplVal fd = npl_port_fileno(port);
     if (npl_is_false(fd))
         npl_primitive_error("truncate-file", "expected a file port", port);
-    if (ftruncate((int)npl_fixnum_value(fd),
-                  (off_t)npl_fixnum_value(length)) != 0)
+    if (ftruncate((int)npl_fixnum_value(fd), size) != 0)
         unix_raise("truncate-file", errno, port);
     return npl_unspecified();
 }
@@ -670,7 +647,6 @@ NplVal npl_unix_open_file(NplVal path_value, NplVal kind_value,
     int input = 0, output = 0, textual = 0;
     int flags = 0;
     int descriptor;
-    NplVal rest;
     if (unix_symbol_is(kind_value, "binary-input") ||
         unix_symbol_is(kind_value, "textual-input")) {
         input = 1;
@@ -691,24 +667,21 @@ NplVal npl_unix_open_file(NplVal path_value, NplVal kind_value,
         free(path);
         npl_primitive_error("open-file", "invalid port type", kind_value);
     }
-    if (npl_is_fixnum(flags_value)) {
+    if (!npl_is_fixnum(flags_value)) {
+        free(path);
+        npl_primitive_error("open-file", "expected integer flags", flags_value);
+    }
+    {
         int bits = (int)npl_fixnum_value(flags_value);
+        if (bits < 0 || (bits & ~31) != 0) {
+            free(path);
+            npl_primitive_error("open-file", "flags out of range", flags_value);
+        }
         if (bits & 1) flags |= O_APPEND;
         if (bits & 2) flags |= O_CREAT;
         if (bits & 4) flags |= O_EXCL;
         if (bits & 8) flags |= O_NOFOLLOW;
         if (bits & 16) flags |= O_TRUNC;
-    } else {
-        for (rest = flags_value; !npl_is_nil(rest); rest = npl_cdr(rest)) {
-            NplVal flag = npl_car(rest);
-            if (unix_symbol_is(flag, "open/append")) flags |= O_APPEND;
-            else if (unix_symbol_is(flag, "open/create")) flags |= O_CREAT;
-            else if (unix_symbol_is(flag, "open/exclusive")) flags |= O_EXCL;
-            else if (unix_symbol_is(flag, "open/nofollow")) flags |= O_NOFOLLOW;
-            else if (unix_symbol_is(flag, "open/truncate")) flags |= O_TRUNC;
-            else if (unix_symbol_is(flag, "open/read")) flags |= O_RDONLY;
-            else if (unix_symbol_is(flag, "open/write")) flags |= O_WRONLY;
-        }
     }
     descriptor = open(path, flags, (mode_t)npl_fixnum_value(mode_value));
     {

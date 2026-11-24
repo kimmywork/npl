@@ -133,13 +133,6 @@
                                 #t
                                 (eq? head DATUM-FALSE-TAG))))))))))
 
-(define (array-shape-equal left right)
-  (cond ((null? left) (null? right))
-        ((null? right) #f)
-        ((= (car left) (car right))
-         (array-shape-equal (cdr left) (cdr right)))
-        (else #f)))
-
 (define (array-zero-shape rank)
   (if (= rank 0) () (cons 0 (array-zero-shape (- rank 1)))))
 
@@ -164,7 +157,7 @@
                          (sub-shape (car sub))
                          (sub-flat (cdr sub)))
                   (if (if shape
-                          (not (array-shape-equal shape sub-shape))
+                          (not (number-list=? shape sub-shape))
                           #f)
                       (fatal "array literal rows differ in shape"))
                     (loop (cdr rows)

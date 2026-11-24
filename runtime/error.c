@@ -17,6 +17,7 @@
  * uncaught raise. */
 
 #include "npl.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,4 +130,50 @@ void npl_primitive_file_error(const char *who, const char *message,
                               NplVal irritant)
 {
     raise_error_object(make_error_object("file", who, message, irritant));
+}
+
+/* The symbolic name of an errno value, for posix error objects.  The list is
+ * deliberately finite: unlisted codes still produce a posix error, with the
+ * EUNKNOWN name. */
+static const char *posix_error_name(int code)
+{
+    switch (code) {
+#define CASE(name) case name: return #name
+        CASE(EACCES); CASE(EEXIST); CASE(EINVAL); CASE(EISDIR);
+        CASE(ENOENT); CASE(ENOTDIR); CASE(ENOTEMPTY); CASE(EPERM);
+        CASE(ENOSPC); CASE(EROFS); CASE(EMFILE); CASE(ENFILE);
+        CASE(ELOOP); CASE(ENAMETOOLONG); CASE(ENOTSUP); CASE(EBADF);
+        CASE(EAGAIN); CASE(EINTR); CASE(ENOMEM); CASE(EXDEV);
+        CASE(ESRCH); CASE(ECHILD); CASE(ENOSYS);
+#undef CASE
+        default: return "EUNKNOWN";
+    }
+}
+
+/* An operating-system refusal with kind "posix": satisfies posix-error?
+ * (lib/npl/unix.sld).  The first irritant is the symbolic errno name, as
+ * SRFI 170 specifies; the caller's irritant follows. */
+void npl_primitive_posix_error(const char *who, int code, NplVal irritant)
+{
+    const char *name = posix_error_name(code);
+    const char *message = strerror(code);
+    npl_gc_root(&irritant);
+    NplVal name_value = npl_symbol(name, (uint32_t)strlen(name));
+    npl_gc_root(&name_value);
+    NplVal message_value =
+        npl_string(message, (uint32_t)strlen(message));
+    npl_gc_root(&message_value);
+    NplVal irritants = npl_cons(name_value, npl_cons(irritant, npl_nil()));
+    npl_gc_root(&irritants);
+    NplVal fields[4];
+    fields[0] = npl_symbol("npl-error-object", 16);
+    fields[1] = npl_symbol("posix", 5);
+    fields[2] = message_value;
+    fields[3] = irritants;
+    NplVal object = npl_make_record(4, fields);
+    npl_gc_unroot(&irritants);
+    npl_gc_unroot(&message_value);
+    npl_gc_unroot(&name_value);
+    npl_gc_unroot(&irritant);
+    raise_error_object(object);
 }

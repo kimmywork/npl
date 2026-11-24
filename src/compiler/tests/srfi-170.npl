@@ -3,6 +3,9 @@
         (scheme file)
         (scheme process-context)
         (only (npl process) make-temporary-directory)
+        (rename (only (npl process) delete-directory)
+                (delete-directory process-delete-directory))
+        (only (npl ffi) foreign-alloc foreign-free null-pointer)
         (npl time)
         (npl unix))
 
@@ -196,6 +199,61 @@
                            (close-directory handle)
                            (raises? (lambda () (close-directory handle)))))
                        #t)
+        (test-identity "closed directory handle stays closed"
+                       (lambda ()
+                         (let loop ((index 0))
+                           (if (= index 20)
+                               #t
+                               (let ((old (open-directory root)))
+                                 (close-directory old)
+                                 (let ((new (open-directory root)))
+                                   (let ((stale-read
+                                           (raises?
+                                             (lambda () (read-directory old))))
+                                         (stale-close
+                                           (raises?
+                                             (lambda () (close-directory old))))
+                                         (fresh
+                                           (if (eof-object?
+                                                 (read-directory new))
+                                               #f #t)))
+                                     (close-directory new)
+                                     (if (if stale-read
+                                             (if stale-close fresh #f)
+                                             #f)
+                                         (loop (+ index 1))
+                                         #f)))))))
+                       #t)
+        ; R23: only open-directory results reach readdir/closedir.
+        (let ((foreign (foreign-alloc 64)))
+          (test-identity "read-directory rejects a foreign pointer"
+                         (lambda ()
+                           (raises? (lambda () (read-directory foreign))))
+                         #t)
+          (test-identity "close-directory rejects a foreign pointer"
+                         (lambda ()
+                           (raises? (lambda () (close-directory foreign))))
+                         #t)
+          (test-identity "foreign pointer is still owned after close-directory"
+                         (lambda () (foreign-free foreign) #t)
+                         #t))
+        (test-identity "read-directory rejects a null pointer"
+                       (lambda ()
+                         (raises? (lambda () (read-directory (null-pointer)))))
+                       #t)
+        (test-identity "close-directory rejects a vector"
+                       (lambda ()
+                         (raises? (lambda () (close-directory (vector 1)))))
+                       #t)
+        ; R29: (npl process) and (npl unix) share delete-directory, which
+        ; raises posix errors.
+        (test-equal "process delete-directory raises a posix error"
+                    (lambda ()
+                      (error-name
+                        (lambda ()
+                          (process-delete-directory
+                            (string-append root "/missing-directory")))))
+                    'ENOENT)
         (test-equal "directory create EEXIST"
                     (lambda () (error-name (lambda () (create-directory root))))
                     'EEXIST)
@@ -320,6 +378,16 @@
         (test-identity "truncate-file rejects a symbol"
                        (lambda ()
                          (raises? (lambda () (truncate-file renamed 'x))))
+                       #t)
+        ; R24: a length above the fixnum range is refused or exact.
+        (test-identity "truncate-file 2^61 is refused or exact"
+                       (lambda ()
+                         (let ((size (guard (condition (#t 'refused))
+                                       (truncate-file renamed (expt 2 61))
+                                       (file-info:size
+                                         (file-info renamed #t)))))
+                           (truncate-file renamed 0)
+                           (if (eq? size 'refused) #t (= size (expt 2 61)))))
                        #t)
         (test-identity "truncate-file rejects a negative length"
                        (lambda ()
@@ -480,6 +548,84 @@
                          (raises? (lambda ()
                                     (set-file-times renamed time/now))))
                        #t)
+        (test-identity "set-file-times rejects a high second"
+                       (lambda ()
+                         (raises?
+                           (lambda ()
+                             (set-file-times
+                               renamed
+                               (make-time time-utc 0 (expt 2 63))
+                               time/now))))
+                       #t)
+        (test-identity "set-file-times rejects a low second"
+                       (lambda ()
+                         (raises?
+                           (lambda ()
+                             (set-file-times
+                               renamed
+                               (make-time time-utc 0
+                                          (- (- (expt 2 63)) 1))
+                               time/now))))
+                       #t)
+        ; R24: seconds above the fixnum range reach C intact.  A host may
+        ; clamp or refuse a far timestamp, but never store pointer bits.
+        (test-identity "set-file-times 2^62 is clamped or refused"
+                       (lambda ()
+                         (guard (condition (#t #t))
+                           (set-file-times renamed
+                                           (make-time time-utc 0 (expt 2 62))
+                                           (make-time time-utc 0 (expt 2 62)))
+                           (> (time-second (file-info:mtime
+                                             (file-info renamed #t)))
+                              (expt 2 33))))
+                       #t)
+        (test-identity "set-file-times -2^62 is clamped or refused"
+                       (lambda ()
+                         (guard (condition (#t #t))
+                           (set-file-times renamed
+                                           (make-time time-utc 0
+                                                      (- (expt 2 62)))
+                                           (make-time time-utc 0
+                                                      (- (expt 2 62))))
+                           (< (time-second (file-info:mtime
+                                             (file-info renamed #t)))
+                              0)))
+                       #t)
+        ; R25: -1 and -2 seconds are timestamps, not time/now or
+        ; time/unchanged.
+        (test-equal "set-file-times -1 second"
+                    (lambda ()
+                      (set-file-times renamed (make-time time-utc 0 -1)
+                                      (make-time time-utc 0 -1))
+                      (time-second (file-info:mtime (file-info renamed #t))))
+                    -1)
+        (test-equal "set-file-times -2 seconds"
+                    (lambda ()
+                      (set-file-times renamed (make-time time-utc 0 -2)
+                                      (make-time time-utc 0 -2))
+                      (time-second (file-info:mtime (file-info renamed #t))))
+                    -2)
+        (test-equal "set-file-times time/unchanged keeps -2"
+                    (lambda ()
+                      (set-file-times renamed time/unchanged time/unchanged)
+                      (time-second (file-info:mtime (file-info renamed #t))))
+                    -2)
+        (test-identity "set-file-times time/now still means now"
+                       (lambda ()
+                         (set-file-times renamed time/now time/now)
+                         (> (time-second (file-info:mtime
+                                           (file-info renamed #t)))
+                            1000000000))
+                       #t)
+        (test-identity "set-file-times rejects a huge second"
+                       (lambda ()
+                         (raises?
+                           (lambda ()
+                             (set-file-times
+                               renamed
+                               (make-time time-utc 0 (expt 2 70))
+                               time/now))))
+                       #t)
         (test-identity "non-posix error is not a posix error"
                        (lambda ()
                          (guard (condition
@@ -542,6 +688,24 @@
                                       binary-output
                                       (+ open/create open/exclusive))
                            #f))
+                       #t)
+        (test-identity "open-file rejects negative flags"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (open-file (string-append root "/io.txt")
+                                               binary-input -1))))
+                       #t)
+        (test-identity "open-file rejects bignum flags"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (open-file (string-append root "/io.txt")
+                                               binary-input (expt 2 70)))))
+                       #t)
+        (test-identity "open-file rejects unknown flags"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (open-file (string-append root "/io.txt")
+                                               binary-input 32))))
                        #t)
         (test-identity "open/nofollow"
                        (lambda ()
