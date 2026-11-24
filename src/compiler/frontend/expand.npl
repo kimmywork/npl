@@ -66,28 +66,44 @@
 ; template identifiers carry this transcription's mark; rewrite the free
 ; ones (not defined by the output itself) to the binding they denote at the
 ; macro definition site, so they resolve correctly wherever the forms land.
-(define (expand-transcription transformer transcription value-env macro-env)
-  (let ((output (car transcription)))
-    (let ((mark (cdr transcription)))
-      (if (if (raw-form? output "define-syntax")
+(define (expand-transcribed-output output mark definition-env
+                                  definition-macro-env value-env macro-env)
+  (if (if (raw-form? output "define-syntax")
+          #t
+          (if (raw-form? output "define-values")
               #t
-              (if (raw-form? output "define-values")
+              (if (raw-form? output "define")
                   #t
-                  (definition-begin? output)))
-          (let ((resolved
-                  (resolve-marked-free
-                    output mark (transformer-definition-env transformer)
-                    (transformer-definition-macro-env transformer)
-                    (begin-defined-identifiers output ()))))
-            (if (raw-form? output "define-values")
-                (cons (datum-symbol "begin") (cons resolved ()))
-                resolved))
-          (expand-expression
-            output
-            (alias-value-environment
-              (transformer-definition-env transformer) mark value-env)
-            (alias-macro-environment
-              (transformer-definition-macro-env transformer) mark macro-env))))))
+                  (definition-begin? output))))
+      (let ((resolved
+              (resolve-marked-free
+                output mark definition-env definition-macro-env
+                (begin-defined-identifiers output ()))))
+        (if (if (raw-form? output "define-values")
+                #t
+                (raw-form? output "define"))
+            (cons (datum-symbol "begin") (cons resolved ()))
+            resolved))
+      (expand-expression
+        output
+        (alias-value-environment definition-env mark value-env)
+        (alias-macro-environment definition-macro-env mark macro-env))))
+
+(define (expand-transcription transformer transcription value-env macro-env)
+  (expand-transcribed-output
+    (car transcription) (cdr transcription)
+    (transformer-definition-env transformer)
+    (transformer-definition-macro-env transformer)
+    value-env macro-env))
+
+(define (expand-procedural-transcription transformer use value-env macro-env)
+  (let ((transcription
+          (eval-procedural-transformer transformer use value-env)))
+    (expand-transcribed-output
+      (car transcription) (cdr transcription)
+      (procedural-transformer-definition-env transformer)
+      (procedural-transformer-definition-macro-env transformer)
+      value-env macro-env)))
 
 (define (case-datum-seen? datum seen)
   (if (null? seen)
@@ -146,6 +162,14 @@
                 (if (head-value-bound? head value-env)
                     ()
                     (lookup-macro-binding head macro-env))))
+          (if (if (not (null? transformer))
+                  (core-syntax-value? transformer)
+                  #f)
+              (expand-keyword-or-application
+                (cons (datum-symbol (core-syntax-value-name transformer))
+                      (cdr expression))
+                (core-syntax-value-name transformer)
+                value-env macro-env)
           (if (not (null? transformer))
               (begin
                 (if (if (string=? (datum-symbol-name head) "case")
@@ -154,15 +178,18 @@
                     (validate-case-use expression))
                 (if (eq? transformer UNINITIALIZED-SYNTAX)
                     (fatal "syntax keyword used before its definition")
-                    (expand-transcription
-                      transformer
-                      (transcribe-macro transformer expression value-env)
-                      value-env macro-env)))
+                    (if (procedural-transformer? transformer)
+                        (expand-procedural-transcription
+                          transformer expression value-env macro-env)
+                        (expand-transcription
+                          transformer
+                          (transcribe-macro transformer expression value-env)
+                          value-env macro-env))))
               (if (head-value-bound? head value-env)
                   (expand-application expression value-env macro-env)
                   (expand-keyword-or-application
                     expression (datum-symbol-name head)
-                    value-env macro-env))))
+                    value-env macro-env)))))
         (expand-application expression value-env macro-env))))
 
 (define (expand-keyword-or-application form name value-env macro-env)
@@ -338,7 +365,13 @@
                 (prebind-body-syntax (cdr body) macro-env seen)
                 macro-env)))))
 
-(define (expand-body-sequence body value-env macro-env)
+(define (procedure-definition? form)
+  (let ((target (car (cdr form))))
+    (if (datum-symbol? target)
+        #f
+        (pair? target))))
+
+(define (expand-body-sequence body value-env macro-env all-macros)
   (if (null? body)
       ()
       (let ((form (car body)))
@@ -352,50 +385,74 @@
                               value-env macro-env)))
                       (expand-body-sequence
                         (cdr body) value-env
-                        (add-macro-binding keyword transformer macro-env)))
+                        (add-macro-binding keyword transformer macro-env)
+                        all-macros))
                     (begin
                       (cell-set! binding-cell
                         (parse-syntax-rules
                           (car (cdr (cdr form))) value-env macro-env))
                       (expand-body-sequence
-                        (cdr body) value-env macro-env)))))
+                        (cdr body) value-env macro-env all-macros)))))
             (if (raw-form? form "define")
-                (cons (expand-expression form value-env macro-env)
-                      (expand-body-sequence
-                        (cdr body) value-env macro-env))
+                (cons
+                  (if (procedure-definition? form)
+                      (expand-define form value-env all-macros)
+                      (expand-define form value-env macro-env))
+                  (expand-body-sequence
+                    (cdr body) value-env macro-env all-macros))
                 (let ((expanded
                         (expand-expression form value-env macro-env)))
                   (if (raw-form? expanded "define-syntax")
-                      ; A macro use that produced a syntax definition: it
-                      ; defines a keyword for the rest of the body.
                       (expand-body-sequence
-                        (cons expanded (cdr body)) value-env macro-env)
+                        (cons expanded (cdr body)) value-env macro-env
+                        (install-body-syntax
+                          (cons expanded (cdr body)) value-env all-macros))
                   (if (definition-begin? expanded)
-                      ; Definitions produced by a macro join the body scope
-                      ; (R7RS 5.3.2): bind them before expanding the rest.
                       (let ((spliced
                               (append-forms (cdr expanded) (cdr body))))
                         (let ((spliced-macros
                                 (prebind-body-syntax
                                   spliced macro-env ()))
+                              (spliced-all
+                                (install-body-syntax
+                                  spliced value-env all-macros))
                               (spliced-values
                                 (cdr (bind-identifiers
                                        (begin-defined-value-list (cdr expanded) ())
                                        value-env))))
                           (expand-body-sequence
-                            spliced spliced-values spliced-macros)))
+                            spliced spliced-values spliced-macros spliced-all)))
                       (if (raw-form? expanded "define")
                           (cons expanded
                                 (expand-body-sequence
-                                  (cdr body) value-env macro-env))
+                                  (cdr body) value-env macro-env all-macros))
                           (cons expanded
                                 (expand-expression-list
                                   (cdr body) value-env macro-env)))))))))))
 
+; Syntax definitions are visible to the whole body (R7RS 5.3.2), but a
+; transformer used in an earlier lambda body must already be parsed, not just
+; prebound to UNINITIALIZED-SYNTAX. Parse all direct syntax definitions before
+; expanding any expression.
+(define (install-body-syntax body value-env macro-env)
+  (if (null? body)
+      macro-env
+      (let ((form (car body)))
+        (if (raw-form? form "define-syntax")
+            (let ((keyword (syntax-definition-keyword form)))
+              (let ((transformer
+                      (parse-syntax-rules (car (cdr (cdr form)))
+                                          value-env macro-env)))
+                (install-body-syntax
+                  (cdr body) value-env
+                  (add-macro-binding keyword transformer macro-env))))
+            (install-body-syntax (cdr body) value-env macro-env)))))
+
 (define (expand-body body value-env macro-env)
   (let ((bound (bind-body-definitions body value-env)))
     (let ((body-macros (prebind-body-syntax body macro-env ())))
-      (expand-body-sequence body (cdr bound) body-macros))))
+      (let ((installed (install-body-syntax body (cdr bound) body-macros)))
+        (expand-body-sequence body (cdr bound) body-macros installed)))))
 
 (define (expand-lambda form value-env macro-env)
   (if (null? (cdr form)) (fatal "lambda needs parameters"))

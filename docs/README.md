@@ -15,5 +15,6 @@ project overview, quick start, platform support, and license, see the
 - [R7RS-small conformance](r7rs-conformance.md)
 - [Extending NPL](extending.md)
 - [C functions and FFI](ffi.md)
+- [Packages and native packages](native-packages.md)
 - [R7RS-small reference](reference/r7rs.html)
 - [SRFI 125 reference](reference/srfi-125.html)

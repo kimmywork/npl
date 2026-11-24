@@ -20,8 +20,15 @@
           (cell-set! ACTIVE-DATUM-LABELS saved-labels))
         (skip-datum-comments! cur))))
 
-(define (expect-rparen cur what)
-  (if (= (peek-kind cur) 2) (advance! cur) (fatal (string-append "expected ) after " what))))
+(define (close-kind open)
+  (if (= open 21) 22 2))
+
+(define (expect-rparen cur what open)
+  (if (= (peek-kind cur) (close-kind open))
+      (advance! cur)
+      (fatal (string-append "expected "
+                            (if (= open 21) "]" ")")
+                            " after " what))))
 
 (define QUASIQUOTE-LEVEL (cell 0))
 (define UNRESOLVED-DATUM (cons 110 ()))
@@ -61,7 +68,7 @@
 
 (define (new-datum-placeholder kind)
   (case kind
-    ((1) (cons 0 ()))
+    ((1 21) (cons 0 ()))
     ((14) (datum-vector ()))
     ((15) (datum-bytevector ()))
     (else UNRESOLVED-DATUM)))
@@ -126,13 +133,6 @@
                                 #t
                                 (eq? head DATUM-FALSE-TAG))))))))))
 
-(define (array-shape-equal left right)
-  (cond ((null? left) (null? right))
-        ((null? right) #f)
-        ((= (car left) (car right))
-         (array-shape-equal (cdr left) (cdr right)))
-        (else #f)))
-
 (define (array-zero-shape rank)
   (if (= rank 0) () (cons 0 (array-zero-shape (- rank 1)))))
 
@@ -157,7 +157,7 @@
                          (sub-shape (car sub))
                          (sub-flat (cdr sub)))
                   (if (if shape
-                          (not (array-shape-equal shape sub-shape))
+                          (not (number-list=? shape sub-shape))
                           #f)
                       (fatal "array literal rows differ in shape"))
                     (loop (cdr rows)
@@ -186,6 +186,7 @@
       ((5) (let ((v (peek-payload cur))) (advance! cur) v))
       ((7) (fatal "unexpected end of input"))
       ((2) (fatal "unexpected )"))
+      ((22) (fatal "unexpected ]"))
       ((4 19) (let ((nm (peek-payload cur)))
                 (advance! cur)
                 (datum-symbol nm)))
@@ -201,20 +202,21 @@
       ((13) (let ((code (peek-payload cur)))
               (advance! cur)
               (datum-char code)))
-      ((14) (begin (advance! cur) (datum-vector (datum-items cur))))
-      ((15) (begin (advance! cur) (datum-bytevector (datum-items cur))))
+      ((14) (begin (advance! cur) (datum-vector (datum-items cur 1))))
+      ((15) (begin (advance! cur) (datum-bytevector (datum-items cur 1))))
       ((20) (let ((rank (peek-payload cur)))
               (advance! cur)
               (if (= (peek-kind cur) 1)
                   (begin
                     (advance! cur)
-                    (array-datum rank (datum-items cur)))
+                    (array-datum rank (datum-items cur 1)))
                   (fatal "array literal requires (...)"))))
       ((16) (parse-datum-label cur (peek-payload cur)))
       ((17) (let ((label (peek-payload cur)))
               (advance! cur)
               (datum-label-ref label)))
-      ((1) (begin (advance! cur) (datum-items cur)))
+      ((1) (begin (advance! cur) (datum-items cur 1)))
+      ((21) (begin (advance! cur) (datum-items cur 21)))
       (else (fatal "bad quoted datum")))))
 
 (define (parse-quasiquote-abbreviation cur)
@@ -233,13 +235,13 @@
       (string=? (peek-payload cur) ".")
       #f))
 
-(define (datum-items cur)
-  (if (= (peek-kind cur) 2)
+(define (datum-items cur open)
+  (if (= (peek-kind cur) (close-kind open))
       (begin (advance! cur) ())
       (if (dot-token? cur)
           (begin
             (advance! cur)
             (let ((tail (parse-quote-datum cur)))
-              (expect-rparen cur "dotted datum")
+              (expect-rparen cur "dotted datum" open)
               tail))
-          (cons (parse-quote-datum cur) (datum-items cur)))))
+          (cons (parse-quote-datum cur) (datum-items cur open)))))

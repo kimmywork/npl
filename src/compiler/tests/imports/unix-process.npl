@@ -1,0 +1,3 @@
+; (npl unix) re-exports the same delete-directory binding as (npl process).
+(import (scheme base) (scheme write) (npl process) (npl unix))
+(display "ok")

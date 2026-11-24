@@ -180,110 +180,6 @@
                 (if fold-case (library-fold-list forms) forms))
               (library-read-paths (cdr paths) base fold-case))))))
 
-(define (library-feature-symbol? requirement name)
-  (if (datum-symbol? requirement)
-      (string=? (datum-symbol-name requirement) name)
-      #f))
-
-(define (library-feature-list-all requirements)
-  (if (null? requirements)
-      #t
-      (if (library-feature? (car requirements))
-          (library-feature-list-all (cdr requirements))
-          #f)))
-
-(define (library-feature-list-any requirements)
-  (if (null? requirements)
-      #f
-      (if (library-feature? (car requirements))
-          #t
-          (library-feature-list-any (cdr requirements)))))
-
-(define (library-feature-library? requirement)
-  (if (not (= (raw-list-count (cdr requirement) 0) 1))
-      (fatal "library feature requirement needs one name"))
-  (let ((library-name (car (cdr requirement))))
-    (if (library-primitive-name? library-name)
-        #t
-        (let ((key (library-name-key library-name)))
-          (if (library-standard-key? key)
-              (library-standard-available? key)
-              (if (not (null?
-                    (library-find key (cell-get LIBRARY-REGISTRY))))
-                  #t
-                  (file-exists? (library-path-for-key key))))))))
-
-; Feature identifiers advertised by (features) in lib/scheme/text-io.scm.
-; Keep both lists in sync; the libraries suite checks the common ones.
-(define (library-feature-name? name)
-  (if (string=? name "r7rs")
-      #t
-      (if (string=? name "npl")
-          #t
-          (if (string=? name "full-unicode")
-              #t
-              (if (string=? name "ratios")
-                  #t
-                  (if (string=? name "exact-closed")
-                      #t
-                      (if (string=? name "exact-complex")
-                          #t
-                          (if (string=? name "ieee-float")
-                              #t
-                              (if (string=? name "posix")
-                                  #t
-                                  (if (string=? name "unix")
-                                      #t
-                                      (if (string=? name "little-endian")
-                                          (npl_little_endian_p)
-                                          (if (string=? name "big-endian")
-                                              (not (npl_little_endian_p))
-                                              #f))))))))))))
-
-(define (library-feature? requirement)
-  (if (datum-symbol? requirement)
-      (library-feature-name? (datum-symbol-name requirement))
-      (if (not (pair? requirement))
-          #f
-          (let ((head (car requirement)))
-            (if (not (datum-symbol? head))
-                #f
-                (let ((name (datum-symbol-name head)))
-                  (cond
-                    ((string=? name "and")
-                     (library-feature-list-all (cdr requirement)))
-                    ((string=? name "or")
-                     (library-feature-list-any (cdr requirement)))
-                    ((string=? name "not")
-                     (if (not (= (raw-list-count (cdr requirement) 0) 1))
-                         (fatal "not feature requirement needs one argument")
-                         (not (library-feature?
-                                (car (cdr requirement))))))
-                    ((string=? name "library")
-                     (library-feature-library? requirement))
-                    (else #f))))))))
-
-(define (library-cond-select clauses)
-  (if (null? clauses)
-      ()
-      (if (not (pair? clauses))
-          (fatal "cond-expand clauses must be a proper list")
-          (let ((clause (car clauses)))
-            (if (not (pair? clause))
-                (fatal "malformed cond-expand clause"))
-            (if (library-feature-symbol? (car clause) "else")
-                (begin
-                  (if (not (null? (cdr clauses)))
-                      (fatal "cond-expand else clause must be last"))
-                  (cdr clause))
-                (if (library-feature? (car clause))
-                    (cdr clause)
-                    (library-cond-select (cdr clauses))))))))
-
-(define (library-expand-cond-expression form)
-  (cons (datum-symbol "begin")
-        (library-cond-select (cdr form))))
-
 (define (library-expand-declarations declarations base)
   (if (null? declarations)
       ()
@@ -349,6 +245,26 @@
 (define (library-binding-kind binding) (car (cdr binding)))
 (define (library-binding-payload binding) (car (cdr (cdr binding))))
 
+(define (core-syntax-name? name)
+  (if (string=? name "quote") #t
+  (if (string=? name "quasiquote") #t
+  (if (string=? name "unquote") #t
+  (if (string=? name "unquote-splicing") #t
+  (if (string=? name "lambda") #t
+  (if (string=? name "define") #t
+  (if (string=? name "set!") #t
+  (if (string=? name "if") #t
+  (if (string=? name "begin") #t
+  (if (string=? name "let") #t
+  (if (string=? name "let*") #t
+  (if (string=? name "letrec") #t
+  (if (string=? name "letrec*") #t
+  (if (string=? name "let-syntax") #t
+  (if (string=? name "letrec-syntax") #t
+  (if (string=? name "let-values") #t
+  (if (string=? name "define-values") #t
+  (if (string=? name "syntax-rules") #t #f)))))))))))))))))))
+
 (define (library-export-binding spec value-env macro-env)
   (let ((internal
           (if (datum-symbol? spec)
@@ -366,6 +282,9 @@
                 (car (cdr (cdr spec))))))
       (if (not (datum-symbol? external))
           (fatal "export rename needs identifiers"))
+      (if (core-syntax-name? (datum-symbol-name internal))
+          (library-binding (datum-symbol-name external) 2
+            (cell (make-core-syntax (datum-symbol-name internal))))
       (let ((value (lookup-value-binding internal value-env)))
         (if (> (string-length value) 0)
             (begin
@@ -379,7 +298,7 @@
                   (fatal (string-append "unknown export: "
                            (datum-symbol-name internal)))
                   (library-binding
-                    (datum-symbol-name external) 2 macro))))))))
+                    (datum-symbol-name external) 2 macro)))))))))
 
 (define (library-export-bindings specs value-env macro-env)
   (if (null? specs)
@@ -539,6 +458,62 @@
             (library-primitive-bindings)
             (library-load import-set)))))
 
+; ---- conflict diagnostics ----
+; A value payload is the defining library's prefix (_npl_lib_N_, recorded in
+; library-entry-info by library-record-load!) followed by the sanitized
+; name, or a bare primitive name.  The origin is recovered only when a
+; conflict is reported, so binding shapes and the normal import path are
+; unchanged.  Prefixes end in "_", so _npl_lib_1_ never matches _npl_lib_10_.
+(define (library-payload-has-prefix? payload prefix)
+  (if (< (string-length payload) (string-length prefix))
+      #f
+      (string=? prefix (substring payload 0 (string-length prefix)))))
+
+; Registry keys join name parts with "/"; show them as written in source.
+(define (library-key-display key)
+  (let loop ((index 0) (start 0) (out "("))
+    (if (= index (string-length key))
+        (string-append out (string-append (substring key start index) ")"))
+        (if (= (string-byte-ref key index) 47)
+            (loop (+ index 1) (+ index 1)
+                  (string-append out
+                    (string-append (substring key start index) " ")))
+            (loop (+ index 1) start out)))))
+
+(define (library-payload-origin payload entries)
+  (if (null? entries)
+      (if (library-payload-has-prefix? payload "_npl_lib_")
+          "a library"
+          "(npl internal primitive)")
+      (let ((info (cell-get (library-entry-info (car entries)))))
+        (if (if (pair? info)
+                (library-payload-has-prefix? payload (car info))
+                #f)
+            (library-key-display (library-entry-key (car entries)))
+            (library-payload-origin payload (cdr entries))))))
+
+(define (library-loading-key entries)
+  (if (null? entries)
+      ()
+      (if (= (cell-get (library-entry-state (car entries))) 1)
+          (library-entry-key (car entries))
+          (library-loading-key (cdr entries)))))
+
+(define (library-conflict-message name existing incoming)
+  (let ((loading (library-loading-key (cell-get LIBRARY-REGISTRY))))
+    (string-append "conflicting imported binding: " name
+      (string-append " (from "
+        (string-append
+          (library-payload-origin existing (cell-get LIBRARY-REGISTRY))
+          (string-append " and "
+            (string-append
+              (library-payload-origin incoming (cell-get LIBRARY-REGISTRY))
+              (string-append ")"
+                (if (null? loading)
+                    ""
+                    (string-append " while loading "
+                                   (library-key-display loading)))))))))))
+
 ; Import bundle is (value-env macro-env).
 (define (library-import-binding binding bundle)
   (let ((identifier (datum-symbol (library-binding-name binding))))
@@ -548,7 +523,9 @@
           (if (> (string-length existing) 0)
               (if (not (string=? existing
                          (library-binding-payload binding)))
-                  (fatal "conflicting imported binding")))
+                  (fatal (library-conflict-message
+                           (library-binding-name binding) existing
+                           (library-binding-payload binding)))))
           (if (> (string-length existing) 0)
               bundle
               (cons
@@ -558,9 +535,19 @@
         (let ((existing
                 (lookup-macro-cell identifier (car (cdr bundle)))))
           (if (not (null? existing))
-              (if (not (eq? existing
-                         (library-binding-payload binding)))
-                  (fatal "conflicting imported syntax")))
+              (if (not (if (eq? existing (library-binding-payload binding))
+                           #t
+                           (if (if (core-syntax-value? (cell-get existing))
+                                   (core-syntax-value?
+                                     (cell-get (library-binding-payload binding)))
+                                   #f)
+                               (string=? (core-syntax-value-name
+                                           (cell-get existing))
+                                         (core-syntax-value-name
+                                           (cell-get (library-binding-payload binding))))
+                               #f)))
+                  (fatal (string-append "conflicting imported syntax: "
+                                        (library-binding-name binding)))))
           (if (not (null? existing))
               bundle
               (cons (car bundle)
@@ -755,6 +742,7 @@
   (cell-set! LIBRARY-STANDARD-INDEX ())
   (cell-set! LIBRARY-OUTPUT ())
   (cell-set! LIBRARY-NEXT-ID 0)
+  (native-package-reset!)
   (library-register-inline forms root)
   (cell-set! LIBRARY-PRIMITIVE-MACROS
     (expand-derived-syntax

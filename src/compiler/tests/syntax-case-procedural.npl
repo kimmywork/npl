@@ -1,0 +1,194 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context))
+
+(include "framework.npl")
+
+; Procedural syntax-case: clause bodies are evaluated at expansion time.
+(define-syntax my-or
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_) (syntax #f)]
+      [(_ e) (syntax e)]
+      [(_ e rest ...)
+       (syntax (let ((t e)) (if t t (my-or rest ...))))])))
+
+; with-syntax binds a pattern over a value computed at expansion time.
+(define-syntax swap!
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ a b)
+       (with-syntax (((tmp) (generate-temporaries (syntax (tmp)))))
+         (syntax (let ((tmp a)) (set! a b) (set! b tmp))))])))
+
+; syntax->list exposes the matched sequence to ordinary transformer code.
+(define-syntax item-count
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ item ...)
+       (length (syntax->list (syntax (item ...))))])))
+
+(define-syntax classify
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ x)
+       (if (identifier? (syntax x))
+           (syntax 'identifier)
+           (syntax 'other))])))
+
+(define-syntax fender-classify
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ x) (identifier? (syntax x)) (syntax 'identifier)]
+      [(_ x) (syntax 'datum)])))
+
+(define-syntax same-name?
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ a b)
+       (if (free-identifier=? (syntax a) (syntax b))
+           (syntax #t)
+           (syntax #f))])))
+
+(define-syntax make-quoted
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ name)
+       (datum->syntax (syntax name)
+         (cons (quote quote)
+               (cons (syntax->datum (syntax name)) (quote ()))))])))
+
+(define-syntax unbox
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ x) (syntax-e (syntax x))])))
+
+(define-syntax quasi
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ x) (quasisyntax (list (unsyntax (syntax x)) 1))])))
+
+(define-syntax same-bound?
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ a b)
+       (if (bound-identifier=? (syntax a) (syntax b))
+           (syntax #t)
+           (syntax #f))])))
+
+(begin-for-syntax
+  (define phase-answer 41)
+  (define (phase-add-one value) (+ value 1))
+  (define-syntax phase-double
+    (syntax-rules ()
+      ((_ x) (* 2 x))))
+  (define-syntax phase-list
+    (lambda (s)
+      (syntax-case s ()
+        [(_ x ...) (length (syntax->list (syntax (x ...))))]))))
+
+(define-syntax use-phase-double
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_) (phase-double 21)])))
+
+(define-syntax use-phase-list
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_) (phase-list 1 2 3)])))
+
+(define-syntax local-recursive-count
+  (lambda (stx)
+    (letrec-syntax ((count
+                      (syntax-rules ()
+                        ((_) 0)
+                        ((_ x rest ...) (+ 1 (count rest ...))))))
+      (syntax-case stx ()
+        [(_ a b c) (count a b c)]))))
+
+(define-syntax local-shadowing-sum
+  (lambda (stx)
+    (let-syntax ((double (syntax-rules () ((_ x) (+ x x)))))
+      (syntax-case stx ()
+        [(_ x) (double x)]))))
+
+(for-syntax
+  (define for-syntax-answer 42))
+
+(define-syntax phase-constant
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_) (phase-add-one phase-answer)])))
+
+(define-syntax for-syntax-constant
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_) for-syntax-answer])))
+
+(define (main)
+  (test-identity "procedural transformer: empty or"
+                 (lambda () (my-or))
+                 #f)
+  (test-equal "procedural transformer: single value"
+              (lambda () (my-or 7))
+              7)
+  (test-equal "procedural transformer: recursive tail"
+              (lambda () (my-or #f #f 9))
+              9)
+  (test-identity "with-syntax and generate-temporaries"
+                 (lambda ()
+                   (let ((a 1) (b 2))
+                     (swap! a b)
+                     (equal? (list a b) '(2 1))))
+                 #t)
+  (test-equal "syntax->list count"
+              (lambda () (item-count a b c))
+              3)
+  (test-identity "identifier? sees an identifier"
+                 (lambda () (eq? (classify foo) 'identifier))
+                 #t)
+  (test-identity "identifier? rejects a datum"
+                 (lambda () (eq? (classify 42) 'other))
+                 #t)
+  (test-identity "fender accepts an identifier"
+                 (lambda () (eq? (fender-classify foo) 'identifier))
+                 #t)
+  (test-identity "fender falls through"
+                 (lambda () (eq? (fender-classify 42) 'datum))
+                 #t)
+  (test-identity "free-identifier=? on the same use"
+                 (lambda () (same-name? foo foo))
+                 #t)
+  (test-identity "datum->syntax rebuilds a quoted name"
+                 (lambda () (eq? (make-quoted foo) 'foo))
+                 #t)
+  (test-equal "syntax-e returns the matched datum"
+              (lambda () (unbox 7))
+              7)
+  (test-identity "quasisyntax with unsyntax"
+                 (lambda () (equal? (quasi 9) '(9 1)))
+                 #t)
+  (test-identity "bound-identifier=? on the same use"
+                 (lambda () (same-bound? foo foo))
+                 #t)
+  (test-equal "begin-for-syntax binding"
+              (lambda () (phase-constant))
+              42)
+  (test-equal "phase syntax-rules macro"
+              (lambda () (use-phase-double))
+              42)
+  (test-equal "phase procedural macro"
+              (lambda () (use-phase-list))
+              3)
+  (test-equal "transformer letrec-syntax"
+              (lambda () (local-recursive-count a b c))
+              3)
+  (test-equal "transformer let-syntax"
+              (lambda () (local-shadowing-sum 21))
+              42)
+  (test-equal "for-syntax binding"
+              (lambda () (for-syntax-constant))
+              42)
+  (finish-tests "syntax-case-procedural"))
+
+(main)

@@ -5,6 +5,7 @@
  * exit. See port.h for the module split. */
 
 #include "port.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -88,8 +89,16 @@ NplVal npl_read_file(NplVal path) {
         npl_primitive_file_error("read-file", "cannot read file", path);
     }
     char *data = (char *)malloc((size_t)size + 1);
+    if (!data) {
+        fclose(fp);
+        npl_runtime_oom_internal();
+    }
     size_t got = fread(data, 1, (size_t)size, fp);
     fclose(fp);
+    if (got != (size_t)size) {
+        free(data);
+        npl_primitive_file_error("read-file", "short read", path);
+    }
     data[got] = '\0';
     NplVal out = npl_c_text_internal(data, got);
     free(data);
@@ -171,6 +180,68 @@ NplVal npl_process_run(NplVal arguments, NplVal output_path)
     return npl_fixnum(1);
 }
 
+NplVal npl_process_run_full(NplVal arguments, NplVal input_path,
+                           NplVal output_path, NplVal error_path)
+{
+    size_t count = process_argument_count(arguments);
+    char **argv = (char **)malloc((count + 1) * sizeof(char *));
+    NplVal rest = arguments;
+    posix_spawn_file_actions_t actions;
+    int action_status;
+    pid_t child = 0;
+    int spawn_status;
+    int status = 0;
+    if (!argv) npl_runtime_oom_internal();
+    for (size_t index = 0; index < count; index++) {
+        argv[index] = npl_c_string_internal(
+            process_string(npl_car(rest), "run-process*"));
+        rest = npl_cdr(rest);
+    }
+    argv[count] = NULL;
+
+    action_status = posix_spawn_file_actions_init(&actions);
+    if (action_status == 0 && input_path != npl_false()) {
+        char *path = npl_c_string_internal(
+            process_string(input_path, "run-process*"));
+        action_status = posix_spawn_file_actions_addopen(
+            &actions, STDIN_FILENO, path, O_RDONLY, 0);
+        free(path);
+    }
+    if (action_status == 0 && output_path != npl_false()) {
+        char *path = npl_c_string_internal(
+            process_string(output_path, "run-process*"));
+        action_status = posix_spawn_file_actions_addopen(
+            &actions, STDOUT_FILENO, path,
+            O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        free(path);
+    }
+    if (action_status == 0 && error_path != npl_false()) {
+        char *path = npl_c_string_internal(
+            process_string(error_path, "run-process*"));
+        action_status = posix_spawn_file_actions_addopen(
+            &actions, STDERR_FILENO, path,
+            O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        free(path);
+    }
+    if (action_status != 0) {
+        for (size_t index = 0; index < count; index++) free(argv[index]);
+        free(argv);
+        npl_primitive_file_error("run-process*", "cannot configure process",
+                                 arguments);
+    }
+    spawn_status = posix_spawnp(
+        &child, argv[0], &actions, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    for (size_t index = 0; index < count; index++) free(argv[index]);
+    free(argv);
+    if (spawn_status != 0) return npl_fixnum(127);
+    if (waitpid(child, &status, 0) < 0)
+        npl_primitive_error("run-process*", "wait failed", arguments);
+    if (WIFEXITED(status)) return npl_fixnum(WEXITSTATUS(status));
+    if (WIFSIGNALED(status)) return npl_fixnum(128 + WTERMSIG(status));
+    return npl_fixnum(1);
+}
+
 NplVal npl_get_environment_variable(NplVal name_value)
 {
     char *name = npl_c_string_internal(process_string(name_value,
@@ -245,10 +316,10 @@ NplVal npl_delete_directory(NplVal path_value)
 {
     char *path = npl_c_string_internal(process_string(path_value, "delete-directory"));
     int failed = rmdir(path) != 0;
+    int code = errno;
     free(path);
     if (failed)
-        npl_primitive_file_error("delete-directory", "cannot delete directory",
-                                 path_value);
+        npl_primitive_posix_error("delete-directory", code, path_value);
     return npl_unspecified();
 }
 

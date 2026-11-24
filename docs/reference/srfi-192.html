@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>SRFI 192: Port Positioning</title>
+    <link href="/favicon.png" rel="icon" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="https://srfi.schemers.org/srfi.css" type="text/css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  </head>
+
+  <body>
+    <h1><a href="https://srfi.schemers.org/"><img class="srfi-logo" src="https://srfi.schemers.org/srfi-logo.svg" alt="SRFI logo" /></a>192: Port Positioning</h1>
+
+<p>by The R6RS editors; John Cowan (shepherd);
+Shiro Kawai (implementation; requires a hook)</p>
+
+  <h2>Status</h2>
+
+  <p>This SRFI is currently in <em>final</em> status.  Here is <a href="https://srfi.schemers.org/srfi-process.html">an explanation</a> of each status that a SRFI can hold.  To provide input on this SRFI, please send email to <code><a href="mailto:srfi+minus+192+at+srfi+dotschemers+dot+org">srfi-192@<span class="antispam">nospam</span>srfi.schemers.org</a></code>.  To subscribe to the list, follow <a href="https://srfi.schemers.org/srfi-list-subscribe.html">these instructions</a>.  You can access previous messages via the mailing list <a href="https://srfi-email.schemers.org/srfi-192">archive</a>.</p>
+  <ul>
+    <li>Received: 2020-04-14</li>
+    <li>Draft #1 published: 2020-04-14</li>
+    <li>Draft #2 published: 2020-06-16</li>
+    <li>Draft #3 published: 2020-07-08</li>
+    <li>Draft #4 published: 2020-07-13</li>
+    <li>Finalized: 2020-07-31</li>
+  </ul>
+
+<h2>Abstract</h2>
+
+<p>This is an extract from the R6RS that documents its support for
+positioning ports.  Binary ports can be positioned to read or write
+at a specific byte; textual ports at a specific character,
+although character positions can't be synthesized portably.
+It has been lightly edited to fit R7RS style.</p>
+
+<h2>Rationale</h2>
+
+<p>The procedures documented in this SRFI allow reading bytes or characters
+from a port, especially a port associated with a file, in arbitrary order.
+By setting the port position before reading or writing, it is possible
+to jump to the <i>n</i>th record in a flat file of fixed-length records,
+or to rewind a file and process it repeatedly, or to discover the length
+of a file, or to append to it (though in the presence of multiple writers,
+this technique for appending is not reliable).  While these abilities are
+not as important as they once were, they still have their uses.</p>
+
+<p>Note that transcoded ports
+do not always support the <code>port-position</code> and
+<code>set-port-position!</code> operations.
+The position of a transcoded port may not be well-defined,
+and may be hard to calculate even when defined,
+especially when transcoding operations are done in bulk.</p>
+
+<p>Similarly, although custom ports
+have provisions for supporting port positioning,
+it is not appropriate for all custom ports to do so.</p>
+
+<h2>Specification</h2>
+
+<code id="port-has-port-position?">(port-has-port-position?<i> port</i>)</code><br>
+
+<code id="port-position">(port-position<i> port</i>)</code>
+<p>The <code>port-has-port-position?</code> procedure returns <code>#t</code> if the
+port supports the <code>port-position</code> operation, and <code>#f</code>
+otherwise.  If the port does not support the operation, <code>port-position</code> signals
+an error.</p>
+<p>The <code>port-position</code> procedure returns some implementation-dependent
+object representing as much of the state of the port at its current position
+as is necessary to save and restore that position.  This is at a minimum the position itself.
+This value may be useful only as
+the <i>pos</i> argument to <code>set-port-position!</code>, if the latter is
+even supported on the port (see below).
+However, if the port is binary and the object is an exact integer,
+then it is the position measured in bytes,
+and can be used to compute a new position some
+specified number of bytes away.
+</p>
+
+<code id="port-has-set-port-position!?">(port-has-set-port-position!?<i> port</i>)</code><br>
+
+<code id="set-port-position!">(set-port-position!<i> port pos</i>)</code>
+<p>For a textual port, it is implementation-defined what happens if <i>pos</i> is not
+the return value of a call to <code>port-position</code> on <i>port</i>.
+However, a binary port will also accept an exact integer,
+in which case the port position is set to the specified number of bytes
+from the beginning of the port data.
+If this is not sufficient information to specify the port state,
+or the specified position is uninterpretable by the port,
+an error satisfying <code>i/o-invalid-position-error?</code> is signaled.
+</p>
+<p>The <code>port-has-set-port-position!?</code> procedure returns <code>#t</code> if the port
+supports the <code>set-port-position!</code> operation, and <code>#f</code>
+otherwise.</p>
+<p>If <code>set-port-position!</code> procedure is invoked on
+a port that does not support the operation
+or if <i>pos</i> is not in the range of valid positions of <i>port</i>,
+<code>set-port-position!</code> signals an error.
+Otherwise, it sets the current position
+of the port to <i>pos</i>.  If <i>port</i> is an output
+port, <code>set-port-position!</code> first flushes <i>port</i>
+(even if the port position will not change).
+<p>If <i>port</i> is a binary output port and the current position is set
+beyond the current end of the data in the underlying data sink, the object is
+not extended until new data is written at that position.
+The contents of any intervening positions are unspecified.
+It is also possible to set the position of a binary input port 
+beyond the end of the data in the data source,
+but a read will fail unless the data has been extended by other means.
+File ports can always be extended in this manner
+within the limits of the underlying operating system.
+In other types of ports, if an attempt is made to set the position beyond the
+current end of data in the underlying object,
+and the object does not support extension,
+an error satisfying <code>i/o-invalid-position-error?</code> is signaled.
+</p>
+
+<code id="make-i/o-invalid-position-error">(make-i/o-invalid-position-error<i> pos</i>)</code>
+<p>Returns a condition object which satisfies
+<code>i/o-invalid-position-error?</code>.  The <i>pos</i> argument
+represents a position passed to <code>set-position!</code>.</p>
+<code id="i/o-invalid-position-error?">(i/o-invalid-position-error?<i> obj</i>)</code>
+<p>Returns <code>#t</code> if <i>obj</i> is an object created by
+<code>make-i/o-invalid-position-error?</code> or an object raised in the
+circumstances described in this SRFI, or <code>#f</code> if it is not.
+</p>
+
+<h2>Implementation</h2>
+
+<p>Every conforming R6RS implementation, including at least Chez,
+Guile, IronScheme, Larceny, Racket, and Vicare, provides these
+procedures in the <code>(rnrs io ports)</code> library.
+R6RS binary ports always return the port position as an exact integer.
+</p>
+
+<p>There is a sample implementation for R7RS
+that depends on overriding the built-in port procedures.
+It illustrates both SRFI 181 and
+SRFI 192, and it can be found in the <a
+href="https://github.com/scheme-requests-for-implementation/srfi-192">Git
+repository</a> for SRFI 192. 
+
+<p>There is also a second sample implementation for Gauche
+using its native facilities, though it is incomplete.
+
+<h2>Acknowledgements</h2>
+
+<p>This would have been much more difficult without the R6RS team,
+who produced a good-enough (as opposed to perfect) design that John
+was happy to adopt.</p>
+
+<h2>Copyright</h2>
+<p>Much of the content of this SRFI is drawn from R6RS,
+which does not have a copyright notice.
+It does, however, contain the following copyright license:</p>
+
+<blockquote>
+We intend this report to belong to the entire Scheme community, and so we grant permission to copy it in whole or in
+part without fee.
+</blockquote>
+
+<p>For the remaining content, the standard SRFI license applies:</p>
+
+<blockquote>
+  Permission is hereby granted, free of charge, to any person
+  obtaining a copy of this software and associated documentation files
+  (the "Software"), to deal in the Software without restriction,
+  including without limitation the rights to use, copy, modify, merge,
+  publish, distribute, sublicense, and/or sell copies of the Software,
+  and to permit persons to whom the Software is furnished to do so,
+  subject to the following conditions:
+
+<p>
+  The above copyright notice and this permission notice (including the
+  next paragraph) shall be included in all copies or substantial
+  portions of the Software.
+<p>
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+  BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+  ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+</blockquote>
+  <hr>
+  <address>Editor: <a href="mailto:srfi-editors+at+srfi+dot+schemers+dot+org">Arthur A. Gleckler</a></address></body></html>

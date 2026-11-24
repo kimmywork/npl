@@ -141,9 +141,9 @@
       "18")))
 
 ; Records (design-data section 2): a BOX_RECORD (22) with the NplVector
-; layout whose slot 0, the first element, is the record type. The field
-; index is a fixnum from the define-record-type expansion and is not
-; range-checked, as in npl_record_ref.
+; layout whose slot 0, the first element, is the record type.  The fast path
+; checks the type and the 1-based field index; an invalid call falls back to
+; npl_record_ref/npl_record_set, which raise a catchable error.
 (define (emit-record-test record type ok fail)
   (let ((on-record (new-label)) (slot (new-tmp)) (match (new-tmp)))
     (emit-box-test record "22" on-record fail)
@@ -171,9 +171,15 @@
   (let ((ops (eval-args-fixed args env 3 ())))
     (let ((record (car ops)) (type (car (cdr ops)))
           (index (car (cdr (cdr ops)))) (result (new-tmp))
-          (ok (new-label)) (fail (new-label)) (done (new-label)))
-      (emit-record-test record type ok fail)
-      (func-line ok)
+          (on-record (new-label)) (in-range (new-label)) (positive (new-label))
+          (zero (new-tmp)) (fail (new-label)) (done (new-label)))
+      (emit-record-test record type on-record fail)
+      (func-line on-record)
+      (emit-index-test record index in-range fail)
+      (func-line in-range)
+      (func-line (string-append zero " =w ceql " index ", 0"))
+      (func-line (string-append "jnz " zero ", " fail ", " positive))
+      (func-line positive)
       (func-line (string-append result " =l loadl "
                                 (element-address record index)))
       (func-line (string-append "jmp " done))
@@ -187,9 +193,15 @@
   (let ((ops (eval-args-fixed args env 4 ())))
     (let ((record (car ops)) (type (car (cdr ops)))
           (index (car (cdr (cdr ops)))) (field (car (cdr (cdr (cdr ops)))))
-          (ok (new-label)) (fail (new-label)) (done (new-label)))
-      (emit-record-test record type ok fail)
-      (func-line ok)
+          (on-record (new-label)) (in-range (new-label)) (positive (new-label))
+          (zero (new-tmp)) (fail (new-label)) (done (new-label)))
+      (emit-record-test record type on-record fail)
+      (func-line on-record)
+      (emit-index-test record index in-range fail)
+      (func-line in-range)
+      (func-line (string-append zero " =w ceql " index ", 0"))
+      (func-line (string-append "jnz " zero ", " fail ", " positive))
+      (func-line positive)
       (func-line (string-append "storel " field ", "
                                 (element-address record index)))
       (func-line (string-append "call $npl_gc_write_barrier_value(l "

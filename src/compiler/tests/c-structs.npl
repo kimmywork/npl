@@ -1,0 +1,119 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl ffi))
+
+(include "framework.npl")
+
+(define-c-struct timespec
+  "struct timespec"
+  (tv_sec long)
+  (tv_nsec long))
+
+(define-c-struct tm-flags
+  "struct tm"
+  (tm_isdst bool))
+
+; The same C type with an extra field: the in-process layout cache must not
+; hide tm_zone after the first declaration.
+(define-c-struct tm-extra
+  "struct tm"
+  (tm_zone pointer))
+
+(define-c-struct passwd
+  "struct passwd"
+  (pw_name pointer)
+  (pw_uid u32))
+
+(define-c-struct iovec
+  "struct iovec"
+  (iov_base pointer)
+  (iov_len size_t))
+
+(define (raises? thunk)
+  (guard (condition (#t #t))
+    (thunk)
+    #f))
+
+(define (main)
+  (let ((value (make-c-struct timespec)))
+    (test-identity "c-struct view"
+                   (lambda () (c-struct? value))
+                   #t)
+    (test-identity "c-struct pointer"
+                   (lambda () (pointer? (c-struct-pointer value)))
+                   #t)
+    (test-identity "c-struct size"
+                   (lambda () (> (c-struct-size value) 0))
+                   #t)
+    (test-equal "c-struct zero-filled"
+                (lambda () (c-struct-ref value 'tv_sec)) 0)
+    (c-struct-set! value 'tv_sec 123456789)
+    (c-struct-set! value 'tv_nsec 987654321)
+    (test-equal "c-struct long field"
+                (lambda () (c-struct-ref value 'tv_sec)) 123456789)
+    (test-equal "c-struct second field"
+                (lambda () (c-struct-ref value 'tv_nsec)) 987654321)
+    (test-identity "unknown c-struct field raises"
+                   (lambda ()
+                     (raises? (lambda () (c-struct-ref value 'missing))))
+                   #t)
+    (free-c-struct value)
+    (test-identity "freed c-struct access raises"
+                   (lambda ()
+                     (raises? (lambda () (c-struct-ref value 'tv_sec))))
+                   #t))
+  (let ((flags (make-c-struct tm-flags)))
+    (c-struct-set! flags 'tm_isdst #t)
+    (test-identity "c-struct bool true"
+                   (lambda () (c-struct-ref flags 'tm_isdst)) #t)
+    (c-struct-set! flags 'tm_isdst #f)
+    (test-identity "c-struct bool false"
+                   (lambda () (c-struct-ref flags 'tm_isdst)) #f)
+    (free-c-struct flags))
+  (let ((extra (make-c-struct tm-extra))
+        (zone (foreign-alloc 1)))
+    (test-identity "c-struct layout cache extends fields"
+                   (lambda () (> (c-struct-size extra) 0)) #t)
+    (c-struct-set! extra 'tm_zone zone)
+    (test-identity "c-struct layout cache field"
+                   (lambda ()
+                     (= (pointer->integer (c-struct-ref extra 'tm_zone))
+                        (pointer->integer zone)))
+                   #t)
+    (free-c-struct extra)
+    (foreign-free zone))
+  (let ((entry (make-c-struct passwd))
+        (pointer (foreign-alloc 8)))
+    (c-struct-set! entry 'pw_name pointer)
+    (test-identity "c-struct pointer field"
+                   (lambda ()
+                     (= (pointer->integer (c-struct-ref entry 'pw_name))
+                        (pointer->integer pointer)))
+                   #t)
+    (c-struct-set! entry 'pw_uid 4294967295)
+    (test-equal "c-struct u32 field"
+                (lambda () (c-struct-ref entry 'pw_uid)) 4294967295)
+    (free-c-struct entry)
+    (foreign-free pointer))
+  (let ((entry (make-c-struct iovec))
+        (pointer (foreign-alloc 8)))
+    (c-struct-set! entry 'iov_base pointer)
+    (c-struct-set! entry 'iov_len 1234567890123)
+    (test-identity "c-struct size_t field"
+                   (lambda () (= (c-struct-ref entry 'iov_len) 1234567890123))
+                   #t)
+    (test-identity "c-struct size_t pointer field"
+                   (lambda ()
+                     (= (pointer->integer (c-struct-ref entry 'iov_base))
+                        (pointer->integer pointer)))
+                   #t)
+    (free-c-struct entry)
+    (foreign-free pointer))
+  (test-identity "non-view c-struct access raises"
+                 (lambda ()
+                   (raises? (lambda () (c-struct-ref 'not-a-view 'tv_sec))))
+                 #t)
+  (finish-tests "c-structs"))
+
+(main)

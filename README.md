@@ -45,7 +45,9 @@ Current extensions include `(npl hashtable)` / `(srfi 125)`,
 `(npl comparator)` / `(srfi 128)`, `(npl data set)` and `(npl data bag)` /
 `(srfi 113)`, `(npl sort)` / `(srfi 132)` and `(srfi 95)`,
 `(npl data collection)` / `(srfi 44)`, `(npl data map)` / `(srfi 146)`,
-`(npl data bitvector)` / `(srfi 178)`,
+`(npl data bitvector)` / `(srfi 178)`, `(npl time)` / `(srfi 19)`,
+`(npl unix)` / `(srfi 170)`,
+`(npl lambda)` (`λ` and `fn`),
 `(npl data unifiable-box)` / `(srfi 161)`,
 `(npl data multiple-value-box)` / `(srfi 195)`, `(npl data box)` / `(srfi 111)`,
 `(npl data range)` / `(srfi 196)`, and the SRFI 189 family:
@@ -120,11 +122,14 @@ supported, and there is no cross-compilation path at this stage.
 - [R7RS-small conformance](docs/r7rs-conformance.md)
 - [Extending NPL](docs/extending.md)
 - [C functions and FFI](docs/ffi.md)
+- [Packages and native packages](docs/native-packages.md)
+- [Time and SRFI 19](docs/time.md)
+- [POSIX and SRFI 170](docs/posix.md)
 - [R7RS-small reference](docs/reference/r7rs.html) and
   [SRFI 125 reference](docs/reference/srfi-125.html)
 
-Deliberate omissions (R7RS-large features, `syntax-case`, keyword arguments,
-record inheritance, and separate compilation) are listed in
+Deliberate omissions (R7RS-large features, keyword arguments, record
+inheritance, and separate compilation) are listed in
 the [conformance statement](docs/r7rs-conformance.md#deliberately-outside-the-language-stage).
 
 ## Testing
@@ -136,10 +141,14 @@ tools/check_linux.sh                           # the same gate in a Debian conta
 tools/run_chibi_suite.sh --native              # external conformance suite
 ```
 
-The gate builds the toolchain, checks the permanent bootstrap chain, runs the
-compiler suites and contracts, exercises the shared native/`npli`/Guile
-fixtures, and checks the runtime and GC. See
-[Verification](docs/testing.md) for stage details and fixture rules.
+The gate builds the toolchain, runs the compiler suites and contracts,
+exercises the shared native/`npli`/Guile fixtures, and checks the runtime and
+GC. Frozen stage0 and the permanent bootstrap chain are checked separately
+under `bootstrap/stage0/tools/`. The orchestrator is
+`tools/run-tests.npl`; fixture tests use `(npl test expect)`, unit tests use
+`(npl test)` / `(srfi 64)`, and property tests use `(npl test property)` /
+`(srfi 252)`. See [Verification](docs/testing.md) for stage details and
+fixture rules.
 
 ## License
 

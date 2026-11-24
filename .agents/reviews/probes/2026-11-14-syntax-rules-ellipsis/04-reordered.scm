@@ -1,0 +1,13 @@
+(define-syntax \
+  (syntax-rules (=>)
+    ((_ => body ...) (lambda () body ...))
+    ((_ () => body ...) (lambda () body ...))
+    ((_ (arg0 arg ... . rest) => body ...) (lambda (arg0 arg ... . rest) body ...))
+    ((_ arg ... => body ...) (lambda (arg ...) body ...))))
+(write (list ((\ => 0))
+             ((\ x y => (+ x y)) 1 2)
+             ((\ x => x) 7)
+             ((\ (x . rest) => (list x rest)) 1 2 3 4)
+             ((\ (x y) => (* x y)) 3 4)
+             ((\ () => 'empty))))
+(newline)

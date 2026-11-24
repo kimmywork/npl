@@ -1,7 +1,8 @@
 # R7RS-small Conformance
 
-Status: frozen at the language milestone, 2026-11-12. This document states
-what NPL claims about R7RS-small and the evidence for each claim. It replaces
+Status: frozen at the language milestone, 2026-11-12; the syntax-case
+extension addendum is dated 2026-11-23. This document states what NPL claims
+about R7RS-small and the evidence for each claim. It replaces
 the "Current Gap" table of the archived plan
 (`.agents/archive/plan-r7rs.md`).
 
@@ -9,7 +10,8 @@ the "Current Gap" table of the archived plan
 
 **NPL is an R7RS-small implementation: every standard library is present and
 behaviorally checked.** It does not claim R7RS *large* (R6RS-style
-libraries, `syntax-case`, the numeric tower beyond R7RS-small).
+libraries or the numeric tower beyond R7RS-small). Procedural `syntax-case`
+is an implemented NPL extension, not part of the R7RS-small claim.
 
 ## Evidence
 
@@ -67,7 +69,7 @@ accepted:
 ### Three-way fixtures: 41 in the gate
 
 Every behavior the project commits to has a fixture under
-`tests/r7rs/fixtures/` run by `tools/run_r7rs_fixture.sh` through native,
+`tests/fixtures/` run by `tools/run_r7rs_fixture.sh` through native,
 npli, and Guile 3 with byte-identical stdout, stderr, and status. Fixtures
 with `oracle=none` (Guile lacks the behavior: datum labels in `read`,
 `record-update`, cyclic printing, `match-define`) are checked against
@@ -96,6 +98,12 @@ Open, all non-blocking:
    `open-input-file` a `file-error?` object, and reports absent irritants as
    `#f`. The native suite `error-objects.npl` covers these instead; fixtures
    do not depend on Guile for them.
+4. **Cross-form continuation reentry.** npli evaluates each interaction and
+   `load` form separately, so a continuation captured in one form and invoked
+   from a later form re-enters the earlier form. nplc compiles the whole
+   program and has no such boundary. Escape-only frames behave identically;
+   `src/repl/tests/interop.in` guards the supported behavior
+   (evaluator decision D3).
 
 Two compiler limits that are *not* R7RS deviations but are worth knowing:
 
@@ -109,12 +117,13 @@ Two compiler limits that are *not* R7RS deviations but are worth knowing:
 
 ## Deliberately outside the language stage
 
-These are **not** R7RS-small and are not implemented. Each is a decision, not
-an omission:
+The following are **not** R7RS-small. Procedural `syntax-case` is now an
+implemented NPL extension (see `.agents/plans/0.1.3-ffi-posix-thread.md`);
+the full syntax-object mark-history model remains deferred. The table lists
+the features that are still absent; each is a decision, not an omission:
 
 | Area | Status | Route, if wanted |
 |---|---|---|
-| `syntax-case` / procedural macros | deferred by the user | R6RS; needs compile-time evaluation in the compiler |
 | Object system, classes, generic methods | absent | no mainstream SRFI; SRFI 20 is dormant; NPL route is records + dispatch (see [extending](extending.md)) |
 | Keyword arguments (`#:key`) | absent | SRFI 88 (keyword objects), SRFI 89 (named/optional parameters), SRFI 177 (portable keyword arguments) |
 | Default-valued optional parameters | absent (rest args and `case-lambda` exist) | SRFI 89, or `case-lambda` |

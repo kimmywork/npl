@@ -1,0 +1,736 @@
+(import (scheme base)
+        (scheme write)
+        (scheme file)
+        (scheme process-context)
+        (only (npl process) make-temporary-directory)
+        (rename (only (npl process) delete-directory)
+                (delete-directory process-delete-directory))
+        (only (npl ffi) foreign-alloc foreign-free null-pointer)
+        (npl time)
+        (npl unix))
+
+(include "framework.npl")
+
+(define (read-test-file path)
+  (call-with-input-file path
+    (lambda (port) (read-string 1000 port))))
+
+(define (write-test-file path text)
+  (call-with-output-file path
+    (lambda (port) (display text port))))
+
+(define (raises? thunk)
+  (guard (condition (#t #t))
+    (thunk)
+    #f))
+
+(define (error-name thunk)
+  (guard (condition
+          ((posix-error? condition) (posix-error-name condition))
+          (else 'not-posix))
+    (thunk)
+    'no-error))
+
+(define (main)
+  (let* ((root (make-temporary-directory))
+         (file (string-append root "/file.txt"))
+         (link (string-append root "/link"))
+         (hard (string-append root "/hard"))
+         (renamed (string-append root "/renamed.txt")))
+    (dynamic-wind
+      (lambda () #f)
+      (lambda ()
+        (call-with-output-file file
+          (lambda (port) (write-string "hello" port)))
+        (let ((info (file-info file #t)))
+          (test-identity "file-info predicate"
+                         (lambda () (file-info? info))
+                         #t)
+          (test-equal "file-info size" (lambda () (file-info:size info)) 5)
+          (test-identity "file-info regular"
+                         (lambda () (file-info-regular? info))
+                         #t)
+          (test-identity "file-info is time-utc"
+                         (lambda () (time-utc? (file-info:mtime info)))
+                         #t))
+        (test-identity "directory listing"
+                       (lambda ()
+                         (if (member "file.txt" (directory-files root))
+                             #t #f))
+                       #t)
+        (create-symlink file link)
+        (test-identity "read-symlink"
+                       (lambda () (equal? (read-symlink link) file))
+                       #t)
+        (test-identity "file-info does not follow"
+                       (lambda () (file-info-symlink? (file-info link #f)))
+                       #t)
+        (test-identity "file-info follows"
+                       (lambda () (file-info-regular? (file-info link #t)))
+                       #t)
+        (create-hard-link file hard)
+        (test-equal "hard link size"
+                    (lambda () (file-info:size (file-info hard #t)))
+                    5)
+        (rename-file file renamed)
+        (test-identity "rename removes old name"
+                       (lambda () (file-exists? file))
+                       #f)
+        (test-identity "rename creates new name"
+                       (lambda () (file-exists? renamed))
+                       #t)
+        (set-file-mode renamed #o600)
+        (test-equal "set-file-mode"
+                    (lambda ()
+                      (modulo (file-info:mode (file-info renamed #t)) #o1000))
+                    #o600)
+        (let ((temporary (create-temp-file)))
+          (test-identity "create-temp-file exists"
+                         (lambda () (file-exists? temporary))
+                         #t)
+          (delete-file temporary))
+        (test-identity "real-path is absolute"
+                       (lambda ()
+                         (char=? (string-ref (real-path renamed) 0) #\/))
+                       #t)
+        (test-identity "file-space is positive"
+                       (lambda () (> (file-space root) 0))
+                       #t)
+        (test-identity "posix error predicate"
+                       (lambda ()
+                         (guard (condition
+                                 ((posix-error? condition)
+                                  (eq? (posix-error-name condition) 'ENOENT)))
+                           (file-info (string-append root "/missing") #t)
+                           #f))
+                       #t)
+        (test-identity "set-environment-variable!"
+                       (lambda ()
+                         (set-environment-variable! "NPL_TEST_VARIABLE" "yes")
+                         (equal? (get-environment-variable "NPL_TEST_VARIABLE")
+                                 "yes"))
+                       #t)
+        (test-identity "delete-environment-variable!"
+                       (lambda ()
+                         (delete-environment-variable! "NPL_TEST_VARIABLE")
+                         (get-environment-variable "NPL_TEST_VARIABLE"))
+                       #f)
+        (test-identity "user-info"
+                       (lambda ()
+                         (let ((info (user-info (user-uid))))
+                           (if info (string? (user-info:name info)) #f)))
+                       #t)
+        (test-identity "group-info"
+                       (lambda ()
+                         (let ((info (group-info (user-gid))))
+                           (if info (string? (group-info:name info)) #f)))
+                       #t)
+        (test-identity "pid is a positive integer"
+                       (lambda () (> (pid) 0))
+                       #t)
+        (test-identity "posix-time is time-utc"
+                       (lambda () (time-utc? (posix-time)))
+                       #t)
+        (test-identity "open-file textual output"
+                       (lambda ()
+                         (let ((port (open-file (string-append root "/io.txt")
+                                                textual-output
+                                                (+ open/create open/truncate))))
+                           (write-string "line" port)
+                           (close-port port)
+                           (file-exists? (string-append root "/io.txt"))))
+                       #t)
+        (test-identity "open-file textual input"
+                       (lambda ()
+                         (let ((port (open-file (string-append root "/io.txt")
+                                                textual-input 0)))
+                           (let ((line (read-line port)))
+                             (close-port port)
+                             (equal? line "line"))))
+                       #t)
+        (test-identity "fd->port"
+                       (lambda ()
+                         (let* ((port (open-file (string-append root "/io.txt")
+                                                 textual-input 0))
+                                (fd (port-fileno port))
+                                (again (fd->port fd textual-input)))
+                           (let ((line (read-line again)))
+                             (close-port again)
+                             (equal? line "line"))))
+                       #t)
+        (test-identity "directory handle"
+                       (lambda ()
+                         (let ((handle (open-directory root)))
+                           (let ((first (read-directory handle)))
+                             (close-directory handle)
+                             (string? first))))
+                       #t)
+        (test-identity "directory generator"
+                       (lambda ()
+                         (let ((generator (make-directory-files-generator root)))
+                           (let ((first (generator)))
+                             (string? first))))
+                       #t)
+        (write-test-file (string-append root "/.hidden") "hidden")
+        (test-identity "directory dotfiles"
+                       (lambda ()
+                         (if (member ".hidden" (directory-files root #t))
+                             #t #f))
+                       #t)
+        (test-identity "directory handle eof"
+                       (lambda ()
+                         (let ((handle (open-directory root)))
+                           (let loop ((item (read-directory handle)))
+                             (if (eof-object? item)
+                                 (let ((again (read-directory handle)))
+                                   (close-directory handle)
+                                   (eof-object? again))
+                                 (loop (read-directory handle))))))
+                       #t)
+        (test-identity "directory read after close raises"
+                       (lambda ()
+                         (let ((handle (open-directory root)))
+                           (close-directory handle)
+                           (raises? (lambda () (read-directory handle)))))
+                       #t)
+        (test-identity "directory double close raises"
+                       (lambda ()
+                         (let ((handle (open-directory root)))
+                           (close-directory handle)
+                           (raises? (lambda () (close-directory handle)))))
+                       #t)
+        (test-identity "closed directory handle stays closed"
+                       (lambda ()
+                         (let loop ((index 0))
+                           (if (= index 20)
+                               #t
+                               (let ((old (open-directory root)))
+                                 (close-directory old)
+                                 (let ((new (open-directory root)))
+                                   (let ((stale-read
+                                           (raises?
+                                             (lambda () (read-directory old))))
+                                         (stale-close
+                                           (raises?
+                                             (lambda () (close-directory old))))
+                                         (fresh
+                                           (if (eof-object?
+                                                 (read-directory new))
+                                               #f #t)))
+                                     (close-directory new)
+                                     (if (if stale-read
+                                             (if stale-close fresh #f)
+                                             #f)
+                                         (loop (+ index 1))
+                                         #f)))))))
+                       #t)
+        ; R23: only open-directory results reach readdir/closedir.
+        (let ((foreign (foreign-alloc 64)))
+          (test-identity "read-directory rejects a foreign pointer"
+                         (lambda ()
+                           (raises? (lambda () (read-directory foreign))))
+                         #t)
+          (test-identity "close-directory rejects a foreign pointer"
+                         (lambda ()
+                           (raises? (lambda () (close-directory foreign))))
+                         #t)
+          (test-identity "foreign pointer is still owned after close-directory"
+                         (lambda () (foreign-free foreign) #t)
+                         #t))
+        (test-identity "read-directory rejects a null pointer"
+                       (lambda ()
+                         (raises? (lambda () (read-directory (null-pointer)))))
+                       #t)
+        (test-identity "close-directory rejects a vector"
+                       (lambda ()
+                         (raises? (lambda () (close-directory (vector 1)))))
+                       #t)
+        ; R29: (npl process) and (npl unix) share delete-directory, which
+        ; raises posix errors.
+        (test-equal "process delete-directory raises a posix error"
+                    (lambda ()
+                      (error-name
+                        (lambda ()
+                          (process-delete-directory
+                            (string-append root "/missing-directory")))))
+                    'ENOENT)
+        (test-equal "directory create EEXIST"
+                    (lambda () (error-name (lambda () (create-directory root))))
+                    'EEXIST)
+        (test-equal "directory ENOTDIR"
+                    (lambda ()
+                      (error-name (lambda ()
+                                    (file-info (string-append renamed "/child") #t))))
+                    'ENOTDIR)
+        (let ((nonempty (string-append root "/nonempty")))
+          (create-directory nonempty #o755)
+          (write-test-file (string-append nonempty "/child") "x")
+          (test-equal "directory ENOTEMPTY"
+                      (lambda () (error-name (lambda () (delete-directory nonempty))))
+                      'ENOTEMPTY)
+          (delete-file (string-append nonempty "/child"))
+          (delete-directory nonempty))
+        (test-identity "truncate-file on a port"
+                       (lambda ()
+                         (let ((port (open-file (string-append root "/io.txt")
+                                                textual-output
+                                                (+ open/create open/truncate))))
+                           (write-string "abcde" port)
+                           (flush-output-port port)
+                           (truncate-file port 2)
+                           (close-port port)
+                           (= (file-info:size
+                                (file-info (string-append root "/io.txt") #t))
+                              2)))
+                       #t)
+        (test-identity "file-space on a port"
+                       (lambda ()
+                         (let ((port (open-file (string-append root "/io.txt")
+                                                textual-input 0)))
+                           (let ((space (file-space port)))
+                             (close-port port)
+                             (> space 0))))
+                       #t)
+        ; ---- file metadata field surface --------------------------------
+        (let ((info (file-info renamed #t)))
+          (test-identity "file-info device" (lambda () (integer? (file-info:device info))) #t)
+          (test-identity "file-info inode" (lambda () (integer? (file-info:inode info))) #t)
+          (test-identity "file-info mode" (lambda () (integer? (file-info:mode info))) #t)
+          (test-identity "file-info nlinks" (lambda () (>= (file-info:nlinks info) 1)) #t)
+          (test-identity "file-info uid" (lambda () (integer? (file-info:uid info))) #t)
+          (test-identity "file-info gid" (lambda () (integer? (file-info:gid info))) #t)
+          (test-identity "file-info rdev" (lambda () (integer? (file-info:rdev info))) #t)
+          (test-identity "file-info blksize" (lambda () (> (file-info:blksize info) 0)) #t)
+          (test-identity "file-info blocks" (lambda () (>= (file-info:blocks info) 0)) #t)
+          (test-identity "file-info atime" (lambda () (time-utc? (file-info:atime info))) #t)
+          (test-identity "file-info ctime" (lambda () (time-utc? (file-info:ctime info))) #t)
+          (test-identity "file-info directory predicate"
+                         (lambda () (file-info-directory? (file-info root #t))) #t)
+          (test-identity "file-info socket predicate"
+                         (lambda () (file-info-socket? info)) #f)
+          (test-identity "file-info device predicate"
+                         (lambda () (file-info-device? info)) #f))
+        (let ((subdir (string-append root "/subdir")))
+          (create-directory subdir #o755)
+          (test-identity "create-directory"
+                         (lambda () (file-info-directory? (file-info subdir #t)))
+                         #t)
+          (delete-directory subdir))
+        (let ((fifo (string-append root "/fifo")))
+          (create-fifo fifo #o600)
+          (test-identity "create-fifo"
+                         (lambda () (file-info-fifo? (file-info fifo #f)))
+                         #t)
+          (delete-file fifo))
+        (test-identity "glob"
+                       (lambda ()
+                         (if (member renamed (glob (string-append root "/*"))) #t #f))
+                       #t)
+        (test-identity "current-directory"
+                       (lambda () (string? (current-directory)))
+                       #t)
+        (let ((saved (current-directory)))
+          (set-current-directory! root)
+          (test-identity "set-current-directory!"
+                         (lambda () (equal? (real-path (current-directory))
+                                            (real-path root)))
+                         #t)
+          (set-current-directory! saved))
+        (test-identity "umask"
+                       (lambda () (integer? (umask)))
+                       #t)
+        (let ((old (umask)))
+          (set-umask! #o022)
+          (test-equal "set-umask!"
+                      (lambda () (umask))
+                      #o022)
+          (set-umask! old))
+        (test-identity "monotonic-time"
+                       (lambda () (time-monotonic? (monotonic-time)))
+                       #t)
+        (test-identity "nice"
+                       (lambda () (integer? (nice 0)))
+                       #t)
+        ; Numeric arguments are validated before any C call (R3).
+        (test-identity "set-file-mode rejects a symbol"
+                       (lambda ()
+                         (raises? (lambda () (set-file-mode renamed 'abc))))
+                       #t)
+        (test-identity "set-file-mode rejects an out-of-range mode"
+                       (lambda ()
+                         (raises? (lambda () (set-file-mode renamed #o10000))))
+                       #t)
+        (test-identity "create-directory rejects a string mode"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (create-directory
+                                      (string-append root "/bad-dir") "rwx"))))
+                       #t)
+        (test-identity "rejected create-directory has no side effect"
+                       (lambda () (file-exists? (string-append root "/bad-dir")))
+                       #f)
+        (test-identity "create-fifo rejects a negative mode"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (create-fifo
+                                      (string-append root "/bad-fifo") -1))))
+                       #t)
+        (test-identity "truncate-file rejects a symbol"
+                       (lambda ()
+                         (raises? (lambda () (truncate-file renamed 'x))))
+                       #t)
+        ; R24: a length above the fixnum range is refused or exact.
+        (test-identity "truncate-file 2^61 is refused or exact"
+                       (lambda ()
+                         (let ((size (guard (condition (#t 'refused))
+                                       (truncate-file renamed (expt 2 61))
+                                       (file-info:size
+                                         (file-info renamed #t)))))
+                           (truncate-file renamed 0)
+                           (if (eq? size 'refused) #t (= size (expt 2 61)))))
+                       #t)
+        (test-identity "truncate-file rejects a negative length"
+                       (lambda ()
+                         (raises? (lambda () (truncate-file renamed -1))))
+                       #t)
+        (test-identity "set-file-owner rejects a symbol"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (set-file-owner renamed 'x 'y))))
+                       #t)
+        (test-identity "set-file-times rejects a bad time"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (set-file-times renamed 'x time/now))))
+                       #t)
+        (test-identity "set-file-times rejects a bad nanosecond"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (set-file-times
+                                      renamed
+                                      (make-time 'time-utc 1000000000 0)
+                                      time/now))))
+                       #t)
+        (test-identity "set-umask! rejects a symbol"
+                       (lambda ()
+                         (raises? (lambda () (set-umask! 'x))))
+                       #t)
+        (test-identity "nice rejects a symbol"
+                       (lambda ()
+                         (raises? (lambda () (nice 'x))))
+                       #t)
+        (test-identity "user-effective-uid"
+                       (lambda () (integer? (user-effective-uid)))
+                       #t)
+        (test-identity "user-effective-gid"
+                       (lambda () (integer? (user-effective-gid)))
+                       #t)
+        (test-identity "user-supplementary-gids"
+                       (lambda ()
+                         (let loop ((rest (user-supplementary-gids)))
+                           (if (null? rest) #t
+                               (if (integer? (car rest)) (loop (cdr rest)) #f))))
+                       #t)
+        (test-identity "get-environment-variables"
+                       (lambda ()
+                         (let ((variables (get-environment-variables)))
+                           (if (pair? variables)
+                               (pair? (car variables))
+                               #f)))
+                       #t)
+        (test-identity "posix-error-message"
+                       (lambda ()
+                         (guard (condition
+                                 ((posix-error? condition)
+                                  (> (string-length (posix-error-message condition)) 0)))
+                           (file-info (string-append root "/missing") #t)
+                           #f))
+                       #t)
+        (test-identity "owner/group unchanged constants"
+                       (lambda ()
+                         (if (symbol? owner/unchanged)
+                             (symbol? group/unchanged)
+                             #f))
+                       #t)
+        (test-identity "time/now and time/unchanged constants"
+                       (lambda ()
+                         (if (symbol? time/now) (symbol? time/unchanged) #f))
+                       #t)
+        (test-identity "set-file-owner unchanged"
+                       (lambda ()
+                         (set-file-owner renamed owner/unchanged group/unchanged)
+                         #t)
+                       #t)
+        (test-identity "set-file-times explicit"
+                       (lambda ()
+                         (set-file-times renamed
+                                         (make-time 'time-utc 0 1000000000)
+                                         (make-time 'time-utc 0 1000000000))
+                         (= (time-second (file-info:mtime (file-info renamed #t)))
+                            1000000000))
+                       #t)
+        (test-identity "set-file-times now/unchanged"
+                       (lambda ()
+                         (set-file-times renamed time/now time/unchanged)
+                         #t)
+                       #t)
+        (let ((user (user-info (user-uid))))
+          (test-identity "user-info predicate" (lambda () (user-info? user)) #t)
+          (test-identity "user-info uid" (lambda () (integer? (user-info:uid user))) #t)
+          (test-identity "user-info gid" (lambda () (integer? (user-info:gid user))) #t)
+          (test-identity "user-info home" (lambda () (string? (user-info:home-dir user))) #t)
+          (test-identity "user-info shell" (lambda () (string? (user-info:shell user))) #t)
+          (test-identity "user-info full-name"
+                         (lambda ()
+                           (if (user-info:full-name user) #t #t))
+                         #t)
+          (test-identity "user-info parsed full-name"
+                         (lambda ()
+                           (let ((parts (user-info:parsed-full-name user)))
+                             (if (pair? parts) (string? (car parts)) #t)))
+                         #t))
+        (let ((group (group-info (user-gid))))
+          (test-identity "group-info predicate" (lambda () (group-info? group)) #t)
+          (test-identity "group-info name" (lambda () (string? (group-info:name group))) #t)
+          (test-identity "group-info gid" (lambda () (integer? (group-info:gid group))) #t))
+        (let ((temporary (call-with-temporary-filename
+                           (lambda (name)
+                             (write-test-file name "temporary")
+                             name))))
+          (test-identity "call-with-temporary-filename"
+                         (lambda () (file-exists? temporary))
+                         #t)
+          (delete-file temporary))
+        (test-identity "temp-file-prefix"
+                       (lambda () (string? (temp-file-prefix)))
+                       #t)
+        (test-identity "temp file in missing directory raises"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (create-temp-file
+                                      (string-append root "/missing/prefix")))))
+                       #t)
+        (let ((first (create-temp-file))
+              (second (create-temp-file)))
+          (test-identity "temp files differ"
+                         (lambda () (not (string=? first second)))
+                         #t)
+          (delete-file first)
+          (delete-file second))
+        (test-identity "environment overwrite"
+                       (lambda ()
+                         (set-environment-variable! "NPL_TEST_VARIABLE" "one")
+                         (set-environment-variable! "NPL_TEST_VARIABLE" "two")
+                         (equal? (get-environment-variable "NPL_TEST_VARIABLE")
+                                 "two"))
+                       #t)
+        (test-identity "environment delete missing"
+                       (lambda ()
+                         (delete-environment-variable! "NPL_TEST_MISSING")
+                         (get-environment-variable "NPL_TEST_MISSING"))
+                       #f)
+        (test-equal "environment name with equals"
+                    (lambda ()
+                      (error-name
+                        (lambda () (set-environment-variable! "NPL=BAD" "x"))))
+                    'EINVAL)
+        (test-equal "glob with no match"
+                    (lambda () (glob (string-append root "/no-such-*")))
+                    '())
+        (test-identity "non-file port fileno"
+                       (lambda () (port-fileno (open-input-string "x")))
+                       #f)
+        (test-identity "non-file port is not a terminal"
+                       (lambda () (terminal? (open-input-string "x")))
+                       #f)
+        (test-identity "set-file-times needs two times"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (set-file-times renamed time/now))))
+                       #t)
+        (test-identity "set-file-times rejects a high second"
+                       (lambda ()
+                         (raises?
+                           (lambda ()
+                             (set-file-times
+                               renamed
+                               (make-time time-utc 0 (expt 2 63))
+                               time/now))))
+                       #t)
+        (test-identity "set-file-times rejects a low second"
+                       (lambda ()
+                         (raises?
+                           (lambda ()
+                             (set-file-times
+                               renamed
+                               (make-time time-utc 0
+                                          (- (- (expt 2 63)) 1))
+                               time/now))))
+                       #t)
+        ; R24: seconds above the fixnum range reach C intact.  A host may
+        ; clamp or refuse a far timestamp, but never store pointer bits.
+        (test-identity "set-file-times 2^62 is clamped or refused"
+                       (lambda ()
+                         (guard (condition (#t #t))
+                           (set-file-times renamed
+                                           (make-time time-utc 0 (expt 2 62))
+                                           (make-time time-utc 0 (expt 2 62)))
+                           (> (time-second (file-info:mtime
+                                             (file-info renamed #t)))
+                              (expt 2 33))))
+                       #t)
+        (test-identity "set-file-times -2^62 is clamped or refused"
+                       (lambda ()
+                         (guard (condition (#t #t))
+                           (set-file-times renamed
+                                           (make-time time-utc 0
+                                                      (- (expt 2 62)))
+                                           (make-time time-utc 0
+                                                      (- (expt 2 62))))
+                           (< (time-second (file-info:mtime
+                                             (file-info renamed #t)))
+                              0)))
+                       #t)
+        ; R25: -1 and -2 seconds are timestamps, not time/now or
+        ; time/unchanged.
+        (test-equal "set-file-times -1 second"
+                    (lambda ()
+                      (set-file-times renamed (make-time time-utc 0 -1)
+                                      (make-time time-utc 0 -1))
+                      (time-second (file-info:mtime (file-info renamed #t))))
+                    -1)
+        (test-equal "set-file-times -2 seconds"
+                    (lambda ()
+                      (set-file-times renamed (make-time time-utc 0 -2)
+                                      (make-time time-utc 0 -2))
+                      (time-second (file-info:mtime (file-info renamed #t))))
+                    -2)
+        (test-equal "set-file-times time/unchanged keeps -2"
+                    (lambda ()
+                      (set-file-times renamed time/unchanged time/unchanged)
+                      (time-second (file-info:mtime (file-info renamed #t))))
+                    -2)
+        (test-identity "set-file-times time/now still means now"
+                       (lambda ()
+                         (set-file-times renamed time/now time/now)
+                         (> (time-second (file-info:mtime
+                                           (file-info renamed #t)))
+                            1000000000))
+                       #t)
+        (test-identity "set-file-times rejects a huge second"
+                       (lambda ()
+                         (raises?
+                           (lambda ()
+                             (set-file-times
+                               renamed
+                               (make-time time-utc 0 (expt 2 70))
+                               time/now))))
+                       #t)
+        (test-identity "non-posix error is not a posix error"
+                       (lambda ()
+                         (guard (condition
+                                 ((posix-error? condition) #f)
+                                 (else #t))
+                           (error "plain error")
+                           #f))
+                       #t)
+        (test-identity "binary constants"
+                       (lambda ()
+                         (if (symbol? binary-input)
+                             (if (symbol? binary-output)
+                                 (if (symbol? binary-input/output) #t #f)
+                                 #f)
+                             #f))
+                       #t)
+        (test-identity "buffer constants"
+                       (lambda ()
+                         (if (symbol? buffer-none)
+                             (if (symbol? buffer-block)
+                                 (symbol? buffer-line)
+                                 #f)
+                             #f))
+                       #t)
+        (test-identity "binary output/input"
+                       (lambda ()
+                         (let ((path (string-append root "/bytes.bin")))
+                           (let ((port (open-file path binary-output
+                                                  (+ open/create open/truncate))))
+                             (write-bytevector #u8(1 2 3) port)
+                             (close-port port))
+                           (let ((port (open-file path binary-input 0)))
+                             (let ((bytes (read-bytevector 3 port)))
+                               (close-port port)
+                               (equal? bytes #u8(1 2 3))))))
+                       #t)
+        (test-identity "binary-input/output"
+                       (lambda ()
+                         (let ((port (open-file (string-append root "/bytes.bin")
+                                                binary-input/output 0 #o666
+                                                buffer-none)))
+                           (let ((binary (binary-port? port)))
+                             (close-port port)
+                             binary)))
+                       #t)
+        (test-identity "open/append"
+                       (lambda ()
+                         (let ((path (string-append root "/append.txt")))
+                           (write-test-file path "line")
+                           (let ((port (open-file path textual-output
+                                                  open/append #o666 buffer-line)))
+                             (write-string "tail" port)
+                             (close-port port))
+                           (equal? (read-test-file path) "linetail")))
+                       #t)
+        (test-identity "open/exclusive"
+                       (lambda ()
+                         (guard (condition ((posix-error? condition) #t))
+                           (open-file (string-append root "/io.txt")
+                                      binary-output
+                                      (+ open/create open/exclusive))
+                           #f))
+                       #t)
+        (test-identity "open-file rejects negative flags"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (open-file (string-append root "/io.txt")
+                                               binary-input -1))))
+                       #t)
+        (test-identity "open-file rejects bignum flags"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (open-file (string-append root "/io.txt")
+                                               binary-input (expt 2 70)))))
+                       #t)
+        (test-identity "open-file rejects unknown flags"
+                       (lambda ()
+                         (raises? (lambda ()
+                                    (open-file (string-append root "/io.txt")
+                                               binary-input 32))))
+                       #t)
+        (test-identity "open/nofollow"
+                       (lambda ()
+                         (guard (condition ((posix-error? condition) #t))
+                           (open-file link binary-input open/nofollow)
+                           #f))
+                       #t)
+        (test-identity "buffer modes open"
+                       (lambda ()
+                         (let ((path (string-append root "/buffer.txt")))
+                           (let ((port (open-file path textual-output
+                                                  (+ open/create open/truncate)
+                                                  #o666 buffer-block)))
+                             (close-port port))
+                           #t))
+                       #t)
+        (test-identity "terminal? on a string port"
+                       (lambda () (terminal? (open-input-string "x")))
+                       #f))
+      (lambda ()
+        (for-each
+          (lambda (name)
+            (delete-file (string-append root "/" name)))
+          (directory-files root #t))
+        (delete-directory root))))
+  (finish-tests "srfi-170"))
+
+(main)

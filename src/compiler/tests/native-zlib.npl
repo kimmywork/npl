@@ -1,0 +1,38 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl demo zlib))
+
+(include "framework.npl")
+
+(define (main)
+  (test-identity "zlib is available"
+                 (lambda () (zlib-available?))
+                 #t)
+  (test-identity "zlib version is a non-empty string"
+                 (lambda ()
+                   (> (string-length (zlib-version)) 0))
+                 #t)
+  (test-identity "empty input round trip"
+                 (lambda ()
+                   (let* ((input #u8())
+                          (compressed (zlib-compress input)))
+                     (equal? (zlib-uncompress compressed 0) input)))
+                 #t)
+  (test-identity "text round trip"
+                 (lambda ()
+                   (let* ((input (string->utf8 "hello hello hello hello"))
+                          (compressed (zlib-compress input)))
+                     (equal? (zlib-uncompress compressed
+                                              (bytevector-length input))
+                             input)))
+                 #t)
+  (test-identity "bad output size is catchable"
+                 (lambda ()
+                   (guard (condition (#t #t))
+                     (zlib-uncompress (zlib-compress (string->utf8 "abc")) 1)
+                     #f))
+                 #t)
+  (finish-tests "native-zlib"))
+
+(main)

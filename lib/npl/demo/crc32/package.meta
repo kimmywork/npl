@@ -1,0 +1,18 @@
+(package
+  (name npl-demo-crc32)
+  (library (npl demo crc32))
+  (tier external)
+  (version "0.1.0")
+  (abi-version 1)
+  (abi nplval)
+  (native
+    (sources ("native/crc32.c"))
+    (headers "native")
+    (include-dirs)
+    (system-libraries ())
+    (shared-name "npl_demo_crc32")
+    (static-name "npl_demo_crc32")
+    (bindings
+      (crc32 "npl_demo_crc32" 1)))
+  (platforms (or darwin linux))
+  (dependencies ()))

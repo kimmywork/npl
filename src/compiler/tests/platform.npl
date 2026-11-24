@@ -1,0 +1,49 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl platform))
+
+(include "framework.npl")
+
+(define (main)
+  (test-identity "platform triple is a string"
+                 (lambda () (string? (platform-triple)))
+                 #t)
+  (test-identity "platform triple has three components"
+                 (lambda ()
+                   (let loop ((index 0) (separators 0))
+                     (cond
+                       ((= index (string-length (platform-triple)))
+                        (= separators 2))
+                       ((char=? (string-ref (platform-triple) index) #\-)
+                        (loop (+ index 1) (+ separators 1)))
+                       (else (loop (+ index 1) separators)))))
+                 #t)
+  (test-identity "platform features include an OS and architecture"
+                 (lambda ()
+                   (if (or (memq 'darwin (platform-features))
+                           (memq 'linux (platform-features)))
+                       (if (or (memq 'aarch64 (platform-features))
+                               (memq 'x86_64 (platform-features)))
+                           #t
+                           #f)
+                       #f))
+                 #t)
+  (test-identity "platform-feature? agrees with the feature list"
+                 (lambda ()
+                   (let loop ((features (platform-features)))
+                     (cond
+                       ((null? features) #t)
+                       ((platform-feature? (car features))
+                        (loop (cdr features)))
+                       (else #f))))
+                 #t)
+  (test-identity "cond-expand sees the same platform"
+                 (lambda ()
+                   (cond-expand
+                     ((and (or darwin linux) (or aarch64 x86_64) |64-bit|) #t)
+                     (else #f)))
+                 #t)
+  (finish-tests "platform"))
+
+(main)

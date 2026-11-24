@@ -37,5 +37,44 @@
       (test-identity "process redirected second character"
                      (lambda () (eq? (read-char input) #\e)) #t)
       (close-port input)))
+  (let ((input-path "/tmp/npl-process-stdin.data")
+        (output-path "/tmp/npl-process-stdout.data")
+        (error-path "/tmp/npl-process-stderr.data"))
+    (let ((input (open-output-file input-path)))
+      (write-string "hello\n" input)
+      (close-port input))
+    (test-equal "run-process* redirects all streams"
+                (lambda ()
+                  (run-process* (list "/bin/sh" "-c"
+                                      "read line; echo \"$line\"; echo err >&2")
+                                input-path output-path error-path))
+                0)
+    (let ((output (open-input-file output-path)))
+      (test-identity "run-process* stdout"
+                     (lambda () (equal? (read-line output) "hello")) #t)
+      (close-port output))
+    (let ((error (open-input-file error-path)))
+      (test-identity "run-process* stderr"
+                     (lambda () (equal? (read-line error) "err")) #t)
+      (close-port error))
+    (delete-file input-path)
+    (delete-file output-path)
+    (delete-file error-path))
+  (test-equal "run-process* missing program"
+              (lambda ()
+                (run-process* (list "/tmp/npl-command-does-not-exist")
+                              #f #f #f))
+              127)
+  (test-equal "run-process* signal status"
+              (lambda ()
+                (run-process* (list "/bin/sh" "-c" "kill -TERM $$")
+                              #f #f #f))
+              143)
+  (test-identity "run-process* rejects a non-string argument"
+                 (lambda ()
+                   (guard (condition (#t #t))
+                     (run-process* (list "echo" 1) #f #f #f)
+                     #f))
+                 #t)
   (finish-tests "process"))
 (main)

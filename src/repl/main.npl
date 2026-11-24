@@ -104,6 +104,37 @@ Options:
               (npli-evaluate form environment)
               (loop)))))))
 
+; A shebang is a Unix script convention, not an R7RS datum.  It is accepted
+; only at the start of a file run by npli; #!fold-case/other directives stay
+; with the reader.  Replacing the line with spaces preserves line numbers.
+(define (shebang-length text)
+  (if (if (>= (string-length text) 2)
+          (if (char=? (string-ref text 0) #\#)
+              (char=? (string-ref text 1) #\!)
+              #f)
+          #f)
+      (if (>= (string-length text) 3)
+          (let ((third (string-ref text 2)))
+            (if (if (char=? third #\/) #t (char=? third #\space))
+                (let loop ((index 2))
+                  (if (if (< index (string-length text))
+                          (char=? (string-ref text index) #\newline)
+                          #f)
+                      index
+                      (if (< index (string-length text))
+                          (loop (+ index 1))
+                          (string-length text))))
+                #f))
+          #f)
+      #f))
+
+(define (strip-shebang text)
+  (let ((length (shebang-length text)))
+    (if length
+        (string-append (make-string length #\space)
+                       (substring text length (string-length text)))
+        text)))
+
 (define (npli-run-file path arguments environment)
   (if (not (file-exists? path))
       (begin
@@ -112,8 +143,12 @@ Options:
         (newline (current-error-port))
         (exit 66)))
   (set-command-line! (cons path arguments))
-  (guard (condition (#t (npli-fail condition)))
-    (eval-load-file path environment))
+  (let ((text (guard (condition (#t (npli-fail condition)))
+                (read-file path))))
+    (guard (condition (#t (npli-fail condition)))
+      (if (shebang-length text)
+          (npli-evaluate-source (strip-shebang text) environment)
+          (eval-load-file path environment))))
   0)
 
 ; C functions declared with define-c-primitive resolve through npli and the

@@ -1,0 +1,8 @@
+; Build input for `nplc --emit=c-structs`: importing the core native packages
+; expands their define-c-struct declarations, and the driver writes the layout
+; cache that later imports read instead of running a C compiler.
+(import (scheme base)
+        (npl time)
+        (npl unix))
+
+(define cache-ready #t)

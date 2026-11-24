@@ -1,6 +1,221 @@
 # Workstate
 
-## 0.1.2 (planning, 2026-11-12)
+## Reference index (2026-11-24)
+
+- `docs/reference/README.md` indexes all 67 SRFI copies and `r7rs.html`:
+  the 25 SRFI libraries backed by `(npl ...)` implementations, the SRFI
+  46/149 language-level extensions, and 40 unimplemented or planned specs.
+  The kept planned specs cover Red/Tangerine, selected Hypnos/Orange,
+  syntax ergonomics, runtime I/O, CLI/config, and the standalone
+  JSON/URI/bytevector/ordered-hash references. Link check: 68/68 documents
+  linked once.
+
+## Test infrastructure (2026-11-23)
+
+- `(npl test)` / `(srfi 64)` and `(npl test property)` / `(srfi 252)` are
+  implemented. `src/compiler/tests/framework.npl` includes the same
+  `lib/npl/test/core.scm`, so importless suites and imported tests share one
+  implementation.
+- `(tools libraries)` derives exports, imports, cycles, and layering from
+  the `.sld` sources and included `.scm` files; the old alias table is gone.
+- `(npl test expect)` and `tools/run-tests.npl` replace the fixture loop and
+  expect shell logic. Fixtures moved to `tests/fixtures`, discovered from
+  `tests/fixtures/manifest.scm`; PBT suites live in `tests/property`.
+- The main NPL gate no longer runs stage0, `bootstrap/bootstrap.ssa`,
+  `bootstrap/compiler`, or `bootstrap/runtime`; those live under
+  `bootstrap/stage0/tools/run.sh` and `bootstrap/tools/check_bootstrap.sh`.
+  The library coverage scan is now `(tools libraries)`; the Python checker
+  is deleted. REPL/script acceptance is `(tools repl-suites)`; its shell
+  adapter is deleted. npli accepts a leading shebang in script files without
+  shifting line numbers; `#!fold-case` remains a reader directive. Shell
+  adapters remain only for the full compiler language suite, relay
+  orchestration, and build/container wrappers.
+  Compiler-suite manifest migration is the next testing increment.
+- Plan: `.agents/plans/testing-infrastructure.md`; docs:
+  `docs/testing.md` and `docs/native-packages.md`.
+
+## 0.1.3 FFI/POSIX/time review round 3 (2026-11-24)
+
+- R23-R30 from
+  [the third review](reviews/2026-11-24-0.1.3-ffi-posix-time-review-round3.md)
+  are fixed; the review file has a "后续修复" section.
+- `(npl unix)`: directory objects are a private record (foreign pointers
+  never reach readdir/closedir); `set-file-times` seconds and
+  `truncate-file` lengths are decoded with `npl_ffi_to_int64` (no fixnum
+  gap); the now/unchanged sentinels moved to the nanosecond slot, so -1 and
+  -2 seconds round-trip.
+- Import conflicts: `conflicting imported binding: NAME (from (LIB A) and
+  (LIB B))`, recovered from the payload prefix only when reporting.
+- Definition gates in `(tools libraries)`: export origins are checked
+  against `tools/libraries/export-origin-exceptions.scm` (68 reviewed
+  SRFI/R7RS overlaps; new or stale entries fail); duplicate definitions
+  compare normalized forms (`identity.scm`) by name, by form, and for
+  cross-library forwarders; coverage counts only test code and is ratcheted
+  by `tools/libraries/coverage-baseline.scm` (overall 1196/1667 = 71%, 27
+  libraries below the 80% target with listed gaps).
+- `(npl util)` keeps only `path-join`, `path-directory`, `path-normalize`,
+  `exact-natural?`; string helpers come from `(npl string)`.
+  `(npl test util)` is the single home of the tool file/process helpers.
+  Seven frontend copies of a string-keyed lookup became `string-assoc` /
+  `string-member?` / `number-list=?` in `common/base.npl`.
+- Next: raise the 27 libraries in the coverage baseline toward 80%.
+
+## 0.1.3 FFI/POSIX/time review round 2 (2026-11-24)
+
+- R13-R22 from
+  [the second review](reviews/2026-11-24-0.1.3-ffi-posix-time-review-round2.md)
+  are fixed; the review file now has a "后续修复" section.
+- FFI: `foreign-alloc` records the block write barrier, and struct arguments
+  reject freed or short views at the runtime boundary.  `ffi-gc` (20,000
+  retained owners/views under a small nursery) joins `ffi-memory`.
+- Directories: the global handle list is gone; closing clears the pointer
+  box address, so address reuse cannot revive an old handle.
+- `delete-directory` is one shared `(npl internal primitive)` binding,
+  re-exported by `(npl process)` and `(npl unix)`; runtime directory removal
+  now raises posix error objects.  The gate no longer uses `except`/`only`
+  to hide the pair, and `imports/unix-process.npl` compiles both together.
+  (Library metadata checks are per-library; same-name bindings across two
+  libraries are legal and only conflict when co-imported.)
+- Compiler: `NPL_NATIVE_LINK` works and is validated; stubs pass struct
+  arguments as `void *` (typedef names need no declaration); the c-struct
+  cache is a search path and the in-process cache merges later fields.
+  nplc reports shebang diagnostics at line 1 and points to npli.
+- Tests: `ffi-gc` 2, `c-structs` 17, `srfi-170` 119; `link-modes` and
+  `repl-suites` cover the environment and shebang paths.  The seed relay
+  passed (342,578 lines, SHA-256 in Accepted Seed), and
+  `tools/run_tests.sh --skip-current-fixed-point` reports `all suites: PASS`.
+- Library metadata now records definition kinds and exposes
+  `check-export-origins` (final `define` / `define-c-*` / `primitive`
+  origin through the import graph).  `check-library-test-coverage` scans
+  every `lib/npl`, `lib/scheme`, and `tools` `.sld` automatically; the old
+  `(coverage-libraries)` list is gone.  Re-exports are excluded from each
+  library's local symbol ratio.  Current: 56 libraries with local exports,
+  49 covered (23 full, 26 partial), 7 uncovered (12%, limit 30%).
+  Twenty-seven libraries are below the 80% local-symbol rule; the gate
+  prints their missing names and fails until assertions are added.
+  `check-duplicate-definitions` passes after moving shared helpers to
+  `(npl util)` / `(npl test util)` and sharing the map/range/string
+  includes.  `runtime/port.c` split into `port.c` + `port-ready.c`
+  (readiness), and `tools/toolchain.sld` split into `toolchain.sld` +
+  `toolchain/install.scm`; both are back inside the 800-line limit.
+  An in-compiler two-source import-conflict diagnostic was attempted and
+  reverted: it broke the npli evaluator's runtime library loading
+  (derived-syntax leak in `expand-library-program`); the compiler diagnostic
+  keeps the binding name and the static `check-export-origins` report
+  provides the symbol -> libraries mapping.
+
+## 0.1.3 macro foundation (M0a, 2026-11-16)
+
+M0a is implemented on `feature/0.1.3-ffi`:
+
+- syntax-rules fixes: M1 single-define splicing, M2 depth-0 variables under
+  ellipsis, M5 two-pass body syntax installation, M7 definition-time template
+  depth validation, N1 same-level multiple-ellipsis rejection.
+- template-introduced top-level definitions use per-expansion emitted names
+  (M4), matching Guile/npli hygiene in nplc too.
+- reader N2: bare `\` is rejected by both readers; nplc reports location.
+- M0a seed relayed: `bootstrap/current.ssa` SHA-256
+  `be5c7ba70126d76603e2e52f6b4e9b88bb4f2f141a99e4d5c738cad4a0526e74`;
+  the current seed is in `Accepted Seed` below.
+- `macro-conformance` 7, `libraries` 24; gate is 58 suites / 81 negative
+  checks.
+- M0b is implemented: SRFI 46 tail patterns/custom ellipsis and SRFI 149
+  template extensions; `srfi-46`, `srfi-149`, and `srfi-149-compatible`
+  features; `(srfi 149)` feature-detection library.
+- M3 is fixed with per-copy source marks: user identifiers in nested macro
+  definitions resolve to their definition-site binding, while
+  macro-introduced bindings remain visible in the same expansion.
+- M6 is implemented: core syntax forms participate in `(scheme base)` export
+  sets, including `only`, `except`, `rename`, and `prefix`.
+- Declarative `syntax-case` subset is implemented by lowering
+  `(lambda (stx) (syntax-case stx (literal ...) [pattern (syntax template)]
+  ...))` to syntax-rules; bracketed `[...]` syntax is supported by both
+  readers.
+- `(npl lambda)` provides `λ` and `fn`; the arrow form supports one `=>`
+  segment, with explicit nested lambdas for currying.
+- Procedural syntax-case is implemented in `frontend/syntax-eval*.npl`:
+  transformer bodies run in a compile-time evaluator with lexical frames,
+  core forms, primitives, `syntax-case`/`with-syntax` clause environments,
+  `syntax`/`quasisyntax`, and the standard syntax helpers.
+- `begin-for-syntax` and `(for-syntax ...)` populate phase-1 value and macro
+  environments consulted by later transformers; phase macros and
+  `let-syntax`/`letrec-syntax` inside transformer bodies are expanded by the
+  compile-time evaluator.
+- Hygiene fixes from the differential fixtures: transcription aliases now
+  match a template copy by its source mark (so a macro generated by a macro
+  resolves definition-site bindings), top-level `begin` is recognized even
+  when core syntax is imported, and named `let` in transformer code binds its
+  loop name correctly.
+- `tests/fixtures/syntax-case` (Guile oracle) and
+  `syntax-case-npl` (nplc/npli differential) cover clauses, fenders,
+  ellipsis, with-syntax, hygiene, helpers, phase forms, local macros, and
+  definition-producing output.
+- M4 (lambda shorthand and library migration) is complete: `(npl lambda)`
+  provides `λ`/`fn`, and `(npl data stream)` / `(srfi 41)` uses the
+  reference procedural syntax-case `stream-match` matcher with fenders.
+- Native packages are implemented: `(npl platform)` is the NPL wrapper over
+  the bootstrap feature hook; `(npl time)` is the first core linked package
+  (`libnpl_time`); `(npl demo crc32)` is the first external loaded package.
+  `package.meta`, `core.meta`, driver auto-linking, and `(npl native)` path
+  discovery are in place. `nplc --emit=c-structs` generates
+  `c-struct-layouts.meta` at build/install time, so core imports do not run a
+  C compiler. `native.meta` lists each package's archive, shared object, and
+  system libraries. `nplc` defaults to `--native=static`; `--native=shared`
+  links the shared runtime and package shared objects. See
+  `.agents/design/link-modes.md`.
+- H1 runtime/reader hardening is implemented: record index bounds in both
+  the inline and primitive paths, catchable rest-arity errors, linear lexer
+  string accumulation, short-read detection, a P5 reader corpus, and the
+  documented cross-form continuation deviation.
+- F2 C structs are implemented: `define-c-struct` reads the build-time
+  layout cache and falls back to a `sizeof`/`offsetof` probe for uncached
+  types; `make-c-struct`/`free-c-struct`/`c-struct-ref`/`c-struct-set!` and
+  `struct:name` typed stubs work. `timespec` and `tm` are the first
+  descriptors; the rest of the POSIX catalog moves with P2.
+- Thread direction is recorded in `.agents/design/threads.md`: a public NPL
+  thread object and scheduler interface on a 1:1 pthread substrate first;
+  T2b then adds JVM-style virtual threads on a one-shot scheduler
+  continuation (NPL `call/cc` itself is multi-shot, not the JVM primitive).
+  T1 is the next runtime increment, then T2, T2b, T3, T4.
+- P2-P4 SRFI 170 is implemented as the core `(npl unix)` / `(srfi 170)`
+  package: `libnpl_unix`, file metadata/directories/links, process state,
+  users/groups, environment, time, terminals, and fd ports. Tests:
+  `srfi-170` 95 and the nplc/npli `unix` fixture.
+- P1 SRFI 19 is complete: `(npl time)` / `(srfi 19)` provide time/date
+  values, nanoseconds resolution, full formatting and parsing, Julian-day
+  conversions, and TAI/monotonic aliases. The six time primitive rows are
+  gone; the C entry points are in `lib/npl/time/native/time.c`.
+- F1 C memory core is implemented: `foreign-alloc`/`foreign-free`/
+  `foreign-size`/`foreign-copy`, typed `pointer-ref`/`pointer-set!` and
+  views, `c-array`, and `with-resource` release tests. Every foreign
+  allocation has a GC-managed `FfiBlock` shared with its views, so liveness
+  is O(1) and an address reused by malloc cannot revive an old view.
+  `ffi-memory` has 84 tests and an nplc/npli fixture.
+- Deferred: full syntax-object mark histories and multi-arrow `λ` currying.
+- Native link modes are implemented (`.agents/design/link-modes.md`):
+  artifact form (static/shared) is orthogonal to tier and consumption mode.
+  Every native package builds both forms; `nplc --native=static|shared`
+  selects the form, `npli` is the dynamic runtime, external packages use the
+  same `native-package` declaration for both, and `(tools link-modes)` checks
+  dependencies, relocatability, and binary size/import footprint.
+- The older sections below are historical. Where they say `syntax-case` is
+  deferred, this 0.1.3 macro foundation section supersedes them.
+
+## 0.1.3 (planned, 2026-11-13)
+
+Plan: [0.1.3-ffi-posix-thread](plans/0.1.3-ffi-posix-thread.md). The next
+increment adds FFI C arrays/scalars/structs, then SRFI 19 time, SRFI 170
+POSIX, SRFI 18 threads, SRFI 230 atomics, and finally full SRFI 226.
+The Appendix review of
+[2026-11-12-features-and-roadmap](reviews/2026-11-12-features-and-roadmap.md)
+is the review intake: F3/F4/F5/F6 and the cross-form continuation
+documentation gap are accepted as H1 hardening; appendix F1/F2 and the
+roadmap's version-selector and "fix appendix F1 before threads" entries are
+not adopted.
+`syntax-case`, originally deferred, is implemented in the macro foundation
+above. 0.1.2 merged at `d688cac`.
+
+## 0.1.2 (merged, 2026-11-13)
 
 Plan: [0.1.2-srfi](plans/0.1.2-srfi.md). Scope is the SRFI library train
 (requested SRFI-1/13/130/140/133/19/170 plus the data-structure SRFIs) with
@@ -41,7 +256,7 @@ I2 and part of I3 are implemented on `feature/srfi-i2-i3`:
 - The seed was relayed for the reader change.
 - Review (2026-11-12): all findings are fixed. The spec-derived suites,
   import cases, and native/npli fixture were merged into
-  `src/compiler/tests/` and `tests/r7rs/fixtures/srfi-i2-i3`; the design note
+  `src/compiler/tests/` and `tests/fixtures/srfi-i2-i3`; the design note
   is `.agents/reviews/2026-11-12-srfi-i2-i3-test-design.md`.
 
 I3 completion is on `feature/0.1.2-i3-remaining` (PR #5):
@@ -353,9 +568,11 @@ want it while it is deferred.
 
 ## Accepted Seed
 
-- `bootstrap/current.ssa`: 268,699 lines; SHA-256
-  `a92cd38d3152502f7702612a22b8681effcf74811d72110d78c7e1cb3516f601`
-  (strict relay, 2026-11-13, endianness and tagged array row checks). The seed calls
+- `bootstrap/current.ssa`: 341,880 lines; SHA-256
+  `f0ab20a7ab278cf4cb80356f764f0c03a8c503c85d3d5972282d99edbd9dac4f`
+  (strict relay, 2026-11-24, round-3 review fixes: shared frontend
+  string-keyed lookups in `common/base.npl` and import-conflict diagnostics
+  naming both defining libraries). The seed calls
   `npl_gc_write_barrier_value`, so it needs a runtime from 2026-11-09 or
   later; its `(scheme base)` needs `define-record-type` from the derived
   syntax, so it must not be paired with a `lib/` from before records. The closure
@@ -373,12 +590,10 @@ want it while it is deferred.
   uncaught-error exit status, SRFI 1/13/113, and separate compilation.
 - Macro/reader follow-ups: [syntax-rules review](reviews/2026-11-14-syntax-rules-ellipsis-and-lambda-shorthand.md)
   and [macro system review](reviews/2026-11-14-macro-system-review.md).
-  Fix first: M1 (macro-produced single `define` not bound in bodies; nplc
-  rejects or miscompiles) and M2 (depth-0 pattern variables in ellipsis
-  templates). Then M3 hygiene, M5 body macro order, and decisions on M4
-  (top-level introduced definitions), M6 (core syntax exports), and N1
-  (multiple same-level ellipses). syntax-case stays deferred; SRFI 211
-  er/ir macros come first if procedural macros are needed.
+  M1/M2/M3/M4/M5/M6/M7/M10 and N1 are implemented, including declarative and
+  procedural `syntax-case`, fenders, phase-1 macros, and the SRFI 41
+  migration. Remaining: full syntax-object mark histories; SRFI 211 er/ir
+  macros are no longer needed as a substitute.
 - `(sqrt -1.0-0.0i)` branch convention: follow IEEE signed-zero convention
   (Guile and Racket precedent) when sqrt is implemented. Not blocking.
 - Operand evaluation order differs between native and npli: in

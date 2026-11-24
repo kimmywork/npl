@@ -37,7 +37,7 @@
 (define (c-function-type-name type allowed misplaced message)
   (cond
     ((not (datum-symbol? type)) (fatal "C function type must be an identifier"))
-    ((primitive-name-listed? (datum-symbol-name type) allowed)
+    ((string-member? (datum-symbol-name type) allowed)
      (datum-symbol-name type))
     ((string=? (datum-symbol-name type) misplaced) (fatal message))
     (else (fatal (string-append "unknown C function type: "
@@ -47,10 +47,15 @@
   (cond
     ((null? types) ())
     ((c-primitive-list-pair? types)
-     (cons (c-function-type-name
-             (car types) C-FUNCTION-ARGUMENT-TYPES "void"
-             "void is valid only as a define-c-function result")
-           (c-function-argument-types (cdr types))))
+     (if (if (datum-symbol? (car types))
+             (c-struct-type-name (car types))
+             #f)
+         (cons (c-struct-type-canonical (car types))
+               (c-function-argument-types (cdr types)))
+         (cons (c-function-type-name
+                 (car types) C-FUNCTION-ARGUMENT-TYPES "void"
+                 "void is valid only as a define-c-function result")
+               (c-function-argument-types (cdr types)))))
     (else (fatal "define-c-function argument types must be a list"))))
 
 (define (c-function-result-type type)

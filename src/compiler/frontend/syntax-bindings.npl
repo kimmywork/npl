@@ -1,0 +1,254 @@
+; Identifier marks, syntax environments, and literal matching.
+
+; Syntax marks: an eq hash table from identifier to mark, 0 when absent.
+(define SYNTAX-MARKS (cell (npl_make_hash_table 0 #f #f 0)))
+; The mark of the template identifier a transcription copy came from.
+(define SYNTAX-SOURCE-MARKS (cell (npl_make_hash_table 0 #f #f 0)))
+
+(define (new-mark-table) (npl_make_hash_table 0 #f #f 0))
+(define SYNTAX-NEXT-MARK (cell 0))
+; Definition-site bindings for spliced macro output (transcription.npl).
+(define TRANSCRIPTION-ALIASES (cell ()))
+(define TRANSCRIPTION-MACRO-ALIASES (cell ()))
+; Top-level definition naming and final environment (expand.npl).
+(define TOP-DEFINITION-PREFIX (cell ""))
+(define TOP-VALUE-ENVIRONMENT (cell ()))
+(define MATCH-FAIL '(_syntax_match_fail_))
+(define CURRENT-PATTERN-VARIABLES (cell ()))
+; The captures and pattern variables of the most recent transcription, so a
+; transformer body that uses a macro can evaluate the expansion with its
+; clause context.
+(define CURRENT-TRANSCRIPTION-CAPTURES (cell ()))
+(define CURRENT-TRANSCRIPTION-VARIABLES (cell ()))
+(define NO-REPEAT-COUNT 1000000000)
+(define CORE-SYNTAX-PREFIX "_core_syntax_")
+
+(define (make-core-syntax name)
+  (datum-symbol (string-append CORE-SYNTAX-PREFIX name)))
+(define (core-syntax-value? value)
+  (if (datum-symbol? value)
+      (let ((name (datum-symbol-name value)))
+        (if (>= (string-length name) (string-length CORE-SYNTAX-PREFIX))
+            (string=? (substring name 0 (string-length CORE-SYNTAX-PREFIX))
+                      CORE-SYNTAX-PREFIX)
+            #f))
+      #f))
+(define (core-syntax-value-name value)
+  (substring (datum-symbol-name value) (string-length CORE-SYNTAX-PREFIX)
+             (string-length (datum-symbol-name value))))
+(define CURRENT-REPEAT-DRIVER-DEPTH (cell 1000000000))
+(define UNINITIALIZED-SYNTAX '(_uninitialized_syntax_))
+
+(define (syntax-atomic? value)
+  (if (datum-symbol? value)
+      #t
+      (if (datum-string? value)
+          #t
+          (if (datum-char? value)
+              #t
+              (if (datum-vector? value)
+                  #t
+                  (if (datum-bytevector? value)
+                      #t
+                      (if (datum-true? value)
+                          #t
+                          (datum-false? value))))))))
+
+(define (identifier-mark identifier)
+  (npl_hash_table_ref (cell-get SYNTAX-MARKS) identifier 0))
+
+(define (identifier-source-mark identifier)
+  (npl_hash_table_ref (cell-get SYNTAX-SOURCE-MARKS) identifier
+                      (identifier-mark identifier)))
+
+(define (set-identifier-source-mark! identifier mark)
+  (npl_hash_table_set (cell-get SYNTAX-SOURCE-MARKS) identifier mark))
+
+(define (set-identifier-mark! identifier mark)
+  (npl_hash_table_set (cell-get SYNTAX-MARKS) identifier mark))
+
+(define (fresh-syntax-mark)
+  (cell-set! SYNTAX-NEXT-MARK (+ 1 (cell-get SYNTAX-NEXT-MARK)))
+  (cell-get SYNTAX-NEXT-MARK))
+
+(define (lookup-value-binding identifier environment)
+  (let ((name (datum-symbol-name identifier))
+        (mark (identifier-mark identifier))
+        (source (identifier-source-mark identifier)))
+    (let ((binding (lookup-value-binding-key name mark source environment)))
+      (if (> (string-length binding) 0)
+          binding
+          (lookup-value-alias
+            name mark source (cell-get TRANSCRIPTION-ALIASES))))))
+
+; A transcription alias is keyed by the alias mark. A template copy gets a
+; fresh mark and carries the alias mark as its source mark, so the source
+; match is what lets a nested template refer back to the binding recorded at
+; the definition site. Only the alias table uses this rule; ordinary lexical
+; entries must not match by source (a user binding at mark 0 would capture a
+; template identifier whose source mark is 0).
+(define (lookup-value-alias name mark source aliases)
+  (if (null? aliases)
+      ""
+      (let ((entry (car aliases)))
+        (if (string=? name (car entry))
+            (if (if (= mark (car (cdr entry)))
+                    #t
+                    (= source (car (cdr entry))))
+                (car (cdr (cdr entry)))
+                (lookup-value-alias name mark source (cdr aliases)))
+            (lookup-value-alias name mark source (cdr aliases))))))
+
+; Compute the lookup key once, not once per environment entry.
+; An entry is (name mark emitted); an alias layer (#f mark definition-env)
+; (transcription.npl): identifiers with that mark see every binding of their
+; name in definition-env, innermost first; or a global layer (#f #f table)
+; (value-binding-layer): a string hash table from name to its
+; ((mark . emitted) ...), innermost first, standing for that many entries.
+(define (lookup-value-binding-key name mark source environment)
+  (if (null? environment)
+      ""
+      (let ((entry (car environment)))
+        (if (car entry)
+            (if (if (string=? name (car entry))
+                    (= mark (car (cdr entry)))
+                    #f)
+                (car (cdr (cdr entry)))
+                (lookup-value-binding-key name mark source
+                                          (cdr environment)))
+            (let ((found
+                    (if (car (cdr entry))
+                        (if (= mark (car (cdr entry)))
+                            (lookup-value-binding-key
+                              name source source (car (cdr (cdr entry))))
+                            "")
+                        (layer-binding-with-mark
+                          (npl_hash_table_ref (car (cdr (cdr entry))) name ())
+                          mark))))
+              (if (> (string-length found) 0)
+                  found
+                  (lookup-value-binding-key name mark source
+                                            (cdr environment))))))))
+
+(define (lookup-value-binding-any-mark name environment)
+  (if (null? environment)
+      ""
+      (let ((entry (car environment)))
+        (if (car entry)
+            (if (string=? name (car entry))
+                (car (cdr (cdr entry)))
+                (lookup-value-binding-any-mark name (cdr environment)))
+            (let ((found
+                    (if (car (cdr entry))
+                        (lookup-value-binding-any-mark
+                          name (car (cdr (cdr entry))))
+                        (let ((bindings
+                                (npl_hash_table_ref
+                                  (car (cdr (cdr entry))) name ())))
+                          (if (null? bindings) "" (cdr (car bindings)))))))
+              (if (> (string-length found) 0)
+                  found
+                  (lookup-value-binding-any-mark
+                    name (cdr environment))))))))
+
+(define (layer-binding-with-mark bindings mark)
+  (if (null? bindings)
+      ""
+      (if (= mark (car (car bindings)))
+          (cdr (car bindings))
+          (layer-binding-with-mark (cdr bindings) mark))))
+
+; One global layer over environment for identifiers, each bound to its own
+; name as add-value-binding would (later ones shadow earlier ones). The table
+; is new and never changed, so environments stay persistent.
+(define (value-binding-layer identifiers environment)
+  (let ((table (npl_make_hash_table 3 #f #f 0)))
+    (fill-value-binding-layer table identifiers)
+    (cons (cons #f (cons #f (cons table ()))) environment)))
+
+(define (fill-value-binding-layer table identifiers)
+  (if (pair? identifiers)
+      (let ((name (datum-symbol-name (car identifiers))))
+        (npl_hash_table_set table name
+          (cons (cons (identifier-mark (car identifiers)) name)
+                (npl_hash_table_ref table name ())))
+        (fill-value-binding-layer table (cdr identifiers)))))
+
+(define (add-value-binding identifier emitted environment)
+  (cons (cons (datum-symbol-name identifier)
+              (cons (identifier-mark identifier) (cons emitted ())))
+        environment))
+
+(define (lookup-macro-binding identifier environment)
+  (let ((found (lookup-macro-cell identifier environment)))
+    (if (null? found) () (cell-get found))))
+
+; Cell for a keyword; spliced macro output falls back to its aliases.
+(define (lookup-macro-cell identifier environment)
+  (let ((name (datum-symbol-name identifier))
+        (mark (identifier-mark identifier))
+        (source (identifier-source-mark identifier)))
+    (let ((found (lookup-macro-cell-key name mark source environment)))
+      (if (null? found)
+          (lookup-macro-alias
+            name mark source (cell-get TRANSCRIPTION-MACRO-ALIASES))
+          found))))
+
+(define (lookup-macro-alias name mark source aliases)
+  (if (null? aliases)
+      ()
+      (let ((entry (car aliases)))
+        (if (string=? name (car entry))
+            (if (if (= mark (car (cdr entry)))
+                    #t
+                    (= source (car (cdr entry))))
+                (macro-entry-cell entry)
+                (lookup-macro-alias name mark source (cdr aliases)))
+            (lookup-macro-alias name mark source (cdr aliases))))))
+
+; Alias layers as in lookup-value-binding-key.
+(define (lookup-macro-cell-key name mark source environment)
+  (if (null? environment)
+      ()
+      (let ((entry (car environment)))
+        (if (car entry)
+            (if (if (string=? name (car entry))
+                    (= mark (car (cdr entry)))
+                    #f)
+                (macro-entry-cell entry)
+                (lookup-macro-cell-key name mark source (cdr environment)))
+            (let ((aliased
+                    (if (= mark (car (cdr entry)))
+                        (lookup-macro-cell-any-mark
+                          name (car (cdr (cdr entry))))
+                        ())))
+              (if (null? aliased)
+                  (lookup-macro-cell-key name mark source (cdr environment))
+                  aliased))))))
+
+(define (lookup-macro-cell-any-mark name environment)
+  (if (null? environment)
+      ()
+      (let ((entry (car environment)))
+        (if (car entry)
+            (if (string=? name (car entry))
+                (macro-entry-cell entry)
+                (lookup-macro-cell-any-mark name (cdr environment)))
+            (let ((aliased
+                    (lookup-macro-cell-any-mark
+                      name (car (cdr (cdr entry))))))
+              (if (null? aliased)
+                  (lookup-macro-cell-any-mark name (cdr environment))
+                  aliased))))))
+
+(define (add-macro-cell-binding identifier transformer-cell environment)
+  (cons (cons (datum-symbol-name identifier)
+              (cons (identifier-mark identifier)
+                    (cons transformer-cell ())))
+        environment))
+
+(define (add-macro-binding identifier transformer environment)
+  (add-macro-cell-binding identifier (cell transformer) environment))
+
+(define (macro-entry-cell entry) (car (cdr (cdr entry))))
+

@@ -37,6 +37,33 @@ behavior).
 - SRFI 146 mappings as `(npl data map)` / `(srfi 146)`, backed by a
   persistent red-black tree.
 - SRFI 178 bitvectors as `(npl data bitvector)` / `(srfi 178)`.
+- SRFI 46/149 syntax-rules extensions, core syntax exports, and
+  declarative/procedural `syntax-case`, `with-syntax`, syntax helpers,
+  `begin-for-syntax`/`for-syntax`, and phase-1 transformer macros.
+- Differential `syntax-case` fixtures run on nplc, npli, and Guile.
+- `syntax-case` fenders and binding-aware `free-identifier=?`; the SRFI 41
+  `stream-match` matcher now uses the reference procedural implementation.
+- Explicit C memory (`foreign-alloc`, typed pointer access, `c-array`) and
+  `define-c-struct` / `struct:` typed C arguments.
+- `(npl time)` / `(srfi 19)` core: UTC/monotonic time, dates, formatting,
+  and duration arithmetic.
+- `(npl lambda)` with `λ` and `fn` shorthand, including multi-arrow
+  currying such as `(fn a => b => (+ a b))`.
+- Native packages: core packages are linked (`(npl time)`), external
+  packages are loaded with `ffi-load-library` (`(npl demo crc32)`), and
+  `(npl platform)` exposes the target triple and feature list.
+- SRFI 19 completion: `string->date`, the full `date->string` directive
+  set, Julian-day conversions, and TAI/monotonic aliases.
+- SRFI 170 POSIX as the core `(npl unix)` / `(srfi 170)` package: file
+  metadata and directories, links, process state, users/groups, environment,
+  time, terminals, and file-descriptor ports.
+  Tests cover every exported name, including binary/buffer modes, glob,
+  ownership/timestamps, umask, users/groups, and temporary filenames.
+- `(npl demo zlib)` external package: caller-owned buffers around
+  `compress`/`uncompress`, built only when zlib is available.
+- Test infrastructure: `(npl test)` / `(srfi 64)`, `(npl test property)` /
+  `(srfi 252)`, `(npl test expect)`, and an NPL gate runner with a fixture
+  manifest. Fixtures now live under `tests/fixtures`.
 - Forward references to value-defined procedures now compile: a procedure
   may call a global that is defined later with `(define name (lambda ...))`
   or `(define name (case-lambda ...))`, as R7RS library and program bodies

@@ -21,18 +21,11 @@
 (define PRIMITIVE-CONTROL-SOURCE
 "(call-with-current-continuation call-with-values call/cc dynamic-wind raise raise-continuable values with-exception-handler)" )
 
-(define (primitive-name-listed? name names)
-  (if (null? names)
-      #f
-      (if (string=? name (car names))
-          #t
-          (primitive-name-listed? name (cdr names)))))
-
 (define (library-primitive-table-names rows)
   (if (null? rows)
       ()
       (let ((name (primitive-row-name (car rows))))
-        (if (primitive-name-listed? name PRIMITIVE-INTERNAL-NAMES)
+        (if (string-member? name PRIMITIVE-INTERNAL-NAMES)
             (library-primitive-table-names (cdr rows))
             (cons (datum-symbol name)
                   (library-primitive-table-names (cdr rows)))))))

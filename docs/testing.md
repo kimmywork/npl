@@ -1,173 +1,284 @@
 # Verification
 
-Status: frozen at the language milestone, 2026-11-12. This is the workflow a
-change must pass. Build and install are in [toolchain](toolchain.md); the
-conformance claim this workflow establishes is in
-[r7rs-conformance](r7rs-conformance.md).
-
-## The gate
+The gate is driven by `tools/run-tests.npl`; `tools/run_tests.sh` is a
+compatibility wrapper that builds `nplc`/`npli`, sets the UTF-8 locale and
+native-package path, then runs the NPL runner.
 
 ```bash
-tools/run_tests.sh                         # with the seed relay, ~11-16 min
-tools/run_tests.sh --skip-current-fixed-point   # without it, ~6-10 min
+tools/run_tests.sh --skip-current-fixed-point   # no seed relay
+tools/run_tests.sh                              # includes the seed relay
+tools/run-tests.npl --skip-current-fixed-point  # direct npli invocation
 ```
 
-`tools/run_tests.sh` prints one `PASS`/`FAIL` line per stage and exits with the
-number of failures. On a failure it prints the last 30 lines of that stage's
-output (captured in `/tmp/npl-suite.out`). 56 stages with
-`--skip-current-fixed-point` (stage 5 is omitted), 57 with the relay. The
-gate selects a UTF-8
-locale (`NPL_TEST_LC_ALL` overrides it) so Guile encodes Unicode output
-independently of the caller's environment. CI (`.github/workflows/ci.yml`)
-runs the Linux gate without the relay on pull requests and pushes to
-`master`.
+Runner options:
 
-| # | Stage | What it proves |
-|---|---|---|
-| 1 | `build_toolchain.sh` | `nplc` (from `bootstrap/current.ssa`) and `npli` build; downstream checks reuse them via `NPL_TOOLCHAIN_BUILT` |
-| 2 | `check_stage0.sh` | the frozen stage0 reader and executable |
-| 3 | `check_stage0_qbe.sh` | frozen stage0 QBE output |
-| 4 | `check_bootstrap.sh` | the permanent chain (`bootstrap/bootstrap.ssa` + `bootstrap/compiler/`) against the frozen runtime |
-| 5 | `check_current_fixed_point.sh` | the seed relay: gen1 == gen2 == gen3 (skipped by the flag) |
-| 6 | `check_full_compiler.sh` | 57 compiler suites, 78 negative checks, alias-export check, SSA probes, C extensions |
-| 7 | `check_driver.sh` | unified `nplc`: output kinds, path handling, failure cleanup, `-l`/`-L` |
-| 8 | `check_install.sh` | install layout used from outside the repo, including a prefix with a space |
-| 9 | `check_repl.sh` | `npli` REPL, script mode, `-l` |
-| 10 | `check_core_consistency.sh` | shared core semantics and malformed-syntax recovery (runs the `core-bindings` fixture) |
-| 11 | `check_relay_scripts.sh` | relay orchestration with tiny tool substitutes |
-| 12 | `check_gc.sh` | GC stress: 1M allocations, 64 KiB nursery with `NPL_GC_VERIFY` |
-| 13 | `check_numeric_reference.sh` | exact numeric substrate against Guile |
-| 14-54 | 41 × `run_r7rs_fixture.sh` | three-way fixtures (native, npli, Guile) |
-| 55 | `check_core.sh` | stage0 dynamic core |
-| 56 | `check_r7rs.sh` | R7RS baseline through stage0 |
-| 57 | `prop_tests.py` | property tests for the stage0 compiler |
+- `--skip-current-fixed-point` skips the gen1/gen2/gen3 relay check.
+- `--skip-legacy` runs only the fixture manifest and property suites.
+- `--properties-only` runs only the property suites (it skips fixtures,
+  unit self-tests, and legacy adapters).
 
-Optional, not in the gate:
+The runner prints one `PASS`/`SKIP`/`FAIL` line per stage and exits with the
+number of failures. Legacy shell checks are called as adapters; fixture and
+property discovery is already NPL-native. `NPL_TEST_LC_ALL` overrides the
+UTF-8 locale used for Guile comparisons.
 
-| Command | Needs | Purpose |
-|---|---|---|
-| `tools/check_linux.sh [run_tests.sh flags]` | Docker (colima context) with `npl-linux:bookworm` | runs the gate on Debian/bookworm, clang, Guile 3 |
-| `tools/run_chibi_suite.sh [--native]` | network (or a local `r7rs-tests.scm` argument) | chibi's independent R7RS suite |
-| `python3 tools/bench.py [--runs N] [--scaled]` | Guile; Racket from `RACKET_BIN` (its `bin` directory) or `PATH` | performance against Guile and Racket |
+The main gate intentionally excludes the frozen bootstrap chain
+(`bootstrap/bootstrap.ssa`, `bootstrap/compiler/`, `bootstrap/runtime/`) and
+stage0. Run those separately:
 
-## Fixtures
+```bash
+bootstrap/stage0/tools/run.sh
+```
 
-A fixture is a directory `tests/r7rs/fixtures/<name>/` describing one
-behavior, checked on three surfaces with identical stdout, stderr, and exit
-status:
+That script owns the stage0 reader/QBE/core/R7RS checks, the permanent
+bootstrap fixed point, and the stage0 property tests. Keeping it outside the
+main gate lets the evolving compiler and libraries move without treating
+frozen recovery artifacts as current behavior.
 
-| Surface | How it runs |
-|---|---|
-| native | `nplc native.npl -o prog`, then `prog` |
-| npli | `npli --no-prompt < repl.in` |
-| Guile 3 | `guile --r7rs -q --no-auto-compile -s guile.scm` |
+## Test layers
 
-### `fixture.meta` keys
+| Layer | Location | Purpose | Driver |
+|---|---|---|---|
+| Unit/acceptance | `src/compiler/tests/` | compiler and runtime behavior, negative contracts, C extensions | `check_full_compiler.sh` (legacy adapter), `(npl test)` |
+| Framework self-tests | `tests/unit/` | `(npl test)` behavior | `(npl test)` |
+| Expect fixtures | `tests/fixtures/` | identical observable result on native, npli, and Guile | `(npl test expect)` |
+| Property tests | `tests/property/` | deterministic generated inputs | `(npl test property)` |
+| Numeric oracle | `tests/numeric/` | exact numeric substrate against Guile | `(tools toolchain)` |
+| Upstream suite | `tests/chibi/` | independent chibi R7RS suite | `run_chibi_suite.sh` |
+| Library metadata | `(tools libraries)` | exports, imports, cycles, layering, alias re-exports, final export origins | `tools/run-tests.npl` |
+| Native link modes | `(tools link-modes)` | static/shared artifacts, dependencies, size and import footprint | `tools/run-tests.npl` |
+| Toolchain checks (NPL) | `(tools toolchain)` | current fixed point, GC, numeric oracle, driver, install, core consistency | `tools/run-tests.npl` |
+| Library test coverage | `(tools libraries)` | every exported name of the data libraries appears in a test | `tools/run-tests.npl` |
+| Toolchain checks (legacy) | `tools/check_*.sh` | full compiler, relay | shell adapters (remaining migration debt) |
+| Frozen bootstrap | `bootstrap/stage0/tools/`, `bootstrap/tools/` | stage0, permanent bootstrap chain | separate script |
+
+`tests/fixtures/` now contains both R7RS cases and NPL extension cases
+(`native-packages`, `native-zlib`, `unix`, `time`, `match-extensions`,
+`syntax-case-npl`, ...). The directory name is historical; the fixture
+manifest and `fixture.meta` describe the behavior, not an R7RS-only claim.
+
+## Unit test framework
+
+`(npl test)` is an SRFI 64-compatible framework; `(srfi 64)` is an alias.
+The implementation is `lib/npl/test/core.scm`. Historical suites include
+`src/compiler/tests/framework.npl`, which includes the same core, so both
+import styles share one implementation.
+
+```scheme
+(import (scheme base) (npl test))
+
+(test-begin "arithmetic")
+(test-equal "addition" 4 (+ 2 2))
+(test-assert (> 3 2))
+(test-error (car '()))
+(test-skip 1)
+(test-end "arithmetic")
+(finish-tests "arithmetic")   ; NPL gate summary + exit status
+```
+
+Forms: `test-begin`, `test-end`, `test-assert`, `test-equal`, `test-eqv`,
+`test-eq`, `test-inexact`, `test-error`, `test-expect-fail`, `test-skip`,
+`test-group`, `test-group-with-cleanup`, `finish-tests`, and the runner count
+accessors. `test-identity` and the legacy
+`(test-equal "name" (lambda () expr) expected)` form are NPL extensions so
+existing suites keep working.
+
+`finish-tests` keeps the historical output and exit status:
+
+```
+PASS <suite> <count>
+FAILED <suite> <failures>/<total>
+```
+
+New suites can import `(npl test)` and call `finish-tests`; the old
+`(include "framework.npl")` form remains valid.
+
+The implementation follows SRFI 64's immediate model. A later layer can add
+SRFI 269-style first-class `test`/`suite` definitions for filtering and
+re-running subsets; the fixture manifest already separates discovery from
+execution. `test-error` accepts an error-type argument but currently only
+checks that an error was raised; `test-inexact` compares with `=`.
+
+## Property tests
+
+`(npl test property)` follows the SRFI 252 shape; `(srfi 252)` is an alias.
+Generators are thunks, and `property-seed` makes runs deterministic.
+
+```scheme
+(import (scheme base) (npl test) (npl test property))
+
+(test-property (lambda (a b) (= (+ a b) (+ b a)))
+               (list (exact-integer-generator) (exact-integer-generator))
+               200)
+(test-property-error (lambda (x) (error "boom" x))
+                     (list (exact-integer-generator)))
+(finish-tests "pbt")
+```
+
+Built-in generators: `boolean-generator`, `bytevector-generator`,
+`char-generator`, `exact-integer-generator`/`integer-generator`,
+`exact-real-generator`, `real-generator`, `number-generator`,
+`rational-generator`, `complex-generator`, `string-generator`,
+`symbol-generator`. A custom generator is any thunk returning a value or an
+eof object.
+
+`test-property` runs one recorded test per property, not one per generated
+input. Failures report the generated values. `test-property-expect-fail`,
+`test-property-skip`, `test-property-error`, and
+`test-property-error-type` cover the other SRFI 252 outcomes.
+
+Add a property suite as `tests/property/<name>.npl`; the runner discovers it
+with `glob`.
+
+## Expect fixtures
+
+A fixture directory contains `fixture.meta`, a native source, a REPL input,
+expected stdout/stderr/status, and optional Guile settings. `(npl test
+expect)` compiles and runs the native source, feeds the REPL transcript, runs
+the Guile oracle when requested, and compares all three surfaces.
+
+The implementation is `lib/npl/test/expect.sld`; the CLI is
+`tools/expect-runner.npl`. `tools/run_r7rs_fixture.sh` is a thin wrapper.
+
+### `fixture.meta`
 
 | Key | Required | Meaning |
 |---|---|---|
-| `name` | yes | fixture name used in report lines |
+| `name` | yes | fixture name in report lines |
 | `native` | yes | source for the native lane |
 | `repl` | yes | stdin transcript for npli |
-| `repl-body` | no | appended to `repl.in` with a final `(exit)`; keeps the native, evaluator, and Guile bodies identical |
-| `guile` | unless `oracle=none` | Guile script (wraps the body in a private `define-library`) |
-| `oracle` | no | `none`: Guile lacks the behavior, so its surface is reported `oracle-unavailable` and expected output comes from R7RS plus a hand cross-check recorded in `behavior.scm` |
-| `guile-defect` | no | space-separated Guile versions on which the oracle is skipped (`oracle-known-defect`) |
-| `guile-defect-reason` | with `guile-defect` | required text explaining the defect |
+| `repl-body` | no | appended to `repl.in` with a final `(exit)` |
+| `guile` | unless `oracle=none` | Guile script (usually a private-library wrapper) |
+| `oracle` | no | `none` skips Guile and reports `oracle-unavailable` |
+| `guile-defect` | no | space-separated Guile versions to skip (`oracle-known-defect`) |
+| `guile-defect-reason` | with `guile-defect` | required explanation |
 | `expected-out` | yes | expected stdout |
 | `expected-err` | yes | expected stderr |
 | `expected-status` | yes | expected exit status |
 
-Every value must be non-empty (`get_meta` fails otherwise).
-
 ### Adding a fixture
 
-1. Create `tests/r7rs/fixtures/<name>/` with `behavior.scm` (definitions
-   only), `native.npl` (imports + `(include "behavior.scm")`), `repl.in`
-   (the imports for the `repl-body` lane), `guile.scm` (the private-library
-   wrapper) unless `oracle=none`, `expected.out`, `expected.err`, and
-   `fixture.meta`.
-2. Write `expected.*` from the implementation only after checking each line
-   against R7RS and, where available, Guile and Racket; record the reasoning
-   in `behavior.scm`.
-3. Add the name to the `for fixture in ...` loop in `tools/run_tests.sh`.
-   Nothing is auto-discovered.
-4. Run `tools/run_r7rs_fixture.sh tests/r7rs/fixtures/<name>`.
+1. Create `tests/fixtures/<name>/` with `behavior.scm`, `native.npl`,
+   `repl.in`, `guile.scm` (unless `oracle=none`), `expected.out`,
+   `expected.err`, and `fixture.meta`.
+2. Add `<name>` to `tests/fixtures/manifest.scm`. This is the only list to
+   update; the runner discovers fixture directories through the manifest.
+3. Run `tools/run_r7rs_fixture.sh tests/fixtures/<name>`.
 
-Differences with Guile are classified `npl-bug`, `guile-extension`,
-`implementation-allowed`, `fixture-bug`, `unimplemented`, or
-`oracle-unavailable`; the last two never count as conformance.
+Fixtures outside the gate (`core-bindings`, `smoke`, `integer-io`,
+`port-wrappers`) are still runnable directly with the same command.
 
-### Fixtures outside the gate
+## Library metadata
 
-45 fixture directories exist; 41 are in the loop above. The others:
+`(tools libraries)` walks every file under `lib/`, reads all `.sld`
+definitions and their includes, and derives the binding graph from the
+source. It checks:
 
-- `core-bindings` — run by `tools/check_core_consistency.sh` (stage 10).
-- `smoke`, `integer-io`, `port-wrappers` — manual; run
-  `tools/run_r7rs_fixture.sh tests/r7rs/fixtures/<name>` directly.
+- every export is defined exactly once locally, or resolves through an
+  import (including `(npl internal primitive)` and C-backed bindings);
+- duplicate exports, duplicate definitions, and export/import collisions;
+- import conflicts by binding origin, including `only`/`except`/`prefix`/
+  `rename` and alias re-exports;
+- cycles in the library import graph;
+- layer rules: internals -> scheme -> npl -> demo/srfi, with SRFI aliases
+  not importing other SRFIs.
+
+No alias table is maintained: an alias export is valid when its origin
+resolves through the canonical library. The old `check_srfi_exports.py`
+table was removed.
+
+`(tools libraries)` runs three definition checks in the gate:
+
+1. **Export origins** (`check-export-origins`). Each external name is
+   followed through the import graph to its final `define:KEY#NAME`,
+   `define-c-primitive:KEY#NAME`, `define-c-function:KEY#NAME`, or
+   `primitive:NAME`. Re-exporting one definition is never a conflict. A name
+   that reaches different definitions must be listed, with its defining
+   libraries, in `tools/libraries/export-origin-exceptions.scm`; only names
+   a SRFI or R7RS library exports may be listed, and the report says "add an
+   exception" for those and "rename one definition" for anything else.
+   Listed overlaps are printed as notes. A listed name that no longer
+   conflicts fails as stale, so the list only shrinks.
+   `npli tools/export-origins.npl` runs it standalone. The compiler reports
+   a co-import of two such definitions as `conflicting imported binding:
+   NAME (from (LIB A) and (LIB B))`.
+2. **Duplicate definitions** (`check-duplicate-definitions`). Every
+   top-level definition in `lib/` and `tools/` is normalized
+   (`tools/libraries/identity.scm`: bound variables renamed by position;
+   `and`/`when`/`unless`/`cond` rewritten to `if`; `(<= 0 x)`,
+   `(not (negative? x))` rewritten to `(>= x 0)`). It fails when the same
+   name has the same normalized definition in two source files (define once
+   and import it), when one normalized definition of non-trivial size
+   appears under different names, when a library outside `scheme/` and
+   `srfi/` only forwards to another `npl/` library's export, and when two
+   source files define different private helpers with one name. A file
+   included by several libraries counts once.
+3. **Library test coverage** (`check-library-test-coverage`). Only test code
+   counts: `tests/unit`, `tests/fixtures` (expect), `tests/property` (PBT),
+   `src/compiler/tests` (without the negative fixtures), the evaluator's
+   `core-tests.npl`, and the gate's `report` forms in `tools/run-tests.npl`.
+   A local export is covered when it appears inside an assertion
+   (`test-*`, `check*`, `assert`, `report`, fixture `write`). The target is
+   80% of each library's local exports. Libraries still below it are listed
+   with their uncovered names in `tools/libraries/coverage-baseline.scm`;
+   the gate fails when a library gains an uncovered export, when a listed
+   gap becomes covered (remove it), or when the overall ratio falls below
+   the recorded one. The uncovered-library ratio must stay below 30%.
+
+`tools/libraries-tests.npl` (run by npli in the gate) builds small library
+trees and shows each rule above firing, including the stale-exception and
+re-export cases.
+
+Shared tooling helpers live in `(npl util)` (paths, `exact-natural?`) and
+`(npl test util)` (files, processes, environment); string searches come from
+`(npl string)`.
+
+## Toolchain checks in NPL
+
+`(tools toolchain)` runs the current fixed-point relay, GC stress, numeric
+oracle, driver, install-layout, and core-consistency checks through
+`run-process*` and file assertions. They are normal NPL functions, not shell
+subprocesses.
+
+`(tools repl-suites)` is the NPL REPL/script acceptance layer. The remaining
+shell adapters are `check_full_compiler.sh` (SSA text assertions and C
+extension probes) and `check_relay_scripts.sh` (process-group cancellation
+over the bootstrap relay); each is a candidate for the same NPL helper API.
 
 ## Compiler suites and contracts
 
-`tools/check_full_compiler.sh` builds a compiler from
-`bootstrap/current.ssa`, then runs:
+`check_full_compiler.sh` remains the compiler acceptance adapter. It builds a
+compiler from `bootstrap/current.ssa` and runs `src/compiler/tests/*.npl`
+through `(npl test)`, plus negative programs under `contracts/`,
+`reader-errors/`, and `macro-errors/`, SSA probes, and C-extension checks.
 
-- `src/compiler/tests/<name>.npl` suites (`run_suite`): a program that
-  `(include "framework.npl")`, calls `test-equal`/`test-identity`, and ends
-  with `(finish-tests "<name>")`. The output string, `PASS <name> <n>`, is the
-  expected value in the registration line, so **adding a test requires
-  updating the count there**.
-- negative programs (`reject_compile`, `reject_reader`, `reject_runtime`,
-  `reject_literal_mutation`): `src/compiler/tests/contracts/*.npl`,
-  `reader-errors/`, `macro-errors/`. Each must be registered explicitly; an
-  unreferenced contract file is silently dead.
-- SSA probes and C-extension checks: self tail calls are jumps, direct
-  entries, inline primitives, closures have no environment object, C
-  extension programs build with `-Wall -Wextra -Werror`, `--emit=c-stubs`
-  output compiles.
+The suite list and expected counts are still in that shell script; migrating
+it to a compiler-suite manifest is the next test-infrastructure increment.
 
-Register by adding one line beside the existing ones in
-`tools/check_full_compiler.sh`; there is no discovery.
+## The seed and relay
 
-## The seed and the relay
-
-`bootstrap/current.ssa` is the compiler's own source compiled to QBE SSA; it
-is the recovery artifact and is checked in. A change to `src/compiler/`,
-`bootstrap/current.ssa`, or the runtime ABI requires a relay; a change under
-`lib/` (libraries) does not.
+`bootstrap/current.ssa` is the compiler's own source compiled to QBE SSA. A
+change to `src/compiler/` or the runtime ABI requires a relay; `lib/` changes
+do not.
 
 ```bash
-tools/check_current_fixed_point.sh          # verify only
-tools/update_current_ssa.sh                 # verify, then install gen3 as the seed
+tools/check_current_fixed_point.sh   # verify only
+tools/update_current_ssa.sh          # verify, then install gen3
 ```
 
-Only `bootstrap/current.ssa` is copied; the permanent `bootstrap/bootstrap.ssa`
-and `bootstrap/compiler/` stay frozen. The line count and SHA-256 of the
-installed seed are recorded in `.agents/workstate.md` (Accepted Seed).
-
-### Two-step transition
-
-When a change affects **code generation**, the old seed compiles the new source
-into gen1, which still emits the old code shape, so gen1 differs from gen2 and
-a single `update_current_ssa.sh` cannot pass. Do this instead:
-
-1. Build the new source with the previous seed; this is the hand-built gen2.
-   Require `gen2 == gen3` (build gen2, use it to emit gen3, compare).
-2. Copy that gen2 over `bootstrap/current.ssa`.
-3. Run `tools/update_current_ssa.sh` and require `gen1 == gen2 == gen3`;
-   record the new lines and SHA in `.agents/workstate.md`.
-
-Steps 1-3 happened on 2026-10-22, 2026-10-27, 2026-11-03 and twice on
-2026-11-11; the worklogs for those dates show the exact commands.
+The installed seed line count and SHA-256 are recorded in
+`.agents/workstate.md` (Accepted Seed).
 
 ## What to run for a change
 
 | Change | Required |
 |---|---|
-| `lib/**` only | `tools/run_tests.sh --skip-current-fixed-point`; new/extended fixture for behavior |
-| `src/compiler/**` | as above, plus `tools/update_current_ssa.sh` (two-step if codegen changed) and a test that fails on the previous seed |
-| `runtime/**` | as above, plus `tools/check_gc.sh`; a runtime ABI change also needs the relay |
-| shell scripts | `tools/check_relay_scripts.sh` (orchestration) and the affected check |
-| documentation only | link check: every `](…)` target under `docs/` and `.agents/` exists |
+| `lib/**` only | `tools/run_tests.sh --skip-current-fixed-point`; add/extend a unit, property, or expect test |
+| `src/compiler/**` | as above plus `tools/update_current_ssa.sh` (two-step if codegen changed) |
+| `runtime/**` | as above plus the `runtime GC` suite in `(tools toolchain)`; ABI changes need a relay |
+| `tools/**` | the affected check plus `tools/check_relay_scripts.sh` |
+| documentation only | every `](…)` target under `docs/` and `.agents/` exists |
 
-Before a milestone, run the gate on macOS and `tools/check_linux.sh
---skip-current-fixed-point`, plus `tools/run_chibi_suite.sh --native`.
+Before a milestone, run the gate on macOS and Linux
+(`tools/check_linux.sh --skip-current-fixed-point`), plus
+`tools/run_chibi_suite.sh --native`.

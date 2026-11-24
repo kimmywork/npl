@@ -11,11 +11,6 @@
 (define (check-arg pred val caller)
   (if (pred val) val (error "Bad argument" val pred caller)))
 
-(define-syntax receive
-  (syntax-rules ()
-    ((_ formals expr body ...)
-     (call-with-values (lambda () expr) (lambda formals body ...)))))
-
 (define-syntax let-optionals
   (syntax-rules ()
     ((_ args () body ...) (begin body ...))

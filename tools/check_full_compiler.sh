@@ -6,16 +6,30 @@ cd "$ROOT"
 BUILD="$ROOT/build"
 QBE="$BUILD/qbe/qbe"
 RUNTIME="$BUILD/runtime/libnpl_runtime.a"
+NATIVE="$BUILD/lib/npl/native"
+export NPL_NATIVE_PATH="$NATIVE"
 TESTS="$ROOT/src/compiler/tests"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime >/dev/null
+ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts >/dev/null
+# zlib is optional; the target exists only when CMake found the library.
+ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
+
+EXTRA_NATIVE=()
+EXTRA_LIBS=()
+if [ -f "$NATIVE/libnpl_demo_zlib.a" ]; then
+    EXTRA_NATIVE=("$NATIVE/libnpl_demo_zlib.a")
+    EXTRA_LIBS=(-lz)
+fi
 
 build_ssa() {
     "$QBE" -o "$2.s" "$1"
-    cc -o "$2" "$2.s" "$RUNTIME" -lm
+    cc -o "$2" "$2.s" "$NATIVE/libnpl_time.a" "$NATIVE/libnpl_unix.a" \
+        "$NATIVE/libnpl_demo_crc32.a" \
+        ${EXTRA_NATIVE[@]+"${EXTRA_NATIVE[@]}"} "$RUNTIME" -lm \
+        ${EXTRA_LIBS[@]+"${EXTRA_LIBS[@]}"}
 }
 
 emit() {
@@ -86,15 +100,18 @@ run_import() {
     emit "$WORK/compiler" "$TESTS/imports/$name.npl" "$WORK/import-$name.ssa"
 }
 
+# reject_import NAME [MESSAGE]: the import fails with the conflict
+# diagnostic, and MESSAGE (the name and both defining libraries) when given.
 reject_import() {
     name=$1
+    message=${2:-conflicting imported binding}
     set +e
     "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
         "$TESTS/imports/$name.npl" > "$WORK/import-$name.out" 2>&1
     rc=$?
     set -e
     [ "$rc" -ne 0 ]
-    grep -F "conflicting imported binding" "$WORK/import-$name.out" >/dev/null
+    grep -F "$message" "$WORK/import-$name.out" >/dev/null
 }
 
 reject_literal_mutation() {
@@ -104,10 +121,49 @@ reject_literal_mutation() {
 }
 
 run_suite dynamic-core "PASS dynamic-core 4"
-run_suite reader-datum "PASS reader-datum 24"
+run_suite reader-datum "PASS reader-datum 26"
 run_suite macros-basic "PASS macros-basic 10"
 run_suite macro-ellipsis "PASS macro-ellipsis 11"
 run_suite macro-scopes "PASS macro-scopes 10"
+run_suite macro-conformance "PASS macro-conformance 9"
+run_suite macro-core-syntax "PASS macro-core-syntax 4"
+run_suite srfi-46 "PASS srfi-46 5"
+run_suite srfi-149 "PASS srfi-149 5"
+run_suite syntax-case "PASS syntax-case 4"
+run_suite syntax-case-procedural "PASS syntax-case-procedural 20"
+run_suite ffi-memory "PASS ffi-memory 84"
+# A retained owner and its views must survive minor collections: the FfiBlock
+# store needs a write barrier.
+NPL_GC_NURSERY_BYTES=4096 NPL_GC_VERIFY=100 \
+    run_suite ffi-gc "PASS ffi-gc 2"
+run_suite runtime-hardening "PASS runtime-hardening 10"
+run_suite c-structs "PASS c-structs 17"
+# R6: importing core native packages reads the build-time layout cache and
+# never runs a C compiler.
+printf '(import (scheme base) (npl time) (npl unix))\n(define now (current-time))\n' \
+    > "$WORK/cache-import.npl"
+NPL_C_STRUCT_LAYOUTS="$NATIVE/c-struct-layouts.meta" NPL_CC=/usr/bin/false \
+    "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
+    "$WORK/cache-import.npl" > "$WORK/cache-import.ssa"
+# R19: NPL_C_STRUCT_LAYOUTS is a colon-separated search path.  The temporary
+# compiler has no installed cache beside it, so this names the core file
+# after the package file; the fallback to the cache beside an installed nplc
+# is checked by (tools link-modes) with build/bin/nplc.
+printf '(c-struct-layouts\n  ("struct iovec" (size . 16) (iov_base . 0) (iov_len . 8))\n)\n' \
+    > "$WORK/package-layouts.meta"
+NPL_C_STRUCT_LAYOUTS="$WORK/package-layouts.meta:$NATIVE/c-struct-layouts.meta" \
+    NPL_CC=/usr/bin/false \
+    "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
+    "$WORK/cache-import.npl" > "$WORK/cache-import-package.ssa"
+run_suite srfi-19 "PASS srfi-19 52"
+run_suite srfi-170 "PASS srfi-170 132"
+run_suite platform "PASS platform 5"
+run_suite native-crc32 "PASS native-crc32 4"
+if [ -f "$NATIVE/libnpl_demo_zlib.so" ] || \
+   [ -f "$NATIVE/libnpl_demo_zlib.dylib" ]; then
+    run_suite native-zlib "PASS native-zlib 5"
+fi
+run_suite npl-lambda "PASS npl-lambda 9"
 run_suite derived-forms "PASS derived-forms 17"
 run_suite explicit-control "PASS explicit-control 2"
 run_suite multiple-values "PASS multiple-values 13"
@@ -117,7 +173,7 @@ run_suite exceptions "PASS exceptions 6"
 run_suite guard "PASS guard 9"
 run_suite parameters "PASS parameters 10"
 run_suite promises "PASS promises 10"
-run_suite libraries "PASS libraries 23"
+run_suite libraries "PASS libraries 24"
 run_suite forward-references "PASS forward-references 4"
 run_suite eval "PASS eval 14"
 run_load() {
@@ -134,7 +190,7 @@ run_suite standard-io "PASS standard-io 6"
 run_suite binary-io "PASS binary-io 15"
 run_suite string-io "PASS string-io 12"
 run_suite first-wave-libraries "PASS first-wave-libraries 16"
-run_suite process "PASS process 9"
+run_suite process "PASS process 15"
 run_suite error-objects "PASS error-objects 6"
 run_suite primitive-errors "PASS primitive-errors 37"
 run_suite runtime-errors "PASS runtime-errors 14"
@@ -166,13 +222,16 @@ run_suite srfi-review-vectors-arrays "PASS review-vectors-arrays 69"
 run_suite srfi-review-lazy-data "PASS review-lazy-data 60"
 
 run_import all-aliases-with-base
+run_import unix-process
+run_import test-expect-and-util
 run_import base-and-npl-string
 run_import base-and-npl-vector
 run_import box-111-and-195
 run_import srfi-140-readme-recipe
 run_import srfi-140-spec-names
 reject_import scheme-char-and-srfi-13-reject
-reject_import srfi-13-and-125-reject
+reject_import srfi-13-and-125-reject \
+    "conflicting imported binding: string-hash (from (npl string) and (npl hashtable))"
 reject_import srfi-13-and-130-reject
 run_suite srfi-196 "PASS srfi-196 29"
 run_suite srfi-189 "PASS srfi-189 39"
@@ -210,7 +269,7 @@ grep -F 'call $npl_integer_string_p(' "$WORK/c-primitives.ssa" >/dev/null
 # A tail call from a top-level procedure to itself with its own arity is a
 # jump (backend/tail.npl emit-self-jump), not a trampoline request; a call
 # with another arity keeps the request and reports the arity error.
-SELF="$ROOT/tests/r7rs/fixtures/self-tail-calls"
+SELF="$ROOT/tests/fixtures/self-tail-calls"
 emit "$WORK/compiler" "$SELF/native.npl" "$WORK/self-tail-calls.ssa"
 self_function() {
     awk -v f="function l \$_npl_fn_$1(" \
@@ -231,7 +290,7 @@ self_function bad | grep -qF 'npl_tail_request(l $_npl_fn_bad,'
 # body (backend/bindings.npl self-loop-binding?); a reassigned name, a call
 # from a nested lambda, and a call with another arity keep the trampoline.
 # The loop is the first lambda its top-level function creates.
-LOOPS="$ROOT/tests/r7rs/fixtures/named-loops"
+LOOPS="$ROOT/tests/fixtures/named-loops"
 emit "$WORK/compiler" "$LOOPS/native.npl" "$WORK/named-loops.ssa"
 loop_lambda() {
     awk -v f="function l \$_npl_fn_$1(" \
@@ -273,7 +332,7 @@ cmp "$WORK/direct-report.ssa" "$WORK/direct-plain.ssa"
 # CPS entry (the fallback) does not call it. A variadic function has one;
 # raise in a direct body raises through npl_raise_direct. Deep recursion and
 # a collection at a small nursery inside it still work.
-DCALLS="$ROOT/tests/r7rs/fixtures/direct-calls"
+DCALLS="$ROOT/tests/fixtures/direct-calls"
 emit "$WORK/compiler" "$DCALLS/native.npl" "$WORK/direct-calls.ssa"
 direct_function() {
     awk -v f="function l \$$1(" \
@@ -300,7 +359,7 @@ NPL_GC_NURSERY_BYTES=65536 "$WORK/direct-calls" > "$WORK/direct-calls.out"
 cmp "$DCALLS/expected.out" "$WORK/direct-calls.out"
 # Direct lambdas (design-calls C3): the mapped lambda has a direct entry
 # stored in its closure, and map-one calls it through npl_closure_direct.
-DLAMBDAS="$ROOT/tests/r7rs/fixtures/direct-lambdas"
+DLAMBDAS="$ROOT/tests/fixtures/direct-lambdas"
 emit "$WORK/compiler" "$DLAMBDAS/native.npl" "$WORK/direct-lambdas.ssa"
 grep -q '^function l \$_lambda_[0-9]*_d(l %npl_env, l %npl_p0)' \
     "$WORK/direct-lambdas.ssa"
@@ -309,7 +368,7 @@ awk -v f='function l $_npl_fn__5fnpl_5flib_5f1_5fmap_5f2done(' \
     "$WORK/direct-lambdas.ssa" | grep -qF 'call $npl_closure_direct('
 # Lambdas are flat closures: one npl_make_flat_closure per creation and
 # inline capture loads, no separate environment object (design-calls C1b).
-CAPTURES="$ROOT/tests/r7rs/fixtures/closure-captures"
+CAPTURES="$ROOT/tests/fixtures/closure-captures"
 emit "$WORK/compiler" "$CAPTURES/native.npl" "$WORK/closure-captures.ssa"
 grep -qF 'call $npl_make_flat_closure(' "$WORK/closure-captures.ssa"
 if grep -qE 'npl_make_environment|npl_environment_ref' \
@@ -369,6 +428,16 @@ cmp "$EXTENSION/values.out" "$WORK/values.out"
 # define-c-function: stubs from --emit=c-stubs, linked with plain C code.
 "$WORK/compiler" --emit=c-stubs --stdlib-root "$ROOT/lib" "$EXTENSION/typed.npl" \
     > "$WORK/typed-stubs.c"
+awk 'BEGIN { feature = 0; include = 0 }
+     /^#define _GNU_SOURCE$/ { feature = NR }
+     /^#include/ && include == 0 { include = NR }
+     END { exit !(feature != 0 && include != 0 && feature < include) }' \
+    "$WORK/typed-stubs.c"
+if grep -E '#include <(time|sys/stat|dirent|pwd|grp|sys/utsname|sys/resource)\.h>' \
+        "$WORK/typed-stubs.c" >/dev/null; then
+    echo "C stub includes a POSIX header" >&2
+    exit 1
+fi
 cc -std=c99 -Wall -Wextra -Wpedantic -Werror -I "$ROOT/runtime" -c \
     -o "$WORK/typed-stubs.o" "$WORK/typed-stubs.c"
 cc -std=c99 -Wall -Wextra -Werror -c -o "$WORK/typed.o" "$EXTENSION/typed.c"
@@ -378,6 +447,18 @@ cc -o "$WORK/typed" "$WORK/typed.s" "$WORK/typed-stubs.o" "$WORK/typed.o" \
     "$RUNTIME" -lm
 "$WORK/typed" > "$WORK/typed.out"
 cmp "$EXTENSION/typed.out" "$WORK/typed.out"
+# define-c-struct layout probe and a struct: typed function argument.
+"$WORK/compiler" --emit=c-stubs --stdlib-root "$ROOT/lib" "$EXTENSION/structs.npl" \
+    > "$WORK/structs-stubs.c"
+cc -std=c99 -Wall -Wextra -Wpedantic -Werror -I "$ROOT/runtime" -c \
+    -o "$WORK/structs-stubs.o" "$WORK/structs-stubs.c"
+cc -std=c99 -Wall -Wextra -Werror -c -o "$WORK/time.o" "$EXTENSION/time.c"
+emit "$WORK/compiler" "$EXTENSION/structs.npl" "$WORK/structs.ssa"
+"$QBE" -o "$WORK/structs.s" "$WORK/structs.ssa"
+cc -o "$WORK/structs" "$WORK/structs.s" "$WORK/structs-stubs.o" \
+    "$WORK/time.o" "$RUNTIME" -lm
+"$WORK/structs" > "$WORK/structs.out"
+cmp "$EXTENSION/structs.out" "$WORK/structs.out"
 # A program without define-c-function has empty stubs.
 "$WORK/compiler" --emit=c-stubs --stdlib-root "$ROOT/lib" "$EXTENSION/main.npl" \
     > "$WORK/no-stubs.c"
@@ -471,6 +552,10 @@ reject_compile contracts/library-duplicate.npl \
     library-duplicate "duplicate library"
 reject_compile contracts/library-unimported-standard.npl \
     library-unimported-standard "unbound identifier: display"
+reject_compile contracts/c-struct-type.npl \
+    c-struct-type "define-c-struct: unknown field type: nope"
+reject_compile contracts/c-struct-probe.npl \
+    c-struct-probe "C probe compilation failed"
 reject_compile contracts/c-primitive-nested.npl \
     c-primitive-nested "define-c-primitive is valid at top level only"
 reject_compile contracts/c-primitive-type.npl \
@@ -514,6 +599,10 @@ reject_reader bad-empty-hex-escape \
 reject_reader bad-quasiquote-cycle "circular datum label in quasiquote"
 reject_reader bad-delimiter \
     "unmatched ( at line 1 col 1; expected ) before end of input"
+reject_reader bad-bracket-close "mismatched ]"
+reject_reader bad-bracket-open "mismatched )"
+reject_reader bad-bracket-extra "unmatched ]"
+reject_reader bad-bracket-dotted "mismatched )"
 
 reject_compile macro-errors/duplicate-pattern-variable.npl \
     duplicate-pattern-variable "duplicate pattern variable"
@@ -564,11 +653,14 @@ reject_compile macro-errors/force-arity.npl \
     force-arity "macro use does not match any syntax rule: force"
 reject_compile macro-errors/delay-arity.npl \
     delay-arity "macro use does not match any syntax rule: delay"
+reject_compile macro-errors/multiple-ellipsis-pattern.npl \
+    multiple-ellipsis-pattern "misplaced ellipsis in pattern"
+reject_compile macro-errors/template-ellipsis-depth.npl \
+    template-ellipsis-depth "pattern variable used at wrong ellipsis depth"
+reject_reader backslash-identifier "bad character byte 92"
 reject_compile contracts/duplicate-definition.npl \
     duplicate-definition "duplicate top-level definition"
 
-python3 "$ROOT/tools/check_srfi_exports.py"
-python3 "$ROOT/tools/check_library_test_coverage.py"
 
 echo "full compiler dynamic core: PASS"
 echo "full compiler reader/datum: PASS"

@@ -55,6 +55,7 @@ message(STATUS "  QBE:        ${QBE_BIN}")
 # Tests are driven by tools/run_tests.sh, not CTest (docs/testing.md).
 add_subdirectory(tools)
 add_subdirectory(runtime)
+add_subdirectory(lib)
 add_subdirectory(bootstrap/runtime)
-add_subdirectory(stage0)
+add_subdirectory(bootstrap/stage0 stage0)
 include(cmake/NplToolchain.cmake)

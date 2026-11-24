@@ -1,0 +1,6 @@
+(import (scheme base) (scheme write) (npl ffi) (npl unix))
+(define p (foreign-alloc 64))
+(display "before") (newline)
+(write (guard (e (#t (list 'raised (error-object-message e))))
+  (read-directory p)))
+(newline)

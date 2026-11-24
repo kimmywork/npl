@@ -1,378 +1,4 @@
-; syntax-rules matcher and hygienic template transcription.
-
-; Syntax marks: an eq hash table from identifier to mark, 0 when absent.
-(define SYNTAX-MARKS (cell (npl_make_hash_table 0 #f #f 0)))
-
-(define (new-mark-table) (npl_make_hash_table 0 #f #f 0))
-(define SYNTAX-NEXT-MARK (cell 0))
-; Definition-site bindings for spliced macro output (transcription.npl).
-(define TRANSCRIPTION-ALIASES (cell ()))
-(define TRANSCRIPTION-MACRO-ALIASES (cell ()))
-; Top-level definition naming and final environment (expand.npl).
-(define TOP-DEFINITION-PREFIX (cell ""))
-(define TOP-VALUE-ENVIRONMENT (cell ()))
-(define MATCH-FAIL '(_syntax_match_fail_))
-(define CURRENT-PATTERN-VARIABLES (cell ()))
-(define NO-REPEAT-COUNT 1000000000)
-(define CURRENT-REPEAT-DRIVER-DEPTH (cell 1000000000))
-(define UNINITIALIZED-SYNTAX '(_uninitialized_syntax_))
-
-(define (syntax-atomic? value)
-  (if (datum-symbol? value)
-      #t
-      (if (datum-string? value)
-          #t
-          (if (datum-char? value)
-              #t
-              (if (datum-vector? value)
-                  #t
-                  (if (datum-bytevector? value)
-                      #t
-                      (if (datum-true? value)
-                          #t
-                          (datum-false? value))))))))
-
-(define (identifier-mark identifier)
-  (npl_hash_table_ref (cell-get SYNTAX-MARKS) identifier 0))
-
-(define (set-identifier-mark! identifier mark)
-  (npl_hash_table_set (cell-get SYNTAX-MARKS) identifier mark))
-
-(define (fresh-syntax-mark)
-  (cell-set! SYNTAX-NEXT-MARK (+ 1 (cell-get SYNTAX-NEXT-MARK)))
-  (cell-get SYNTAX-NEXT-MARK))
-
-(define (lookup-value-binding identifier environment)
-  (let ((name (datum-symbol-name identifier))
-        (mark (identifier-mark identifier)))
-    (let ((binding (lookup-value-binding-key name mark environment)))
-      (if (> (string-length binding) 0)
-          binding
-          (lookup-value-binding-key
-            name mark (cell-get TRANSCRIPTION-ALIASES))))))
-
-; Compute the lookup key once, not once per environment entry.
-; An entry is (name mark emitted); an alias layer (#f mark definition-env)
-; (transcription.npl): identifiers with that mark see every binding of their
-; name in definition-env, innermost first; or a global layer (#f #f table)
-; (value-binding-layer): a string hash table from name to its
-; ((mark . emitted) ...), innermost first, standing for that many entries.
-(define (lookup-value-binding-key name mark environment)
-  (if (null? environment)
-      ""
-      (let ((entry (car environment)))
-        (if (car entry)
-            (if (if (string=? name (car entry))
-                    (= mark (car (cdr entry)))
-                    #f)
-                (car (cdr (cdr entry)))
-                (lookup-value-binding-key name mark (cdr environment)))
-            (let ((found
-                    (if (car (cdr entry))
-                        (if (= mark (car (cdr entry)))
-                            (lookup-value-binding-any-mark
-                              name (car (cdr (cdr entry))))
-                            "")
-                        (layer-binding-with-mark
-                          (npl_hash_table_ref (car (cdr (cdr entry))) name ())
-                          mark))))
-              (if (> (string-length found) 0)
-                  found
-                  (lookup-value-binding-key name mark (cdr environment))))))))
-
-(define (lookup-value-binding-any-mark name environment)
-  (if (null? environment)
-      ""
-      (let ((entry (car environment)))
-        (if (car entry)
-            (if (string=? name (car entry))
-                (car (cdr (cdr entry)))
-                (lookup-value-binding-any-mark name (cdr environment)))
-            (let ((found
-                    (if (car (cdr entry))
-                        (lookup-value-binding-any-mark
-                          name (car (cdr (cdr entry))))
-                        (let ((bindings
-                                (npl_hash_table_ref
-                                  (car (cdr (cdr entry))) name ())))
-                          (if (null? bindings) "" (cdr (car bindings)))))))
-              (if (> (string-length found) 0)
-                  found
-                  (lookup-value-binding-any-mark
-                    name (cdr environment))))))))
-
-(define (layer-binding-with-mark bindings mark)
-  (if (null? bindings)
-      ""
-      (if (= mark (car (car bindings)))
-          (cdr (car bindings))
-          (layer-binding-with-mark (cdr bindings) mark))))
-
-; One global layer over environment for identifiers, each bound to its own
-; name as add-value-binding would (later ones shadow earlier ones). The table
-; is new and never changed, so environments stay persistent.
-(define (value-binding-layer identifiers environment)
-  (let ((table (npl_make_hash_table 3 #f #f 0)))
-    (fill-value-binding-layer table identifiers)
-    (cons (cons #f (cons #f (cons table ()))) environment)))
-
-(define (fill-value-binding-layer table identifiers)
-  (if (pair? identifiers)
-      (let ((name (datum-symbol-name (car identifiers))))
-        (npl_hash_table_set table name
-          (cons (cons (identifier-mark (car identifiers)) name)
-                (npl_hash_table_ref table name ())))
-        (fill-value-binding-layer table (cdr identifiers)))))
-
-(define (add-value-binding identifier emitted environment)
-  (cons (cons (datum-symbol-name identifier)
-              (cons (identifier-mark identifier) (cons emitted ())))
-        environment))
-
-(define (lookup-macro-binding identifier environment)
-  (let ((found (lookup-macro-cell identifier environment)))
-    (if (null? found) () (cell-get found))))
-
-; Cell for a keyword; spliced macro output falls back to its aliases.
-(define (lookup-macro-cell identifier environment)
-  (let ((name (datum-symbol-name identifier))
-        (mark (identifier-mark identifier)))
-    (let ((found (lookup-macro-cell-key name mark environment)))
-      (if (null? found)
-          (lookup-macro-cell-key
-            name mark (cell-get TRANSCRIPTION-MACRO-ALIASES))
-          found))))
-
-; Alias layers as in lookup-value-binding-key.
-(define (lookup-macro-cell-key name mark environment)
-  (if (null? environment)
-      ()
-      (let ((entry (car environment)))
-        (if (car entry)
-            (if (if (string=? name (car entry)) (= mark (car (cdr entry))) #f)
-                (macro-entry-cell entry)
-                (lookup-macro-cell-key name mark (cdr environment)))
-            (let ((aliased
-                    (if (= mark (car (cdr entry)))
-                        (lookup-macro-cell-any-mark
-                          name (car (cdr (cdr entry))))
-                        ())))
-              (if (null? aliased)
-                  (lookup-macro-cell-key name mark (cdr environment))
-                  aliased))))))
-
-(define (lookup-macro-cell-any-mark name environment)
-  (if (null? environment)
-      ()
-      (let ((entry (car environment)))
-        (if (car entry)
-            (if (string=? name (car entry))
-                (macro-entry-cell entry)
-                (lookup-macro-cell-any-mark name (cdr environment)))
-            (let ((aliased
-                    (lookup-macro-cell-any-mark
-                      name (car (cdr (cdr entry))))))
-              (if (null? aliased)
-                  (lookup-macro-cell-any-mark name (cdr environment))
-                  aliased))))))
-
-(define (add-macro-cell-binding identifier transformer-cell environment)
-  (cons (cons (datum-symbol-name identifier)
-              (cons (identifier-mark identifier)
-                    (cons transformer-cell ())))
-        environment))
-
-(define (add-macro-binding identifier transformer environment)
-  (add-macro-cell-binding identifier (cell transformer) environment))
-
-(define (macro-entry-cell entry) (car (cdr (cdr entry))))
-
-(define (syntax-atom-equal? left right)
-  (cond
-    ((if (number? left) (number? right) #f) (= left right))
-    ((if (datum-symbol? left) (datum-symbol? right) #f)
-     (string=? (datum-symbol-name left) (datum-symbol-name right)))
-    ((if (datum-string? left) (datum-string? right) #f)
-     (string=? (datum-string-text left) (datum-string-text right)))
-    ((if (datum-char? left) (datum-char? right) #f)
-     (= (datum-char-code left) (datum-char-code right)))
-    ((if (datum-true? left) (datum-true? right) #f) #t)
-    ((if (datum-false? left) (datum-false? right) #f) #t)
-    (else #f)))
-
-(define (syntax-equal? left right)
-  (cond
-    ((if (null? left) (null? right) #f) #t)
-    ((syntax-atom-equal? left right) #t)
-    ((if (datum-vector? left) (datum-vector? right) #f)
-     (syntax-equal? (datum-vector-items left) (datum-vector-items right)))
-    ((if (datum-bytevector? left) (datum-bytevector? right) #f)
-     (syntax-equal? (datum-bytevector-items left)
-                    (datum-bytevector-items right)))
-    ((if (pair? left) (pair? right) #f)
-     (if (syntax-equal? (car left) (car right))
-         (syntax-equal? (cdr left) (cdr right))
-         #f))
-    (else #f)))
-
-; A pattern identifier is a literal when it is the same identifier as one in
-; the literal list: same name and same syntax mark (bound-identifier=?).
-; An identifier a macro inserted into a pattern is a different identifier
-; from a user-written literal of the same name (R7RS 4.3.2; chibi
-; r7rs-tests "bound-identifier=?").
-(define (literal-identifier? identifier literals)
-  (if (null? literals)
-      #f
-      (if (if (string=? (datum-symbol-name identifier)
-                        (datum-symbol-name (car literals)))
-              (= (identifier-mark identifier) (identifier-mark (car literals)))
-              #f)
-          #t
-          (literal-identifier? identifier (cdr literals)))))
-
-(define (active-ellipsis? identifier ellipsis literals)
-  (if (not (datum-symbol? identifier))
-      #f
-      (if (literal-identifier? identifier literals)
-          #f
-          (string=? (datum-symbol-name identifier) ellipsis))))
-
-(define (literal-identifier-match? pattern input definition-env use-env)
-  (if (not (datum-symbol? input))
-      #f
-      (if (not (string=? (datum-symbol-name pattern)
-                         (datum-symbol-name input)))
-          #f
-          (string=?
-            (literal-binding-key
-              pattern (lookup-value-binding pattern definition-env))
-            (literal-binding-key
-              input (lookup-value-binding input use-env))))))
-
-; Both unbound, or the same binding. A primitive is one binding however it
-; is reached: free in a program without imports or an npli session, bound
-; to its own name by (npl internal primitive), or, for = and the other numeric
-; operators, exported by (scheme base) as the validating procedure that
-; stands for it (numeric-aliases.npl), as in match's (= f p).
-(define (literal-binding-key identifier binding)
-  (if (= (string-length binding) 0)
-      (if (primitive-row (datum-symbol-name identifier))
-          (datum-symbol-name identifier)
-          "")
-      (let ((primitive (numeric-alias-primitive-name binding)))
-        (if (> (string-length primitive) 0) primitive binding))))
-
-;; Pattern variables are identifiers: a template symbol refers to a pattern
-;; variable only if it has the same name and syntax mark, so an identifier
-;; one macro inserts into another macro's rules does not capture the user's
-;; identifier of the same name (bound-identifier=?, R7RS 4.3.2).
-(define (pattern-key identifier)
-  (let ((mark (identifier-mark identifier)))
-    (if (= mark 0)
-        (datum-symbol-name identifier)
-        (string-append (datum-symbol-name identifier)
-          (string-append (int->string 1) (number->string mark))))))
-
-; variable descriptor = (key . repetition-depth)
-(define (variable-descriptor name variables)
-  (if (null? variables)
-      ()
-      (if (string=? name (car (car variables)))
-          (car variables)
-          (variable-descriptor name (cdr variables)))))
-
-(define (validate-pattern pattern literals ellipsis depth variables)
-  (cond
-    ((datum-symbol? pattern)
-     (let ((name (datum-symbol-name pattern)))
-       (if (if (string=? name "_")
-               #t
-               (literal-identifier? pattern literals))
-           variables
-           (if (active-ellipsis? pattern ellipsis literals)
-               (fatal "misplaced ellipsis in pattern")
-               (if (not (null? (variable-descriptor
-                                 (pattern-key pattern) variables)))
-                   (fatal "duplicate pattern variable")
-                   (cons (cons (pattern-key pattern) depth) variables))))))
-    ((datum-vector? pattern)
-     (validate-pattern-list (datum-vector-items pattern)
-                            literals ellipsis depth variables))
-    ((datum-string? pattern) variables)
-    ((datum-char? pattern) variables)
-    ((datum-bytevector? pattern) variables)
-    ((datum-true? pattern) variables)
-    ((datum-false? pattern) variables)
-    ((pair? pattern)
-     (validate-pattern-list pattern literals ellipsis depth variables))
-    (else variables)))
-
-(define (validate-pattern-list patterns literals ellipsis depth variables)
-  (if (null? patterns)
-      variables
-      (if (syntax-atomic? patterns)
-          (validate-pattern patterns literals ellipsis depth variables)
-          (if (pair? patterns)
-              (if (if (pair? (cdr patterns))
-                      (active-ellipsis? (car (cdr patterns))
-                                        ellipsis literals)
-                      #f)
-                  (let ((after-repeat
-                          (validate-pattern (car patterns) literals ellipsis
-                                            (+ depth 1) variables)))
-                    (validate-pattern-list (cdr (cdr patterns))
-                                           literals ellipsis depth after-repeat))
-                  (let ((after-head
-                          (validate-pattern (car patterns) literals ellipsis
-                                            depth variables)))
-                    (validate-pattern-list (cdr patterns) literals ellipsis
-                                           depth after-head)))
-              (validate-pattern patterns literals ellipsis depth variables)))))
-
-(define (validate-rule rule literals ellipsis)
-  (if (not (= (raw-list-count rule 0) 2))
-      (fatal "syntax rule must contain a pattern and template"))
-  (let ((pattern (car rule)))
-    (if (not (pair? pattern)) (fatal "syntax rule pattern must be a list"))
-    (if (not (datum-symbol? (car pattern)))
-        (fatal "syntax rule pattern must start with an identifier"))
-    (let ((variables
-            (validate-pattern-list (cdr pattern)
-                                   literals ellipsis 0 ())))
-      (cons pattern
-        (cons (car (cdr rule))
-          (cons variables ()))))))
-
-(define (validate-rules rules literals ellipsis)
-  (if (null? rules)
-      ()
-      (if (pair? rules)
-          (cons (validate-rule (car rules) literals ellipsis)
-                (validate-rules (cdr rules) literals ellipsis))
-          (fatal "syntax-rules rules must be a proper list"))))
-
-(define (name-in-literal-tail? name literals)
-  (if (null? literals)
-      #f
-      (if (not (datum-symbol? (car literals)))
-          #f
-          (if (string=? name (datum-symbol-name (car literals)))
-              #t
-              (name-in-literal-tail? name (cdr literals))))))
-
-(define (validate-literals literals)
-  (if (null? literals)
-      literals
-      (if (pair? literals)
-          (if (datum-symbol? (car literals))
-              (begin
-                (if (name-in-literal-tail?
-                      (datum-symbol-name (car literals)) (cdr literals))
-                    (fatal "duplicate syntax literal"))
-                (validate-literals (cdr literals))
-                literals)
-              (fatal "syntax literal must be an identifier"))
-          (fatal "syntax literal list must be proper"))))
+; Syntax-rule matching, template transcription, and transformer construction.
 
 ; A syntax-rules transformer: the optional ellipsis identifier (else
 ; "..."), the literal identifiers, the annotated rules, and the value and
@@ -389,9 +15,77 @@
   (definition-env transformer-definition-env)
   (definition-macro-env transformer-definition-macro-env))
 
-(define (parse-syntax-rules specification definition-env definition-macro-env)
-  (if (not (raw-form? specification "syntax-rules"))
-      (fatal "transformer must be syntax-rules"))
+(define-record-type procedural-transformer
+  (make-procedural-transformer specification definition-env
+                                definition-macro-env)
+  procedural-transformer?
+  (specification procedural-transformer-specification)
+  (definition-env procedural-transformer-definition-env)
+  (definition-macro-env procedural-transformer-definition-macro-env))
+
+(define (lambda-transformer? specification)
+  (if (raw-form? specification "lambda")
+      (let ((formals (car (cdr specification))))
+        (if (datum-symbol? formals) #t (pair? formals)))
+      #f))
+
+(define (declarative-clause? clause)
+  (if (pair? clause)
+      (if (pair? (cdr clause))
+          (raw-form? (car (cdr clause)) "syntax")
+          #f)
+      #f))
+
+(define (declarative-clauses? clauses)
+  (if (null? clauses)
+      #t
+      (if (declarative-clause? (car clauses))
+          (declarative-clauses? (cdr clauses))
+          #f)))
+
+; A syntax-case whose every clause is (pattern (syntax template)) is lowered
+; to syntax-rules. Anything else in a lambda transformer is procedural and
+; evaluated by frontend/syntax-eval.npl.
+(define (declarative-syntax-case? specification)
+  (if (raw-form? specification "lambda")
+      (let ((body (cdr (cdr specification))))
+        (if (pair? body)
+            (let ((form (car body)))
+              (if (raw-form? form "syntax-case")
+                  (declarative-clauses? (cdr (cdr (cdr form))))
+                  #f))
+            #f))
+      #f))
+
+(define (parse-syntax-case specification definition-env definition-macro-env)
+  (let* ((lambda-body (car (cdr (cdr specification))))
+         (parts (cdr lambda-body)))
+    (if (null? parts) (fatal "syntax-case needs an expression"))
+    (let ((literals (car (cdr parts)))
+          (clauses (cdr (cdr parts))))
+      (validate-literals literals)
+      (if (null? clauses) (fatal "syntax-case needs a clause"))
+      (let ((rules
+              (let loop ((items clauses) (result ()))
+                (if (null? items)
+                    (rev result)
+                    (let ((clause (car items)))
+                      (if (not (pair? clause))
+                          (fatal "malformed syntax-case clause"))
+                      (let ((pattern (car clause))
+                            (body (car (cdr clause))))
+                        (if (not (raw-form? body "syntax"))
+                            (fatal "syntax-case template must use syntax"))
+                        (loop (cdr items)
+                              (cons (cons pattern
+                                          (cons (car (cdr body)) ()))
+                                    result))))))))
+        (make-syntax-transformer "..." literals
+                                 (validate-rules rules literals "...")
+                                 definition-env definition-macro-env)))))
+
+(define (parse-syntax-rules-form specification definition-env
+                                  definition-macro-env)
   (let ((parts (cdr specification)))
     (if (null? parts) (fatal "syntax-rules needs literals and rules"))
     (let ((ellipsis
@@ -412,6 +106,18 @@
                                        definition-env
                                        definition-macro-env))))))))
 
+(define (parse-syntax-rules specification definition-env definition-macro-env)
+  (if (raw-form? specification "syntax-rules")
+      (parse-syntax-rules-form specification definition-env
+                               definition-macro-env)
+      (if (lambda-transformer? specification)
+          (if (declarative-syntax-case? specification)
+              (parse-syntax-case specification definition-env
+                                 definition-macro-env)
+              (make-procedural-transformer specification definition-env
+                                           definition-macro-env))
+          (fatal "transformer must be syntax-rules or lambda"))))
+
 ; A pattern variable's binding: its name, the ellipsis path it was matched
 ; at, and the matched input.
 (define-record-type syntax-capture
@@ -422,15 +128,6 @@
 
 (define (add-capture name path value captures)
   (cons (make-syntax-capture name path value) captures))
-
-(define (path-equal? left right)
-  (if (null? left)
-      (null? right)
-      (if (null? right)
-          #f
-          (if (= (car left) (car right))
-              (path-equal? (cdr left) (cdr right))
-              #f))))
 
 (define (path-prefix? prefix path)
   (if (null? prefix)
@@ -454,12 +151,17 @@
 (define (path-length path)
   (if (null? path) 0 (+ 1 (path-length (cdr path)))))
 
+(define (path-take path count)
+  (if (= count 0)
+      ()
+      (cons (car path) (path-take (cdr path) (- count 1)))))
+
 (define (capture-exact name path captures)
   (if (null? captures)
       ()
       (let ((capture (car captures)))
         (if (if (string=? name (capture-name capture))
-                (path-equal? path (capture-path capture))
+                (number-list=? path (capture-path capture))
                 #f)
             capture
             (capture-exact name path (cdr captures))))))
@@ -592,7 +294,7 @@
   (cond
     ((datum-symbol? template)
      (let ((descriptor
-             (variable-descriptor
+             (string-assoc
                (pattern-key template)
                (cell-get CURRENT-PATTERN-VARIABLES))))
        (if (null? descriptor)
@@ -623,7 +325,7 @@
   (cond
     ((datum-symbol? template)
      (let ((descriptor
-             (variable-descriptor
+             (string-assoc
                (pattern-key template)
                (cell-get CURRENT-PATTERN-VARIABLES))))
        (if (null? descriptor)
@@ -668,7 +370,7 @@
   (cond
     ((datum-symbol? template)
      (let ((descriptor
-             (variable-descriptor
+             (string-assoc
                (pattern-key template)
                (cell-get CURRENT-PATTERN-VARIABLES))))
        (if (null? descriptor)
@@ -682,11 +384,15 @@
                  (fatal "misplaced ellipsis in template"))
              (let ((copy (datum-symbol (datum-symbol-name template))))
                (set-identifier-mark! copy mark)
+               (set-identifier-source-mark! copy (identifier-mark template))
                copy))
-           (if (not (= (cdr descriptor) (path-length path)))
+           (if (> (cdr descriptor) (path-length path))
                (fatal "pattern variable used at wrong ellipsis depth")
                (let ((capture
-                       (capture-exact (car descriptor) path captures)))
+                       (capture-exact
+                         (car descriptor)
+                         (path-take path (cdr descriptor))
+                         captures)))
                  (if (null? capture)
                      (fatal "missing pattern capture")
                      (capture-value capture)))))))
@@ -706,6 +412,26 @@
          (clone-template-list template transformer captures
                               mark path enabled)))
     (else template)))
+
+(define (clone-repeated-template-levels template levels transformer captures
+                                        mark path enabled)
+  (if (= levels 0)
+      (cons (clone-template template transformer captures mark path enabled) ())
+      (let ((count (template-repeat-count template transformer captures path)))
+        (let ((count (if (= count NO-REPEAT-COUNT)
+                         (if (> (path-length path) 0)
+                             1
+                             (fatal "ellipsis template has no repeated pattern variable"))
+                         count)))
+          (let loop ((index 0) (result '()))
+            (if (= index count)
+                result
+                (loop (+ index 1)
+                      (append-forms
+                        result
+                        (clone-repeated-template-levels
+                          template (- levels 1) transformer captures mark
+                          (path-append-index path index) enabled)))))))))
 
 (define (clone-repeated-template template count index transformer captures
                                  mark path enabled)
@@ -731,18 +457,18 @@
                             (transformer-literals transformer))
                           #f)
                       #f)
-                  (let ((count
-                          (template-repeat-count (car templates)
-                                                 transformer captures path)))
-                    (if (= count NO-REPEAT-COUNT)
-                        (fatal "ellipsis template has no repeated pattern variable"))
+                  (let ((levels
+                          (ellipsis-count-from
+                            (cdr templates)
+                            (transformer-ellipsis transformer)
+                            (transformer-literals transformer) 0)))
                     (append-forms
-                      (clone-repeated-template
-                        (car templates) count 0 transformer captures
+                      (clone-repeated-template-levels
+                        (car templates) levels transformer captures
                         mark path enabled)
                       (clone-template-list
-                        (cdr (cdr templates)) transformer captures
-                        mark path enabled)))
+                        (drop-forms (cdr templates) levels)
+                        transformer captures mark path enabled)))
                   (cons
                     (clone-template (car templates) transformer captures
                                     mark path enabled)
@@ -761,6 +487,9 @@
           (let ((captures
                   (match-pattern-list (cdr pattern) (cdr use)
                     transformer use-env () ())))
+            (cell-set! CURRENT-TRANSCRIPTION-CAPTURES captures)
+            (cell-set! CURRENT-TRANSCRIPTION-VARIABLES
+                       (car (cdr (cdr rule))))
             (if (eq? captures MATCH-FAIL)
                 (transcribe-rules (cdr rules) use transformer use-env)
                 (let ((mark (fresh-syntax-mark)))

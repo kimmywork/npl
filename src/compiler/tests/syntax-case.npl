@@ -1,0 +1,40 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context))
+
+(include "framework.npl")
+
+(define-syntax cases-list
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ item ...) (syntax (list item ...))])))
+
+(define-syntax cases-when
+  (lambda (stx)
+    (syntax-case stx (else)
+      [(_ else body ...) (syntax (begin body ...))]
+      [(_ test body ...) (syntax (if test (begin body ...)))])))
+
+(define-syntax cases-nested
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ (head item ...) ...)
+       (syntax (list (list 'head item ...) ...))])))
+
+(define (main)
+  (test-identity "declarative syntax-case"
+                 (lambda () (equal? (cases-list 1 2 3) '(1 2 3)))
+                 #t)
+  (test-identity "syntax-case literal clause"
+                 (lambda () (equal? (cases-when else 42) 42))
+                 #t)
+  (test-identity "syntax-case expression clause"
+                 (lambda () (equal? (cases-when #t 41 42) 42))
+                 #t)
+  (test-identity "syntax-case nested ellipsis"
+                 (lambda ()
+                   (equal? (cases-nested (a 1 2) (b 3))
+                           '((a 1 2) (b 3))))
+                 #t)
+  (finish-tests "syntax-case"))
+(main)

@@ -1,0 +1,23 @@
+; Run one expect-style fixture using the NPL expect runner.
+(import (scheme base)
+        (scheme process-context)
+        (npl process)
+        (npl test expect))
+
+(define (main)
+  (let ((arguments (cdr (command-line))))
+    (if (null? arguments)
+        (begin
+          (display "usage: expect-runner.npl FIXTURE-DIR" (current-error-port))
+          (newline (current-error-port))
+          (exit 2))
+        (let ((fixture (car arguments))
+              (nplc (if (get-environment-variable "NPLC")
+                        (get-environment-variable "NPLC")
+                        "build/bin/nplc"))
+              (npli (if (get-environment-variable "NPLI")
+                        (get-environment-variable "NPLI")
+                        "build/bin/npli")))
+          (exit (if (run-fixture fixture nplc npli) 0 1))))))
+
+(main)

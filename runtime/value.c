@@ -73,18 +73,31 @@ NplVal npl_record_p(NplVal value, NplVal type)
         ? npl_true() : npl_false();
 }
 
-/* Field indexes are 1-based (slot 0 is the type) and validated by the
- * define-record-type expansion, so only the type is checked here. */
+/* Field indexes are 1-based (slot 0 is the type).  The expansion normally
+ * supplies a constant, but internal primitives and malformed emitted code can
+ * reach these with an arbitrary index, so validate it here too. */
+static int64_t record_field_index(NplVector *record, NplVal index,
+                                  const char *who)
+{
+    int64_t field;
+    if (!npl_is_fixnum(index))
+        npl_primitive_error(who, "expected an exact integer index", index);
+    field = npl_fixnum_value(index);
+    if (field < 1 || (uint64_t)field >= (uint64_t)record->length)
+        npl_primitive_error(who, "record index out of bounds", index);
+    return field;
+}
+
 NplVal npl_record_ref(NplVal value, NplVal type, NplVal index)
 {
     NplVector *record = require_record(value, type, "record accessor");
-    return record->data[npl_fixnum_value(index)];
+    return record->data[record_field_index(record, index, "record accessor")];
 }
 
 NplVal npl_record_set(NplVal value, NplVal type, NplVal index, NplVal field)
 {
     NplVector *record = require_record(value, type, "record modifier");
-    record->data[npl_fixnum_value(index)] = field;
+    record->data[record_field_index(record, index, "record modifier")] = field;
     npl_gc_write_barrier(record, field);
     return npl_unspecified();
 }
@@ -372,10 +385,9 @@ NplVal npl_append(NplVal left, NplVal right)
 NplVal npl_rest_arguments(int64_t argc, NplVal *argv, int64_t fixed,
                           int64_t trailing)
 {
-    if (argc < 0 || fixed < 0 || trailing < 0 || fixed + trailing > argc) {
-        fprintf(stderr, "procedure: invalid rest argument range\n");
-        exit(1);
-    }
+    if (argc < 0 || fixed < 0 || trailing < 0 || fixed + trailing > argc)
+        npl_primitive_error("procedure", "wrong number of arguments",
+                            npl_fixnum(argc));
     NplVal rest = npl_nil();
     npl_gc_root(&rest);
     for (int64_t i = argc - trailing; i > fixed; i--)

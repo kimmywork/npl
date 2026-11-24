@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>SRFI 181: Custom ports (including transcoded ports)</title>
+    <link href="/favicon.png" rel="icon" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="https://srfi.schemers.org/srfi.css" type="text/css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  </head>
+
+  <body>
+    <h1><a href="https://srfi.schemers.org/"><img class="srfi-logo" src="https://srfi.schemers.org/srfi-logo.svg" alt="SRFI logo" /></a>181: Custom ports (including transcoded ports)</h1>
+
+<p>by the R6RS editors; John Cowan (shepherd)</p>
+
+<h2>Status</h2>
+
+<p>This SRFI is currently in <em>final</em> status.  Here is <a href="https://srfi.schemers.org/srfi-process.html">an explanation</a> of each status that a SRFI can hold.  To provide input on this SRFI, please send email to <code><a href="mailto:srfi+minus+181+at+srfi+dotschemers+dot+org">srfi-181@<span class="antispam">nospam</span>srfi.schemers.org</a></code>.  To subscribe to the list, follow <a href="https://srfi.schemers.org/srfi-list-subscribe.html">these instructions</a>.  You can access previous messages via the mailing list <a href="https://srfi-email.schemers.org/srfi-181">archive</a>.</p>
+<ul>
+  <li>Received: 2020-02-15</li>
+  <li>Draft #1 published: 2020-02-15</li>
+  <li>Draft #2 published: 2020-02-08</li>
+  <li>Draft #3 published: 2020-04-15</li>
+  <li>Draft #4 published: 2020-05-12</li>
+  <li>Draft #5 published: 2020-06-16</li>
+  <li>Draft #6 published: 2020-07-02</li>
+  <li>Draft #7 published: 2020-07-08</li>
+  <li>Draft #8 published: 2020-08-23</li>
+  <li>Draft #9 published: 2020-08-28</li>
+  <li>Finalized: 2020-09-08</li>
+  <li>Revised to fix errata:
+    <ul>
+      <li>2026-07-09 (Referenced SRFI 191 where SRFI 192 Port
+      Positioning was meant.)</li></ul></li>
+</ul>
+
+<h2>Abstract</h2>
+
+<p>This SRFI is derived from parts of
+<a href="http://www.r6rs.org/final/html/r6rs-lib/r6rs-lib-Z-H-1.html#node_toc_node_sec_8.2.4">
+library section 8.2.4</a>,
+<a href="http://www.r6rs.org/final/html/r6rs-lib/r6rs-lib-Z-H-9.html#node_sec_8.2.7">
+library section 8.2.7</a>,
+<a href="http://www.r6rs.org/final/html/r6rs-lib/r6rs-lib-Z-H-9.html#node_sec_8.2.10">
+library section 8.2.10</a>, and
+<a href="http://www.r6rs.org/final/html/r6rs-lib/r6rs-lib-Z-H-9.html#node_sec_8.2.13">
+library section 8.2.13</a>
+of the R6RS.
+These sections are themselves based on parts of
+<a href="http://srfi.schemers.org/srfi-79/srfi-79.html">SRFI 79</a>,
+<a href="http://srfi.schemers.org/srfi-80/srfi-80.html">SRFI 80</a> and
+<a href="http://srfi.schemers.org/srfi-81/srfi-81.html">SRFI 81</a>.
+These procedures provide a hook into the Scheme port system from below, allowing the
+creation of custom ports that behave as much as possible like the standard
+file, string, and bytevector ports, but that call a procedure to produce
+data to input ports or to consume data from output ports.
+Procedures for creating ports that transcode
+between bytes and characters are an important special
+case and are also documented in this SRFI.
+</p>
+
+<h2>Rationale</h2>
+
+<p>When reading from (or writing to) files, devices, pipes, sockets,
+or other sources (or sinks) of data, it's often useful or necessary
+to perform one or more transformations on the data.</p>
+
+<p>All of these can be done at a level above Scheme ports, but with some
+loss in convenience.  In particular, the high-level Scheme I/O procedures
+like <code>read</code>, <code>write</code>, and <code>display</code>
+only accept port arguments.  By making it possible to create custom ports
+that accept a low-level read (write) operation, perform a transformation,
+and pass it on to some other port, convenience is served.  It is also
+straightforward to chain custom ports together
+in order to create transformation pipelines.</p>
+
+<p>Examples of such transformations are:</p>
+<ul>
+<li>compression and decompression</li>
+<li>encryption and decryption</li>
+<li>character encoding and decoding</li>
+<li>concatenation of multiple input ports</li>
+<li>broadcasting to multiple output ports simultaneously</li>
+<li>input ports that echo their input to a specified output port</li>
+<li>ports which read from or write to a port<br>
+which is the value of a parameter at the time of the read or write</li>
+<li>script transliteration</li>
+<li>code obfuscation</li>
+</ul>
+
+<p>A very important case of transformation is character encoding
+and decoding.  It's sometimes useful or necessary
+to handle textual data that are encoded differently from the system default encoding.
+This SRFI provides comprehensive facilities for handling
+many different encodings by creating a custom textual port on top of a binary port.
+</p>
+
+<h2>Specification</h2>
+
+<p>Note: The effect of <code>char-ready?</code> and <code>u8-ready?</code>
+on custom ports is unspecified.</p>
+
+<h3>Custom ports in general</h3>
+
+<p>The types of the arguments to the procedures of this section of this SRFI
+are as follows:</p>
+<ul>
+<li><p>The <i>id</i> is an arbitrary object.
+It is meant to be used to help the implementation
+distinguish ports.
+This SRFI does not provide any mechanism to
+retrieve the id from a port.</p></li>
+<li><p>The <i>read!</i> and <i>write!</i> arguments
+are procedures that behave as specified below.
+<li><p>The <i>get-position</i> and <i>set-position!</i>
+arguments may be procedures or <code>#f</code>, in which case calls to
+<a href="https://srfi.schemers.org/srfi-192/srfi-192.html">
+SRFI 192</a> <code>port-position</code> and <code>set-port-position!</code>
+respectively on the procedures are errors.
+<li><p>The <i>close</i> argument may be a procedure
+that takes no arguments
+and performs any required actions when the port is closed,
+or <code>#f</code>, in which case no action is taken.
+<li><p>The optional <i>flush</i> argument may be a procedure
+that takes no arguments
+and performs any necessary actions when the port is flushed,
+or <code>#f</code> or omitted, in which case no action is taken.
+</ul>
+
+
+<div><code>(make-custom-binary-input-port </code><i>id</i> <i>read!</i>
+<i>get-position</i>&nbsp;<i>set-position!</i>&nbsp;<i>close</i>)</div><p>
+Returns a newly created binary input port whose byte source is
+an arbitrary algorithm represented by the <i>read!</i> procedure.
+<ul>
+<li><p>(<i>read!</i> <i>bytevector</i> <i>start</i> <i>count</i>)</p>
+<p>It is an error if the following conditions on the arguments are not met:
+<i>start</i> is a non-negative exact integer,
+<i>count</i> is a positive exact integer,
+and <i>bytevector</i> is a bytevector whose length is at least
+<i>start</i>  +  <i>count</i>.
+<p>The <i>read!</i> procedure obtains up to <i>count</i> bytes
+from the byte source, and writes those bytes
+into <i>bytevector</i> starting at index <i>start</i>.
+The <i>read!</i> procedure returns an exact integer.  This
+integer represents the number of bytes that it has read.  To indicate
+an end of file, the <i>read!</i>
+procedure writes no bytes to its bytevector and returns 0.</p>
+<li><p>(<i>get-position</i>)</p>
+<p>
+The <i>get-position</i> procedure returns some implementation-dependent
+object representing as much of the state of the port at its current position
+as is necessary to save and restore that position.
+This value may be useful only as
+the <i>pos</i> argument to <i>set-position!</i>, if the latter is
+even supported on the port (see below).</p>
+<p>However, if the object is an exact integer,
+then it is the position measured in bytes,
+which coincides with the position that
+the next call of <i>read!</i> procedure reads from,
+and can be used to compute a new position some
+specified number of bytes away.
+</p>
+<li><p>(<i>set-position!</i> <i>pos</i>)</p>
+<p>
+It is implementation-defined what happens if
+<i>pos</i> is neither the return value of a call to <i>port-position</i>
+on <i>port</i>, in which case
+the position is reset to that point,
+nor an exact integer, in which
+case the port position is set to the specified number of bytes from
+the beginning of the port data. If this is not sufficient information
+to specify the port state, or the specified position is uninterpretable
+by the port, an error is signaled.
+</p>
+</ul>
+<div><code>(make-custom-textual-input-port </code><i>id</i> <i>read!</i>
+<i>get-position</i>&nbsp;<i>set-position!</i>&nbsp;<i>close</i>)</div><p>
+Returns a newly created textual input port whose character source is
+an arbitrary algorithm represented by the <i>read!</i> procedure.</p>
+<ul>
+<li><p>(<i>read!</i> <i>string-or-char-vector</i> <i>start</i> <i>count</i>)</p>
+<p>It is an error if the following conditions on the arguments are not met:
+<i>start</i> is a non-negative exact integer,
+<i>count</i> is a positive exact integer,
+and <i>string-or-char-vector</i> is either a string
+or a vector containing characters, at the implementations's option.
+In either case its length is at least <i>start</i>  +  <i>count</i>.
+<p>The <i>read!</i> procedure obtains up to <i>count</i> characters
+from the character source, and writes those characters
+into <i>string-or-char-vector</i> starting at index <i>start</i>.
+It must be prepared to receive either a string or a vector of characters.
+The <i>read!</i> procedure returns an exact integer
+representing the number of characters that it has written.
+To indicate an end of file, the <i>read!</i>
+procedure writes no bytes to the buffer and returns 0.</p></li>
+<li><p>(<i>get-position</i>)</p>
+<p>
+The <i>get-position</i> procedure returns an
+implementation-defined object representing the current position of
+the input port, which coincides with the position
+the next call of <i>read!</i> procedure reads from.
+<li><p>(<i>set-position!</i> <i>pos</i>)</p>
+<p>
+It is an error if <i>pos</i> does not belong to the correct
+implementation-defined type.
+The <i>set-position!</i> procedure sets the
+position of the input port to <i>pos</i>.
+</ul>
+<div><code>(make-custom-binary-output-port </code>id
+<i>write!</i>&nbsp;<i>get-position</i>&nbsp;<i>set-position!</i>&nbsp;<i>close</i> [<i>flush</i>])</div><p>
+Returns a newly created binary output port whose byte sink is
+an arbitrary algorithm represented by the <i>write!</i> procedure.</p>
+<ul>
+<li><p>(<i>write!</i> <i>bytevector</i> <i>start</i> <i>count</i>)</p>
+<p>It is an error if the following conditions on the arguments are not met:
+<i>start</i> and <i>count</i> are non-negative exact
+integers,
+and <i>bytevector</i> is a bytevector whose length is at least
+<i>start</i>  +  <i>count</i>.
+<p>The <i>write!</i> procedure writes up to <i>count</i> bytes
+from <i>bytevector</i> starting at index <i>start</i>
+to the byte sink.
+The <i>write!</i> procedure returns the number of
+bytes that it wrote, as an exact integer.
+</p>
+<li><p>(<i>get-position</i>)</p>
+<p>
+The <i>get-position</i> procedure returns some implementation-dependent
+object representing as much of the state of the port at its current position
+as is necessary to save and restore that position.
+This value may be useful only as
+the <i>pos</i> argument to <i>set-position!</i>, if the latter is
+even supported on the port (see below).</p>
+<p>However, if the object is an exact integer,
+then it is the position measured in bytes,
+which coincides with the position that
+the next call of <i>write!</i> procedure writes to,
+and can be used to compute a new position some
+specified number of bytes away.
+</p>
+<li><p>(<i>set-position!</i> <i>pos</i>)</p>
+  <p>It is implementation-defined what happens if
+<i>pos</i> is neither the return value of a call to <i>port-position</i>
+on <i>port</i>, in which case
+the position is reset to that point,
+nor an exact integer, in which
+case the port position is set to the specified number of bytes from
+the beginning of the port data. If this is not sufficient information
+to specify the port state, or the specified position is uninterpretable
+by the port, an error is signaled.
+</p>
+</ul>
+<div><code>(make-custom-textual-output-port </code><i>id</i>
+<i>write!</i>&nbsp;<i>get-position</i>&nbsp;<i>set-position!</i>&nbsp;<i>close</i> [<i>flush</i>])</div><p>
+Returns a newly created textual output port whose character sink is
+an arbitrary algorithm represented by the <i>write!</i> procedure.
+<ul>
+<li><p>(<i>write!</i> <i>string-or-char-vector</i> <i>start</i> <i>count</i>)</p>
+<p>It is an error if the following conditions on the arguments are not met:
+<i>start</i> and <i>count</i> are non-negative exact
+integers,
+and <i>string-or-char-vector</i> is either a string
+or a vector containing characters, at the implementations's option.
+In either case its length is at least <i>start</i>  +  <i>count</i>.
+<p>The <i>write!</i> procedure writes up to <i>count</i> characters
+from <i>string-or-char-vector</i> starting at index <i>start</i>
+to the character sink.
+In any case, the <i>write!</i> procedure returns the number of
+characters that it wrote, as an exact integer.
+</p>
+<li><p>(<i>get-position</i>)</p>
+<p>
+The <i>get-position</i> procedure returns an implementation-defined object
+representing the current position of the input port,
+which coincides with the position the next call of <i>write!</i> writes to.
+<li><p>(<i>set-position!</i> <i>pos</i>)</p>
+<p>
+<i>Pos</i> is a non-negative exact integer.
+The <i>set-position!</i> procedure sets the
+position of the input port to <i>pos</i>.
+</ul>
+<div><code>(make-custom-binary-input/output-port </code><i>id</i> <i>read!</i> <i>write!</i>
+<i>get-position</i>&nbsp;<i>set-position!</i>&nbsp;<i>close</i> [<i>flush</i>])</div><p>
+Returns a newly created binary port that is both an input and an
+output port.  Its byte source and sink are arbitrary algorithms
+represented by the <i>read!</i> and <i>write!</i> procedures.
+Each of the arguments behaves as specified in the description of
+<code>make-custom-binary-input</code> (for <i>read!</i>) or
+<code>make-custom-binary-output-port</code> (for the other arguments).</p>
+<p>Note: R6RS provides custom textual input/output ports (i.e. textual
+ports that support both input and output), but they are difficult to
+implement and there are no clear use cases for them, so they have been
+removed from this SRFI.</p>
+
+<div><code>(make-file-error</code>&nbsp;<i>obj</i> ...)</div><p>
+Returns an object which satisfies the R7RS-small predicate
+<code>file-error?</code>.
+The use of the <i>objs</i> is implementation-defined.
+Custom ports may raise the result of this procedure
+from their <i>open</i> procedures.</p>
+
+<h2>Transcoded ports</h2>
+<p>In order to create a port that transcodes between characters and bytes,
+it is necessary to have a <i>transcoder</i> available.
+The following sections explain how to create and use transcoders.</p>
+<h3>Transcoders</h3>
+<p>
+A <em>transcoder</em> is an immutable Scheme object that combines
+a codec, an end-of-line style, and an error-handling mode
+(see the following sections for details).
+Each transcoder represents some specific bidirectional (but not
+necessarily lossless), possibly stateful translation between byte
+sequences and the Scheme-level characters and strings
+allowed by the implementation.
+Every transcoder can decode bytes as characters
+and encode characters as bytes.
+</p>
+<div><code>(make-transcoder<i> codec eol-style handling-mode</i>)</code></div>
+<p>
+Returns a transcoder with the behavior specified by its arguments.
+</p>
+<div><code>(native-transcoder)</code></div>
+<p>
+Returns an implementation-dependent transcoder that represents a
+possibly locale-dependent &ldquo;native&rdquo; transcoding.
+This should be equivalent to the transcoder employed by
+Scheme operations that open textual ports.</p>
+
+<div><code>(<a id="node_idx_650"></a>transcoded-port<i> binary-port transcoder</i>)</code><span style="margin-left: .5em">&zwnj;</span><span style="margin-left: .5em">&zwnj;</span>procedure&nbsp;</div>
+<p>
+Returns a new textual port with the specified <i>transcoder</i>
+from <i>binary-port</i>.
+The new textual port's externally visible state is largely the same as
+that of <i>binary-port</i>.
+If <i>binary-port</i> is an input port, the new textual
+port will be an input port and
+will decode the bytes of <i>binary-port</i>.
+If <i>binary-port</i> is an output port, the new textual
+port will be an output port and
+will write encoded characters to <i>binary-port</i>.
+<p>
+It is an error to call this procedure on <i>binary-port</i>
+after it has been read from or written to.
+It is also an error to read or write on <i>binary-port</i>
+after calling this procedure.
+</p>
+<div><code>(bytevector-&gt;string<i> bytevector transcoder</i>)</code></div>
+<p>
+Returns the string that results from decoding the
+<i>bytevector</i> according to the input direction of the transcoder.
+</p>
+<div><code>(string-&gt;bytevector<i> string transcoder</i>)</code></div>
+<p>
+Returns the bytevector that results from encoding the
+<i>string</i> according to the output direction of the transcoder.
+</p>
+<h3>Codecs</h3>
+<p>
+Several different character encoding schemes exist that describe standard ways to
+encode characters and strings as byte sequences and to decode those
+sequences.
+Within this document, a <em>codec</em> is an immutable Scheme
+object that represents a specific encoding scheme.
+A codec has one or more names, represented as strings,
+and whatever other properties it
+requires in order to implement specific rules for
+encoding and decoding.</p>
+<div><code>(make-codec <i>string</i>)</code></div>
+<p>Returns a codec representing the character encoding scheme one of
+whose names matches the string <i>string</i> case-insensitively.</p>
+<p>Some character names, encodings and corresponding algorithms can
+be found at the <a href="https://encoding.spec.whatwg.org/">
+WHATWG encoding specification</a>, and implementations should
+recognize and support all of these that are feasible given space
+constraints.  There are a total of 39 encodings, which have between
+them 218 standard names.  Note that the "replacement" codec signals
+an error whenever it is used.  Additional encodings listed at the
+IANA page on character sets are not recommended.</p>
+<p>If <code>make-codec</code> is called
+on a string that the implementation does not support,
+an error satisfying <code>unknown-encoding-error?</code> is signaled.</p>
+
+<div><code>(latin-1-codec)</code></div>
+<div><code>(utf-8-codec)</code></div>
+<div><code>(utf-16-codec)</code></div>
+<p>
+These are predefined codecs for the ISO 8859-1, UTF-8,
+and UTF-16 encoding schemes.
+When decoding, the implementation must respect any BOM present, but
+the implementation may assume either endianness if no BOM is present.
+When encoding, whether a BOM is output and what endianness is used
+are implementation-dependent.
+A call to any of these procedures returns a value that is equal in the
+sense of <code>eqv?</code> to the result of any other call to the same
+procedure.
+
+<div><code>(unknown-encoding-error?&nbsp;<i>obj</i>)</code></div>
+<p>Returns <code>#t</code> if <i>obj</i> is a condition object
+raised by <code>make-codec</code> or one of a set of implementation-defined
+objects.</p>
+<div><code>(unknown-encoding-error-name&nbsp;<i>unknown-encoding-obj</i>)</code></div>
+<p>Extracts the name of the unknown encoding from <i>unknown-encoding-obj</i>
+and returns it as a string.  It is an error to mutate this string.</p>
+<h3>End-of-line styles</h3>
+<p>
+An <em>end-of-line style</em> is a symbol that
+describes how a textual port transcodes representations of
+line endings.
+In order to conform to this SRFI, implementations must
+support at least three kinds of line endings:
+a <code>#\newline</code> character,
+a <code>#\return</code> character, and
+a <code>#\return</code> followed by a <code>#\newline</code>,
+which is known as a <i>CRLF sequence</i>.
+Note that these match the line endings recognized by the R7RS
+<code>read-line</code> procedure even when invoked on a non-transcoding port.
+Implementations may support other line endings as well.</p>
+<p>
+The end-of-line style symbol <code>none</code>
+means that no line ending conversion is performed in either direction.
+On an input port, any other symbol will convert
+any line ending into a <code>#\newline</code> character.
+On an output port, the symbol <code>crlf</code> causes
+any line ending to be output as a CRLF sequence,
+whereas the symbol <code>lf</code> causes
+any line ending to be output
+as a <code>#\newline</code> character,
+All other characters remain unchanged.
+Implementations may support additional symbols.</p>
+<div><code>(native-eol-style)</code></div>
+<p>
+Returns the default end-of-line style of the underlying platform, typically
+<code>lf</code> on Unix and <code>crlf</code> on Windows.
+</p>
+<h3>Error-handling modes</h3>
+<p>
+An <em>error-handling mode</em> is a symbol that
+specifies the behavior
+of textual I/O operations in the presence of encoding or decoding
+errors.</p>
+<p>
+If a textual input operation encounters an invalid or incomplete
+character encoding,
+then if the error-handling mode is <code>replace</code>, the erroneous bytes
+are treated as the character <code>#\xFFFD;</code>, or if that character is
+not representable by the implementation or is not permitted in
+strings, then by the character <code>#\?</code> (question mark).
+But if the error-handling mode is <code>raise</code>,
+an error satisfying <code>i/o-decoding-error?</code> is signaled,
+an appropriate number of bytes are ignored, and decoding
+continues with the following bytes.</p>
+<p>
+If a textual output operation encounters a character it cannot encode,
+and if the error-handling mode is <code>replace</code>, a
+replacement character is encoded instead, and encoding
+continues with the next character.
+The replacement character is <code>#\xFFFD</code> for transcoders
+that can encode this character, but is <code>#\?</code> (question mark)
+for transcoders that cannot.
+But if the error-handling mode is <code>raise</code>, an
+an error satisfying <code>i/o-encoding-error?</code> is raised,
+and encoding continues with the next character.
+</p>
+<p>
+Implementations may support additional symbols.</p>
+<div><code>(i/o-decoding-error?<i> obj</i>)</code></div>
+
+<p>
+Returns <code>#t</code> if <i>obj</i> is
+an exception raised when one of the operations for
+textual input from a port encounters a sequence of bytes that cannot
+be decoded into a character or string by the port's transcoder.</p>
+<p>
+When such an exception is raised, the port's position is past
+the invalid encoding.
+</p>
+<div><code>(i/o-encoding-error?<i> obj</i>)</code></div>
+<p>
+Returns <code>#t</code> if <i>obj</i> is
+an exception raised when one of the operations for
+textual output to a port encounters a character that cannot be
+encoded into bytes by the port's transcoder.</p>
+<div><code>(i/o-encoding-error-char<i> i/o-encoding-condition</i>)</code></div>
+<p>
+Returns the character that could not be encoded
+when the condition <i>i/o-encoding-condition</i> was signaled.
+</p>
+
+<h2>Implementation</h2>
+
+<p>Every conforming R6RS implementation, including at least Chez, IronScheme,
+Larceny, Racket, and Vicare, already provides these procedures
+in the <code>(rnrs io ports)</code> library, with the exceptions
+of <code>make-file-error</code>, which will already exist though
+not necessarily be exposed,
+and of <code>make-codec</code>,
+<code>unknown-encoding-error?</code>, and
+<code>unknown-encoding-error-name</code>.
+Therefore, no implementation is provided here, especially since
+a portable implementation is not possible.</p>
+
+<p>However, strictly conforming R6RS implementations will not accept the
+<i>flush</i> argument, though a wrapper to accept and ignore it would be
+trivial.  Furthermore, the <i>read!</i> and <i>write!</i> procedures
+will never be passed a vector of characters, but always a string.</p>
+
+<p>This SRFI can be implemented on top of the Chicken
+procedures <code>make-input-port</code> and <code>make-output-port</code>
+in the <code>(chicken ports)</code> library.
+Chicken makes
+makes no provisions for getting and setting positions on either its
+built-in ports or custom ones.  It also does not
+distinguish between textual and binary ports (as permitted by R7RS), and its strings
+can store binary data; indeed, interpretation as characters
+is up to a higher-level library such as the <code>utf8</code> egg.
+
+<p>Shiro Kawai has provided a sample implementation that illustrates
+both transcoded ports and SRFI 192.  It includes a positionable
+vector-backed custom port library to illustrate the use case of custom
+ports.  The sample implementation, including the examples, can be
+found in the <a href="https://github.com/scheme-requests-for-implementation/srfi-192">Git
+repository</a> for SRFI 192 and in <a
+href="https://srfi.schemers.org/srfi-192/srfi-192.tgz">this .tgz
+archive</a>.</p>
+
+<h3>Port positioning and peeking</h3>
+
+<p>The following considerations must be applied when <code>peek-char</code>
+and <code>peek-u8</code> are used on custom ports.  Much of the
+following is derived from Shiro Kawai's README file in the SRFI 192
+implementation:</p>
+
+<p>If the source of characters or bytes (collectively known as
+<i>elements</i>) underlying a custom input port is natively
+positionable (either because the source is itself a positionable port or because
+it is a random-access data structure like a list, vector, or string),
+then the custom port can support the SRFI 192 and R6RS procedures
+<code>port-position</code> and <code>set-port-position!</code>.
+This is true even if reading an element from the custom port involves
+reading a variable number of elements from the source.
+If on the other hand the source is not seekable,
+the <i>get-position</i> procedure can simply return
+the number of elements read from it so far,
+whereas the <i>set-position!</i> argument should be
+set to <code>#f</code>, in which case
+<code>set-port-position!</code> will be disabled.</p>
+
+<p>However, the Scheme implementation's port system must
+cache the position of a custom port before peeking it, because
+it may not be possible for the port to rewind its position.
+The peeked element is also cached, so that on the next
+read it can be returned.
+But if <code>port-position</code> is called before the
+peeked character is read, the port must return its
+cached position rather than calling the <i>get-position</i>
+procedure.</p>
+
+<h2>Acknowledgements</h2>
+
+This SRFI would have been much more difficult to write without the R6RS team,
+who produced a good-enough (as opposed to perfect) design
+that John was happy to adopt.  Thanks also to Mikel More,
+who convinced him of the necessity of having custom and transcoded ports in R7RS-large.
+
+<h2>Copyright</h2>
+<p>Much of the content of this SRFI is drawn from R6RS,
+which does not have a copyright notice.
+It does, however, contain the following copyright license:</p>
+
+<blockquote>
+We intend this report to belong to the entire Scheme community, and so we grant permission to copy it in whole or in
+part without fee.
+</blockquote>
+
+<p>For the remaining content, the standard SRFI license applies:</p>
+
+<blockquote>
+  Permission is hereby granted, free of charge, to any person
+  obtaining a copy of this software and associated documentation files
+  (the "Software"), to deal in the Software without restriction,
+  including without limitation the rights to use, copy, modify, merge,
+  publish, distribute, sublicense, and/or sell copies of the Software,
+  and to permit persons to whom the Software is furnished to do so,
+  subject to the following conditions:
+
+<p>
+  This permission notice (including the
+  next paragraph) shall be included in all copies or substantial
+  portions of the Software.
+<p>
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+  BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+  ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+</blockquote>
+
+  <hr>
+  <address>Editor: <a href="mailto:srfi-editors+at+srfi+dot+schemers+dot+org">Arthur A. Gleckler</a></address></body></html>

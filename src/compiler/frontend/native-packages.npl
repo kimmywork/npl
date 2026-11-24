@@ -1,0 +1,70 @@
+; Native package declarations and link-mode features.
+;
+; A library with C code declares the package once:
+;   (native-package "npl_time")
+; The form is compile-time only: it records the package so nplc links only
+; the native packages the program actually imports.  npli ignores it and
+; loads the package's shared object through (npl native).
+;
+; The driver sets the link mode before expansion.  Libraries use
+; cond-expand to choose between a linked define-c-primitive and a loaded
+; ffi-procedure:
+;   npl-native-linked  true for nplc --native=static and --native=shared
+;   npl-native-static  true only for --native=static
+;   npl-native-shared  true only for --native=shared
+; npli leaves all three false.
+
+(define NATIVE-PACKAGES (cell ()))
+(define NATIVE-LINK-MODE (cell #f))
+
+(define (native-package-reset!)
+  (cell-set! NATIVE-PACKAGES ()))
+
+(define (native-package-set-link-mode! mode)
+  (cell-set! NATIVE-LINK-MODE mode))
+
+(define (native-package-linked?)
+  (if (cell-get NATIVE-LINK-MODE) #t #f))
+
+(define (native-package-static?)
+  (if (cell-get NATIVE-LINK-MODE)
+      (string=? (cell-get NATIVE-LINK-MODE) "static")
+      #f))
+
+(define (native-package-shared?)
+  (if (cell-get NATIVE-LINK-MODE)
+      (string=? (cell-get NATIVE-LINK-MODE) "shared")
+      #f))
+
+(define (native-package-name? text index)
+  (if (= index (string-length text))
+      (> (string-length text) 0)
+      (let ((code (string-byte-ref text index)))
+        (if (if (>= code 97) (<= code 122) #f)
+            (native-package-name? text (+ index 1))
+            (if (if (>= code 65) (<= code 90) #f)
+                (native-package-name? text (+ index 1))
+                (if (if (>= code 48) (<= code 57) #f)
+                    (native-package-name? text (+ index 1))
+                    (if (= code 95)
+                        (native-package-name? text (+ index 1))
+                        #f)))))))
+
+(define (native-package-declaration? form value-env macro-env)
+  (if (raw-form? form "native-package")
+      (head-is-core? form "native-package" value-env macro-env)
+      #f))
+
+(define (declare-native-package form)
+  (if (not (= (raw-list-count (cdr form) 0) 1))
+      (fatal "native-package needs one name string"))
+  (let ((value (car (cdr form))))
+    (if (not (datum-string? value))
+        (fatal "native-package name must be a string"))
+    (let ((name (datum-string-text value)))
+      (if (not (native-package-name? name 0))
+          (fatal (string-append "invalid native package name: " name)))
+      (if (not (string-member? name (cell-get NATIVE-PACKAGES)))
+          (cell-set! NATIVE-PACKAGES
+                     (cons name (cell-get NATIVE-PACKAGES))))
+      #t)))

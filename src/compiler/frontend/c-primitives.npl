@@ -35,7 +35,7 @@
 (define (c-primitive-type-name type)
   (if (not (datum-symbol? type))
       (fatal "C primitive type must be an identifier"))
-  (if (primitive-name-listed? (datum-symbol-name type) C-PRIMITIVE-TYPES)
+  (if (string-member? (datum-symbol-name type) C-PRIMITIVE-TYPES)
       (datum-symbol-name type)
       (fatal (string-append "unknown C primitive type: "
                             (datum-symbol-name type)))))

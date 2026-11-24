@@ -57,7 +57,8 @@
                   (string-ref base-string-ref)
                   (vector-set! base-vector-set!)
                   (string-set! base-string-set!)
-                  (make-list base-make-list)))
+                  (make-list base-make-list))
+          (only (npl vector) vector-empty?))
   (begin
     (define (collection-kind value)
       (cond ((list? value) 'list)
@@ -371,7 +372,6 @@
 ;;;; Vectors
 
     (define (vector-size value) (vector-length value))
-    (define (vector-empty? value) (zero? (vector-length value)))
     (define (vector-equivalence-function value) eqv?)
 
     (define (vector-ref value index . rest)

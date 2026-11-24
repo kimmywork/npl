@@ -42,5 +42,6 @@
     comparator?)
   (import (scheme base) (scheme case-lambda) (npl list)
           (npl comparator) (npl data generator))
-  (include "map/prelude.scm" "map/rbtree.scm" "map/mapping.scm"
+  (include "assume.scm" "receive.scm"
+           "map/prelude.scm" "map/rbtree.scm" "map/mapping.scm"
            "map/submapping.scm"))

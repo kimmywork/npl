@@ -10,24 +10,17 @@
              (argument-error who "expected a character" c)))
        characters))
 
-(define (codes-ordered? same-or-ordered? codes)
-  (if (null? (cdr codes))
-      #t
-      (if (same-or-ordered? (car codes) (car (cdr codes)))
-          (codes-ordered? same-or-ordered? (cdr codes))
-          #f)))
-
 (define (char=? a b . rest)
-  (codes-ordered? raw-equal (char-codes "char=?" (cons a (cons b rest)))))
+  (ordered-chain? raw-equal (char-codes "char=?" (cons a (cons b rest)))))
 (define (char<? a b . rest)
-  (codes-ordered? raw-less (char-codes "char<?" (cons a (cons b rest)))))
+  (ordered-chain? raw-less (char-codes "char<?" (cons a (cons b rest)))))
 (define (char>? a b . rest)
-  (codes-ordered? raw-greater (char-codes "char>?" (cons a (cons b rest)))))
+  (ordered-chain? raw-greater (char-codes "char>?" (cons a (cons b rest)))))
 (define (char<=? a b . rest)
-  (codes-ordered? raw-less-equal
+  (ordered-chain? raw-less-equal
                   (char-codes "char<=?" (cons a (cons b rest)))))
 (define (char>=? a b . rest)
-  (codes-ordered? raw-greater-equal
+  (ordered-chain? raw-greater-equal
                   (char-codes "char>=?" (cons a (cons b rest)))))
 
 ; ---------------- construction and conversion ----------------

@@ -19,9 +19,6 @@
 ;;; TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 ;;; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-(define (exact-natural? x)
-  (and (exact-integer? x) (not (negative? x))))
-
 ;; Find the least element of a list non-empty of naturals. If an element
 ;; is zero, returns it immediately.
 (define (short-minimum ns)

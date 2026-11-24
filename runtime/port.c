@@ -199,6 +199,37 @@ static NplVal open_file_port(NplVal path, const char *mode,
     return port;
 }
 
+/* File descriptor behind a port, or #f for memory ports.  Core native
+ * packages use this for isatty()/fd-level operations without reaching into
+ * the port layout. */
+NplVal npl_port_fileno(NplVal value)
+{
+    NplPort *port;
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PORT)
+        return npl_false();
+    port = (NplPort *)npl_header(value);
+    if (!port->stream) return npl_false();
+    return npl_fixnum((int64_t)fileno(port->stream));
+}
+
+/* Wrap an already open file descriptor as a port.  The port owns the
+ * descriptor.  input/output select the access mode; textual selects UTF-8
+ * text rather than binary. */
+NplVal npl_port_from_fd(int fd, int input, int output, int textual)
+{
+    const char *mode = output ? (input ? "r+" : "w") : "r";
+    uint32_t flags = NPL_PORT_OWNED |
+        (input ? NPL_PORT_INPUT : 0) | (output ? NPL_PORT_OUTPUT : 0) |
+        (textual ? NPL_PORT_TEXTUAL : NPL_PORT_BINARY);
+    FILE *stream = fdopen(fd, mode);
+    if (!stream) {
+        close(fd);
+        npl_primitive_error("fd->port", "cannot wrap file descriptor",
+                            npl_fixnum(fd));
+    }
+    return make_port(stream, flags);
+}
+
 NplVal npl_current_input_port(void)
 {
     return npl_parameter_ref(g_current_input_port);
@@ -520,62 +551,6 @@ NplVal npl_peek_char(NplVal value)
     return code == EOF ? g_eof_object : npl_char((uint32_t)code);
 }
 
-/* Whether reading one more byte from a stream port will not block: pushback
- * or the stdio buffer already holds data, or poll reports input (or end of
- * file). C has no portable query for buffered stdio input; the libc fields
- * below are read on macOS and glibc, and other hosts fall back to poll,
- * which can report "not ready" while stdio still holds bytes. */
-static int stream_byte_ready(NplPort *port)
-{
-    if (port->pushed) return 1;
-#if defined(__APPLE__)
-    if (port->stream->_r > 0) return 1;
-#elif defined(__GLIBC__)
-    if (port->stream->_IO_read_ptr < port->stream->_IO_read_end) return 1;
-#endif
-    struct pollfd request;
-    request.fd = fileno(port->stream);
-    request.events = POLLIN;
-    request.revents = 0;
-    return poll(&request, 1, 0) > 0;
-}
-
-/* u8-ready?: a byte (or EOF) can be read without blocking. Memory ports are
- * always ready. */
-NplVal npl_byte_ready_p(NplVal value)
-{
-    NplPort *port = require_port(value, NPL_PORT_INPUT, "u8-ready?");
-    if ((port->mode & NPL_PORT_MEMORY) != 0) return npl_true();
-    return stream_byte_ready(port) ? npl_true() : npl_false();
-}
-
-/* char-ready?: a whole character (or EOF) can be read without blocking
- * (.agents/archive/design/design-l6.md, Decision 3). Bytes read while checking a multibyte
- * sequence go to the port's pushback, so nothing is lost. */
-NplVal npl_port_ready_p(NplVal value)
-{
-    NplPort *port = require_port(value, NPL_PORT_INPUT, "char-ready?");
-    if ((port->mode & NPL_PORT_MEMORY) != 0) return npl_true();
-    if (!stream_byte_ready(port)) return npl_false();
-    uint8_t bytes[4];
-    size_t got = 0;
-    int ready = 1;
-    int lead = port_read_byte_raw(port);
-    if (lead != EOF) {
-        bytes[got++] = (uint8_t)lead;
-        int count = npl_utf8_sequence_length_internal((uint8_t)lead);
-        while ((int)got < count) {
-            if (!stream_byte_ready(port)) { ready = 0; break; }
-            int next = port_read_byte_raw(port);
-            if (next == EOF) break;
-            bytes[got++] = (uint8_t)next;
-            if ((next & 0xC0) != 0x80) break;
-        }
-    }
-    if (got) port_unread_bytes(port, bytes, got);
-    return ready ? npl_true() : npl_false();
-}
-
 NplVal npl_write_char(NplVal character, NplVal value)
 {
     NplPort *port = require_port_mode(value, NPL_PORT_OUTPUT,
@@ -764,6 +739,11 @@ void npl_port_unread_bytes_internal(NplPort *port, const uint8_t *bytes,
                                     size_t count)
 {
     port_unread_bytes(port, bytes, count);
+}
+
+int npl_port_read_byte_raw_internal(NplPort *port)
+{
+    return port_read_byte_raw(port);
 }
 
 int npl_port_read_char_internal(NplPort *port)

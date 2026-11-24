@@ -1,0 +1,233 @@
+; (tools libraries) definition identity, duplicate, and origin checks, run
+; against small library trees so each rule is shown to fire on its own.
+(import (scheme base)
+        (scheme file)
+        (scheme write)
+        (npl test)
+        (only (npl util) path-join)
+        (only (npl process) make-temporary-directory)
+        (only (npl unix) create-directory)
+        (only (npl test util) write-text remove-tree)
+        (tools libraries))
+
+(test-begin "tools-libraries")
+
+; ---- normalization ----
+
+(test-assert "alpha-equivalent definitions normalize equally"
+  (equal? (identity-definition-form '(define (f x) (+ x 1)))
+          (identity-definition-form '(define (g y) (+ y 1)))))
+(test-assert "and/if and comparison spellings normalize equally"
+  (equal? (identity-definition-form
+            '(define (natural? x) (and (exact-integer? x) (<= 0 x))))
+          (identity-definition-form
+            '(define (n? v) (if (exact-integer? v) (>= v 0) #f)))))
+(test-assert "not negative? is >= 0"
+  (equal? (identity-definition-form
+            '(define (p x) (and (exact-integer? x) (not (negative? x)))))
+          (identity-definition-form
+            '(define (q x) (if (exact-integer? x) (>= x 0) #f)))))
+(test-assert "cond and nested if normalize equally"
+  (equal? (identity-definition-form
+            '(define (f l) (cond ((null? l) 0) (else (car l)))))
+          (identity-definition-form
+            '(define (g l) (if (null? l) 0 (car l))))))
+(test-assert "different bodies stay different"
+  (not (equal? (identity-definition-form '(define (f x) (+ x 1)))
+               (identity-definition-form '(define (f x) (+ x 2))))))
+(test-assert "a free variable is not renamed"
+  (not (equal? (identity-definition-form '(define (f x) (car x)))
+               (identity-definition-form '(define (f x) (cdr x))))))
+(test-equal "forwarder target"
+  (lambda ()
+    (identity-forward-target
+      (identity-definition-form '(define (join d n) (path-join d n)))))
+  'path-join)
+(test-equal "rest forwarder target"
+  (lambda ()
+    (identity-forward-target
+      (identity-definition-form
+        '(define (run . args) (apply run-process* args)))))
+  'run-process*)
+(test-assert "reordered arguments are not a forwarder"
+  (not (identity-forward-target
+         (identity-definition-form '(define (f a b) (g b a))))))
+
+; ---- library trees ----
+
+(define (make-tree libraries)
+  (let ((root (make-temporary-directory)))
+    (create-directory (path-join root "lib"))
+    (create-directory (path-join root "lib/npl"))
+    (create-directory (path-join root "lib/scheme"))
+    (create-directory (path-join root "lib/srfi"))
+    (create-directory (path-join root "tools"))
+    (create-directory (path-join root "tools/libraries"))
+    ; A stand-in (scheme base) so the import graph resolves.
+    (write-text (path-join root "lib/scheme/base.sld")
+                "(define-library (scheme base)
+                   (export define if cond else let quote pair? null? car cdr
+                           cons + * = char=? string-length string-ref
+                           substring reverse)
+                   (import (npl internal primitive)))")
+    (for-each
+      (lambda (entry)
+        (write-text (path-join root (car entry)) (cdr entry)))
+      libraries)
+    root))
+
+(define (check-tree check libraries)
+  (let* ((root (make-tree libraries))
+         (port (open-output-string))
+         (result (parameterize ((current-output-port port)) (check root))))
+    (remove-tree root)
+    (cons result (get-output-string port))))
+
+(define (contains? text needle)
+  (let loop ((index 0))
+    (cond
+      ((> (+ index (string-length needle)) (string-length text)) #f)
+      ((string=? (substring text index (+ index (string-length needle)))
+                 needle)
+       #t)
+      (else (loop (+ index 1))))))
+
+(define lib-a
+  (cons "lib/npl/a.sld"
+        "(define-library (npl a) (export helper) (import (scheme base))
+           (begin (define (helper x) (and (pair? x) (car x)))))"))
+
+; Rule 1: one exported name, identical definitions in two files.
+(let ((result
+        (check-tree check-duplicate-definitions
+          (list lib-a
+                (cons "lib/npl/b.sld"
+                      "(define-library (npl b) (export helper) (import (scheme base))
+                         (begin (define (helper y) (if (pair? y) (car y) #f))))")))))
+  (test-identity "identical exported definitions fail" (lambda () (car result)) #f)
+  (test-assert "identical definition is reported"
+    (contains? (cdr result) "identical definition (define once, import it): helper")))
+
+; Rule 2: one definition under another name (here split-colon, renamed and
+; rewritten with if instead of cond).
+(let ((result
+        (check-tree check-duplicate-definitions
+          (list (cons "lib/npl/a.sld"
+                      "(define-library (npl a) (export split) (import (scheme base))
+                         (begin (define (split text)
+                                  (let loop ((start 0) (index 0) (out '()))
+                                    (cond
+                                      ((= index (string-length text))
+                                       (reverse (cons (substring text start index) out)))
+                                      ((char=? (string-ref text index) #\\:)
+                                       (loop (+ index 1) (+ index 1)
+                                             (cons (substring text start index) out)))
+                                      (else (loop start (+ index 1) out)))))))")
+                (cons "lib/npl/b.sld"
+                      "(define-library (npl b) (export colon-parts) (import (scheme base))
+                         (begin (define (colon-parts s)
+                                  (let walk ((from 0) (i 0) (parts '()))
+                                    (if (= i (string-length s))
+                                        (reverse (cons (substring s from i) parts))
+                                        (if (char=? (string-ref s i) #\\:)
+                                            (walk (+ i 1) (+ i 1)
+                                                  (cons (substring s from i) parts))
+                                            (walk from (+ i 1) parts)))))))")))))
+  (test-identity "same definition under two names fails" (lambda () (car result)) #f)
+  (test-assert "renamed copy is reported"
+    (contains? (cdr result) "same definition under different names")))
+
+; Rule 2, forwarder form: a wrapper around another npl library's export.
+(let ((result
+        (check-tree check-duplicate-definitions
+          (list lib-a
+                (cons "lib/npl/b.sld"
+                      "(define-library (npl b) (export first) (import (scheme base) (npl a))
+                         (begin (define (first x) (helper x))))")))))
+  (test-identity "forwarder of an npl export fails" (lambda () (car result)) #f)
+  (test-assert "forwarder is reported"
+    (contains? (cdr result) "forwarder of helper")))
+
+; Rule 3 (private): two different private helpers with one name.
+(let ((result
+        (check-tree check-duplicate-definitions
+          (list (cons "lib/npl/a.sld"
+                      "(define-library (npl a) (export f) (import (scheme base))
+                         (begin (define (step x) (+ x 1)) (define (f x) (step x))))")
+                (cons "lib/npl/b.sld"
+                      "(define-library (npl b) (export g) (import (scheme base))
+                         (begin (define (step x) (* x 2)) (define (g x) (step x))))")))))
+  (test-identity "diverging private helpers fail" (lambda () (car result)) #f)
+  (test-assert "private duplicate is reported"
+    (contains? (cdr result) "duplicate private definition (rename or share): step")))
+
+; Rule 4: re-exporting one definition is fine.
+(let ((result
+        (check-tree check-duplicate-definitions
+          (list lib-a
+                (cons "lib/npl/b.sld"
+                      "(define-library (npl b) (export helper) (import (npl a)))")))))
+  (test-identity "re-export of the same definition passes" (lambda () (car result)) #t))
+
+; One shared file included by two libraries is one definition.
+(let ((result
+        (check-tree check-duplicate-definitions
+          (list (cons "lib/npl/kernel.scm" "(define (twice x) (* x 2))")
+                (cons "lib/npl/a.sld"
+                      "(define-library (npl a) (export f) (import (scheme base))
+                         (include \"kernel.scm\") (begin (define (f x) (twice x))))")
+                (cons "lib/npl/b.sld"
+                      "(define-library (npl b) (export g) (import (scheme base))
+                         (include \"kernel.scm\") (begin (define (g x) (twice (twice x)))))")))))
+  (test-identity "shared include passes" (lambda () (car result)) #t))
+
+
+;---- export origins ----
+
+(define lib-b-different
+  (cons "lib/npl/b.sld"
+        "(define-library (npl b) (export helper) (import (scheme base))
+           (begin (define (helper x) (cons x x))))"))
+
+; Rule 3: a different definition under a non-standard name must be renamed.
+(let ((result (check-tree check-export-origins (list lib-a lib-b-different))))
+  (test-identity "new non-standard overlap fails" (lambda () (car result)) #f)
+  (test-assert "non-standard overlap asks for a rename"
+    (contains? (cdr result) "not a SRFI/R7RS name: rename one definition")))
+
+; Rule 3: a SRFI name may be listed as a reviewed exception.
+(let ((result (check-tree check-export-origins
+                (list lib-a lib-b-different
+                      (cons "lib/srfi/9.sld"
+                            "(define-library (srfi 9) (export helper) (import (npl a)))")))))
+  (test-identity "unlisted SRFI overlap fails" (lambda () (car result)) #f)
+  (test-assert "SRFI overlap asks for an exception"
+    (contains? (cdr result) "add (helper npl/a npl/b) to")))
+
+(let ((result (check-tree check-export-origins
+                (list lib-a lib-b-different
+                      (cons "lib/srfi/9.sld"
+                            "(define-library (srfi 9) (export helper) (import (npl a)))")
+                      (cons "tools/libraries/export-origin-exceptions.scm"
+                            "(helper npl/a npl/b)")))))
+  (test-identity "reviewed SRFI overlap passes" (lambda () (car result)) #t)
+  (test-assert "reviewed overlap is shown as a note"
+    (contains? (cdr result) "note: helper has different definitions")))
+
+; The list only shrinks: an exception without an overlap fails.
+(let ((result (check-tree check-export-origins
+                (list lib-a
+                      (cons "tools/libraries/export-origin-exceptions.scm"
+                            "(helper npl/a npl/b)")))))
+  (test-identity "stale exception fails" (lambda () (car result)) #f)
+  (test-assert "stale exception is reported"
+    (contains? (cdr result) "stale export-origin exception: helper")))
+
+; Rule 4: one definition re-exported under the same name is not an overlap.
+(let ((result (check-tree check-export-origins
+                (list lib-a
+                      (cons "lib/npl/b.sld"
+                            "(define-library (npl b) (export helper) (import (npl a)))")))))
+  (test-identity "re-export passes the origin gate" (lambda () (car result)) #t))
+
+(finish-tests "tools-libraries")

@@ -28,17 +28,36 @@ add_custom_command(
   VERBATIM)
 add_custom_target(nplc ALL DEPENDS ${NPLC_BIN})
 
+# Build-time define-c-struct layouts.  The generator imports the core native
+# packages once; later imports read this file instead of invoking the host C
+# compiler.  Install it beside core.meta so an installed npli needs no cc.
+set(NPL_STRUCT_CACHE ${CMAKE_BINARY_DIR}/lib/npl/native/c-struct-layouts.meta)
+add_custom_command(
+  OUTPUT ${NPL_STRUCT_CACHE}
+  DEPENDS ${NPLC_BIN}
+          ${CMAKE_SOURCE_DIR}/tools/c-struct-cache.npl
+          ${CMAKE_SOURCE_DIR}/lib/npl/time.sld
+          ${CMAKE_SOURCE_DIR}/lib/npl/unix.sld
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/lib/npl/native
+  COMMAND ${NPLC_BIN} --emit=c-structs -o ${NPL_STRUCT_CACHE}
+          ${CMAKE_SOURCE_DIR}/tools/c-struct-cache.npl
+  COMMENT "nplc: define-c-struct layout cache"
+  VERBATIM)
+add_custom_target(npl_c_struct_layouts ALL DEPENDS ${NPL_STRUCT_CACHE})
+
 # The build tree mirrors the install layout with links, so build/bin/nplc and
 # build/bin/npli resolve tools and libraries exactly as an installation does.
+set(NPL_RUNTIME_SHARED ${CMAKE_BINARY_DIR}/lib/npl/libnpl_runtime${CMAKE_SHARED_LIBRARY_SUFFIX})
 set(NPL_TREE_LINKS
   ${CMAKE_BINARY_DIR}/libexec/npl/qbe
   ${CMAKE_BINARY_DIR}/lib/npl/libnpl_runtime.a
+  ${NPL_RUNTIME_SHARED}
   ${CMAKE_BINARY_DIR}/share/npl/lib
   ${CMAKE_BINARY_DIR}/share/npl/src
   ${CMAKE_BINARY_DIR}/include/npl/npl.h)
 add_custom_command(
   OUTPUT ${NPL_TREE_LINKS}
-  DEPENDS qbe_build npl_runtime
+  DEPENDS qbe_build npl_runtime npl_runtime_shared
   COMMAND ${CMAKE_COMMAND} -E make_directory
           ${CMAKE_BINARY_DIR}/libexec/npl ${CMAKE_BINARY_DIR}/lib/npl
           ${CMAKE_BINARY_DIR}/share/npl ${CMAKE_BINARY_DIR}/include/npl
@@ -46,6 +65,9 @@ add_custom_command(
           ${CMAKE_BINARY_DIR}/libexec/npl/qbe
   COMMAND ${CMAKE_COMMAND} -E create_symlink ${NPL_RUNTIME_ARCHIVE}
           ${CMAKE_BINARY_DIR}/lib/npl/libnpl_runtime.a
+  COMMAND ${CMAKE_COMMAND} -E create_symlink
+          ${CMAKE_BINARY_DIR}/runtime/libnpl_runtime${CMAKE_SHARED_LIBRARY_SUFFIX}
+          ${NPL_RUNTIME_SHARED}
   COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_SOURCE_DIR}/lib
           ${CMAKE_BINARY_DIR}/share/npl/lib
   COMMAND ${CMAKE_COMMAND} -E create_symlink ${CMAKE_SOURCE_DIR}/src
@@ -66,15 +88,22 @@ file(GLOB_RECURSE NPLI_SOURCES CONFIGURE_DEPENDS
 add_custom_command(
   OUTPUT ${NPLI_BIN}
   DEPENDS ${NPLC_BIN} ${NPL_TREE_LINKS} ${NPLI_SOURCES} ${CMAKE_SOURCE_DIR}/tools/build_npli.sh
+          npl_time_shared npl_unix_shared
   COMMAND ${CMAKE_COMMAND} -E env NPL_SKIP_NPLC_BUILD=1
           bash ${CMAKE_SOURCE_DIR}/tools/build_npli.sh ${NPLI_BIN}
   COMMENT "npli: nplc src/repl/main.npl"
   VERBATIM)
 add_custom_target(npli ALL DEPENDS ${NPLI_BIN})
+add_dependencies(npli npl_time_shared npl_unix_shared npl_runtime_shared
+                 npl_c_struct_layouts npl_demo_crc32 npl_demo_crc32_static)
+if(TARGET npl_demo_zlib)
+  add_dependencies(npli npl_demo_zlib npl_demo_zlib_static)
+endif()
 
 install(PROGRAMS ${NPLC_BIN} ${NPLI_BIN} DESTINATION bin)
 install(PROGRAMS ${QBE_BIN} DESTINATION libexec/npl)
 install(FILES ${NPL_RUNTIME_ARCHIVE} DESTINATION lib/npl)
+install(FILES ${NPL_STRUCT_CACHE} DESTINATION lib/npl/native)
 # The runtime ABI for C functions called from NPL (docs/ffi.md).
 install(FILES ${CMAKE_SOURCE_DIR}/runtime/npl.h DESTINATION include/npl)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/lib/ DESTINATION share/npl/lib)

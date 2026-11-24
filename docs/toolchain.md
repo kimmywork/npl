@@ -4,7 +4,7 @@ The repository stores compiler source and canonical QBE SSA, not a compiler bina
 
 ## Verify The Relay
 
-The permanent chain (stage0 `nplc0`, `bootstrap/compiler/`, `bootstrap/bootstrap.ssa`) is frozen together with its runtime, `bootstrap/runtime/`: a verbatim copy of `runtime/` at commit `43d2a14`, built as `npl_runtime_frozen`. `tools/check_bootstrap.sh`, stage0, and the stage0 checks link only against it, so the current runtime may change object layouts and entry points freely.
+The permanent chain (`bootstrap/stage0/nplc0`, `bootstrap/compiler/`, `bootstrap/bootstrap.ssa`) is frozen together with its runtime, `bootstrap/runtime/`: a verbatim copy of `runtime/` at commit `43d2a14`, built as `npl_runtime_frozen`. `tools/check_bootstrap.sh`, `bootstrap/stage0/`, and `bootstrap/stage0/tools/` link only against it, so the current runtime may change object layouts and entry points freely.
 
 `bootstrap/current.ssa` is the current full-compiler recovery artifact. Verify the historical relay with:
 
@@ -62,6 +62,8 @@ Install layout, which the build tree mirrors with links so `build/bin/nplc` beha
 PREFIX/bin/nplc, PREFIX/bin/npli
 PREFIX/libexec/npl/qbe
 PREFIX/lib/npl/libnpl_runtime.a
+PREFIX/lib/npl/libnpl_runtime.dylib (or .so)
+PREFIX/lib/npl/native/          native package archives, shared objects, metadata
 PREFIX/share/npl/lib/            (scheme ...) and (npl ...) libraries
 PREFIX/share/npl/src/compiler/   frontend sources included by (npl internal frontend)
 PREFIX/include/npl/npl.h         runtime ABI for C functions (docs/ffi.md)
@@ -75,6 +77,8 @@ PREFIX/include/npl/npl.h         runtime ABI for C functions (docs/ffi.md)
 | QBE | `--qbe PATH` | `NPL_QBE` | layout, then `qbe` on `PATH` |
 | C compiler/linker | `--cc PATH` | `NPL_CC`, then `CC` | `cc` on `PATH` |
 | runtime archive | `--runtime PATH` | `NPL_RUNTIME` | layout, else error |
+| shared runtime | `--runtime PATH` sibling | `NPL_RUNTIME_SHARED` | layout, else error |
+| native link mode | `--native=static\|shared` | `NPL_NATIVE_LINK` | `static` |
 
 Output kinds:
 
@@ -86,6 +90,8 @@ nplc -S program.npl                  # assembly program.s (--emit=asm)
 nplc --emit=ssa program.npl          # QBE SSA on standard output
 nplc --emit=ssa program.npl -o p.ssa # QBE SSA to a file
 nplc --emit=c-stubs program.npl      # define-c-function C stubs, for npli (docs/ffi.md)
+nplc --native=static program.npl     # self-contained executable (default)
+nplc --native=shared program.npl     # executable + shared runtime/packages
 nplc --keep-temps program.npl        # keep and report intermediate files
 nplc program.npl -L lib -l clamp     # also link lib/libclamp (C functions, docs/ffi.md)
 nplc --version                       # print the release version
@@ -93,7 +99,7 @@ nplc --version                       # print the release version
 
 A program is its top-level forms, run in order as in `npli` (R7RS 5.1); `main` is an ordinary name. A program that reaches its end exits with status 0, and `(exit n)` ends it earlier with status `n`. `nplc` generates the C `main` (`src/compiler/frontend/control-program.npl`). Programs for the frozen stage0 `nplc0` still use `(define (main) ...)`.
 
-`-lNAME`/`-l NAME` and `-LDIR`/`-L DIR` reach the executable link in command-line order, before the runtime archive; other kinds ignore them.
+`-lNAME`/`-l NAME` and `-LDIR`/`-L DIR` reach the executable link in command-line order. Native packages are linked only when the program imports them: static mode uses their archives; shared mode uses the shared runtime and their shared objects. Static output has no `libnpl_*` dynamic dependency; shared output records relocatable `@loader_path`/`$ORIGIN` rpaths and can be moved with its prefix.
 
 `--emit-qbe` is an alias for `--emit=ssa`. `--emit=staticlib` and `--emit=dylib` are reserved and rejected; see "Deferred: Libraries And Binary Interop". An object file contains `main` and links with the runtime archive: `cc -o program program.o libnpl_runtime.a`.
 
@@ -101,7 +107,7 @@ SSA to standard output is emitted in-process; this is the relay path. File-produ
 
 ## npli
 
-`npli` is the REPL and program runner, built by `nplc` from `src/repl/main.npl` over the shared evaluator:
+`npli` is the REPL and program runner, built by `nplc` from `src/repl/main.npl` over the shared evaluator. A script file may start with a shebang (`#!/usr/bin/env npli` or `#! /path/to/npli`); npli replaces that first line with spaces before reading the file, so line numbers stay stable. `#!fold-case` and other reader directives are not treated as shebangs. This applies only to files run by npli, not to `read` or to nplc source files.
 
 ```bash
 npli                                  # interactive REPL (--no-prompt for transcripts)
@@ -169,4 +175,4 @@ Run the full repository gate with:
 ./tools/run_tests.sh
 ```
 
-The gate builds the toolchain once, then runs permanent bootstrap recovery, the current fixed point, compiler language and contract suites, the driver, install layout, `npli`, shared R7RS fixtures (native/`npli`/Guile), runtime GC and numeric checks, stage0 checks, and property tests. After the relay has passed for the exact same tree, `./tools/run_tests.sh --skip-current-fixed-point` runs the rest. `tools/check_linux.sh` runs the same gate on Linux.
+The gate builds the toolchain once, then runs the current fixed point (NPL), compiler language and contract suites, the driver, install layout, `npli`, shared fixtures (native/`npli`/Guile), runtime GC and numeric checks, unit tests, and property tests. Frozen stage0 and the permanent bootstrap chain are checked separately with `bootstrap/stage0/tools/run.sh` and `bootstrap/tools/check_bootstrap.sh`. After the relay has passed for the exact same tree, `./tools/run_tests.sh --skip-current-fixed-point` runs the rest. `tools/check_linux.sh` runs the same gate on Linux.

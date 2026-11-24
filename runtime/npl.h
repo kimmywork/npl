@@ -56,8 +56,9 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_COMPLEX 21
 #define BOX_RECORD 22   /* NplVector layout: data[0] = type, data[1..] = fields */
 #define BOX_STRING_DATA 23  /* out-of-line wide string characters (string.c) */
-#define BOX_POINTER 24  /* C address (ffi.c); holds no references */
+#define BOX_POINTER 24  /* C address (ffi.c); references an ffi block */
 #define BOX_HASHTABLE 25  /* NplHashTable (hashtable.c) */
+#define BOX_FFI_BLOCK 26 /* FfiBlock shared by an allocation and its views */
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -254,11 +255,29 @@ typedef struct {
     uint32_t limbs[];
 } NplBigint;
 
-/* A C address from a foreign call. The collector never follows or frees
- * it; whatever it points to is released by the C library's own calls. */
+/* Shared state for a foreign-alloc block and every view of it.  The owner
+ * and views hold this object in their pointer box; the collector keeps it
+ * alive, and freeing the owner flips live to 0.  A fresh block is allocated
+ * for every foreign-alloc, so an old view cannot revive when malloc reuses
+ * the address. */
 typedef struct {
     NplHeader header;
-    void *address;
+    void *base;
+    size_t size;
+    int live;
+} NplFfiBlock;
+
+/* A C address from a foreign call.  External addresses have block = nil and
+ * unknown size; foreign-alloc owners and views share an NplFfiBlock. */
+typedef struct {
+    NplHeader header;
+    void *address;   /* current address (may be base + offset) */
+    void *base;      /* allocation base, for pointer+offset views */
+    size_t size;     /* remaining bytes, meaningful when sized */
+    size_t offset;   /* address - base */
+    int sized;       /* size/remaining length is known */
+    int owned;       /* base was allocated by foreign-alloc */
+    NplVal block;    /* BOX_FFI_BLOCK or nil */
 } NplPointer;
 
 /* SRFI 125 hash table (hashtable.c): open addressing with linear probing
@@ -672,6 +691,8 @@ NplVal npl_command_line(void);                /* R7RS: command name + arguments 
 NplVal npl_set_command_line(NplVal arguments);
 NplVal npl_read_file(NplVal path);            /* whole file as string; aborts on error */
 NplVal npl_process_run(NplVal arguments, NplVal output_path);
+NplVal npl_process_run_full(NplVal arguments, NplVal input_path,
+                           NplVal output_path, NplVal error_path);
 NplVal npl_get_environment_variable(NplVal name);
 NplVal npl_get_environment_variables(void);
 NplVal npl_file_exists(NplVal path);
@@ -681,11 +702,14 @@ NplVal npl_delete_directory(NplVal path);
 NplVal npl_executable_path(void);
 NplVal npl_try_open_file(NplVal path, NplVal kind); /* port or #f */
 NplVal npl_port_parameter(NplVal kind); /* current-*-port parameter */
+NplVal npl_port_fileno(NplVal port);
+NplVal npl_port_from_fd(int fd, int input, int output, int textual);
 NplVal npl_port_ready_p(NplVal port);     /* char-ready? (a whole character) */
 NplVal npl_byte_ready_p(NplVal port);     /* u8-ready? */
 NplVal npl_jiffies_per_second(void);
 NplVal npl_current_jiffy(void);
-NplVal npl_current_second(void);            /* absolute path or #f */
+NplVal npl_current_second(void);
+
 void npl_exit(NplVal code);                   /* R7RS exit status mapping */
 
 /* bootstrap lexer hooks — all take TAGGED values */
@@ -707,6 +731,7 @@ uintptr_t npl_gc_stack_bottom_internal(void);
 NplVal npl_box_bytes_internal(const char *bytes, uint32_t len,
                               uint32_t box_tag);
 const NplString *npl_require_bytes_internal(NplVal value, const char *who);
+char *npl_c_string_internal(const NplString *string);
 /* Strings (string.c). */
 NplVal npl_string_from_chars_internal(const uint32_t *chars, uint32_t length,
                                       uint32_t tag);
@@ -733,6 +758,10 @@ NplVal npl_char_case(NplVal character, NplVal kind);
 NplVal npl_char_full_case(NplVal character, NplVal kind);
 NplVal npl_string_full_case(NplVal string, NplVal kind);
 NplVal npl_little_endian_p(void);
+void npl_raise_record(NplVal object);
+NplVal npl_platform_feature(NplVal name);
+NplVal npl_platform_features(void);
+NplVal npl_platform_triple(void);
 NplVal npl_symbol_fold_internal(NplVal symbol);
 NplVal npl_utf8_to_string(NplVal bytevector, NplVal start, NplVal end);
 void npl_control_init(void);
@@ -767,6 +796,21 @@ void *npl_ffi_to_pointer(NplVal value, const char *who);
 void npl_ffi_check_string(NplVal value, const char *who);
 char *npl_ffi_copy_string(NplVal value);
 void npl_ffi_free(void *memory);
+
+/* Explicit C memory (ffi-memory.c). */
+NplVal npl_ffi_alloc(NplVal size, NplVal alignment);
+NplVal npl_ffi_foreign_free(NplVal pointer);
+NplVal npl_ffi_foreign_size(NplVal pointer);
+NplVal npl_ffi_foreign_copy(NplVal pointer, NplVal size, NplVal alignment);
+NplVal npl_ffi_pointer_add(NplVal pointer, NplVal offset);
+NplVal npl_ffi_pointer_offset(NplVal pointer);
+NplVal npl_ffi_type_size(NplVal code);
+NplVal npl_ffi_pointer_ref(NplVal pointer, NplVal code, NplVal offset);
+NplVal npl_ffi_pointer_set(NplVal pointer, NplVal code, NplVal offset,
+                           NplVal value);
+/* A (npl ffi) c-struct view is a record (type pointer descriptor). */
+void *npl_ffi_struct_pointer(NplVal value, const char *expected,
+                             const char *who);
 NplVal npl_ffi_from_int64(int64_t value);
 NplVal npl_ffi_from_uint64(uint64_t value);
 NplVal npl_ffi_from_double(double value);
@@ -781,6 +825,8 @@ void npl_primitive_error(const char *who, const char *message,
 void npl_report_error_object(NplVal object);
 void npl_primitive_file_error(const char *who, const char *message,
                               NplVal irritant);
+/* kind "posix" with the symbolic errno name as the first irritant. */
+void npl_primitive_posix_error(const char *who, int code, NplVal irritant);
 void npl_primitive_read_error(const char *message);
 void npl_symbol_mark_roots(void);
 void npl_io_init(void);

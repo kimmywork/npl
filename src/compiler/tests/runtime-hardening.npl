@@ -1,0 +1,77 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (scheme file)
+        (only (npl internal primitive)
+              npl_record_ref npl_record_set npl_record_instance_type
+              read-file))
+
+(include "framework.npl")
+
+(define-record-type point
+  (make-point x y)
+  point?
+  (x point-x)
+  (y point-y))
+
+(define (raises? thunk)
+  (guard (condition (#t #t))
+    (thunk)
+    #f))
+
+(define (file-error?/read path)
+  (guard (condition ((file-error? condition) #t)
+                    (#t #f))
+    (read-file path)
+    #f))
+
+(define (main)
+  (let* ((p (make-point 1 2))
+         (type (npl_record_instance_type p)))
+    (test-equal "record field"
+                (lambda () (npl_record_ref p type 1)) 1)
+    (test-identity "record index 0 raises"
+                   (lambda ()
+                     (raises? (lambda () (npl_record_ref p type 0))))
+                   #t)
+    (test-identity "record index past the end raises"
+                   (lambda ()
+                     (raises? (lambda () (npl_record_ref p type 3))))
+                   #t)
+    (test-identity "record set index 0 raises"
+                   (lambda ()
+                     (raises? (lambda () (npl_record_set p type 0 9))))
+                   #t)
+    (test-identity "negative record index raises"
+                   (lambda ()
+                     (raises? (lambda () (npl_record_ref p type -1))))
+                   #t)
+    (test-identity "non-fixnum record index raises"
+                   (lambda ()
+                     (raises? (lambda () (npl_record_ref p type 'x))))
+                   #t))
+  (test-identity "rest arity raises instead of exiting"
+                 (lambda ()
+                   (raises? (lambda ()
+                              ((lambda (a b . rest) (list a b rest)) 1))))
+                 #t)
+  (let ((path "/tmp/npl-runtime-hardening-read-file.txt"))
+    (if (file-exists? path) (delete-file path))
+    (let ((port (open-output-file path)))
+      (write-string "abc" port)
+      (close-port port))
+    (test-identity "read-file reads the whole file"
+                   (lambda () (equal? (read-file path) "abc"))
+                   #t)
+    (delete-file path)
+    (test-identity "read-file on a missing file is a file error"
+                   (lambda ()
+                     (file-error?/read
+                       "/tmp/npl-runtime-hardening-missing.txt"))
+                   #t)
+    (test-identity "read-file on a directory is a file error"
+                   (lambda () (file-error?/read "/tmp"))
+                   #t))
+  (finish-tests "runtime-hardening"))
+
+(main)

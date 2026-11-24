@@ -11,9 +11,11 @@ pointers) is declared with `define-c-function` instead; see "Typed C
 Functions".
 
 Supported by `nplc` since 2026-10-22 (P2b); `nplc -l`/`-L` and `npli -l`
-since 2026-10-23; pointers and `define-c-function` since 2026-10-27. Not yet
-supported: callbacks into NPL, structs, arrays. See "Limitations" and the
-plan in [design-primitives](../.agents/archive/design/design-primitives.md).
+since 2026-10-23; pointers and `define-c-function` since 2026-10-27;
+explicit C memory and array views since 2026-11-23; C struct descriptors and
+struct-typed arguments since 2026-11-23. Not yet supported: callbacks into
+NPL. See "Limitations" and the plan in
+[design-primitives](../.agents/archive/design/design-primitives.md).
 
 ## Declaring A Function
 
@@ -258,6 +260,120 @@ normal return, a raise caught outside it, an escape through a
 continuation, or `exit` (R7RS 6.14; `emergency-exit` runs nothing).
 Re-entering `body` through a continuation does not acquire or release the
 resource again, so a body re-entered after its release must not use it.
+
+### Foreign Memory
+
+`foreign-alloc` owns a zero-filled `malloc` block. The alignment argument is
+a power of two; it defaults to 16 and smaller requests are rounded up to the
+platform pointer alignment. Free the block with `foreign-free` or
+`with-resource`; there is no finalizer.
+
+| Procedure | Result |
+|---|---|
+| `(foreign-alloc size [alignment])` | zero-filled owned pointer |
+| `(foreign-free p)` | release an owned pointer; views are rejected |
+| `(foreign-size p)` | remaining bytes, or 0 when unknown |
+| `(foreign-copy p size [alignment])` | owned copy of `size` bytes |
+| `(pointer+offset p offset)` | view at byte offset; shares, does not own |
+| `(pointer-offset p)` | byte offset from the allocation base |
+| `(pointer-ref p type [offset])` | typed load |
+| `(pointer-set! p type value [offset])` | typed store |
+| `(c-type-size type)` | byte width of a C type |
+
+`type` is `u8 u16 u32 u64 i8 i16 i32 i64 float double pointer`. The typed
+forms `pointer-ref-u8`, `pointer-ref-i64`, `pointer-set-double!`, and so on
+omit the type symbol. Loads and stores check the view's known bounds and
+natural alignment; a freed or foreign pointer has unknown size, so only
+alignment and null checks apply.
+
+```scheme
+(import (scheme base) (npl ffi))
+
+(with-resource (p (foreign-alloc 16) foreign-free)
+  (pointer-set-u32! p #x11223344 0)
+  (pointer-set-double! p 2.5 8)
+  (list (pointer-ref-u32 p 0) (pointer-ref-double p 8)))
+```
+
+Foreign memory holds C scalars and addresses only. Never store an `NplVal`
+there: the collector neither scans nor frees foreign memory, and a pointer
+stored in it does not keep an NPL object alive. Reading a `pointer` slot
+returns an address-only pointer with unknown size.
+
+### C Structs
+
+`define-c-struct` is a top-level declaration. It reads the layout from
+`c-struct-layouts.meta` when present (generated at build time by
+`nplc --emit=c-structs`, or installed with a native package) and otherwise
+compiles and runs a tiny `sizeof`/`offsetof` probe (using `NPL_CC`, else
+`CC`, else `cc`). The declaration binds the name to a quoted layout
+descriptor. Only pointers to structs cross the FFI boundary; by-value
+structs are out of scope. `NPL_C_STRUCT_LAYOUTS` is a colon-separated search
+path of explicit cache files for packages that ship their own layouts; the
+build/install core cache is still consulted after them, so a package file
+that lacks `timespec` or `tm` does not hide the core layouts.
+
+```scheme
+(define-c-struct timespec
+  "struct timespec"
+  (tv_sec long)
+  (tv_nsec long))
+
+(define-c-function time-now "npl_time_now_ts"
+  (int struct:timespec) -> int)
+
+(let ((value (make-c-struct timespec)))
+  (time-now 0 value)
+  (list (c-struct-ref value 'tv_sec)
+        (c-struct-ref value 'tv_nsec)))
+```
+
+| Procedure | Result |
+|---|---|
+| `(make-c-struct descriptor)` | allocate a zero-filled view |
+| `(free-c-struct view)` | release a view allocated by `make-c-struct` |
+| `(c-struct? v)` | predicate |
+| `(c-struct-pointer v)` | the underlying pointer |
+| `(c-struct-ref v field)` / `(c-struct-set! v field value)` | typed field access |
+| `(c-struct-size v)` | `sizeof` the C type |
+
+`make-c-struct` allocates with `foreign-alloc`; release it with
+`free-c-struct` or `with-resource`. `(npl time)` uses `with-resource` for
+every temporary `timespec`/`tm` view.
+
+Field types are `u8 u16 u32 u64 i8 i16 i32 i64 int long int64 size_t bool
+float double pointer`. A `define-c-function` argument of type
+`struct:name` takes a matching live view whose remaining extent covers the C
+type; a freed or short view raises before the C call. Generated stubs put
+`_GNU_SOURCE`/`_DARWIN_C_SOURCE` first, include only `npl.h` and standard
+headers, and pass struct arguments as `void *`, so a libc declaration with
+different NPL types still compiles and typedef names such as `ldiv_t` need no
+forward declaration.
+
+### C Arrays
+
+A `c-array` is a view `(pointer length type)`; it owns no memory. Accessors
+check the index and use the element width. `make-c-array` allocates a new
+block, while `c-array` wraps an existing pointer.
+
+| Procedure | Result |
+|---|---|
+| `(c-array pointer length type)` | view over existing memory |
+| `(make-c-array length type [alignment])` | allocate and wrap a view |
+| `(c-array? v)` | predicate |
+| `(c-array-pointer a)` | the underlying pointer |
+| `(c-array-length a)` / `(c-array-type a)` | fields |
+| `(c-array-ref a i)` / `(c-array-set! a i v)` | checked element access |
+| `(c-array->vector a)` / `(vector->c-array v type [pointer])` | conversion |
+
+```scheme
+(let ((a (make-c-array 3 'u32)))
+  (vector->c-array '#(10 20 30) 'u32 (c-array-pointer a))
+  (foreign-free (c-array-pointer a)))
+```
+
+`make-c-array` and `vector->c-array` without a pointer return an owned
+view; release it with `(foreign-free (c-array-pointer a))`.
 `src/compiler/tests/c-extension/pointers.npl` covers each case.
 
 ## Diagnostics
@@ -307,3 +423,63 @@ symbol. Under `npli`:
 - **Types are unchecked.** A declared type documents intent. A later step
   may use the cheap ones (`pair`, `fixnum`, `char`, `index`) for inline
   checks, keeping the C checks.
+
+## Native Packages
+
+Library C can live outside the runtime and primitive table. A package keeps
+its NPL library, C sources, and `package.meta` together:
+
+```
+lib/npl/time.sld
+lib/npl/time/native/time.c
+lib/npl/time/package.meta
+```
+
+Native packages use one `NplVal` ABI and two artifact forms:
+
+- **Core (linked, A).** CMake builds `libnpl_<name>.a` and a shared object.
+  `nplc --native=static` links imported archives; `nplc --native=shared`
+  links the shared runtime and imported shared objects; `npli` links the
+  shared objects with a relocatable rpath. No `-l` flags are needed.
+  `(npl time)` and `(npl unix)` are core packages.
+- **External (optional package, B).** CMake builds both forms and the `.sld`
+  declares `(native-package "npl_<name>")`. In linked modes the C symbols
+  come from the archive or shared object; in `npli` the library binds them
+  through `(npl native)` / `ffi-procedure`. `(npl demo crc32)` and
+  `(npl demo zlib)` are the samples; zlib adds `-lz` through `native.meta`
+  in static mode.
+
+```scheme
+(import (npl native))
+
+(load-native-library "npl_demo_crc32")
+(define crc32 (native-procedure "npl_demo_crc32" 1))
+```
+
+`(npl native)` searches `NPL_NATIVE_PATH`, then
+`<executable-dir>/../lib/npl/native`, then `./lib/npl/native`, trying
+`lib<name>.dylib` and `lib<name>.so`. Core packages use linked mode and do
+not import it.
+
+External C should be allocation-free first: read bytevectors and struct
+views, write caller-provided buffers, and return status codes. It must not
+link a second runtime or call `npl_primitive_error`. Core packages may use
+runtime helpers because they are part of the same build.
+
+`package.meta` (provisional) records the tier, ABI version, sources,
+system libraries, shared/static names, and bindings. The current CMake flow
+builds the checked-in packages, writes `lib/npl/native/native.meta` (the
+artifact index `nplc` reads) and keeps `core.meta` for compatibility. It
+also runs
+`nplc --emit=c-structs` once and installs
+`lib/npl/native/c-struct-layouts.meta`, so importing the core packages does
+not invoke a C compiler.
+
+## Platform Features
+
+`cond-expand` and `(features)` share the runtime feature list. The OS and
+architecture names are `darwin`, `linux`, `aarch64`, `x86_64`, and
+`64-bit`; because an identifier cannot start with a digit, write the width
+feature as `|64-bit|` in `cond-expand`. `(npl platform)` exposes
+`platform-triple`, `platform-features`, and `platform-feature?`; the triple
+is for diagnostics and build metadata, not for feature tests.

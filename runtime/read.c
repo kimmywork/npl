@@ -61,7 +61,8 @@ static int reader_peek(NplDatumReader *reader)
 
 static int datum_delimiter(int code)
 {
-    return code == EOF || code == '(' || code == ')' || code == '"' ||
+    return code == EOF || code == '(' || code == ')' ||
+           code == '[' || code == ']' || code == '"' ||
            code == ';' || code == '\'' || code == '`' || code == ',' ||
            code == '|' || code == ' ' || code == '\t' || code == '\n' ||
            code == '\r' || code == '\f';
@@ -297,6 +298,8 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
         barred = 1;
         read_bar_symbol_part(reader, &buffer, &length, &capacity);
     } else {
+        if (first == '\\')
+            read_error("backslash is not a valid identifier character");
         buffer_push(&buffer, &length, &capacity, first);
     }
     /* A |...| part may continue the token, and vice versa (abc|d e|f). */
@@ -309,6 +312,9 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
         } else if (datum_delimiter(code)) {
             break;
         } else {
+            if (code == '\\' && !barred)
+                read_buffer_error(buffer,
+                    "backslash is not a valid identifier character");
             buffer_push(&buffer, &length, &capacity, reader_get(reader));
         }
     }
@@ -344,15 +350,17 @@ static NplVal reverse_onto(NplVal values, NplVal tail)
     return tail;
 }
 
-static NplVal read_list_datum(NplDatumReader *reader)
+static NplVal read_list_datum(NplDatumReader *reader, int open)
 {
     NplVal reversed = npl_nil();
+    int close_code = open == '[' ? ']' : ')';
     for (;;) {
         reader_skip_space(reader);
         int code = reader_peek(reader);
         if (code == EOF) read_error("unexpected EOF in list");
-        if (code == ')') {
+        if (code == ')' || code == ']') {
             (void)reader_get(reader);
+            if (code != close_code) read_error("mismatched closing bracket");
             return reverse_onto(reversed, npl_nil());
         }
         int bar = code == '|';
@@ -360,11 +368,13 @@ static NplVal read_list_datum(NplDatumReader *reader)
         if (!bar && symbol_named(value, ".")) {
             if (npl_is_nil(reversed)) read_error("misplaced dot");
             reader_skip_space(reader);
-            if (reader_peek(reader) == ')') read_error("missing datum after dot");
+            if (reader_peek(reader) == ')' || reader_peek(reader) == ']')
+                read_error("missing datum after dot");
             NplVal tail = read_datum_inner(reader, 0);
             reader_skip_space(reader);
-            if (reader_get(reader) != ')')
-                read_error("expected ) after dotted datum");
+            int close = reader_get(reader);
+            if (close != close_code)
+                read_error("expected matching close after dotted datum");
             return reverse_onto(reversed, tail);
         }
         reversed = npl_cons(value, reversed);
@@ -666,7 +676,7 @@ static NplVal read_hash_datum(NplDatumReader *reader)
             if (reader_peek(reader) != '(')
                 read_error("array literal requires (...)");
             (void)reader_get(reader);
-            return array_from_items(read_list_datum(reader), rank);
+            return array_from_items(read_list_datum(reader, '('), rank);
         }
         return read_label_after_digits(reader, rank, next);
     }
@@ -687,11 +697,11 @@ static NplVal read_hash_datum(NplDatumReader *reader)
         code == 'e' || code == 'E' || code == 'i' || code == 'I')
         return read_hash_radix_datum(reader, code);
     if (code == '\\') return read_character_datum(reader);
-    if (code == '(') return npl_list_to_vector(read_list_datum(reader));
+    if (code == '(') return npl_list_to_vector(read_list_datum(reader, '('));
     if (code == 'u') {
         if (reader_get(reader) != '8' || reader_get(reader) != '(')
             read_error("malformed bytevector");
-        return bytevector_from_list(read_list_datum(reader));
+        return bytevector_from_list(read_list_datum(reader, '('));
     }
     read_error("unknown # syntax");
     return npl_nil();
@@ -705,8 +715,9 @@ static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof)
         if (allow_eof) return npl_port_eof_internal();
         read_error("unexpected EOF");
     }
-    if (code == '(') return read_list_datum(reader);
+    if (code == '(' || code == '[') return read_list_datum(reader, code);
     if (code == ')') read_error("unexpected )");
+    if (code == ']') read_error("unexpected ]");
     if (code == '"') return read_string_datum(reader);
     if (code == '\'') return quoted_datum(read_datum_inner(reader, 0));
     if (code == '`')

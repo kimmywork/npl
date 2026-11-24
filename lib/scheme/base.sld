@@ -50,7 +50,10 @@
     string-map string-for-each define-record-type
     error error-object? error-object-message error-object-irritants
     file-error? read-error?
-    read-line read-string write-string char-ready? u8-ready? features)
+    read-line read-string write-string char-ready? u8-ready? features
+    quote quasiquote unquote unquote-splicing lambda define set! if begin
+    let let* letrec letrec* let-syntax letrec-syntax let-values define-values
+    syntax-rules)
   ; The current-port primitives read the same parameter objects as the
   ; procedures defined below (runtime/port.c npl_current_output_port); the
   ; library calls them directly (text-io.scm).
@@ -101,6 +104,7 @@
           (else
            (let ((fast (cdr (cdr fast))) (slow (cdr slow)))
              (if (eq? fast slow) #f (loop fast slow))))))))
-  (include "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
+  (include "ordered-chain.scm"
+           "integer.scm" "rational.scm" "complex.scm" "real.scm" "list.scm"
            "vector.scm" "string.scm"
            "error.scm" "text-io.scm"))

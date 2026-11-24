@@ -1,0 +1,337 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl time)
+        (npl unix))
+
+(include "framework.npl")
+
+(define (raises? thunk)
+  (guard (condition (#t #t))
+    (thunk)
+    #f))
+
+(define (main)
+  (test-identity "time-utc predicate"
+                 (lambda () (time-utc? (current-time)))
+                 #t)
+  (test-identity "time-monotonic predicate"
+                 (lambda () (time-monotonic? (current-time 'time-monotonic)))
+                 #t)
+  (test-identity "time-resolution returns nanoseconds"
+                 (lambda () (exact-integer? (time-resolution)))
+                 #t)
+  (let ((epoch (time-utc->date (make-time 'time-utc 0 0) 0)))
+    (test-equal "epoch year" (lambda () (date-year epoch)) 1970)
+    (test-equal "epoch month" (lambda () (date-month epoch)) 1)
+    (test-equal "epoch day" (lambda () (date-day epoch)) 1)
+    (test-equal "epoch hour" (lambda () (date-hour epoch)) 0)
+    (test-equal "epoch minute" (lambda () (date-minute epoch)) 0)
+    (test-equal "epoch second" (lambda () (date-second epoch)) 0)
+    (test-equal "epoch zone" (lambda () (date-zone-offset epoch)) 0)
+    (test-equal "epoch week day" (lambda () (date-week-day epoch)) 4)
+    (test-equal "epoch year day" (lambda () (date-year-day epoch)) 1)
+    (test-equal "epoch round trip"
+                (lambda () (time-second (date->time-utc epoch))) 0)
+    (test-identity "epoch format"
+                   (lambda ()
+                     (equal? (date->string epoch "~Y-~m-~d ~H:~M:~S ~z")
+                             "1970-01-01 00:00:00 +0000"))
+                   #t)
+    (test-identity "epoch Julian day"
+                   (lambda ()
+                     (equal? (date->julian-day epoch) 2440587.5))
+                   #t)
+    (test-equal "Julian day round trip"
+                (lambda ()
+                  (time-second (julian-day->time-utc 2440587.5)))
+                0)
+    (test-equal "modified Julian day round trip"
+                (lambda ()
+                  (date-day (modified-julian-day->date 40587.0 0)))
+                1)
+    (test-identity "ISO week and weekday directives"
+                   (lambda ()
+                     (equal? (date->string epoch "~1 ~3 ~u ~w ~U ~W ~V")
+                             "1970-01-01 00:00:00 4 4 00 00 01"))
+                   #t)
+    (test-identity "positive zone offset"
+                   (lambda ()
+                     (let ((value (time-utc->date
+                                    (make-time 'time-utc 0 0) 3600)))
+                       (equal? (list (date-hour value)
+                                     (date-zone-offset value)
+                                     (time-second (date->time-utc value)))
+                               '(1 3600 0))))
+                   #t)
+    (test-identity "negative zone offset"
+                   (lambda ()
+                     (let ((value (time-utc->date
+                                    (make-time 'time-utc 0 0) -3600)))
+                       (equal? (list (date-hour value) (date-day value)
+                                     (date-zone-offset value)
+                                     (time-second (date->time-utc value)))
+                               '(23 31 -3600 0))))
+                   #t)
+    (test-identity "half-hour zone offset"
+                   (lambda ()
+                     (let ((value (time-utc->date
+                                    (make-time 'time-utc 0 0) 19800)))
+                       (equal? (list (date-hour value) (date-minute value)
+                                     (date-zone-offset value)
+                                     (time-second (date->time-utc value)))
+                               '(5 30 19800 0))))
+                   #t)
+    (test-identity "zone offset formatting"
+                   (lambda ()
+                     (equal? (list (date->string
+                                     (time-utc->date (make-time 'time-utc 0 0)
+                                                     19800)
+                                     "~z")
+                                   (date->string
+                                     (time-utc->date (make-time 'time-utc 0 0)
+                                                     -18000)
+                                     "~z"))
+                             '("+0530" "-0500")))
+                   #t)
+    (test-equal "nanosecond round trip"
+                (lambda ()
+                  (date-nanosecond
+                    (time-utc->date
+                      (date->time-utc
+                        (make-date 999999999 0 0 0 1 1 1970 0 0 0 #f)))))
+                999999999)
+    (test-equal "leap day round trip"
+                (lambda ()
+                  (date-day
+                    (time-utc->date
+                      (date->time-utc
+                        (make-date 0 0 0 0 29 2 2000 0 0 0 #f)))))
+                29)
+    (test-identity "12-hour clock and padding"
+                   (lambda ()
+                     (equal? (date->string epoch "~I ~p ~k ~l ~e")
+                             "12 AM  0 12  1"))
+                   #t))
+  (let ((date (make-date 0 6 5 4 3 2 1970 0 0 0 #f)))
+    (test-equal "make-date second" (lambda () (date-second date)) 6)
+    (test-equal "make-date month" (lambda () (date-month date)) 2)
+    (test-equal "make-date year" (lambda () (date-year date)) 1970))
+  (test-equal "time-difference"
+              (lambda ()
+                (time-second
+                  (time-difference (make-time 'time-utc 0 10)
+                                   (make-time 'time-utc 0 3))))
+              7)
+  (test-equal "add-duration"
+              (lambda ()
+                (time-second
+                  (add-duration (make-time 'time-utc 0 10)
+                                (make-time 'time-duration 0 5))))
+              15)
+  (test-identity "string->date round trip"
+                 (lambda ()
+                   (let ((parsed (string->date "2001-02-03 04:05:06 +0000"
+                                               "~Y-~m-~d ~H:~M:~S ~z")))
+                     (equal? (list (date-year parsed)
+                                   (date-month parsed)
+                                   (date-day parsed)
+                                   (date-hour parsed)
+                                   (date-minute parsed)
+                                   (date-second parsed)
+                                   (date-zone-offset parsed))
+                             '(2001 2 3 4 5 6 0))))
+                 #t)
+  (test-identity "string->date month name and 12-hour clock"
+                 (lambda ()
+                   (let ((parsed (string->date "Mar 4 2001 01:02:03 PM +0000"
+                                               "~b ~e ~Y ~I:~M:~S ~p ~z")))
+                     (equal? (list (date-month parsed) (date-day parsed)
+                                   (date-hour parsed) (date-year parsed))
+                             '(3 4 13 2001))))
+                 #t)
+  (test-equal "date-week-number Sunday"
+              (lambda ()
+                (date-week-number (make-date 0 0 0 0 1 1 2023 0) 0))
+              1)
+  (test-equal "date-week-number Monday partial week"
+              (lambda ()
+                (date-week-number (make-date 0 0 0 0 1 1 2023 0) 1))
+              0)
+  (test-identity "TAI aliases keep the type"
+                 (lambda ()
+                   (time-tai? (time-utc->time-tai
+                               (make-time 'time-utc 0 0))))
+                 #t)
+  (test-equal "subtract-duration"
+              (lambda ()
+                (time-second
+                  (subtract-duration (make-time 'time-utc 0 10)
+                                     (make-time 'time-duration 0 5))))
+              5)
+  (test-identity "negative 12-hour offset"
+                 (lambda ()
+                   (let ((value (time-utc->date
+                                  (make-time 'time-utc 0 0) -43200)))
+                     (equal? (list (date-year value) (date-month value)
+                                   (date-day value) (date-hour value)
+                                   (date-zone-offset value)
+                                   (time-second (date->time-utc value)))
+                             '(1969 12 31 12 -43200 0))))
+                 #t)
+  (test-identity "positive 14-hour offset"
+                 (lambda ()
+                   (let ((value (time-utc->date
+                                  (make-time 'time-utc 0 0) 50400)))
+                     (equal? (list (date-year value) (date-month value)
+                                   (date-day value) (date-hour value)
+                                   (date-zone-offset value)
+                                   (time-second (date->time-utc value)))
+                             '(1970 1 1 14 50400 0))))
+                 #t)
+  (test-identity "string->date +0530"
+                 (lambda ()
+                   (let ((parsed (string->date "2001-02-03 04:05:06 +0530"
+                                               "~Y-~m-~d ~H:~M:~S ~z")))
+                     (let ((back (time-utc->date
+                                   (date->time-utc parsed) 19800)))
+                       (equal? (list (date-zone-offset parsed)
+                                     (date-year back) (date-month back)
+                                     (date-day back) (date-hour back)
+                                     (date-minute back) (date-second back))
+                               '(19800 2001 2 3 4 5 6)))))
+                 #t)
+  (test-identity "string->date -0800"
+                 (lambda ()
+                   (let ((parsed (string->date "2001-02-03 04:05:06 -0800"
+                                               "~Y-~m-~d ~H:~M:~S ~z")))
+                     (equal? (list (date-zone-offset parsed)
+                                   (time-second (date->time-utc parsed)))
+                             (list -28800
+                                   (time-second (date->time-utc parsed))))))
+                 #t)
+  (test-identity "last day before 1900 leap boundary"
+                 (lambda ()
+                   (equal? (list (date-year
+                                   (time-utc->date
+                                     (date->time-utc
+                                       (make-date 0 0 0 0 28 2 1900 0 0 0 #f))
+                                     0))
+                                 (date-day
+                                   (time-utc->date
+                                     (date->time-utc
+                                       (make-date 0 0 0 0 28 2 1900 0 0 0 #f))
+                                     0)))
+                           '(1900 28)))
+                 #t)
+  (test-identity "first day after 1900 leap boundary"
+                 (lambda ()
+                   (equal? (list (date-month
+                                   (time-utc->date
+                                     (date->time-utc
+                                       (make-date 0 0 0 0 1 3 1900 0 0 0 #f))
+                                     0))
+                                 (date-day
+                                   (time-utc->date
+                                     (date->time-utc
+                                       (make-date 0 0 0 0 1 3 1900 0 0 0 #f))
+                                     0)))
+                           '(3 1)))
+                 #t)
+  (test-identity "2038 boundary date"
+                 (lambda ()
+                   (let ((value (time-utc->date
+                                  (date->time-utc
+                                    (make-date 0 8 14 3 19 1 2038 0 0 0 #f))
+                                  0)))
+                     (equal? (list (date-year value) (date-month value)
+                                   (date-day value) (date-hour value)
+                                   (date-minute value) (date-second value))
+                             '(2038 1 19 3 14 8))))
+                 #t)
+  (test-identity "negative epoch date"
+                 (lambda ()
+                   (let ((value (time-utc->date
+                                  (date->time-utc
+                                    (make-date 0 59 59 23 31 12 1969 0 0 0 #f))
+                                  0)))
+                     (equal? (list (date-year value) (date-month value)
+                                   (date-day value) (date-hour value)
+                                   (date-minute value) (date-second value)
+                                   (time-second (date->time-utc value)))
+                             '(1969 12 31 23 59 59 -1))))
+                 #t)
+  (test-identity "duration carry and borrow"
+                 (lambda ()
+                   (let ((carry (add-duration
+                                  (make-time 'time-utc 999999999 0)
+                                  (make-time 'time-duration 1 0)))
+                         (borrow (subtract-duration
+                                   (make-time 'time-utc 0 0)
+                                   (make-time 'time-duration 999999999 1))))
+                     (equal? (list (time-second carry)
+                                   (time-nanosecond carry)
+                                   (time-second borrow)
+                                   (time-nanosecond borrow))
+                             '(1 0 -1 1))))
+                 #t)
+  (test-identity "time type mismatch raises"
+                 (lambda ()
+                   (raises? (lambda ()
+                              (time-difference
+                                (make-time 'time-utc 0 0)
+                                (make-time 'time-monotonic 0 0)))))
+                 #t)
+  (test-identity "duration type required"
+                 (lambda ()
+                   (raises? (lambda ()
+                              (add-duration
+                                (make-time 'time-utc 0 0)
+                                (make-time 'time-utc 0 0)))))
+                 #t)
+  (let ((saved (get-environment-variable "TZ")))
+    (set-environment-variable! "TZ" "UTC")
+    (test-equal "TZ UTC offset"
+                (lambda () (date-zone-offset (current-date))) 0)
+    (set-environment-variable! "TZ" "Asia/Shanghai")
+    (test-equal "TZ Asia/Shanghai offset"
+                (lambda () (date-zone-offset (current-date))) 28800)
+    (set-environment-variable! "TZ" "America/New_York")
+    (test-identity "DST spring forward"
+                   (lambda ()
+                     (let ((value
+                             (time-utc->date
+                               (date->time-utc
+                                 (make-date 0 0 0 7 14 3 2021 0 0 0 #f)))))
+                       (equal? (list (date-hour value)
+                                     (date-zone-offset value)
+                                     (date-dst? value))
+                               '(3 -14400 #t))))
+                   #t)
+    (test-identity "DST fall back"
+                   (lambda ()
+                     (let ((value
+                             (time-utc->date
+                               (date->time-utc
+                                 (make-date 0 0 30 6 7 11 2021 0 0 0 #f)))))
+                       (equal? (list (date-hour value)
+                                     (date-minute value)
+                                     (date-zone-offset value)
+                                     (date-dst? value))
+                               '(1 30 -18000 #f))))
+                   #t)
+    (if saved
+        (set-environment-variable! "TZ" saved)
+        (set-environment-variable! "TZ" "UTC")))
+  (test-identity "current-time and date allocation stress"
+                 (lambda ()
+                   (let loop ((index 0))
+                     (if (= index 100000)
+                         #t
+                         (begin
+                           (time-utc->date (current-time) 0)
+                           (loop (+ index 1))))))
+                 #t)
+  (finish-tests "srfi-19"))
+
+(main)

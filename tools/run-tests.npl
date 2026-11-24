@@ -1,0 +1,227 @@
+; NPL test-suite orchestrator.  Replaces the append-only shell lists with a
+; fixture manifest, NPL expect runner, and property-suite discovery.  Legacy
+; compiler/runtime checks are still shell adapters; they are listed here as
+; explicit migration debt, not hidden in a growing shell loop.
+(import (scheme base)
+        (scheme file)
+        (scheme process-context)
+        (scheme read)
+        (scheme write)
+        (only (npl internal primitive) read-file)
+        (only (npl util) path-join)
+        (npl process)
+        (npl platform)
+        (npl unix)
+        (npl test expect)
+        (tools libraries)
+        (tools link-modes)
+        (tools repl-suites)
+        (tools toolchain))
+
+(define ROOT (current-directory))
+; Guile encodes non-ASCII output according to the locale; keep the gate
+; independent of the caller's environment unless NPL_TEST_LC_ALL overrides it.
+(if (get-environment-variable "NPL_TEST_LC_ALL")
+    (set-environment-variable! "LC_ALL"
+                               (get-environment-variable "NPL_TEST_LC_ALL"))
+    (set-environment-variable! "LC_ALL"
+                               (if (platform-feature? 'darwin)
+                                   "en_US.UTF-8"
+                                   "C.UTF-8")))
+(define NPLC (if (get-environment-variable "NPLC")
+                 (get-environment-variable "NPLC")
+                 "build/bin/nplc"))
+(define NPLI (if (get-environment-variable "NPLI")
+                 (get-environment-variable "NPLI")
+                 "build/bin/npli"))
+(define FAILED 0)
+(define SKIP-FIXED-POINT #f)
+(define SKIP-LEGACY #f)
+(define ONLY-PROPERTIES #f)
+
+(define (report name passed)
+  (display name)
+  (if passed
+      (display " PASS")
+      (begin
+        (display " FAIL")
+        (set! FAILED (+ FAILED 1))))
+  (newline))
+
+(define (run-program name arguments)
+  (report name (= (run-process* arguments #f #f #f) 0)))
+
+(define (run-script name script . rest)
+  (run-program name (cons "bash" (cons script rest))))
+
+(define (read-manifest)
+  (call-with-input-file "tests/fixtures/manifest.scm" read))
+
+(define (fixture-directories)
+  (cdr (read-manifest)))
+
+(define (zlib-built?)
+  (if (file-exists? "build/lib/npl/native/libnpl_demo_zlib.so") #t
+      (file-exists? "build/lib/npl/native/libnpl_demo_zlib.dylib")))
+
+(define (run-fixture name)
+  (if (if (string=? name "native-zlib") (not (zlib-built?)) #f)
+      (begin
+        (display "R7RS ")
+        (display name)
+        (display " SKIP (zlib not built)")
+        (newline))
+      (begin
+        (display "R7RS ")
+        (display name)
+        (newline)
+        (if (run-fixture-directory (path-join "tests/fixtures" name)
+                                   NPLC NPLI)
+            (begin (display "  PASS") (newline))
+            (begin
+              (display "  FAIL")
+              (newline)
+              (set! FAILED (+ FAILED 1)))))))
+
+(define (run-fixtures)
+  (let loop ((names (fixture-directories)))
+    (if (null? names)
+        0
+        (begin
+          (run-fixture (car names))
+          (loop (cdr names))))))
+
+(define (run-unit-tests)
+  (let ((files (glob "tests/unit/*.npl")))
+    (let loop ((rest files))
+      (if (null? rest)
+          0
+          (let* ((path (car rest))
+                 (name (path-stem path))
+                 (directory (make-temporary-directory))
+                 (binary (path-join directory name))
+                 (output (path-join directory "out"))
+                 (error (path-join directory "err"))
+                 (compile (run-process* (list NPLC path "-o" binary)
+                                        #f output error))
+                 (status (if (= compile 0)
+                             (run-process* (list binary) #f output error)
+                             compile)))
+            (if (= status 0)
+                (begin
+                  (report (string-append "unit " name) #t)
+                  (display (read-file output)))
+                (begin
+                  (display (read-file output))
+                  (display (read-file error))
+                  (report (string-append "unit " name) #f)))
+            (if (file-exists? binary) (delete-file binary))
+            (if (file-exists? output) (delete-file output))
+            (if (file-exists? error) (delete-file error))
+            (delete-directory directory)
+            (loop (cdr rest)))))))
+
+(define (run-properties)
+  (let ((files (glob "tests/property/*.npl")))
+    (let loop ((rest files))
+      (if (null? rest)
+          0
+          (let* ((path (car rest))
+                 (name (path-stem path))
+                 (directory (make-temporary-directory))
+                 (binary (path-join directory name))
+                 (output (path-join directory "out"))
+                 (error (path-join directory "err"))
+                 (compile (run-process* (list NPLC path "-o" binary)
+                                        #f output error))
+                 (status (if (= compile 0)
+                             (run-process* (list binary) #f output error)
+                             compile)))
+            (if (= status 0)
+                (report (string-append "property " name) #t)
+                (begin
+                  (display "--- property output: ") (display path)
+                  (newline)
+                  (display (read-file output))
+                  (display (read-file error))
+                  (report (string-append "property " name) #f)))
+            (if (file-exists? binary) (delete-file binary))
+            (if (file-exists? output) (delete-file output))
+            (if (file-exists? error) (delete-file error))
+            (delete-directory directory)
+            (loop (cdr rest)))))))
+
+(define (path-stem path)
+  (let* ((slash (let loop ((index (- (string-length path) 1)))
+                  (if (< index 0)
+                      0
+                      (if (char=? (string-ref path index) #\/)
+                          (+ index 1)
+                          (loop (- index 1))))))
+         (name (substring path slash (string-length path)))
+         (dot (let loop ((index (- (string-length name) 1)))
+                (if (< index 0)
+                    (string-length name)
+                    (if (char=? (string-ref name index) #\.)
+                        index
+                        (loop (- index 1)))))))
+    (substring name 0 dot)))
+
+(define (legacy-steps)
+  (if SKIP-FIXED-POINT
+      (display "current compiler fixed point SKIP\n")
+      (report "current compiler fixed point"
+              (check-current-fixed-point ROOT)))
+  (report "library metadata" (check-libraries ROOT))
+  (report "duplicate definitions" (check-duplicate-definitions ROOT))
+  (report "export origins" (check-export-origins ROOT))
+  (report "library test coverage" (check-library-test-coverage ROOT))
+  ; The checker's own tests import (tools libraries) from the checkout
+  ; root, which npli resolves from the working directory.
+  (run-program "library checker tests" (list NPLI "tools/libraries-tests.npl"))
+  (report "native link modes" (check-link-modes ROOT NPLC))
+  (run-script "full compiler language" "tools/check_full_compiler.sh")
+  (report "unified nplc driver" (check-driver ROOT))
+  (report "install layout" (check-install ROOT))
+  (report "npli REPL and scripts" (check-repl-suites ROOT NPLC NPLI))
+  (report "core semantic consistency" (check-core-consistency ROOT))
+  (run-script "relay orchestration" "tools/check_relay_scripts.sh")
+  (report "runtime GC" (check-gc ROOT))
+  (report "exact numeric substrate" (check-numeric-reference ROOT)))
+
+(define (main)
+  (let ((arguments (cdr (command-line))))
+    (let loop ((rest arguments))
+      (cond
+        ((null? rest) #t)
+        ((string=? (car rest) "--skip-current-fixed-point")
+         (set! SKIP-FIXED-POINT #t)
+         (loop (cdr rest)))
+        ((string=? (car rest) "--skip-legacy")
+         (set! SKIP-LEGACY #t)
+         (loop (cdr rest)))
+        ((string=? (car rest) "--properties-only")
+         (set! SKIP-LEGACY #t)
+         (set! ONLY-PROPERTIES #t)
+         (loop (cdr rest)))
+        (else
+         (display "usage: run-tests.npl [--skip-current-fixed-point] [--skip-legacy] [--properties-only]"
+                  (current-error-port))
+         (newline (current-error-port))
+         (exit 2)))))
+  (if SKIP-LEGACY #f (legacy-steps))
+  (if ONLY-PROPERTIES #f (run-fixtures))
+  (if ONLY-PROPERTIES #f (run-unit-tests))
+  (run-properties)
+  (if (= FAILED 0)
+      (begin
+        (display "all suites: PASS")
+        (newline)
+        (exit 0))
+      (begin
+        (display "suite failures: ")
+        (display FAILED)
+        (newline)
+        (exit 1))))
+
+(main)

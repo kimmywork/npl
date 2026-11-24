@@ -20,7 +20,13 @@
             (begin
               (require-raw-arity form 2 "define-values")
               (define-values-proper-formals (car (cdr form))))
-            ())
+            (if (raw-form? form "define-c-struct")
+                (if (if (pair? (cdr form))
+                        (datum-symbol? (car (cdr form)))
+                        #f)
+                    (cons (car (cdr form)) ())
+                    ())
+                ()))
         (cons single ()))))
 
 (define (predeclare-global-identifiers identifiers environment)
@@ -69,6 +75,7 @@
   (cell-set! SYNTAX-MARKS (new-mark-table))
   (cell-set! SYNTAX-NEXT-MARK 0)
   (cell-set! EXPAND-NEXT-VALUE 0)
+  (native-package-reset!)
   (let ((environment (predeclare-globals forms ())))
     (car (expand-top-sequence
            forms environment
@@ -115,7 +122,10 @@
         (if (string=? (datum-symbol-name head) name)
             (if (head-value-bound? head value-env)
                 #f
-                (null? (lookup-macro-binding head macro-env)))
+                (let ((transformer (lookup-macro-binding head macro-env)))
+                  (if (null? transformer)
+                      #t
+                      (core-syntax-value? transformer))))
             #f)
         #f)))
 
@@ -140,6 +150,19 @@
         (cell-set! TOP-VALUE-ENVIRONMENT value-env)
         (cons (rev acc) macro-env))
       (let ((form (car forms)))
+        ; Phase-1 definitions and expressions are evaluated while expanding.
+        (if (if (raw-form? form "begin-for-syntax")
+                (head-is-core? form "begin-for-syntax" value-env macro-env)
+                #f)
+            (begin
+              (syntax-eval-phase-definitions (cdr form))
+              (expand-top-sequence (cdr forms) value-env macro-env acc))
+        (if (if (raw-form? form "for-syntax")
+                (head-is-core? form "for-syntax" value-env macro-env)
+                #f)
+            (begin
+              (syntax-eval-for-syntax (cdr form))
+              (expand-top-sequence (cdr forms) value-env macro-env acc))
         ; A top-level begin splices its forms (R7RS 5.6.1), including
         ; syntax definitions, before any expansion.
         (if (if (raw-form? form "begin")
@@ -152,9 +175,17 @@
              (predeclare-spliced-globals
                (begin-defined-value-list (cdr form) ()) value-env)
              (top-syntax-cells-unbound (cdr form) macro-env) acc)
+        (if (native-package-declaration? form value-env macro-env)
+            (begin
+              (declare-native-package form)
+              (expand-top-sequence (cdr forms) value-env macro-env acc))
         (if (c-primitive-declaration? form value-env macro-env)
             (expand-top-sequence
               (cdr forms) (declare-c-primitive form value-env) macro-env acc)
+        (if (c-struct-declaration? form value-env macro-env)
+            (expand-top-sequence
+              (cons (c-struct-definition form) (cdr forms))
+              value-env macro-env acc)
         (if (c-function-declaration? form value-env macro-env)
             (expand-top-sequence
               (cdr forms) (declare-c-function form value-env) macro-env acc)
@@ -200,7 +231,7 @@
                         (predeclare-spliced-globals
                           (direct-defined-identifiers expanded) value-env)
                         macro-env
-                        (cons expanded acc))))))))))))
+                        (cons expanded acc))))))))))))))))
 
 ; Top-level names defined by spliced macro output: unbound ones become
 ; globals named like direct definitions (with the library prefix inside a
@@ -213,6 +244,23 @@
     (cell-set! TOP-VALUE-ENVIRONMENT result)
     result))
 
+; A marked identifier was introduced by a macro template. Give it a
+; per-expansion emitted name so two expansions that both introduce `tmp` do
+; not share or duplicate a top-level global. Identifiers supplied by the
+; macro caller keep their mark and remain visible by their own name.
+(define (spliced-global-name identifier)
+  (let ((name (datum-symbol-name identifier))
+        (prefix (cell-get TOP-DEFINITION-PREFIX))
+        (mark (identifier-mark identifier)))
+    (let ((base
+            (if (> mark 0)
+                (string-append name "__syntax__" (number->string mark))
+                name)))
+      (string-append prefix
+        (if (= (string-length prefix) 0)
+            base
+            (sanitize base 0 ""))))))
+
 (define (predeclare-spliced-loop identifiers environment)
   (if (null? identifiers)
       environment
@@ -223,8 +271,5 @@
                  0)
               environment
               (add-value-binding identifier
-                (string-append (cell-get TOP-DEFINITION-PREFIX)
-                  (if (= (string-length (cell-get TOP-DEFINITION-PREFIX)) 0)
-                      (datum-symbol-name identifier)
-                      (sanitize (datum-symbol-name identifier) 0 "")))
+                (spliced-global-name identifier)
                 environment))))))
