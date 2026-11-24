@@ -72,7 +72,9 @@ later without changing user code.
   reach a safepoint. Root registration/restoration and remembered-set writes
   belong to the owning thread or are synchronized with the heap mutex.
   Concurrent access to shared mutable NPL objects must use NPL mutexes or
-  atomics; unsynchronized shared mutation is outside the contract.
+  atomics; unsynchronized shared mutation is outside the contract. Ports are
+  the exception: SRFI 18 permits concurrent reads and writes, so the runtime
+  must serialize access to the same port with its own synchronization.
 - **Per-thread state audit.** Move `g_current_wind`, `g_current_handler`,
   `g_current_parameters`, trampoline and escape/synchronous-call contexts,
   stack limits, GC stack bounds, and reader recovery state into per-thread
@@ -109,16 +111,20 @@ later without changing user code.
   An unknown C call keeps GC excluded. Condition
   and mutex waits use the same safe blocked-state transition.
 - **Termination.** Join waits for normal return or an uncaught raise;
-  cancellation is cooperative, never asynchronous `pthread_cancel`. The
-  cancellation request is observed at the same generated polls used for
-  safepoints, and runtime-managed blocking waits must be woken so the thread
-  can observe it. SRFI 18 requires another thread's termination to complete
-  before `thread-terminate!` returns: acknowledge completion, abandon owned
-  mutexes, and publish the terminated-thread exception for join. Scheduler
-  termination does not run dynamic-wind after thunks. Specify how outstanding
-  native calls finish before resources are released; an uninterruptible call
-  can delay termination. Preserve the distinct normal-result, uncaught-error,
-  terminated-thread, and timeout outcomes of join.
+  cancellation is cooperative, never asynchronous `pthread_cancel`. For a
+  running thread, the cancellation request is observed at the same generated
+  polls used for safepoints, and runtime-managed blocking waits must be woken
+  so the thread can observe it. A thread that has not started has no poll
+  site: `thread-start!` and `thread-terminate!` must synchronize the
+  not-started-to-terminated transition, so termination can mark it terminated
+  and complete without waiting for a generated poll. SRFI 18 requires another
+  thread's termination to be acknowledged before `thread-terminate!` returns:
+  abandon owned mutexes and publish the terminated-thread exception for join.
+  Scheduler termination does not run dynamic-wind after thunks. Specify how
+  outstanding native calls finish before resources are released; an
+  uninterruptible call can delay termination. Preserve the distinct
+  normal-result, uncaught-error, terminated-thread, and timeout outcomes of
+  join.
 
 ### QBE TLS and the current context
 
