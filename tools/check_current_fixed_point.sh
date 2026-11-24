@@ -58,6 +58,9 @@ cleanup() {
     status=$?
     trap - EXIT INT TERM HUP
     if [ -n "$ACTIVE_PID" ]; then
+        # Job control is unavailable in a non-TTY container, so the stage may
+        # not lead its own process group.  Signal both forms before waiting.
+        kill -TERM "$ACTIVE_PID" 2>/dev/null || true
         kill -TERM -- "-$ACTIVE_PID" 2>/dev/null || true
         wait "$ACTIVE_PID" 2>/dev/null || true
     fi

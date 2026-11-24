@@ -94,8 +94,11 @@ add_custom_command(
   COMMENT "npli: nplc src/repl/main.npl"
   VERBATIM)
 add_custom_target(npli ALL DEPENDS ${NPLI_BIN})
-add_dependencies(npli npl_time_shared npl_unix_shared npl_runtime_shared
-                 npl_c_struct_layouts npl_demo_crc32 npl_demo_crc32_static)
+# The gate builds only nplc and npli, so npli also pulls in every native
+# artifact that nplc's static or shared link modes need at test time.
+add_dependencies(npli npl_time npl_unix npl_time_shared npl_unix_shared
+                 npl_runtime_shared npl_c_struct_layouts
+                 npl_demo_crc32 npl_demo_crc32_static)
 if(TARGET npl_demo_zlib)
   add_dependencies(npli npl_demo_zlib npl_demo_zlib_static)
 endif()

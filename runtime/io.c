@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #ifdef __APPLE__
@@ -81,6 +82,14 @@ NplVal npl_read_file(NplVal path) {
     FILE *fp = fopen(buf, "rb");
     free(buf);
     if (!fp) npl_primitive_file_error("read-file", "cannot open file", path);
+    /* fopen() accepts directories on Linux, where ftell() then reports a
+     * bogus size.  Reject them before allocating a buffer: callers expect a
+     * catchable file error on every platform. */
+    struct stat info;
+    if (fstat(fileno(fp), &info) != 0 || S_ISDIR(info.st_mode)) {
+        fclose(fp);
+        npl_primitive_file_error("read-file", "cannot read file", path);
+    }
     fseek(fp, 0, SEEK_END);
     long size = ftell(fp);
     fseek(fp, 0, SEEK_SET);

@@ -611,6 +611,9 @@ NplVal npl_unix_set_environment(NplVal name_value, NplVal value_value)
     char *value = unix_path(value_value, "set-environment-variable!");
     int status = setenv(name, value, 1);
     int code = errno;
+    /* libc caches the TZ database; localtime/mktime do not pick up a new
+     * value from setenv until tzset is called. */
+    if (status == 0 && strcmp(name, "TZ") == 0) tzset();
     free(name);
     free(value);
     return unix_fixnum_result("set-environment-variable!", status, code,
@@ -622,6 +625,7 @@ NplVal npl_unix_delete_environment(NplVal name_value)
     char *name = unix_path(name_value, "delete-environment-variable!");
     int status = unsetenv(name);
     int code = errno;
+    if (status == 0 && strcmp(name, "TZ") == 0) tzset();
     free(name);
     return unix_fixnum_result("delete-environment-variable!", status, code,
                               name_value);

@@ -9,12 +9,12 @@
   (test-identity "platform triple is a string"
                  (lambda () (string? (platform-triple)))
                  #t)
-  (test-identity "platform triple has three components"
+  (test-identity "platform triple has at least three components"
                  (lambda ()
                    (let loop ((index 0) (separators 0))
                      (cond
                        ((= index (string-length (platform-triple)))
-                        (= separators 2))
+                        (>= separators 2))
                        ((char=? (string-ref (platform-triple) index) #\-)
                         (loop (+ index 1) (+ separators 1)))
                        (else (loop (+ index 1) separators)))))

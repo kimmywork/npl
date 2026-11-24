@@ -14,7 +14,7 @@
           (only (npl string) string-index)
           (only (npl util) path-join)
           (only (npl test util) read-text-file write-text text-lines
-                file-equal?)
+                file-equal? trim-newline)
           (npl process)
           (npl unix))
   (begin
@@ -78,6 +78,32 @@
          (newline (current-error-port))
          #f)
         (else #t)))
+
+    (define (separator? character)
+      (or (char=? character #\space)
+          (char=? character #\tab)
+          (char=? character #\newline)
+          (char=? character #\return)))
+
+    ; fixture.meta stores a whitespace-separated list of affected versions.
+    (define (version-listed? versions version)
+      (let ((text (trim-newline versions))
+            (wanted (trim-newline version)))
+        (let loop ((index 0))
+          (cond
+            ((>= index (string-length text)) #f)
+            ((separator? (string-ref text index)) (loop (+ index 1)))
+            (else
+              (let ((end
+                      (let scan ((at index))
+                        (if (if (< at (string-length text))
+                                (not (separator? (string-ref text at)))
+                                #f)
+                            (scan (+ at 1))
+                            at))))
+                (if (string=? (substring text index end) wanted)
+                    #t
+                    (loop end))))))))
 
     (define (guile-version)
       (let* ((directory (make-temporary-directory))
@@ -152,7 +178,9 @@
                                    repl-input repl-out repl-err)))
                 (if (if oracle-skip #f (if guile-defect #t #f))
                     (let ((version (guile-version)))
-                      (if (if version (string=? version guile-defect) #f)
+                      (if (if version
+                              (version-listed? guile-defect version)
+                              #f)
                           (set! oracle-skip "oracle-known-defect")
                           #f))
                     #f)
