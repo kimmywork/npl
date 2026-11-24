@@ -1,0 +1,1834 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+SPDX-FileCopyrightText: 2026 Peter McGoron
+SPDX-FileCopyrightText: 2007 Michael Sperber, R. Kent Dybvig, Matthew Flatt, and Anton van Straaten
+SPDX-License-Identifier: MIT AND LicenseRef-R6RS
+-->
+  <head>
+    <meta charset="utf-8">
+    <title>SRFI 281: Bytevector Utilities</title>
+    <style>
+            .strikethrough {
+              text-decoration: line-through;
+            }
+            table {
+              border: 1px solid;
+              margin-bottom: 12pt;
+            }
+            @media (prefers-color-scheme: light) {
+              :root {
+                --background-color: white;
+                --link-color: blue;
+                --text-color: black;
+                --visited-link-color: purple;
+              }
+
+              pre {
+                  border: 1px solid;
+                  padding: 7.5px;
+                  background-color: #f0f0f0;
+                  margin-bottom: 18pt;
+              }
+
+              code {
+                  background-color: #f0f0f0;
+              }
+            }
+
+            @media (prefers-color-scheme: dark) {
+              :root {
+                --background-color: #161616;
+                --link-color: SkyBlue;
+                --text-color: #e0e0e0;
+                --visited-link-color: Orchid;
+              }
+
+              pre {
+                  border: 1px solid;
+                  padding: 7.5px;
+                  background-color: #2b2b2b;
+                  margin-bottom: 18pt;
+              }
+
+              code {
+                background-color: #2b2b2b;
+              }
+            }
+
+    .never-break-inside > a {
+      white-space: nowrap;
+    }
+    .never-break-inside > code {
+      white-space: nowrap;
+    }
+
+            .normal-font {
+              font-family: sans-serif;
+            }
+
+            .feature {
+              overflow: hidden;
+            }
+
+            .category {
+              float: right;
+              font-family: monospace;
+              font-size: 12pt;
+            }
+
+            .boxed {
+              border: 1px solid;
+              padding-top: 6pt;
+              padding-bottom: 6pt;
+              padding-left: 6pt;
+              padding-right: 12pt;
+              overflow: auto;
+              margin-bottom: 6pt;
+            }
+
+            .boxed-tag {
+              font-style: italic;
+            }
+
+            .example-code {
+              /* background-color: var(--background-color); */
+              display: inline-block;
+              min-width: 46ch;
+            }
+
+            .special-result {
+              font-family: sans-serif;
+              font-style: italic;
+            }
+
+            a {
+              color: var(--link-color);
+            }
+            a:visited {
+              color: var(--visited-link-color);
+            }
+            body {
+              background-color: var(--background-color);
+              color: var(--text-color);
+            }
+            .report-name {
+              font-style: italic;
+            }
+
+            .centered {
+             text-align: center;
+            }
+            .evals-side {
+            }
+
+            .evals-text {
+              font-family: serif;
+              font-style: italic;
+            }
+    </style>
+    <link href="/favicon.png" rel="icon" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="https://srfi.schemers.org/srfi.css" type="text/css">
+    <meta name="viewport" content="width=device-width, initial-scale=1"></head>
+  <body>
+    <h1><a href="https://srfi.schemers.org/"
+        ><img class="srfi-logo"
+              src="https://srfi.schemers.org/srfi-logo.svg"
+              alt="SRFI surfboard logo"
+        /></a>281: Bytevector Utilities</h1>
+
+<p>by Peter McGoron</p>
+
+<h2 id="status">Status</h2>
+
+    <p>This SRFI is currently in <em>draft</em> status.  Here is <a href="https://srfi.schemers.org/srfi-process.html">an explanation</a> of each status that a SRFI can hold.  To provide input on this SRFI, please send email to <code><a href="mailto:srfi+minus+281+at+srfi+dotschemers+dot+org">srfi-281@<span class="antispam">nospam</span>srfi.schemers.org</a></code>.  To subscribe to the list, follow <a href="https://srfi.schemers.org/srfi-list-subscribe.html">these instructions</a>.  You can access previous messages via the mailing list <a href="https://srfi-email.schemers.org/srfi-281/">archive</a>.</p>
+    <ul>
+      <li>Received: 2026-08-31</li>
+      <li>60-day deadline: 2026-11-01</li>
+      <li>Draft #1 published: 2026-09-02</li>
+      <li>Draft #2 published: 2026-09-30</li>
+      <li>Draft #3 published: 2026-10-21</li>
+      <li>Draft #4 published: 2026-10-31</li>
+    </ul>
+
+<h2 id="abstract"><a href="#abstract"></a> Abstract</h2>
+
+<p>
+  This SRFI implements a modified version of the <span
+  class="report-name">R<sup>6</sup>RS</span>’s <code>(rnrs bytevectors
+  (6))</code> library, which has procedures for the serialization and deserialization
+  of numbers into bytevectors, and conversion to/from Unicode.
+</p>
+
+<h2 id="toc">Table of contents</h2>
+<ul>
+  <li>
+    <a href="#rationale">Rationale</a>
+    <ul>
+      <li><a href="#default-behavior">Default behavior of decoders</a></li>
+    </ul>
+  </li>
+  <li>
+    <a href="#specification">Specification</a>
+    <ul>
+      <li><a href="#convention">Conventions</a></li>
+      <li><a href="#optional-required">Optional and required features</a></li>
+      <li><a href="#composite-library">Composite library</a></li>
+      <li><a href="#base-library">Base library</a></li>
+      <li><a href="#endianness-library">Endianness library</a></li>
+      <li><a href="#u8-library">Unsigned 8-bit integer libraries</a></li>
+      <li><a href="#s8-library">Signed 8-bit integer libraries</a></li>
+      <li>
+        <a href="#arbitrary-precision-library">Arbitrary precision library</a>
+        <ul>
+          <li><a href="#int-example">Examples</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#multibyte-libraries">Multibyte libraries</a>
+        <ul>
+          <li><a href="#fixed-example">Examples</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#floating-point-libraries">Floating-point libraries</a>
+        <ul>
+          <li><a href="#binary32">Binary32 library</a></li>
+          <li><a href="#binary64">Binary64 library</a></li>
+        </ul>
+      </li>
+      <li>
+        <a href="#unicode-libraries">Unicode libraries</a>
+        <ul>
+          <li><a href="#error-handling-mode-section">Error-handling mode macro</a></li>
+          <li><a href="#decoding-procedures">Decoding procedures</a></li>
+          <li><a href="#encoding-procedures">Encoding procedures</a></li>
+          <li><a href="#conditions">Conditions library</a></li>
+        </ul>
+      </li>
+      <li><a href="#r6rs-library">R6RS compatibility library</a></li>
+    </ul>
+  </li>
+  <li><a href="#implementation">Implementation</a></li>
+  <li><a href="#acknowledgements">Acknowledgements</a></li>
+  <li><a href="#appendix-1">Appendix 1:
+Library summaries</a></li>
+  <li><a href="#copyright">Copyright</a></li>
+</ul>
+
+<h2 id="rationale"><a href="#rationale"></a> Rationale</h2>
+<p><em>This section is non-normative.</em></p>
+
+<p>
+  The <span class="report-name">R<sup>6</sup>RS</span> bytevector library
+  was voted into the <span class="report-name">R<sup>7</sup>RS</span> Large
+  with no modifications. Over time, some issues with adopting this library
+  as is have cropped up:
+</p>
+
+<ol>
+<li>The <code>bytevector-copy!</code> procedure has a different argument
+    order and interprets its last argument differently than the
+    procedure in the <span class="report-name">R<sup>7</sup>RS</span>
+    base library.</li>
+<li>The procedure <code>bytevector-copy</code> is a subset of the behavior
+    in the <span class="report-name">R<sup>7</sup>RS</span>.</li>
+<li>The Unicode encoding/decoding procedures and other procedures
+    do not take <var>start</var> and <var>end</var> arguments.</li>
+<li>The Unicode decoding procedures will always write replacement characters
+    when invalid data is found, while many
+    <span class="report-name">R<sup>7</sup>RS</span> implementations will
+    raise an exception when invalid data is found.</li>
+</ol>
+
+<p>
+  This SRFI resolves these issues in the following way:
+</p>
+
+<ol>
+<li>The <code>bytevector-copy</code> and <code>bytevector-copy!</code>
+    procedure is specified to be the same one as the <span
+    class="report-name">R<sup>7</sup>RS</span> procedure.</li>
+<li>The Unicode encoding/decoding procedures and procedures that convert
+    to and from lists are extended to take
+    <var>start</var> and <var>end</var> arguments in a similar way to the
+    other procedures.</li>
+<li>The Unicode decoding procedures are required to raise exceptions when
+    invalid data is encountered. An extra argument can control what the
+    decoder does.</li>
+<li>The <span class="report-name">R<sup>6</sup>RS</span> versions are
+    exported by a compatibility library <code>(srfi 281 r6rs)</code>.</li>
+</ol>
+
+<p>
+  This SRFI also includes provisions for compatibility with
+  <span class="report-name">R<sup>7</sup>RS</span>: i.e. an implementation
+  that may not support integers of the sizes specified here, inexact real
+  numbers, or full Unicode.
+</p>
+
+<p>
+  The procedures with the same names as
+  <span class="report-name">R<sup>7</sup>RS</span> are extensions of the
+  standard procedures, and implementations are encouraged to use them
+  in their standard libraries.
+</p>
+
+<h3 id="default-behavior"><a href="#default-behavior"></a> Default behavior of decoders</h3>
+
+<p>
+  In this SRFI, the default behavior of Unicode decoding procedures such
+  as <a href="#utf8-to-string"><code>utf8-&gt;string</code></a> is to raise
+  an error on invalid input. This is different from the
+  <span class="report-name">R<sup>6</sup>RS</span> behavior, which is to
+  add replacement characters.
+</p>
+
+<p>
+  This deliberate deviation from the <span
+  class="report-name">R<sup>6</sup>RS</span> is motivated by the <a
+  href="https://codeberg.org/scheme/r7rs/wiki/utf8-%3Estring+behavior.-"
+  >observation</a> that not only do almost all <span
+  class="report-name">R<sup>7</sup>RS</span>-only implementations
+  that handle bad UTF-8 consistently raise an exception
+  on invalid input, but some implementations that claim to support the <span
+  class="report-name">R<sup>6</sup>RS</span> also do (Guile and Capy).
+</p>
+
+<p>
+  Error-raising behavior is more natural. It is the default behavior of
+  textual ports in the <span class="report-name">R<sup>6</sup>RS</span>,
+  and raising an error in response to bad input allows a user or the
+  programmer to be alerted to corrupted text, as opposed to figuring
+  it out later when the text is silently converted into replacement
+  characters.
+</p>
+
+<p>
+  The <span class="report-name">R<sup>6</sup>RS</span> version of the
+  procedures may be obtained by wrapping the procedures with different
+  arguments. For example,
+</p>
+
+<pre
+><code>(define (r6rs:utf8->string bv)
+  (utf8->string bv 0 (bytevector-length bv) 'replace))</code></pre>
+
+<p>
+  If one specifically wants the <span class="report-name">R<sup>6</sup>RS</span>
+  procedures, one can import <code>(srfi 281 r6rs)</code>.
+</p>
+
+
+<h2 id="specification"><a href="#specification"></a>Specification</h2>
+
+<h3 id="convention"><a href="#convention"></a> Conventions</h3>
+
+<p>
+  All procedures in this SRFI that return containers (strings, lists,
+  and bytevectors) return newly-allocated ones, except that they may
+  not be newly allocated if those containers are empty.
+</p>
+
+<p>
+  In this SRFI, it is an error if <var>b8</var> is not an exact
+  integer in [&minus;128, 255]. When <var>b8</var> is negative, it is
+  interpreted as its two’s complement representation. For example, when
+  <code>-1</code> is passed to an argument labeled <var>b8</var>, the
+  byte stored in the bytevector is <code>#b11111111</code>.
+</p>
+
+<p>
+  It is an error if <var>endianness</var> is not
+  <code>big</code>, <code>little</code> or another implementation-defined
+  value.
+</p>
+
+<p>
+  It is an error if <var>error-handling-mode</var> is not a valid error
+  handling mode (see <a href="#unicode-libraries">Unicode libraries</a>).
+</p>
+
+<p>
+  If <var>end</var> is supplied for a <var>list</var> argument, then
+  <var>list</var> may be improper, but it is an error if <var>list</var>
+  does not have <var>end</var> cons cells in it. If <var>end</var> is
+  not supplied, then it is an error if <var>list</var> is not a list
+  (i.e. finite). This interpretation follows
+  <a href="https://srfi.schemers.org/srfi-274/">SRFI 274</a>.
+</p>
+
+<h3 id="optional-required"><a href="#optional-required"></a> Optional and required features</h3>
+
+<p>
+  The libraries <a href="#composite-library"><code>(srfi 281)</code></a>,
+  <a href="#base-library"><code>(srfi 281 base)</code></a>,
+  and
+  <a href="#u8-library"><code>(srfi 281 u8)</code></a> must be supported.
+</p>
+
+<p>
+  The integer libraries <code>(srfi 281 s8)</code>, <code>(srfi 281 u16)</code>,
+  etc. are only exported if the implementation supports exact integer objects
+  of those sizes. The library <code>(srfi 281 int)</code> is only exported
+  if the implementation supports exact integer objects of arbitrary size.
+  The <code>(srfi 281 f32)</code> and <code>(srfi 281 f64)</code> libraries
+  are only exported if the implementation supports inexact real numbers.
+  The <code>(srfi 281 unicode)</code> is only exported if the implementation
+  supports all of the Unicode scalar values as characters.
+</p>
+
+<p>If a library is available, it must export all identifiers defined in it.
+</p>
+
+<p>
+  If this library is voted into <span class="report-name">R<sup>7</sup>RS Large</span>,
+  then all features are supported,
+  <code>(scheme bytevector)</code> must be the composite library,
+  and <code>(scheme bytevector r6rs)</code> is
+  <code>(srfi 281 r6rs)</code>.
+</p>
+
+<h3 id="composite-library"><a href="#composite-library"></a> Composite library</h3>
+
+<p>The library <code>(srfi 281)</code> exports all identifiers defined
+   below that are supported by the implementation, with the exception of the
+   ones defined in <code>(srfi 281 r6rs)</code>. For example, if an
+   implementation does not support
+   <code><a href="#endianness">endianness</a></code>, then the base
+   library does not export it.
+</p>
+
+<h3 id="base-library"><a href="#base-library"></a> Base library</h3>
+
+<p>
+  The library <code>(srfi 281 base)</code> exports
+  the <span class="report-name">R<sup>7</sup>RS</span> procedures
+  <code>bytevector?</code>, <code>bytevector</code>, <code>bytevector-length</code>, and
+  <code>bytevector-copy</code>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 base)<br>procedure</span>
+<code class="signature">(<a id="endiannessp" href="#endiannessp">endianness?</a> <var>obj</var>)</code>
+</div>
+
+<p>
+  Returns <code>#t</code> if <var>obj</var> is a supported endianness:
+  i.e. the symbols <code>big</code>, <code>little</code>, or some
+  implementation-defined symbol.
+</p>
+
+<div class="boxed">
+<p>
+  <span class="boxed-tag">Rationale</span>:
+  This procedure, not in the <span class="report-name">R<sup>6</sup>RS</span>,
+  allows one to dynamically check for valid endiannesses.
+  The <span class="report-name">R<sup>
+6</sup>RS</span> only has the
+  static <code><a href="#endianness">endianness</a></code> macro, which
+  cannot be implemented in <code>syntax-rules</code>.
+</p></div>
+
+<div class="feature">
+<span class="category">(srfi 281 base)<br>procedure</span>
+<code class="signature">(<a id="native-endianness" href="#native-endianness">native-endianness</a>)</code>
+</div>
+
+<p>
+  Returns the native endianness.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 base)<br>procedure</span>
+<code class="signature">(<a id="make-bytevector" href="#make-bytevector">make-bytevector</a>
+                         <var>k</var>
+                         [<var>b8</var>])</code>
+</div>
+
+<p>
+  Create a bytevector with <var>k</var> elements. When
+  <var>b8</var> is supplied, the elements are initialized to the appropriate
+  byte value of <var>b8</var>. If <var>b8</var> is not supplied, the
+  elements are unspecified.
+</p>
+
+<pre><code class="example-code"
+>(make-bytevector 3 -128)</code> ⇒ <code>#u8(#x80 #x80 #x80)</code></pre>
+
+<div class="feature">
+<span class="category">(srfi 281 base)<br>procedure</span>
+<code class="signature">(<a id="bytevector" href="#bytevector">bytevector</a>
+                         <var>b8</var> …)</code>
+</div>
+
+<p>
+  Return a newly allocated bytevector made up of the arguments.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 base)<br>procedure</span>
+<code class="signature">(<a id="bytevectoreqp" href="#bytevectoreqp">bytevector=?</a>
+                         <var>bytevector<sub>1</sub></var>
+                         <var>bytevector<sub>2</sub></var>
+                         <var>bytevector<sub>3</sub></var>
+                         …)</code>
+</div>
+
+<p>
+  Returns <code>#t</code> if each bytevector is of the same length
+  and has equal bytes at all valid indices, and <code>#f</code>
+  otherwise.
+</p>
+
+<div class="boxed">
+<p>
+  <span class="boxed-tag">Note</span>:
+The order predicates come from <a href="https://srfi.schemers.org/srfi-207/">SRFI 207</a>.
+</p></div>
+
+<div class="feature">
+<span class="category">(srfi 281 base)<br>procedure</span>
+<code class="signature">(<a id="bytevector-fill" href="#bytevector-fill">bytevector-fill!</a>
+                         <var>bytevector</var>
+                         <var>b8</var>
+                         [<var>start</var> [<var>end</var>]])</code>
+</div>
+
+<p>
+  Fills the elements of <var>bytevector</var> from <var>start</var>
+  to <var>end</var> with the appropriate byte value of <var>b8</var>.
+</p>
+
+<pre
+>(define bv (make-bytevector 6 1))
+(bytevector-fill! bv -1 2 4)
+<code class="example-code">bv</code
+> ⇒ <code>#u8(1 1 #xFF #xFF 1 1)</code></pre>
+
+<h3 id="endianness-library"><a href="#endianness-library"></a> Endianness library</h3>
+<div class="feature">
+<span class="category">(srfi 281 endianness)<br>syntax</span>
+<code class="signature">(<a id="endianness" href="#endianness">endianness</a> ⟨<var>endianness symbol</var>⟩)</code>
+</div>
+
+<p>
+If ⟨<var>endianness symbol</var>⟩ is a symbol supported by the
+implementation as an endianness, then the expression <code>(endianness
+⟨<var>endianness symbol</var>⟩)</code> evaluates to the symbol named
+⟨<var>endianness symbol</var>⟩. If ⟨<var>endianness symbol</var>⟩
+is a symbol not supported by the implementation, an error is raised when
+this form is expanded.
+</p>
+
+<div class="boxed">
+<p>
+  <span class="boxed-tag">Note</span>:
+Only the name of ⟨<var>endianness symbol</var>⟩ is significant.
+</p></div>
+
+<h3 id="u8-library"><a href="#u8-library"></a> Unsigned 8-bit integer libraries</h3>
+
+<p>
+  The <code>(srfi 281 u8)</code> library exports the <span
+  class="report-name">R<sup>7</sup>RS</span> procedures
+  <code>bytevector-u8-ref</code> and <code>bytevector-u8-set!</code>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 u8)<br>procedure</span>
+<code class="signature">(<a id="u8-list-to-bytevector" href="#u8-list-to-bytevector">u8-list-&gt;bytevector</a>
+                         <var>list</var>
+                         [<var>start</var> [<var>end</var>]])</code>
+</div>
+
+<p>It is an error if the elements of <var>list</var> between <var>start</var>
+   and <var>end</var> are not in [0, 255].</p>
+
+<p>
+  Copies the bytes of <var>list</var> from <var>start</var> to <var>end</var>
+  to a newly allocated bytevector.
+</p>
+<pre><code class="example-code"
+>(bytevector->u8-list #u8(1 2 3 #xFE #xFF 4 5 6) 3 5)</code> ⇒ <code>(#xFE #xFF)</code></pre>
+
+<div class="feature">
+<span class="category">(srfi 281 u8)<br>procedure</span>
+<code class="signature">(<a id="bytevector-to-u8-list" href="#bytevector-to-u8-list">bytevector-&gt;u8-list</a>
+                         <var>bytevector</var>
+                         [<var>start</var> [<var>end</var>]])</code>
+</div>
+
+<p>
+  Copies the bytes of <var>bytevector</var> from <var>start</var> to <var>end</var>
+  to a newly allocated list.
+</p>
+<pre><code class="example-code"
+>(u8-list->bytevector '(1 2 3 #xFE #xFF . 4) 3 5)</code> ⇒ <code>#u8(#xFE #xFF)</code></pre>
+
+<h3 id="s8-library"><a href="#s8-library"></a> Signed 8-bit integer libraries</h3>
+
+<div class="feature">
+<span class="category">(srfi 281 s8)<br>procedure</span>
+<code class="signature">(<a id="bytevector-s8-ref" href="#bytevector-s8-ref">bytevector-s8-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>)</code>
+</div>
+<p>
+  It is an error if <var>k</var> is not a valid index of <var>bytevector</var>.
+</p>
+
+<p>
+  Retrieves the <var>k</var>th value of <var>bytevector</var> interpreted as a
+  two’s complement integer.
+</p>
+
+<pre
+><code class="example-code">(bytevector-s8-ref #u8(255) 0)</code> ⇒ -1</pre>
+
+<div class="feature">
+<span class="category">(srfi 281 s8)<br>procedure</span>
+<code class="signature">(<a id="bytevector-s8-set" href="#bytevector-s8-set">bytevector-s8-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>n</var>)</code>
+</div>
+
+<p>
+  It is an error if <var>n</var> is not an exact integer in the interval
+  [-128,127]. It is an error if <var>k</var> is not a valid index of
+  <var>bytevector</var>.
+</p>
+
+<p>
+  Stores the two’s complement representation of <var>n</var> in
+  <var>bytevector</var> at <var>k</var>.
+</p>
+<pre
+>(define bv (make-bytevector 1))
+(bytevector-s8-set! bv 0 -128)
+<code class="example-code">(bytevector-u8-ref bv 0)</code> ⇒ 128</pre>
+
+<h3 id="arbitrary-precision-library"><a href="#arbitrary-precision-library"></a> Arbitrary precision library</h3>
+
+<div class="feature">
+<span class="category">(srfi 281 int)<br>procedure</span>
+<code class="signature">(<a id="bytevector-uint-ref" href="#bytevector-uint-ref">bytevector-uint-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>endianness</var>
+                         <var>size</var>)</code>
+</div>
+
+<p>It is an error if <var>size</var> is not a positive exact integer.
+   It is an error if the integers in [<var>k</var>, <var>k+size</var>)
+   are not valid indices of <var>bytevector</var>.
+</p>
+
+<p>
+  Return the unsigned integer with <var>size</var> with <var>endianness</var>
+  from <var>bytevector</var> starting at <var>k</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 int)<br>procedure</span>
+<code class="signature">(<a id="bytevector-uint-set" href="#bytevector-uint-set">bytevector-uint-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>n</var>
+                         <var>endianness</var>
+                         <var>size</var>)</code>
+</div>
+
+<p>It is an error if <var>size</var> is not a positive exact integer.
+   It is an error if the integers in [<var>k</var>, <var>k+size</var>)
+   are not valid indices of <var>bytevector</var>. It is an error if
+   <var>n</var> is not in [0, 256<sup><var>size</var></sup>&minus;1].
+</p>
+
+<p>
+  Stores <var>n</var> as an unsigned <var>size</var> byte number
+  with <var>endianness</var> into <var>bytevector</var> starting at
+  <var>k</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 int)<br>procedure</span>
+<code class="signature">(<a id="bytevector-sint-ref" href="#bytevector-sint-ref">bytevector-sint-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>endianness</var>
+                         <var>size</var>)</code>
+</div>
+
+<p>It is an error if <var>size</var> is not a positive exact integer.
+   It is an error if the integers in [<var>k</var>, <var>k+size</var>)
+   are not valid indices of <var>bytevector</var>.
+</p>
+
+<p>
+  Return the two’s complement integer with <var>size</var> with
+  <var>endianness</var> from <var>bytevector</var> starting at
+  <var>k</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 int)<br>procedure</span>
+<code class="signature">(<a id="bytevector-sint-set" href="#bytevector-sint-set">bytevector-sint-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>n</var>
+                         <var>endianness</var>
+                         <var>size</var>)</code>
+</div>
+
+<p>It is an error if <var>size</var> is not a positive exact integer.
+   It is an error if the integers in [<var>k</var>, <var>k+size</var>)
+   are not valid indices of <var>bytevector</var>. It is an error if
+   <var>n</var> is not in [&minus;256<sup><var>size</var>&minus;1</sup>, 256<sup><var>size</var>&minus;1</sup>&minus;1].
+</p>
+
+<p>
+  Stores <var>n</var> as a two’s complement <var>size</var> byte number
+  with <var>endianness</var> into <var>bytevector</var> starting at
+  <var>k</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 int)<br>procedure</span>
+<code class="signature">(<a id="bytevector-to-uint-list" href="#bytevector-to-uint-list">bytevector-&gt;uint-list</a>
+                         <var>bytevector</var>
+                         <var>endianness</var>
+                         <var>size</var>
+                         [<var>start</var> [<var>end</var>]])</code>
+<br>
+<code class="signature">(<a id="bytevector-to-sint-list" href="#bytevector-to-sint-list">bytevector-&gt;sint-list</a>
+                         <var>bytevector</var>
+                         <var>endianness</var>
+                         <var>size</var>
+                         [<var>start</var> [<var>end</var>]])</code>
+</div>
+
+
+<p>
+  Return a newly allocated list of the unsigned/signed integers
+  of size <var>size</var> encoded with <var>endianness</var> from
+  <var>bytevector</var> between <var>start</var> and <var>end</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 int)<br>procedure</span>
+<code class="signature">(<a id="uint-list-to-bytevector" href="#uint-list-to-bytevector">uint-list-&gt;bytevector</a>
+                         <var>list</var>
+                         <var>endianness</var>
+                         <var>size</var>
+                         [<var>start</var> [<var>end</var>]])</code>
+</div>
+
+<p>It is an error if <var>size</var> is not a positive exact integer.
+   It is an error if the elements of <var>list</var> between
+   <var>start</var> and <var>end</var> are not exact integers in the
+   range [0, 256<sup>size</sup>&minus;1].
+</p>
+
+<p>
+  Return a newly allocated bytevector comprising the elements
+  of <var>list</var> between <var>start</var> and <var>end</var>
+  encoded with endianness <var>endianness</var> with size
+  <var>size</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 int)<br>procedure</span>
+<code class="signature">(<a id="sint-list-to-bytevector" href="#sint-list-to-bytevector">sint-list-&gt;bytevector</a>
+                         <var>list</var>
+                         <var>endianness</var>
+                         <var>size</var>
+                         [<var>start</var> [<var>end</var>]])</code>
+</div>
+
+<p>It is an error if <var>size</var> is not a positive exact integer.
+   It is an error if the elements of <var>list</var> between
+   <var>start</var> and <var>end</var> are not exact integers in the
+   range [&minus;256<sup>size&minus;1</sup>/2, 256<sup>size&minus;1</sup>/2&minus;1].
+</p>
+
+<p>
+  Return a newly allocated bytevector comprising the elements
+  of <var>list</var> between <var>start</var> and <var>end</var>
+  encoded with endianness <var>endianness</var> with size
+  <var>size</var>.
+</p>
+
+<h4 id="int-example"><a href="#int-example"></a> Examples</h4>
+<pre
+>(define b (make-bytevector 16 -127))
+(bytevector-uint-set! b 0 (- (expt 2 128) 3) (endianness little) 16)
+<code class="example-code"
+>(bytevector-uint-ref b 0 (endianness little) 16)</code> ⇒ #xfffffffffffffffffffffffffffffffd
+<code class="example-code"
+>(bytevector-sint-ref b 0 (endianness little) 16)</code> ⇒ -3
+<code class="example-code">(bytevector->u8-list b)</code
+> ⇒ (253 255 255 255
+<code class="example-code"> </code>    255 255 255 255
+<code class="example-code"> </code>    255 255 255 255
+<code class="example-code"> </code>    255 255 255 255)
+(bytevector-uint-set! b 0 (- (expt 2 128) 3) (endianness big) 16)
+<code class="example-code"
+>(bytevector-uint-ref b 0 (endianness big) 16)</code
+> ⇒ #xfffffffffffffffffffffffffffffffd
+<code class="example-code"
+>(bytevector-sint-ref b 0 (endianness big) 16)</code
+>⇒ -3
+<code class="example-code"
+>(bytevector->u8-list b)</code
+>⇒ (255 255 255 255
+<code class="example-code"> </code>   255 255 255 255
+<code class="example-code"> </code>   255 255 255 255
+<code class="example-code"> </code>   255 255 255 253)
+</pre>
+
+<h3 id="multibyte-libraries"><a href="#multibyte-libraries"></a> Multibyte libraries</h3>
+
+<p>
+  There are libraries handling signed twos-complement and unsigned
+  integers of size 16, 32, and 64. The sublibrary
+  names are <code>u16</code>, <code>s16</code>, <code>u32</code>,
+  <code>s32</code>, <code>u64</code>, and <code>s64</code>. The
+  metavariable ⟨n⟩ is bound to one of these names. The
+  metavariable ⟨w⟩ is bound to the size in octets of each type of
+  integer. Explicitly, ⟨w⟩ is 2 for 16 bit integers, ⟨w⟩ is 4
+  for 32 bit integers, and ⟨w⟩ is 8 for 64 bit integers.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 ⟨n⟩)<br>procedure</span>
+<code class="signature">(<a id="bytevector-n-ref" href="#bytevector-n-ref">bytevector-⟨n⟩-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>endianness</var>)</code>
+</div>
+
+<p>
+  It is an error if <var>k</var> to <var>k</var> + ⟨w⟩ &minus; 1
+  are not valid indices of <var>bytevector</var>.
+</p>
+
+<p>
+  Retrieve the ⟨w⟩-byte number from <var>bytevector</var> starting at
+  <var>k</var>, with endianness <var>endianness</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 ⟨n⟩)<br>procedure</span>
+<code class="signature">(<a id="bytevector-n-native-ref" href="#bytevector-n-native-ref">bytevector-⟨n⟩-native-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>)</code>
+</div>
+
+<p>
+  It is an error if <var>k</var> to <var>k</var> + ⟨w⟩ &minus; 1
+  are not valid indices of <var>bytevector</var>. It is an error if
+  <var>k</var> is not a multiple of ⟨w⟩.
+</p>
+
+<p>
+  Retrieve the ⟨w⟩-byte number from <var>bytevector</var> starting at
+  <var>k</var>, with the native endianness.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 ⟨n⟩)<br>procedure</span>
+<code class="signature">(<a id="bytevector-n-set" href="#bytevector-n-set">bytevector-⟨n⟩-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>n</var>
+                         <var>endianness</var>)</code>
+</div>
+
+<p>
+  It is an error if <var>k</var> to <var>k</var> + ⟨w⟩ &minus; 1
+  are not valid indices of <var>bytevector</var>.
+  When ⟨n⟩ is an unsigned type, it is an error if
+  <var>n</var> is not in [0, 2<sup>8×⟨w⟩</sup>&minus;1].
+  When ⟨n⟩ is a signed type, it is an error if
+  <var>n</var> is not in [&minus;2<sup>8×⟨w⟩&minus;1</sup>, 2<sup>8×⟨w⟩&minus;1</sup>&minus;1].
+</p>
+
+<p>
+  Store the ⟨w⟩-byte number <var>n</var> into <var>bytevector</var> starting at
+  <var>k</var>, with endianness <var>endianness</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 ⟨n⟩)<br>procedure</span>
+<code class="signature">(<a id="bytevector-n-native-set" href="#bytevector-n-native-set">bytevector-⟨n⟩-native-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>n</var>)</code>
+</div>
+
+<p>
+  It is an error if <var>k</var> to <var>k</var> + ⟨w⟩ &minus; 1
+  are not valid indices of <var>bytevector</var>.
+  It is an error if <var>k</var> is not a multiple of ⟨w⟩.
+  When ⟨n⟩ is an unsigned type, it is an error if
+  <var>n</var> is not in [0, 2<sup>8×⟨w⟩</sup>&minus;1].
+  When ⟨n⟩ is a signed type, it is an error if
+  <var>n</var> is not in [&minus;2<sup>8×⟨w⟩&minus;1</sup>, 2<sup>8×⟨w⟩&minus;1</sup>&minus;1].
+</p>
+
+<p>
+  Store the ⟨w⟩-byte number <var>n</var> into <var>bytevector</var> starting at
+  <var>k</var>, with the native endianness.
+</p>
+
+<h4 id="fixed-example"><a href="#fixed-example"></a> Examples</h4>
+
+<pre
+>(define b
+  (u8-list->bytevector
+  '(255 255 255 255 255 255 255 255
+    255 255 255 255 255 255 255 253)))
+
+<code class="example-code">(bytevector-u16-ref b 14 (endianness little))</code
+>⇒ 65023
+<code class="example-code">(bytevector-s16-ref b 14 (endianness little))</code
+>⇒ -513
+<code class="example-code">(bytevector-u16-ref b 14 (endianness big))</code
+>⇒ 65533
+<code class="example-code">(bytevector-s16-ref b 14 (endianness big))</code
+>⇒ -3
+
+(bytevector-u16-set! b 0 12345 (endianness little))
+<code class="example-code">(bytevector-u16-ref b 0 (endianness little))</code
+>⇒ 12345
+
+(bytevector-u16-native-set! b 0 12345)
+<code class="example-code">(bytevector-u16-native-ref b 0)</code
+>⇒ 12345
+<code class="example-code">(bytevector-u16-ref b 0 (endianness little))</code
+>⇒ <span class="special-result">unspecified</span></pre>
+
+<pre
+>(define b
+  (u8-list->bytevector
+  '(255 255 255 255 255 255 255 255
+    255 255 255 255 255 255 255 253)))
+
+<code class="example-code">(bytevector-u32-ref b 12 (endianness little))</code
+> ⇒ 4261412863
+<code class="example-code">(bytevector-s32-ref b 12 (endianness little))</code
+>⇒ -33554433
+<code class="example-code">(bytevector-u32-ref b 12 (endianness big))</code
+>⇒ 4294967293
+<code class="example-code">(bytevector-s32-ref b 12 (endianness big))</code
+>⇒ -3
+
+<code class="example-code">(bytevector-u64-ref b 8 (endianness little))</code
+>⇒ 18302628885633695743
+<code class="example-code">(bytevector-s64-ref b 8 (endianness little))</code
+>⇒ -144115188075855873
+<code class="example-code">(bytevector-u64-ref b 8 (endianness big))</code
+>⇒ 18446744073709551613
+<code class="example-code">(bytevector-s64-ref b 8 (endianness big))</code
+>⇒ -3</pre>
+
+<h3 id="floating-point-libraries"><a href="#floating-point-libraries"></a> Floating-point libraries</h3>
+
+<p>
+  These procedures convert real numbers to and from IEEE 754 binary
+  floating point representations. These libraries are only exported when
+  inexact real numbers are supported. There is no requirement that any
+  IEEE 754 binary representation is supported as a representation
+  for Scheme numbers.
+</p>
+
+<p>
+  This SRFI uses the names binary32 and binary64 to refer to the
+  representations. This SRFI also exports identifiers using the
+  <span class="report-name">R<sup>6</sup>RS</span> names
+  <code>ieee-single</code> and <code>ieee-double</code>: these are
+  deprecated.
+</p>
+
+<h4 id="binary32"><a href="#binary32"></a> Binary32 library</h4>
+
+<div class="feature">
+<span class="category">(srfi 281 f32)<br>procedure</span>
+<code class="signature">(<a id="bytevector-binary32-ref" href="#bytevector-binary32-ref">bytevector-binary32-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>endianness</var>)</code><br>
+<code class="signature">(<a id="bytevector-ieee-single-ref" href="#bytevector-ieee-single-ref">bytevector-ieee-single-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>endianness</var>)</code>
+</div>
+
+<p>
+  It is an error if the integers [<var>k</var>, <var>k</var> + 3] are not
+  valid indices of the bytevector.
+</p>
+
+<p>
+  Return an inexact real number that best approximates the value of the
+  binary32 number stored in <var>bytevector</var> starting at <var>k</var>
+  stored in <var>endianness</var>.
+</p>
+<div class="feature">
+
+<span class="category">(srfi 281 f32)<br>procedure</span>
+<code class="signature">(<a id="bytevector-binary32-set" href="#bytevector-binary32-set">bytevector-binary32-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>x</var>
+                         <var>endianness</var>)</code><br>
+<code class="signature">(<a id="bytevector-ieee-single-set" href="#bytevector-ieee-single-set">bytevector-ieee-single-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>x</var>
+                         <var>endianness</var>)</code>
+</div>
+
+<p>
+  It is an error if the integers [<var>k</var>, <var>k</var> + 3] are not
+  valid indices of the bytevector.
+</p>
+
+<p>
+  Store the closest binary32 approximation of <var>x</var>
+  into <var>bytevector</var>, starting at <var>k</var> with
+  endianness <var>endianness</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 f32)<br>procedure</span>
+<code class="signature">(<a id="bytevector-binary32-native-ref" href="#bytevector-binary32-native-ref">bytevector-binary32-native-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>)</code><br>
+<code class="signature">(<a id="bytevector-ieee-single-native-ref" href="#bytevector-ieee-single-native-ref">bytevector-ieee-single-native-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>)</code>
+</div>
+<p>
+  It is an error if the integers [<var>k</var>, <var>k</var> + 3] are not
+  valid indices of the bytevector. It is an error if <var>k</var> is not a
+  multiple of 4.
+</p>
+
+<p>
+  Return an inexact real number that best approximates the value of the
+  binary32 number stored in <var>bytevector</var> starting at <var>k</var>
+  stored in the native endianness.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 f32)<br>procedure</span>
+<code class="signature">(<a id="bytevector-binary32-native-set" href="#bytevector-binary32-native-set">bytevector-binary32-native-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>x</var>)</code><br>
+<code class="signature">(<a id="bytevector-ieee-single-native-set" href="#bytevector-ieee-single-native-set">bytevector-ieee-single-native-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>x</var>)</code>
+</div>
+<p>
+  It is an error if the integers [<var>k</var>, <var>k</var> + 3] are not
+  valid indices of the bytevector. It is an error if <var>k</var> is not a
+  multiple of 4.
+</p>
+
+<p>
+  Store the closest binary32 approximation of <var>x</var>
+  into <var>bytevector</var>, starting at <var>k</var> with
+  the native endianness.
+</p>
+
+<h4 id="binary64"><a href="#binary64"></a> Binary64 library</h4>
+
+<div class="feature">
+<span class="category">(srfi 281 f64)<br>procedure</span>
+<code class="signature">(<a id="bytevector-binary64-ref" href="#bytevector-binary64-ref">bytevector-binary64-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>endianness</var>)</code><br>
+<code class="signature">(<a id="bytevector-ieee-double-ref" href="#bytevector-ieee-double-ref">bytevector-ieee-double-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>endianness</var>)</code>
+</div>
+
+<p>
+  It is an error if the integers [<var>k</var>, <var>k</var> + 7] are not
+  valid indices of the bytevector.
+</p>
+
+<p>
+  Return an inexact real number that best approximates the value of the
+  binary64 number stored in <var>bytevector</var> starting at <var>k</var>
+  stored in <var>endianness</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 f64)<br>procedure</span>
+<code class="signature">(<a id="bytevector-binary64-set" href="#bytevector-binary64-set">bytevector-binary64-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>x</var>
+                         <var>endianness</var>)</code><br>
+<code class="signature">(<a id="bytevector-ieee-double-set" href="#bytevector-ieee-double-set">bytevector-ieee-double-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>x</var>
+                         <var>endianness</var>)</code>
+</div>
+
+<p>
+  It is an error if the integers [<var>k</var>, <var>k</var> + 7] are not
+  valid indices of the bytevector.
+</p>
+
+<p>
+  Store the closest binary64 approximation of <var>x</var>
+  into <var>bytevector</var>, starting at <var>k</var> with
+  endianness <var>endianness</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 f64)<br>procedure</span>
+<code class="signature">(<a id="bytevector-binary64-native-ref" href="#bytevector-binary64-native-ref">bytevector-binary64-native-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>)</code><br>
+<code class="signature">(<a id="bytevector-ieee-double-native-ref" href="#bytevector-ieee-double-native-ref">bytevector-ieee-double-native-ref</a>
+                         <var>bytevector</var>
+                         <var>k</var>)</code>
+</div>
+<p>
+  It is an error if the integers [<var>k</var>, <var>k</var> + 7] are not
+  valid indices of the bytevector. It is an error if <var>k</var> is not a
+  multiple of 8.
+</p>
+
+<p>
+  Return an inexact real number that best approximates the value of the
+  binary64 number stored in <var>bytevector</var> starting at <var>k</var>
+  stored in the native endianness.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 f64)<br>procedure</span>
+<code class="signature">(<a id="bytevector-binary64-native-set" href="#bytevector-binary64-native-set">bytevector-binary64-native-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>x</var>)</code><br>
+<code class="signature">(<a id="bytevector-ieee-double-native-set" href="#bytevector-ieee-double-native-set">bytevector-ieee-double-native-set!</a>
+                         <var>bytevector</var>
+                         <var>k</var>
+                         <var>x</var>)</code>
+</div>
+<p>
+  It is an error if the integers [<var>k</var>, <var>k</var> + 7] are not
+  valid indices of the bytevector. It is an error if <var>k</var> is not a
+  multiple of 8.
+</p>
+
+<p>
+  Store the closest binary64 approximation of <var>x</var>
+  into <var>bytevector</var>, starting at <var>k</var> with
+  the native endianness.
+</p>
+
+<h3 id="unicode-libraries"><a href="#unicode-libraries"></a> Unicode libraries</h3>
+
+<p>
+  Encoded Unicode text has certain features such as overlong encodings
+  and lone surrogates that pose a security issue for programs. This
+  library adds stricter behavior for encoding and decoding procedures.
+</p>
+
+<p>
+  Each decoding procedure takes an optional argument,
+  <var>error-handling-mode</var>. Standard values for it are the symbols
+</p>
+
+<dl>
+<dt><code>raise</code></dt>
+<dd>Raise an exception that satisfies <a
+href="#unicode-decoding-errorp"><code>unicode-decoding-error?</code></a> when
+the procedure attempts to decode invalid
+    data.</dd>
+<dt><code>replace</code></dt>
+<dd>Replace invalid data with one or more U+FFFD characters
+    (replacement characters). Implementations should add replacement
+    characters according to the
+    “<a href="https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/#G66453"
+    >U+FFFD Substitution of Maximal Subparts</a>,” Unicode 17.0.0,
+    3.9.6.</dd>
+<dt><code>ignore</code></dt>
+<dd>Ignore invalid data. This is included for compatibility with the
+    <span class="report-name">R<sup>6</sup>RS</span>: there can
+    be security issues that present themselves when using this
+    mode.</dd>
+</dl>
+
+<p>
+  The default value for <var>error-handling-mode</var> is
+  <code>raise</code>.
+</p>
+
+<p>
+  If an implementation attempts to encode a non-Unicode scalar value,
+  for example a lone surrogate or a character whose integer value is
+  above <code>#x10FFFF</code>, an error is signalled.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="error-handling-modep" href="#error-handling-modep">error-handling-mode?</a>
+                         <var>obj</var>)</code><br>
+</div>
+
+<p>
+  Return <code>#t</code> if <var>obj</var> is a valid error-handling mode,
+  and <code>#f</code> otherwise.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="unicode-decoding-errorp" href="#unicode-decoding-errorp">unicode-decoding-error?</a>
+                         <var>obj</var>)</code><br>
+</div>
+
+<p>
+  Return <code>#t</code> if <var>obj</var> is an exception that was
+  raised by a decoding procedure.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="unicode-decoding-error-bytevector"
+                            href="#unicode-decoding-error-bytevector"
+                         >unicode-decoding-error-bytevector</a>
+                         <var>e</var>)</code><br>
+</div>
+<p>
+  It is an error if <var>e</var> does not satisfy
+  <a href="#unicode-decoding-errorp"><code>unicode-decoding-error?</code></a>.
+</p>
+
+<p>
+  Returns the bytevector that was being decoded.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="unicode-decoding-error-start"
+                            href="#unicode-decoding-error-start"
+                         >unicode-decoding-error-start</a>
+                         <var>e</var>)</code><br>
+<code class="signature">(<a id="unicode-decoding-error-end"
+                            href="#unicode-decoding-error-end"
+                         >unicode-decoding-error-end</a>
+                         <var>e</var>)</code><br>
+</div>
+<p>
+  It is an error if <var>e</var> does not satisfy
+  <a href="#unicode-decoding-errorp"><code>unicode-decoding-error?</code></a>.
+</p>
+<p>
+  Return the index in the bytevector that is the start/end of the offending
+  span of bytes.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="unicode-decoding-error-message" href="#unicode-decoding-error-message"
+                        >unicode-decoding-error-message</a> <var>e</var>)</code><br>
+</div>
+<p>
+  It is an error if <var>e</var> does not satisfy
+  <a href="#unicode-decoding-errorp"><code>unicode-decoding-error?</code></a>.
+</p>
+
+<p>
+  Return an error message about the decoding error.
+</p>
+
+<h4 id="error-handling-mode-section"><a href="#error-handling-mode-section"
+></a> Error-handling mode macro</h4>
+
+<p>
+  This library is optional because this syntactic form cannot be
+  implemented in <code>syntax-rules</code>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 error-handling-mode)<br>syntax</span>
+<code class="signature">(<a id="error-handling-mode" href="#error-handling-mode">error-handling-mode</a>
+                         ⟨symbol⟩)</code><br>
+</div>
+<p>
+  If ⟨<var>symbol</var>⟩ is a symbol supported by the
+  implementation as an error-handling mode, then the expression
+  <code>(error-handling-mode ⟨symbol⟩)</code> evaluates to the symbol
+  named ⟨<var>symbol</var>⟩. If ⟨<var>symbol</var>⟩ is a symbol
+  not supported by the implementation, an error is raised when this form
+  is expanded.
+</p>
+
+<div class="boxed">
+<p>
+  <span class="boxed-tag">Note</span>:
+Only the name of ⟨<var>symbol</var>⟩ is significant.
+</p></div>
+
+<h4 id="decoding-procedures"><a href="#decoding-procedures"></a> Decoding procedures</h4>
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="utf8-to-string" href="#utf8-to-string">utf8-&gt;string</a>
+                         <var>bytevector</var>
+                         [<var>start</var> [<var>end</var> [<var>error-handling-mode</var>]]])</code>
+</div>
+<p>
+  Decode the bytes of <var>bytevector</var> between <var>start</var> and
+  <var>end</var> into a newly allocated string, handling invalid data with
+  <var>error-handling-mode</var>.
+</p>
+
+<pre
+><code class="example-code">(utf8-&gt;string #u8(#xCE #xBB))</code> ⇒ "λ"
+<code class="example-code">(utf8-&gt;string #u8(#xCE #xBB #xFE #xCE #xB7))</code
+> ⇒ <span class="special-result">exception</span>
+<code class="example-code">(utf8-&gt;string #u8(#xCE #xBB #xFE #xCE #xB7) 3)</code
+> ⇒ "η"
+<code class="example-code"
+>(utf8-&gt;string #u8(#xCE #xBB #xFE #xCE #xB7) 0 5
+              (error-handling-mode replace))</code
+> ⇒ "λ\xFFFD;η"
+<code class="example-code">
+(utf8-&gt;string #u8(#xCE #xBB #xFE #xCE #xB7) 0 5
+             (error-handling-mode ignore))</code
+> ⇒ "λη"
+<code class="example-code">
+(utf8-&gt;string #u8(#xC0 80))</code
+> ⇒ <span class="special-result">exception</span>
+</pre>
+
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="utf16-to-string" href="#utf16-to-string">utf16-&gt;string</a>
+                         <var>bytevector</var>
+                         <var>endianness</var>
+                         [<var>endianness-mandatory?</var>
+                         [<var>start</var> [<var>end</var> [<var>error-handling-mode</var>]]]])</code>
+</div>
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="utf32-to-string" href="#utf32-to-string">utf32-&gt;string</a>
+                         <var>bytevector</var>
+                         <var>endianness</var>
+                         [<var>endianness-mandatory?</var>
+                         [<var>start</var> [<var>end</var> [<var>error-handling-mode</var>]]]])</code>
+</div>
+
+<p>
+Returns a newly allocated (unless empty) string whose character sequence
+is encoded by the given <var>bytevector</var> with bytes between <var>start</var>
+and <var>end</var>. Errors are handled according to <var>error-handling-mode</var>.
+The <var>bytevector</var> is decoded according to the appropriate
+encoding. Endianness is decided in the following way:
+</p>
+
+<p>If <var>endianness-mandatory?</var> is
+absent or <code>#f</code>, the procedure determines the endianness
+according to a byte-order mark (BOM) at the beginning of <var>bytevector</var>
+if a BOM is present; in this case, the BOM is not decoded
+as a character. Also in this case, if no BOM is
+present, <var>endianness</var> specifies the endianness of the encoding. If
+<var>endianness-mandatory?</var> is a true value, endianness
+specifies the endianness of the encoding, and any
+BOM in the encoding is decoded as a regular character.
+</p>
+
+<pre
+><code class="example-code"
+>(utf16-&gt;string #u8(#xBB #x03)
+               (endianness little))</code> ⇒ "λ" ; U+3BB
+<code class="example-code"
+>(utf16-&gt;string #u8(#xBB #x03)
+               (endianness big))</code> ⇒ "묃" ; U+BB03
+<code class="example-code"
+>(utf16-&gt;string #u8(#xFF #xFE #xBB #x03)
+               (endianness little))</code
+>⇒ "λ"
+<code class="example-code"
+>(utf16-&gt;string #u8(#xFF #xFE #xBB #x03)
+               (endianness big))</code
+>⇒ "λ"
+<code class="example-code"
+>(utf16-&gt;string #u8(#xFF #xFE #xBB #x03)
+               (endianness little) #t)</code
+>⇒ "#\xFFFE;λ"
+<code class="example-code"
+>(utf16-&gt;string #u8(#xFF #xFE #xBB #x03)
+               (endianness big) #t)</code
+>⇒ "#\xFEFF;묃"
+<code class="example-code"
+>(utf16-&gt;string #u8(#xBB #x3 #xB1 #x3 #xBC
+                  #x3 #xB4 #x3 #xB1 #x3)
+               (endianness little) #f 0 6)</code
+>⇒ "λαμ"
+<code class="example-code"
+>(utf16-&gt;string #u8(#xBB #x3 #xB1 #x3 #xBC
+                  #x3 #xB4 #x3 #xB1 #x3)
+               (endianness little) #f 0 5)</code
+>⇒ <span class="special-result">exception</span>
+<code class="example-code"
+>(utf16-&gt;string #u8(#xBB #x3 #xB1 #x3 #xBC
+                  #x3 #xB4 #x3 #xB1 #x3)
+               (endianness little) #f 0 5
+               (error-handling-mode replace))</code
+>⇒ "λα\xFFFD;"
+
+<code class="example-code"
+>(utf16-&gt;string #u8(#xD8 #x80) (endianness big))</code
+> ⇒ <span class="special-result">exception</span></pre>
+
+<h4 id="encoding-procedures"><a href="#encoding-procedures"></a> Encoding procedures</h4>
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="string-to-utf8" href="#string-to-utf8">string-&gt;utf8</a>
+                         <var>string</var>
+                         [<var>start</var> [<var>end</var>]])</code>
+</div>
+
+<p>
+  Returns a newly allocated (unless empty) bytevector that
+  contains the UTF-8 encoding of the characters in <var>string</var>
+  from <var>start</var> to <var>end</var>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="string-to-utf16" href="#string-to-utf16">string-&gt;utf16</a>
+                         <var>string</var> [<var>endianness</var>
+                         [<var>start</var> [<var>end</var>]]])</code>
+</div>
+<div class="feature">
+<span class="category">(srfi 281 unicode)<br>procedure</span>
+<code class="signature">(<a id="string-to-utf32" href="#string-to-utf32">string-&gt;utf32</a>
+                         <var>string</var> [<var>endianness</var>
+                         [<var>start</var> [<var>end</var>]]])</code>
+</div>
+
+<p>
+  Returns a newly allocated (unless empty) bytevector that
+  contains the appropriate encoding of the characters in <var>string</var>
+  from <var>start</var> to <var>end</var> in the given <var>endianness</var>.
+  No byte-order mark is prepended to the bytevector.
+</p>
+
+<p>
+  If <var>endianness</var> is not specified, it defaults to <code>big</code>.
+</p>
+
+<h4 id="conditions"><a href="#conditions"></a> Conditions library</h4>
+
+<p>
+  This library must be provided on
+  <span class="report-name">R<sup>6</sup>RS</span> implementations,
+  but is optional otherwise.
+  In <span class="report-name">R<sup>6</sup>RS</span> implementations,
+  these objects must be created using the condition system.
+  These conditions are designed for composite condition systems, which
+  might not be the same as the
+  <span class="report-name">R<sup>6</sup>RS</span> condition system.
+</p>
+
+<p>
+  An object that satisfies
+  <a href="#unicode-decoding-errorp"><code>unicode-decoding-error?</code></a>
+  necessarily satisfies
+  <a href="#unicode-decoding-conditionp"><code>unicode-decoding-condition?</code></a>
+  and
+  <a href="#bytevector-range-conditionp"><code>bytevector-range-condition?</code></a>.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 condition)</span><br>
+<span class="category">condition type</span>
+<code class="signature"><a id="unicode-decoding-condition"
+                           href="#unicode-decoding-condition"
+                        >&amp;unicode-decoding-condition</a></code><br>
+<span class="category">procedure</span>
+<code class="signature">(<a id="unicode-decoding-conditionp"
+                            href="#unicode-decoding-conditionp"
+                        >unicode-decoding-condition?</a> <var>obj</var>)</code><br>
+<span class="category">procedure</span>
+<code class="signature">(<a id="make-unicode-decoding-condition"
+                            href="#make-unicode-decoding-condition"
+                        >make-unicode-decoding-condition</a>)</code><br>
+</div>
+<p>
+  Condition object for conditions related to Unicode decoding.
+</p>
+
+<p>
+  Condition relating to a range in a string.
+</p>
+
+<div class="feature">
+<span class="category">(srfi 281 condition)</span><br>
+<span class="category">condition type</span>
+<code class="signature"><a id="bytevector-range-condition"
+                           href="#bytevector-range-condition">&amp;bytevector-range-condition</a></code><br>
+<span class="category">procedure</span>
+<code class="signature">(<a id="bytevector-range-conditionp" href="#bytevector-range-conditionp"
+                        >bytevector-range-condition?</a> <var>obj</var>)</code><br>
+<span class="category">procedure</span>
+<code class="signature">(<a id="make-bytevector-range-condition"
+                           href="#make-bytevector-range-condition">make-bytevector-range-condition</a
+                           > <var>bytevector</var> <var>start</var> <var>end</var>)</code><br>
+<span class="category">procedure</span>
+<code class="signature">(<a id="bytevector-range-condition-bytevector"
+                           href="#bytevector-range-condition-bytevector">bytevector-range-condition-bytevector</a
+                           > <var>e</var>)</code><br>
+<span class="category">procedure</span>
+<code class="signature">(<a id="bytevector-range-condition-start"
+                           href="#bytevector-range-condition-start">bytevector-range-condition-start</a
+                           > <var>e</var>)</code><br>
+<span class="category">procedure</span>
+<code class="signature">(<a id="bytevector-range-condition-end"
+                           href="#bytevector-range-condition-start">bytevector-range-condition-end</a
+                           > <var>e</var>)</code><br>
+</div>
+<p>
+  Condition relating to a range in a bytevector.
+</p>
+
+<h3 id="r6rs-library"><a href="#r6rs-library"></a> <span class="report-name">R<sup>6</sup>RS</span> compatibility library</h3>
+
+<p>
+  The <code>(srfi 281 r6rs)</code> library should be supplied. It exports all identifiers
+  defined in the <code>(rnrs bytevectors)</code> library, as described in the
+  <span class="report-name">R<sup>6</sup>RS</span>. Each identifier exported from this
+  library is <em>compatible</em> with the <span class="report-name">R<sup>6</sup>RS</span>,
+  in the following way: if the use of some procedure or syntax does not raise an exception of
+  type <code>&amp;violation</code>, then the use behaves as described in the
+  <span class="report-name">R<sup>6</sup>RS</span>. This means that
+</p>
+
+<ul>
+  <li>The <code>bytevector-copy!</code> procedure has a different argument order, and
+      a different interpretation of the arguments.</li>
+  <li>The default mode for the Unicode decoders is <code>raise</code>.</li>
+</ul>
+
+<p>
+  Procedures exported from this library should implementations described in
+  this SRFI, to the extent that they do not conflict with compatibility.
+</p>
+
+<h2 id="implementation"><a href="#implementation"></a> Implementation</h2>
+
+<p>
+  An <span class="report-name">R<sup>7</sup>RS</span> implementation
+  of this SRFI is available in the <a href="https://github.com/scheme-requests-for-implementation/srfi-281">SRFI repository</a>. It only requires
+  fixnums of at least 24 bits (<a href="https://srfi.schemers.org/srfi-143/">SRFI 143</a>),
+  which are very common.
+  Implementers are strongly encouraged to use an optimized implementation,
+  or to implement these procedures as primitives.
+</p>
+
+<p>
+  The implementation tries to make use of optimized procedures from other
+  SRFIs, such as SRFI 160, when they are available. The implementation
+  will also re-use implementations in <code>(rnrs bytevectors)</code>
+  if available.
+</p>
+
+<p>
+  On <span class="report-name">R<sup>6</sup>RS</span> implementations
+  (those that already have the <code>(rnrs bytevectors)</code> library),
+  MIT Scheme, Chibi, CHICKEN (all implementations with explicit-renaming
+  transformers), and Gambit (<code>define-macro</code>),
+  the <code><a href="#endianness">endianness</a></code> macro is implemented.
+  Otherwise, it is not supported.
+</p>
+
+<p>
+  A comprehensive test suite is available that depends on SRFIs
+  <a href="https://srfi.schemers.org/srfi-1/">1</a>,
+  <a href="https://srfi.schemers.org/srfi-64/">64</a>,
+  <a href="https://srfi.schemers.org/srfi-158/">158</a>, and
+  <a href="https://srfi.schemers.org/srfi-252/">252</a>.
+  This uses all optional features (and <code>eval</code>), and in
+  full form has millions of assertions. One may wish to comment
+  out parts of the test suite when using it for automated testing. To run the
+  test suite, run <code>tests/run.scm</code>, an
+  <span class="report-name">R<sup>7</sup>RS</span> script. If you want to
+  run the test cases interactively in a REPL, you can include the tests
+  from <code>tests/definitions.scm</code>.
+</p>
+
+<p>
+  The sample implementation has been tested on Chibi (bleeding edge from git),
+  Gauche 0.9.15, and Sagittarius 0.9.14.
+</p>
+
+<h2 id="acknowledgements"><a href="#acknowledgements"></a> Acknowledgements</h2>
+
+<p>
+  Daphne Preston-Kendal discovered some of the issues with integrating
+  <code>(rnrs bytevectors (6))</code> into <span
+  class="report-name">R<sup>7</sup>RS</span> Large.
+</p>
+
+<p>
+  The <span class="report-name">R<sup>6</sup>RS</span> editors did most of
+  the work specifying the library.
+</p>
+
+<h2 id="appendix-1" data-toc><a href="#appendix-1"></a> Appendix 1:
+Library summaries</h2>
+
+<p>Entries with a superscript 7 are procedures reexported from
+   <code>(scheme base)</code>. Entries with a superscript 6 are supersets
+   of the
+   semantics of an <span class="report-name">R<sup>6</sup>RS</span>
+   procedure, usually with the same name.
+</p>
+
+<h3 id="srfi-281-base"><code>(srfi 281 base)</code></h3>
+<p class="never-break-inside">
+<code><a href="#endiannessp">endianness?</a></code>
+<code><a href="#native-endianness">native-endianness</a></code><sup>6</sup>
+<code>bytevector?</code><sup>6,7</sup>
+<code><a href="#make-bytevector">make-bytevector</a></code><sup>6</sup>
+<code><a href="#bytevector">bytevector</a></code><sup>6</sup>
+<code><a href="#bytevector-fill">bytevector-fill!</a></code>
+<code>bytevector-length</code><sup>6,7</sup>
+<code>bytevector</code><sup>7</sup>
+<code><a href="#bytevectoreqp">bytevector=?</a></code>
+<code>bytevector-copy</code><sup>7</sup>
+<code>bytevector-copy!</code><sup>7</sup>
+</p>
+
+<h3 id="srfi-281-endianness"><code>(srfi 281 endianness)</code></h3>
+<p class="never-break-inside">
+<code><a href="#endianness">endianness</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-u8"><code>(srfi 281 u8)</code></h3>
+<p class="never-break-inside">
+<code>bytevector-u8-ref</code><sup>6,7</sup>
+<code>bytevector-u8-set!</code><sup>6,7</sup>
+<code><a href="#u8-list-to-bytevector">u8-list-&gt;bytevector</a></code><sup>6</sup>
+<code><a href="#bytevector-to-u8-list">bytevector-&gt;u8-list</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-s8"><code>(srfi 281 s8)</code></h3>
+<p class="never-break-inside">
+<code><a href="#bytevector-s8-ref">bytevector-s8-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-s8-set">bytevector-s8-set!</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-int"><code>(srfi 281 int)</code></h3>
+<p class="never-break-inside">
+<code><a href="#bytevector-uint-ref">bytevector-uint-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-uint-set">bytevector-uint-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-sint-ref">bytevector-sint-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-sint-set">bytevector-sint-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-to-uint-list">bytevector-&gt;uint-list</a></code><sup>6</sup>
+<code><a href="#bytevector-to-sint-list">bytevector-&gt;sint-list</a></code><sup>6</sup>
+<code><a href="#uint-list-to-bytevector">uint-list-&gt;bytevector</a></code><sup>6</sup>
+<code><a href="#sint-list-to-bytevector">sint-list-&gt;bytevector</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-u16"><code>(srfi 281 u16)</code></h3>
+<p class="never-break-inside">
+<code><a href="#bytevector-n-ref">bytevector-u16-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-native-ref">bytevector-u16-native-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-u16-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-u16-native-set!</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-s16"><code>(srfi 281 s16)</code></h3>
+<p class="never-break-inside">
+<code><a href="#bytevector-n-ref">bytevector-s16-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-native-ref">bytevector-s16-native-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-s16-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-s16-native-set!</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-u32"><code>(srfi 281 u32)</code></h3>
+<p class="never-break-inside">
+<code><a href="#bytevector-n-ref">bytevector-u32-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-native-ref">bytevector-u32-native-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-u32-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-u32-native-set!</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-s32"><code>(srfi 281 s32)</code></h3>
+<p class="never-break-inside">
+<code><a href="#bytevector-n-ref">bytevector-s32-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-native-ref">bytevector-s32-native-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-s32-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-s32-native-set!</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-u64"><code>(srfi 281 u64)</code></h3>
+<p class="never-break-inside">
+<code><a href="#bytevector-n-ref">bytevector-u64-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-native-ref">bytevector-u64-native-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-u64-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-u64-native-set!</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-s64"><code>(srfi 281 s64)</code></h3>
+<p class="never-break-inside">
+<code><a href="#bytevector-n-ref">bytevector-s64-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-native-ref">bytevector-s64-native-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-s64-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-n-set">bytevector-s64-native-set!</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-f32"><code>(srfi 281 f32)</code></h3>
+<p class="never-break-inside">
+
+<code><a href="#bytevector-binary32-ref">bytevector-binary32-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-ieee-single-ref">bytevector-ieee-single-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-binary32-native-ref">bytevector-binary32-native-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-ieee-single-native-ref">bytevector-ieee-single-native-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-binary32-set">bytevector-binary32-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-ieee-single-set">bytevector-ieee-single-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-binary32-native-set">bytevector-binary32-native-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-ieee-single-native-set">bytevector-ieee-single-native-set!</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-f64"><code>(srfi 281 f64)</code></h3>
+<p class="never-break-inside">
+<code><a href="#bytevector-binary64-ref">bytevector-binary64-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-ieee-double-ref">bytevector-ieee-double-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-binary64-native-ref">bytevector-binary64-native-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-ieee-double-native-ref">bytevector-ieee-double-native-ref</a></code><sup>6</sup>
+<code><a href="#bytevector-binary64-set">bytevector-binary64-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-ieee-double-set">bytevector-ieee-double-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-binary64-native-set">bytevector-binary64-native-set!</a></code><sup>6</sup>
+<code><a href="#bytevector-ieee-double-native-set">bytevector-ieee-double-native-set!</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-error-handling-mode"><code>(srfi 281 error-handling-mode)</code></h3>
+<p class="never-break-inside">
+<code><a href="#error-handling-mode">error-handling-mode</a></code><sup>6</sup>
+</p>
+
+<h3 id="srfi-281-unicode"><code>(srfi 281 unicode)</code></h3>
+<p class="never-break-inside">
+<code><a href="#error-handling-modep">error-handling-mode?</a></code>
+<code><a href="#unicode-decoding-errorp">unicode-decoding-error?</a></code>
+<code><a href="#unicode-decoding-error-bytevector" >unicode-decoding-error-bytevector</a></code>
+<code><a href="#unicode-decoding-error-start" >unicode-decoding-error-start</a></code>
+<code><a href="#unicode-decoding-error-end" >unicode-decoding-error-end</a></code>
+<code><a href="#unicode-decoding-error-message">unicode-decoding-error-message</a></code>
+<code><a href="#utf8-to-string">utf8-&gt;string</a></code>
+<code><a href="#utf16-to-string">utf16-&gt;string</a></code>
+<code><a href="#utf32-to-string">utf32-&gt;string</a></code>
+<code><a href="#string-to-utf8">string-&gt;utf8</a></code>
+<code><a href="#string-to-utf16">string-&gt;utf16</a></code>
+<code><a href="#string-to-utf32">string-&gt;utf32</a></code>
+</p>
+
+<h3 id="srfi-281-condition"><code>(srfi 281 condition)</code></h3>
+<p class="never-break-inside">
+<code><a href="#unicode-decoding-condition">&amp;unicode-decoding-condition</a></code>
+<code><a href="#unicode-decoding-conditionp">unicode-decoding-condition?</a></code>
+<code><a href="#make-unicode-decoding-condition">make-unicode-decoding-condition</a></code>
+<code><a href="#bytevector-range-condition">&amp;bytevector-range-condition</a></code>
+<code><a href="#bytevector-range-conditionp">bytevector-range-condition?</a></code>
+<code><a href="#make-bytevector-range-condition">make-bytevector-range-condition</a></code>
+<code><a href="#bytevector-range-condition-bytevector">bytevector-range-condition-bytevector</a></code>
+<code><a href="#bytevector-range-condition-start">bytevector-range-condition-start</a></code>
+<code><a href="#bytevector-range-condition-end">bytevector-range-condition-end</a></code>
+</p>
+
+<h2 id="copyright"><a href="#copyright"></a> Copyright</h2>
+<p>&copy; 2026 Peter McGoron.</p>
+
+<p>
+  Permission is hereby granted, free of charge, to any person
+  obtaining a copy of this software and associated documentation files
+  (the “Software”), to deal in the Software without restriction,
+  including without limitation the rights to use, copy, modify, merge,
+  publish, distribute, sublicense, and/or sell copies of the Software,
+  and to permit persons to whom the Software is furnished to do so,
+  subject to the following conditions:</p>
+
+<p>
+  The above copyright notice and this permission notice (including the
+  next paragraph) shall be included in all copies or substantial
+  portions of the Software.</p>
+
+<p>
+  THE SOFTWARE IS PROVIDED “AS IS,” WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+  BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+  ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.</p>
+
+<hr/>
+<p>
+  This document incorporates text from
+  <a href="https://srfi.schemers.org/srfi-207/">SRFI 207</a>.
+</p>
+
+<p>© 2020 Daphne Preston-Kendal, John Cowan, and Wolfgang Corcoran-Mathe.</p>
+
+<p>
+  Permission is hereby granted, free of charge, to any person
+  obtaining a copy of this software and associated documentation files
+  (the “Software”), to deal in the Software without restriction,
+  including without limitation the rights to use, copy, modify, merge,
+  publish, distribute, sublicense, and/or sell copies of the Software,
+  and to permit persons to whom the Software is furnished to do so,
+  subject to the following conditions:</p>
+
+<p>
+  The above copyright notice and this permission notice (including the
+  next paragraph) shall be included in all copies or substantial
+  portions of the Software.</p>
+
+<p>
+  THE SOFTWARE IS PROVIDED “AS IS,” WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+  BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+  ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.</p>
+
+<hr/>
+<p>
+  This document incorporates text from the
+  <span class="report-name">R<sup>6</sup>RS</span>, which has a
+  simple permissive license.
+</p>
+
+<p>
+Michael Sperber, R. Kent Dybvig, Matthew Flatt, and Anton van Straaten (editors), 2007.
+</p>
+
+<p>
+We intend this report to belong to the entire Scheme community, and so we grant permission to copy it in whole or in
+part without fee. In particular, we encourage implementors of Scheme to use this report as a starting point for manuals
+and other documentation, modifying it as necessary.
+</p>
+
+  <hr>
+  <address>Editor: <a href="mailto:srfi-editors+at+srfi+dot+schemers+dot+org">Arthur A. Gleckler</a></address></body></html>
