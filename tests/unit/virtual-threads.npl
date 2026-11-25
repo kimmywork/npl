@@ -1,0 +1,64 @@
+; T2b: (npl thread virtual) public API and one-shot scheduler continuation.
+;
+; Native-only: the differential fixture runner compares nplc and npli output,
+; but a virtual-thread scheduler has no evaluator surface. Single-thread
+; continuation semantics stay in the compiler tests / evaluator fixtures.
+(import (scheme base) (scheme write) (scheme process-context)
+        (npl thread virtual))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+(define log '())
+(define (note event) (set! log (cons event log)))
+
+(define (worker index)
+  (note (list 'start index))
+  (check 'current-virtual-thread #t
+         (virtual-thread? (current-virtual-thread)))
+  (virtual-thread-yield!)
+  (note (list 'middle index))
+  (virtual-thread-yield!)
+  (note (list 'end index))
+  index)
+
+(define vt0 (make-virtual-thread (lambda () (worker 0)) 'a))
+(define vt1 (make-virtual-thread (lambda () (worker 1)) 'b))
+(define vt2 (make-virtual-thread (lambda () (worker 2)) 'c))
+
+(check 'make-virtual-thread #t
+       (and (virtual-thread? vt0) (virtual-thread? vt1)
+            (virtual-thread? vt2)))
+(check 'virtual-thread? #f (virtual-thread? 42))
+(check 'current-virtual-thread #f (current-virtual-thread))
+(check 'virtual-thread-yield! #t (procedure? virtual-thread-yield!))
+
+(virtual-thread-start! vt0)
+(virtual-thread-start! vt1)
+(virtual-thread-start! vt2)
+(check 'virtual-thread-start! #t (virtual-thread? vt0))
+
+(check 'virtual-thread-join!
+       '(0 1 2)
+       (list (virtual-thread-join! vt0)
+             (virtual-thread-join! vt1)
+             (virtual-thread-join! vt2)))
+
+(define events (reverse log))
+(check 'total-events 9 (length events))
+; Round-robin on one carrier: the first pass visits every virtual thread
+; before any of them reaches its second step.
+(define first-three
+  (list (car events) (cadr events) (car (cdr (cdr events)))))
+(check 'interleaved-starts
+       '((start 0) (start 1) (start 2))
+       first-three)
+
+(if (= failures 0)
+    (begin (display "virtual-threads: PASS") (newline) (exit 0))
+    (begin (display "virtual-threads: FAIL") (newline) (exit 1)))

@@ -263,6 +263,24 @@
           ", l " (car (cdr (cdr (cdr ops)))) ")"))
       (func-line "ret 2"))))
 
+; T2b: park the raw CPS continuation. No tail request follows: `ret 2`
+; ends the current trampoline and returns control to the carrier loop.
+(define (vthread-park-application? expression)
+  (if (not (pair-shape? expression))
+      #f
+      (let ((head (car expression)))
+        (if (sym-atom? head)
+            (string=? (cdr head) "_npl_vthread_park")
+            #f))))
+
+(define (emit-vthread-park expression env)
+  (let ((args (cdr expression)))
+    (check-arity args 1 1)
+    (let ((ops (eval-args-fixed args env 1 ())))
+      (func-line
+        (string-append "call $npl_vthread_park(l " (car ops) ")"))
+      (func-line "ret 2"))))
+
 (define (raise-application-mode expression)
   (if (not (pair-shape? expression))
       0
@@ -292,6 +310,8 @@
           (emit-apply expression env)
       (if (wind-transfer-application? expression)
           (emit-wind-transfer expression env)
+      (if (vthread-park-application? expression)
+          (emit-vthread-park expression env)
           (let ((raise-mode (raise-application-mode expression)))
             (if (> raise-mode 0)
                 (emit-raise expression env raise-mode)
@@ -313,7 +333,7 @@
               #f)
           (emit-tail-request expression env)
           (let ((result (emit-expr expression env)))
-            (func-line (string-append "ret " result)))))))))))
+            (func-line (string-append "ret " result))))))))))))
 
 (define (emit-tail-sequence body env)
   (if (null? body)

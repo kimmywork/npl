@@ -587,6 +587,34 @@ seed relay was needed.
   increment 3; `npl_virtual_thread_set_carriers` exists so the substrate can
   grow.
 
+### Increment B — public API
+
+`lib/npl/thread/virtual.sld` exports `virtual-thread?`,
+`make-virtual-thread`, `virtual-thread-start!`, `virtual-thread-yield!`,
+`virtual-thread-join!`, `current-virtual-thread`. Optional arguments stay NPL
+policy (fixed-arity `define-c-primitive` wrappers), consistent with
+`(npl thread)`.
+
+`virtual-thread-yield!` is a **control-transfer operator**, not a primitive:
+`control.npl` lowers an application to `(_npl_vthread_park <current-k>)`, and
+`tail.npl` emits `call $npl_vthread_park(l K)` followed by `ret 2` with no
+tail request. This is why the yield cannot be a library `call/cc` (see
+increment A). `PRIMITIVE-CONTROL-SOURCE` supplies its value binding via
+`(only (npl internal primitive) virtual-thread-yield!)`. The
+`src/compiler/**` change was re-seeded with `tools/update_current_ssa.sh`
+(351,300 lines, SHA `0fa6d339…`), fixed point PASS; the frozen bootstrap
+chain is untouched.
+
+`virtual-threads` is exposed as a runtime feature (`npl_platform_feature`,
+`(features)`) with no compiler-side name hardcoding, so `cond-expand`
+accepts it through the existing bootstrap hook. Acceptance is
+`tests/unit/virtual-threads.npl` — **native-only**, because the differential
+fixture runner requires identical nplc/npli output and there is no evaluator
+surface for a carrier scheduler. It asserts all six exports (so the coverage
+ratchet needs no baseline entry), round-robin interleaving of three virtual
+threads on one carrier, `current-virtual-thread` inside a virtual thread,
+and a first-class `virtual-thread-yield!` reference.
+
 ## T3 SRFI 230
 
 Atomics need runtime support regardless of scheduler. [SRFI 230](../../docs/reference/srfi-230.html)

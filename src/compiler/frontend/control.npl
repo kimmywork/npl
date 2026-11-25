@@ -99,7 +99,8 @@
                   (if (string=? name "dynamic-wind") #t
                       (if (string=? name "with-exception-handler") #t
                           (if (string=? name "raise") #t
-                              (string=? name "raise-continuable")))))))))
+                              (if (string=? name "raise-continuable") #t
+                                  (string=? name "virtual-thread-yield!"))))))))))
 
 (define (control-transfer-procedure name)
   (let ((arguments (control-symbol (control-fresh-name "_npl_arguments_"))))
@@ -121,7 +122,8 @@
 (define (control-transfer-arity name)
   (if (string=? name "dynamic-wind") 3
       (if (string=? name "call-with-values") 2
-          (if (string=? name "with-exception-handler") 2 1))))
+          (if (string=? name "with-exception-handler") 2
+              (if (string=? name "virtual-thread-yield!") 0 1)))))
 
 (define (control-transfer-operands arguments count acc)
   (if (= count 0)
@@ -391,6 +393,22 @@
           #t
           (string=? (cdr head) "call-with-current-continuation"))))
 
+; T2b: virtual-thread-yield! is a scheduler safepoint, not a call/cc. It
+; hands the RAW current CPS continuation to the runtime and stops the current
+; trampoline; the backend emits `call $npl_vthread_park(l K); ret 2` with no
+; tail request. A call/cc wrapper would be wrong here: resuming it would run
+; dynamic-wind before/after thunks, which a scheduler yield must not do.
+(define (control-vthread-yield-name? head)
+  (if (sym-atom? head)
+      (string=? (cdr head) "virtual-thread-yield!")
+      #f))
+
+(define (control-cps-vthread-yield application continuation)
+  (if (not (= (count-up (cdr application) 0) 0))
+      (fatal "virtual-thread-yield! needs no arguments"))
+  (cons (control-symbol "_npl_vthread_park")
+        (cons continuation ())))
+
 (define (control-cps-dynamic-wind application continuation)
   (if (not (= (count-up (cdr application) 0) 3))
       (fatal "dynamic-wind needs before, thunk, and after"))
@@ -505,6 +523,9 @@
                         (control-cps-dynamic-wind application continuation)
                         (if (control-call-cc-name? head)
                             (control-cps-call-cc application continuation)
+                            (if (control-vthread-yield-name? head)
+                                (control-cps-vthread-yield
+                                  application continuation)
                             (if (if (sym-atom? head)
                                     (string=? (cdr head) "call-with-values")
                                     #f)
@@ -532,7 +553,7 @@
                                                     (control-symbol
                                                       callee-name)
                                                     (cdr application)
-                                                    continuation)))))))))))))))))
+                                                    continuation))))))))))))))))))
 
 (define (control-cps-if-branches test expression continuation)
   (cons 213

@@ -210,6 +210,7 @@ NplVal npl_vthread_name(NplVal value);
 NplVal npl_vthread_start(NplVal value);
 NplVal npl_vthread_join(NplVal value);
 NplVal npl_vthread_current(void);
+NplVal npl_vthread_current_parameters(void);
 NplVal npl_vthread_root(void);
 NplVal npl_vthread_end_exception(NplVal value);
 int npl_vthread_park_count(NplVal value);

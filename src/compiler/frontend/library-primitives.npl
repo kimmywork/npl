@@ -20,7 +20,7 @@
     "npl_raise_direct"))
 
 (define PRIMITIVE-CONTROL-SOURCE
-"(call-with-current-continuation call-with-values call/cc dynamic-wind raise raise-continuable values with-exception-handler)" )
+"(call-with-current-continuation call-with-values call/cc dynamic-wind raise raise-continuable values with-exception-handler virtual-thread-yield!)" )
 
 (define (library-primitive-table-names rows)
   (if (null? rows)

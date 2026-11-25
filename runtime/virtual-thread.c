@@ -242,6 +242,13 @@ NplVal npl_vthread_current(void)
     return vt ? boxed(vt) : npl_false();
 }
 
+/* The creator's dynamic environment, inherited by a new virtual thread.
+ * mount_new clones it under the carrier's ownership. */
+NplVal npl_vthread_current_parameters(void)
+{
+    return CTX->current_parameters;
+}
+
 NplVal npl_vthread_root(void)
 {
     NplVirtualThread *vt = (NplVirtualThread *)CTX->logical_thread;

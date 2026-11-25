@@ -132,3 +132,42 @@ thread's record and `jmp_buf` are never touched by the invocation.
 This is native-runtime behaviour; the evaluator (`npli`) shares the
 single-thread continuation semantics but is not used to exercise
 cross-thread scenarios.
+
+## Virtual threads
+
+`(npl thread virtual)` provides JVM-style virtual threads multiplexed over
+carrier pthreads by the runtime (the `virtual-threads` feature is present).
+This is a separate substrate: native SRFI 18 threads remain 1:1 and the two
+kinds coexist.
+
+```scheme
+(import (scheme base) (npl thread virtual))
+
+(define t (make-virtual-thread
+            (lambda ()
+              (virtual-thread-yield!)   ; scheduler safepoint
+              42)))
+(virtual-thread-start! t)
+(virtual-thread-join! t)                ; => 42
+```
+
+`virtual-thread?` recognizes a virtual thread object, `current-virtual-thread`
+returns the currently mounted one (or `#f` outside a virtual thread), and
+`make-virtual-thread` accepts an optional name.
+
+A virtual thread may suspend only at a CPS boundary.
+`virtual-thread-yield!` hands its one-shot scheduler continuation to the run
+queue and returns control to the carrier loop; the suspended computation and
+its dynamic environment are heap objects, so no carrier is blocked and no C
+stack frame is retained. The scheduler continuation is internal, one-shot,
+and never exposed as `call/cc`: native `call/cc` keeps its full SRFI 18
+multi-shot, cross-thread semantics. Yielding is transparent to
+`dynamic-wind` — it does not run before/after thunks. `virtual-thread-join!`
+waits for the virtual thread's end result.
+
+The first implementation validates multiple virtual threads on **one**
+carrier. M carriers, work stealing, cross-carrier migration (which needs
+parameter-ownership re-localization), and yielding variants of blocking
+primitives are later increments. Virtual-thread behaviour is accepted by
+native tests; the evaluator (`npli`) does not provide a carrier scheduler
+surface.
