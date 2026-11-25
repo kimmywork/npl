@@ -76,6 +76,7 @@ typedef struct NplSyncFrame {
     uint64_t id;
     NplVal raised;
     NplTailContext *saved_tail_context;
+    NplTailBuffer *saved_tail_buffers;
     int saved_escape_depth;
     int saved_root_count;
     uintptr_t saved_stack_bottom;

@@ -1,0 +1,23 @@
+; A raised user equivalence predicate unwinds a nested npl_call_sync while
+; the surrounding NPL trampoline remains active. Recovery must discard only
+; the nested trampoline's tail-buffer records and preserve the outer record.
+(import (scheme base) (scheme write) (scheme process-context) (srfi 125))
+
+(define (always-raise a b)
+  (raise 'sync-nested-recovery))
+
+(define table (make-hash-table always-raise (lambda (key) 0)))
+(hash-table-set! table 'seed 1)
+
+(define result
+  (guard (condition (else condition))
+    (hash-table-ref table 'missing)
+    'not-raised))
+
+(if (eq? result 'sync-nested-recovery)
+    (begin
+      ; Continue through the enclosing trampoline after the caught raise.
+      (if (= (+ 20 22) 42)
+          (begin (display "sync-nested-recovery: PASS") (newline) (exit 0))
+          (begin (display "sync-nested-recovery: FAIL") (newline) (exit 1))))
+    (begin (display "sync-nested-recovery: FAIL") (newline) (exit 1)))

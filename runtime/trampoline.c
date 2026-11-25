@@ -389,6 +389,23 @@ static NplVal sync_raise_forward(NplVal environment, int64_t argc,
     longjmp(frame->jump, 1);
 }
 
+/* A nonlocal synchronous recovery can unwind nested trampoline frames while
+ * leaving their heap-owned argument-buffer records linked from the thread
+ * context. Release only records newer than the checkpoint saved at entry. */
+static void tail_buffers_release_to(NplTailBuffer *checkpoint)
+{
+    while (CTX->tail_buffers != checkpoint) {
+        NplTailBuffer *buffer = CTX->tail_buffers;
+        if (!buffer) {
+            fprintf(stderr, "npl_call_sync: tail buffer checkpoint lost\n");
+            exit(1);
+        }
+        CTX->tail_buffers = buffer->previous;
+        free(buffer->arguments);
+        free(buffer);
+    }
+}
+
 NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
                      int64_t argc, NplVal *argv)
 {
@@ -402,6 +419,7 @@ NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
     frame.id = CTX->next_sync_id++;
     frame.raised = npl_nil();
     frame.saved_tail_context = CTX->tail_context;
+    frame.saved_tail_buffers = CTX->tail_buffers;
     frame.saved_escape_depth = CTX->escape_depth;
     frame.saved_root_count = npl_gc_root_count_internal();
     frame.saved_stack_bottom = npl_gc_stack_bottom_internal();
@@ -429,6 +447,7 @@ NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
     }
 
     /* npl_raise already made the sentinel's parent the current handler. */
+    tail_buffers_release_to(frame.saved_tail_buffers);
     npl_shared_release_all();
     CTX->sync_frame = frame.previous;
     free(arguments);
