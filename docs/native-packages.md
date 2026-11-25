@@ -80,7 +80,7 @@ deliverables are supported for core and third-party packages:
 
 `npli` is the dynamic runtime and never invokes a C compiler at run time:
 layouts come from `c-struct-layouts.meta`, and `define-c-function` uses a
-prebuilt stub shared object. See [native link modes](../.agents/design/link-modes.md).
+prebuilt stub shared object.
 
 ### `package.meta`
 

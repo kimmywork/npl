@@ -1,5 +1,0 @@
-(import (scheme base) (scheme write) (scheme file) (npl process))
-(write (guard (e (#t (list (file-error? e) (error-object? e)
-                           (error-object-message e) (error-object-irritants e))))
-  (delete-directory "/nonexistent-npl-r3")))
-(newline)

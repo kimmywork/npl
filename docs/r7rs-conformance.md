@@ -1,10 +1,7 @@
 # R7RS-small Conformance
 
-Status: frozen at the language milestone, 2026-11-12; the syntax-case
-extension addendum is dated 2026-11-23. This document states what NPL claims
-about R7RS-small and the evidence for each claim. It replaces
-the "Current Gap" table of the archived plan
-(`.agents/archive/plan-r7rs.md`).
+This document states what NPL claims about R7RS-small and the evidence for
+each claim.
 
 ## Claim
 
@@ -76,9 +73,10 @@ with `oracle=none` (Guile lacks the behavior: datum labels in `read`,
 outputs derived from R7RS and hand-verified, recorded in each fixture's
 `behavior.scm`. See [testing](testing.md) for the contract and the list.
 
-Not all fixture directories are in the gate: `core-bindings` runs only inside
-`tools/check_core_consistency.sh`, and `smoke`, `integer-io`, `port-wrappers`
-are manual. That is recorded in [testing](testing.md#fixtures-outside-the-gate).
+Not all fixture directories are in the gate: `core-bindings` runs inside
+`(tools toolchain)` (core-consistency check), and `smoke`, `integer-io`,
+`port-wrappers` are manual. That is recorded in
+[testing](testing.md#expect-fixtures).
 
 ## Known deviations
 
@@ -112,15 +110,15 @@ Two compiler limits that are *not* R7RS deviations but are worth knowing:
   raising at run time. R7RS lets an implementation reject it, but the message
   is a compiler internal.
 - The npli `read`/`write` paths and the compiler reader share one datum
-  reader; `tools/check_core_consistency.sh` and the `core-bindings` fixture
-  guard the shared behavior.
+  reader; `(tools toolchain)`'s core-consistency check and the `core-bindings`
+  fixture guard the shared behavior.
 
 ## Deliberately outside the language stage
 
-The following are **not** R7RS-small. Procedural `syntax-case` is now an
-implemented NPL extension (see `.agents/plans/0.1.3-ffi-posix-thread.md`);
-the full syntax-object mark-history model remains deferred. The table lists
-the features that are still absent; each is a decision, not an omission:
+The following are **not** R7RS-small. Procedural `syntax-case` is an
+implemented NPL extension; the full syntax-object mark-history model remains
+deferred. The table lists notable non-R7RS-small areas and their current
+status:
 
 | Area | Status | Route, if wanted |
 |---|---|---|
@@ -128,9 +126,9 @@ the features that are still absent; each is a decision, not an omission:
 | Keyword arguments (`#:key`) | absent | SRFI 88 (keyword objects), SRFI 89 (named/optional parameters), SRFI 177 (portable keyword arguments) |
 | Default-valued optional parameters | absent (rest args and `case-lambda` exist) | SRFI 89, or `case-lambda` |
 | Records: inheritance, `#:guard`, opaque, prefab | absent (all records transparent, generative) | SRFI 99 / SRFI 256 |
-| `filter`, `fold`, `partition` | **implemented** in `(npl list)` / `(srfi 1)`, not `(scheme base)`; `sort` is still absent | SRFI 1 / SRFI 132 for `sort` |
+| `filter`, `fold`, `partition`, `sort` | **implemented** in `(npl list)` / `(srfi 1)` and `(npl sort)` / `(srfi 132)` / `(srfi 95)` | — |
 | `string-split`, `string-join`, `string-trim` | **implemented** in `(npl string)` / `(srfi 13)`, `(npl string cursor)` / `(srfi 130)`, and `(npl string immutable)` / `(srfi 140)` | SRFI 152 (`string-split` is also in SRFI 130) |
-| Sets, bags | absent | SRFI 113 (needs comparators, SRFI 128) |
+| Sets, bags, comparators, maps, bitvectors | **implemented** in `(npl comparator)` / SRFI 128, `(npl data set)` & `(npl data bag)` / SRFI 113, `(npl data map)` / SRFI 146, `(npl data bitvector)` / SRFI 178 | — |
 | Arrays | **implemented** in `(npl data array)` / `(srfi 47)`, including `#nA` literals | SRFI 47 |
 | Boxes, ranges, streams, generators, Maybe/Either | **implemented** | `(npl data box)` / SRFI 111, `(npl data multiple-value-box)` / SRFI 195, `(npl data unifiable-box)` / SRFI 161, `(npl data range)` / SRFI 196, `(npl data stream)` / SRFI 41, `(npl data generator)` / SRFI 158, `(npl vector)` / SRFI 133, `(npl data maybe)` / `(npl data either)` subsets, `(npl data option)` / `(srfi 189)` complete |
 | Hash tables | **implemented** | `(npl hashtable)`, `(srfi 125)` |

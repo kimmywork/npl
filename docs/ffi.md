@@ -8,14 +8,8 @@ primitives; `npli` looks the function up when the declaration is evaluated.
 
 An existing C library with plain C types (`int`, `double`, `const char *`,
 pointers) is declared with `define-c-function` instead; see "Typed C
-Functions".
-
-Supported by `nplc` since 2026-10-22 (P2b); `nplc -l`/`-L` and `npli -l`
-since 2026-10-23; pointers and `define-c-function` since 2026-10-27;
-explicit C memory and array views since 2026-11-23; C struct descriptors and
-struct-typed arguments since 2026-11-23. Not yet supported: callbacks into
-NPL. See "Limitations" and the plan in
-[design-primitives](../.agents/archive/design/design-primitives.md).
+Functions". Callbacks from C into NPL are not yet supported; see
+"Limitations".
 
 ## Declaring A Function
 
@@ -159,7 +153,7 @@ npli -l ./libclamp.dylib main.scm
 
 The complete example is `src/compiler/tests/c-extension/` (`main.npl`,
 `clamp.c`, `expected.out`). `tools/check_full_compiler.sh` links it by hand,
-`tools/check_driver.sh` through `-L`/`-l`, and `tools/check_repl.sh` runs it
+`(tools toolchain)` exercises `-L`/`-l`, and `(tools repl-suites)` runs it
 under `npli -l`.
 
 ## Typed C Functions
@@ -415,10 +409,11 @@ symbol. Under `npli`:
 
 - **npli** calls at most 8 arguments, and the declaration must be evaluated
   after its library is loaded (see "Running Under npli").
-- **`define-c-function` types** are the table in "Typed C Functions": no
-  structs, arrays, `float`, or unsigned types other than `size_t`, no
-  callbacks into NPL, and no variadic C functions (`printf`). Write an
-  `NplVal` wrapper with `define-c-primitive` for anything else.
+- **`define-c-function` types** are the table in "Typed C Functions" plus
+  `struct:name` pointer arguments: no by-value structs, raw C arrays, `float`,
+  or unsigned types other than `size_t`, no callbacks into NPL, and no
+  variadic C functions (`printf`). Write an `NplVal` wrapper with
+  `define-c-primitive` for anything else.
 - **Fixed arity.** No optional or rest parameters.
 - **Types are unchecked.** A declared type documents intent. A later step
   may use the cheap ones (`pair`, `fixnum`, `char`, `index`) for inline
