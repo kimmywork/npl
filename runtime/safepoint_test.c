@@ -91,7 +91,9 @@ int main(void)
     /* Start collecting only when every mutator has registered AND published
      * its stack bound, so the first collection already scans their stacks. */
     while (g_ready < WORKERS) {
-        /* spin */
+        /* A worker may need a collection to publish its bound; stay at a
+         * poll site so a world stop cannot wait forever on this spin. */
+        npl_safepoint_poll();
     }
     for (int i = 0; i < COLLECTS; i++)
         npl_gc_collect();

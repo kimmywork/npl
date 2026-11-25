@@ -30,16 +30,22 @@
       "npl_vthread_current_parameters")
 
     ;; Optional name stays NPL policy; C always receives fixed operands.
+    ;; An omitted name is unspecified, not #f, so an explicit #f is preserved.
     (define (make-virtual-thread thunk . maybe-name)
       (%vthread-make thunk
-                     (if (null? maybe-name) #f (car maybe-name))
+                     (if (null? maybe-name) (if #f #f) (car maybe-name))
                      (%vthread-current-parameters)))
 
     (define (virtual-thread-start! thread)
       (%vthread-start thread))
 
+    ;; Joining from inside a virtual thread must not block its carrier: park
+    ;; the virtual thread and let a helper worker perform the native wait.
+    ;; Native callers use the primitive directly.
     (define (virtual-thread-join! thread)
-      (%vthread-join thread))
+      (if (current-virtual-thread)
+          (virtual-thread-block! (lambda () (%vthread-join thread)))
+          (%vthread-join thread)))
 
     ;; Synchronous SRFI 18 sleep would block a whole carrier. Wrapping it
     ;; in virtual-thread-block! moves the wait to a helper worker and yields

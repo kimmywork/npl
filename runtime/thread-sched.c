@@ -13,6 +13,7 @@
 #include "thread.h"
 #include "thread-sched.h"
 #include <math.h>
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +21,23 @@
 
 pthread_mutex_t npl_sched_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t npl_sched_cond = PTHREAD_COND_INITIALIZER;
+
+/* A plain pthread_mutex_lock waiter cannot park for a world stop, so the
+ * collector would wait forever for a thread blocked behind a safepoint poll
+ * inside the lock holder. Trylock + poll keeps every waiter at a poll site
+ * (the same pattern as runtime/shared-lock.c). */
+void npl_sched_lock_enter(void)
+{
+    while (pthread_mutex_trylock(&npl_sched_lock) != 0) {
+        npl_safepoint_poll();
+        sched_yield();
+    }
+}
+
+void npl_sched_lock_leave(void)
+{
+    pthread_mutex_unlock(&npl_sched_lock);
+}
 
 /* ---- tagging ---- */
 
@@ -42,10 +60,35 @@ static double monotonic_seconds(void)
 
 static void deadline_from(double seconds, struct timespec *deadline)
 {
-    if (!(seconds >= 0) || seconds > 1e9) seconds = 0;
+    /* Clamp, but do not turn a representable far-future absolute time into
+     * an already-expired deadline (seconds > 1e9 used to become 0). */
+    if (!(seconds >= 0)) seconds = 0;
+    if (seconds > 1e9) seconds = 1e9;
     deadline->tv_sec = (time_t)seconds;
     deadline->tv_nsec = (long)((seconds - (double)deadline->tv_sec) * 1e9);
     if (deadline->tv_nsec < 0) deadline->tv_nsec = 0;
+    if (deadline->tv_nsec >= 1000000000L) {
+        deadline->tv_sec++;
+        deadline->tv_nsec -= 1000000000L;
+    }
+}
+
+/* Relative deadlines must be based on the same clock as the elapsed-time
+ * check in wait_loop (CLOCK_MONOTONIC). Normalize negative/NaN values to
+ * "now" instead of producing a timespec with a negative tv_nsec. */
+static void relative_deadline(double seconds, struct timespec *deadline)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (!(seconds > 0)) {
+        *deadline = now;
+        return;
+    }
+    if (seconds > 1e9) seconds = 1e9;
+    time_t whole = (time_t)seconds;
+    long frac = (long)((seconds - (double)whole) * 1e9);
+    deadline->tv_sec = now.tv_sec + whole;
+    deadline->tv_nsec = now.tv_nsec + frac;
     if (deadline->tv_nsec >= 1000000000L) {
         deadline->tv_sec++;
         deadline->tv_nsec -= 1000000000L;
@@ -62,39 +105,17 @@ int npl_thread_timeout(NplVal timeout, struct timespec *deadline,
         return 1;
     }
     *has_deadline = 1;
-    double seconds;
-    if (npl_is_fixnum(timeout)) {
-        seconds = (double)npl_fixnum_value(timeout);
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        deadline->tv_sec = now.tv_sec + (time_t)seconds;
-        deadline->tv_nsec = now.tv_nsec +
-            (long)((seconds - (double)(time_t)seconds) * 1e9);
-        if (deadline->tv_nsec >= 1000000000L) {
-            deadline->tv_sec++;
-            deadline->tv_nsec -= 1000000000L;
-        }
+    /* Absolute time objects are not real numbers; check them first. */
+    if (npl_is_ptr(timeout) && npl_header(timeout)->tag == BOX_TIME) {
+        deadline_from(((NplTime *)npl_header(timeout))->seconds, deadline);
         return 1;
     }
-    if (npl_is_ptr(timeout)) {
-        uint32_t tag = npl_header(timeout)->tag;
-        if (tag == BOX_TIME) {
-            deadline_from(((NplTime *)npl_header(timeout))->seconds, deadline);
-            return 1;
-        }
-        if (tag == BOX_FLOAT) {
-            seconds = npl_guard_float(timeout);
-            struct timespec now;
-            clock_gettime(CLOCK_MONOTONIC, &now);
-            deadline->tv_sec = now.tv_sec + (time_t)seconds;
-            deadline->tv_nsec = now.tv_nsec +
-                (long)((seconds - (double)(time_t)seconds) * 1e9);
-            if (deadline->tv_nsec >= 1000000000L) {
-                deadline->tv_sec++;
-                deadline->tv_nsec -= 1000000000L;
-            }
-            return 1;
-        }
+    /* SRFI 18 accepts any real number: fixnum, flonum, exact rational or
+     * bignum. npl_real_double converts all of them; complex numbers are not
+     * valid timeouts. */
+    if (npl_number_p(timeout) == npl_true() && !npl_is_complex(timeout)) {
+        relative_deadline(npl_real_double(timeout), deadline);
+        return 1;
     }
     npl_primitive_error(who, "expected a timeout (time, real, or #f)",
                         timeout);
@@ -103,9 +124,8 @@ int npl_thread_timeout(NplVal timeout, struct timespec *deadline,
 
 double npl_thread_real(NplVal value, const char *who)
 {
-    if (npl_is_fixnum(value)) return (double)npl_fixnum_value(value);
-    if (npl_is_ptr(value) && npl_header(value)->tag == BOX_FLOAT)
-        return npl_guard_float(value);
+    if (npl_number_p(value) == npl_true() && !npl_is_complex(value))
+        return npl_real_double(value);
     npl_primitive_error(who, "expected a real number", value);
     return 0;
 }
@@ -122,7 +142,7 @@ NplVal npl_thread_make(NplVal thunk, NplVal name, NplVal parameters)
 {
     NplThread *thread = (NplThread *)npl_alloc_object(sizeof(NplThread));
     init_header(&thread->header, BOX_THREAD);
-    thread->name = npl_is_false(name) ? npl_unspecified() : name;
+    thread->name = name;
     thread->specific = npl_unspecified();
     thread->end_result = npl_unspecified();
     thread->end_exception = npl_false();
@@ -147,7 +167,7 @@ NplVal npl_mutex_make(NplVal name)
 {
     NplMutex *mutex = (NplMutex *)npl_alloc_object(sizeof(NplMutex));
     init_header(&mutex->header, BOX_MUTEX);
-    mutex->name = npl_is_false(name) ? npl_unspecified() : name;
+    mutex->name = name;
     mutex->specific = npl_unspecified();
     mutex->owner = npl_false();
     mutex->waiters = npl_nil();
@@ -159,7 +179,7 @@ NplVal npl_condvar_make(NplVal name)
 {
     NplCondvar *cv = (NplCondvar *)npl_alloc_object(sizeof(NplCondvar));
     init_header(&cv->header, BOX_CONDVAR);
-    cv->name = npl_is_false(name) ? npl_unspecified() : name;
+    cv->name = name;
     cv->specific = npl_unspecified();
     cv->waiters = npl_nil();
     return boxed(cv);
@@ -272,8 +292,14 @@ NplVal npl_mutex_state(NplVal value)
 {
     require(value, BOX_MUTEX, "mutex-state");
     NplMutex *mutex = (NplMutex *)npl_header(value);
-    switch (mutex->state) {
-    case NPL_MUTEX_LOCKED_OWNED: return mutex->owner;
+    /* Snapshot state and owner under the scheduler lock; all writers hold it.
+     * The symbol allocations happen after the lock is released. */
+    npl_sched_lock_enter();
+    int state = mutex->state;
+    NplVal owner = mutex->owner;
+    npl_sched_lock_leave();
+    switch (state) {
+    case NPL_MUTEX_LOCKED_OWNED: return owner;
     case NPL_MUTEX_LOCKED_NOT_OWNED: return npl_symbol("not-owned", 9);
     case NPL_MUTEX_UNLOCKED_ABANDONED: return npl_symbol("abandoned", 9);
     default: return npl_symbol("not-abandoned", 13);
@@ -351,7 +377,7 @@ NplVal npl_thread_current_object(void)
     NplThreadContext *context = npl_ctx();
     if (tagged(context->current_thread_object, BOX_THREAD))
         return context->current_thread_object;
-    NplVal object = npl_thread_make(npl_nil(), npl_false(), npl_nil());
+    NplVal object = npl_thread_make(npl_nil(), npl_unspecified(), npl_nil());
     NplThread *thread = (NplThread *)npl_header(object);
     thread->state = NPL_THREAD_RUNNABLE;
     thread->started = 1;
@@ -367,16 +393,20 @@ void npl_sched_wake_all(void)
 }
 
 /* On any termination the thread abandons the mutexes it owns: they become
- * unlocked/abandoned, and threads waiting to lock them are woken. */
+ * unlocked/abandoned, and threads waiting to lock them are woken. Verify the
+ * CURRENT owner first: a foreign unlock may have left a stale entry in this
+ * thread's list while another thread now owns the mutex. */
 void npl_sched_abandon_mutexes(NplThread *thread)
 {
+    NplVal self = boxed(thread);
     for (NplVal rest = thread->owned_mutexes;
          npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PAIR;
          rest = npl_pair_ptr(rest)->cdr) {
         NplVal mutex_value = npl_pair_ptr(rest)->car;
         if (!tagged(mutex_value, BOX_MUTEX)) continue;
         NplMutex *mutex = (NplMutex *)npl_header(mutex_value);
-        if (mutex->state == NPL_MUTEX_LOCKED_OWNED) {
+        if (mutex->state == NPL_MUTEX_LOCKED_OWNED &&
+            mutex->owner == self) {
             mutex->state = NPL_MUTEX_UNLOCKED_ABANDONED;
             mutex->owner = npl_false();
         }
@@ -406,17 +436,23 @@ void npl_thread_finish_current(NplVal end_exception)
     /* A blocking wait can reach here without a generated poll; consume the
      * pending sweep too (idempotent). */
     npl_cancel_consumed();
-    /* This thread is leaving NPL execution: stop counting it as an active
-     * mutator so a concurrent world stop does not wait forever for it. */
-    npl_gc_exclude();
-    pthread_mutex_lock(&npl_sched_lock);
+    /* Publish the exception BEFORE excluding this thread from the mutator
+     * count: npl_gc_exclude() stops the collector from scanning this stack,
+     * so a young exception object must already be reachable from the heap. */
     if (!npl_is_false(end_exception)) {
         thread->end_exception = end_exception;
         npl_gc_write_barrier(thread, end_exception);
     }
+    npl_gc_exclude();
+    npl_sched_lock_enter();
+    /* An uncaught raise or cancellation can happen while this thread is
+     * waiting on a mutex / condition variable; retire its waiter entry before
+     * the state is published as terminated. */
+    npl_sched_remove_waiter(thread, thread->wait_kind,
+                            thread->wait_target);
     npl_sched_abandon_mutexes(thread);
     npl_sched_finish(thread, 1);
-    pthread_mutex_unlock(&npl_sched_lock);
+    npl_sched_lock_leave();
     /* Only the thread whose thread_entry called setjmp owns this jmp_buf;
      * longjmp unwinds to its own unified termination path. */
     longjmp(thread->terminate_jump, 1);

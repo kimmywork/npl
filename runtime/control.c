@@ -178,7 +178,10 @@ static NplVal new_parameter_binding(NplVal parameter, NplVal value)
     binding->parent = CTX->current_parameters;
     binding->parameter = parameter;
     binding->value = value;
-    binding->owner = (uintptr_t)npl_ctx();
+    /* Owner is the stable monotonic context id, not the context address: a
+     * freed context's address can be reused by a new thread, which would let
+     * it mutate bindings retained by a captured continuation. */
+    binding->owner = (uintptr_t)npl_ctx()->id;
     NplVal boxed = (NplVal)(uintptr_t)binding | TAG_PTR;
     CTX->current_parameters = boxed;
     return boxed;
@@ -196,7 +199,7 @@ NplVal npl_parameter_set(NplVal parameter_value, NplVal value)
         NplParameterBinding *binding =
             (NplParameterBinding *)npl_header(binding_value);
         if (binding->parameter == parameter_value) {
-            if (binding->owner == (uintptr_t)npl_ctx()) {
+            if (binding->owner == (uintptr_t)npl_ctx()->id) {
                 binding->value = value;
                 npl_gc_write_barrier(binding, value);
                 return npl_nil();
@@ -465,8 +468,17 @@ static NplVal raise_handler_returned(NplVal environment, int64_t argc,
 void npl_raise(NplVal value, NplVal continuation, int64_t continuable)
 {
     if (npl_is_nil(CTX->current_handler)) {
-        npl_report_error_object(value);
-        exit(1);
+        /* A continuation captured on the primordial thread has an empty
+         * handler chain. Invoked on a worker, its uncaught raise must reach
+         * the INVOKING worker's initial handler (which terminates that
+         * thread with an uncaught-exception), not exit the whole process.
+         * The primordial fallback stays when no initial handler exists. */
+        if (!npl_is_nil(CTX->initial_handler)) {
+            CTX->current_handler = CTX->initial_handler;
+        } else {
+            npl_report_error_object(value);
+            exit(1);
+        }
     }
     if (!npl_is_ptr(CTX->current_handler) ||
         npl_header(CTX->current_handler)->tag != BOX_HANDLER_FRAME) {

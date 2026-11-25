@@ -59,28 +59,44 @@ static void raise_object(NplVal object)
     exit(1);
 }
 
-static NplVal list_cons(NplVal head, NplVal tail)
+/* Waiter/owned lists are mutated under npl_sched_lock. npl_cons() polls for
+ * a safepoint and may allocate, which is unsafe inside the scheduler lock:
+ * a poll that parks there strands threads blocked on the lock (they cannot
+ * park themselves) and deadlocks a world stop. Cons cells are therefore
+ * allocated OUTSIDE the lock and linked in place, and removal never allocates. */
+static NplVal list_cell(NplVal head)
 {
-    return npl_cons(head, tail);
+    return npl_cons(head, npl_nil());
 }
 
-static NplVal list_remove(NplVal list, NplVal item)
+static void list_link(NplVal *head, void *owner, NplVal cell)
 {
-    NplVal result = npl_nil();
-    NplVal tail = result;
-    for (NplVal rest = list;
-         npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PAIR;
-         rest = npl_pair_ptr(rest)->cdr) {
-        if (npl_pair_ptr(rest)->car == item) continue;
-        NplVal cell = npl_cons(npl_pair_ptr(rest)->car, npl_nil());
-        if (npl_is_nil(result)) result = cell;
-        else {
-            npl_pair_ptr(tail)->cdr = cell;
-            npl_gc_write_barrier(npl_pair_ptr(tail), cell);
+    npl_pair_ptr(cell)->cdr = *head;
+    npl_gc_write_barrier(npl_pair_ptr(cell), *head);
+    *head = cell;
+    npl_gc_write_barrier(owner, cell);
+}
+
+static void list_unlink(NplVal *head, void *owner, NplVal item)
+{
+    NplVal previous = npl_nil();
+    for (NplVal rest = *head;
+         npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PAIR;) {
+        NplVal cell = rest;
+        NplVal next = npl_pair_ptr(cell)->cdr;
+        if (npl_pair_ptr(cell)->car == item) {
+            if (npl_is_nil(previous)) {
+                *head = next;
+                npl_gc_write_barrier(owner, next);
+            } else {
+                npl_pair_ptr(previous)->cdr = next;
+                npl_gc_write_barrier(npl_pair_ptr(previous), next);
+            }
+            return;
         }
-        tail = cell;
+        previous = cell;
+        rest = next;
     }
-    return result;
 }
 
 static int list_contains(NplVal list, NplVal item)
@@ -92,30 +108,28 @@ static int list_contains(NplVal list, NplVal item)
     return 0;
 }
 
+/* Called under npl_sched_lock when a thread terminates while waiting. */
+void npl_sched_remove_waiter(NplThread *self, int wait_kind,
+                             void *wait_target)
+{
+    if (!wait_target) return;
+    NplVal value = npl_boxed_thread(self);
+    if (wait_kind == NPL_WAIT_MUTEX) {
+        NplMutex *mutex = (NplMutex *)wait_target;
+        list_unlink(&mutex->waiters, mutex, value);
+    } else if (wait_kind == NPL_WAIT_CONDVAR) {
+        NplCondvar *cv = (NplCondvar *)wait_target;
+        list_unlink(&cv->waiters, cv, value);
+    }
+}
+
 /* ---- dynamic-environment inheritance ---- */
 
-/* Copy the creator's parameter-binding chain into fresh thread-owned nodes.
- * Parameter objects stay shared; only bindings are per-thread (T1.3 COW). */
-static NplVal clone_parameter_chain(NplVal chain, NplThreadContext *context)
-{
-    NplVal result = npl_nil();
-    for (NplVal rest = chain;
-         npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PARAMETER_BINDING;) {
-        NplParameterBinding *source =
-            (NplParameterBinding *)npl_header(rest);
-        NplParameterBinding *copy = (NplParameterBinding *)
-            npl_alloc_object(sizeof(NplParameterBinding));
-        copy->header.tag = BOX_PARAMETER_BINDING;
-        copy->header.flags = 0;
-        copy->parent = result;
-        copy->parameter = source->parameter;
-        copy->value = source->value;
-        copy->owner = (uintptr_t)context;
-        result = boxed(copy);
-        rest = source->parent;
-    }
-    return result;
-}
+/* A new thread inherits the creator's bindings under its own ownership.
+ * npl_clone_parameter_bindings (dynamic-context.c) preserves chain direction
+ * (head = innermost binding), so nested parameterize keeps the inner value;
+ * the old head-to-tail/prepend loop reversed the chain and made an outer
+ * shadowed binding win. Parameter objects stay shared (T1.3 COW). */
 
 /* ---- initial continuation and exception handler ---- */
 
@@ -158,6 +172,9 @@ static void *thread_entry(void *argument)
 {
     NplThread *thread = (NplThread *)argument;
     NplVal self = boxed(thread);
+    /* pthread_create makes a joinable pthread; nobody joins a worker, so
+     * detach it to release its native resources on exit. */
+    (void)pthread_detach(pthread_self());
     uintptr_t marker = 0;
     /* The top of an NPL thread's C stack is this frame (pthread's start
      * frames above hold no NplVal), so this is the exact conservative bound. */
@@ -176,14 +193,22 @@ static void *thread_entry(void *argument)
      * their closures are thread-agnostic (environment = nil) and resolve
      * npl_ctx() when invoked; the initial handler frame is marked so a
      * captured chain can replace it with the invoking thread's own. */
-    context->current_parameters = clone_parameter_chain(thread->parameters,
-                                                        context);
+    context->current_parameters =
+        npl_clone_parameter_bindings(thread->parameters);
     context->current_wind = npl_nil();
     context->current_handler = npl_nil();
     NplVal handler = npl_make_closure(thread_uncaught, npl_nil(), 2);
     context->initial_handler = npl_handler_push_initial(handler);
 
     if (setjmp(thread->terminate_jump) == 0) {
+        /* A termination requested after pthread_create but before this worker
+         * published thread->context could not be forwarded to the coordinator
+         * flag. The jump target is live now, so observe it before user code.
+         * Read the flag under the scheduler lock (its writer holds it). */
+        npl_sched_lock_enter();
+        int cancelled = thread->cancel_requested;
+        npl_sched_lock_leave();
+        if (cancelled) npl_safepoint_cancelled();
         NplVal continuation = npl_make_closure(thread_done, npl_nil(), 1);
         NplVal arguments[1] = { continuation };
         (void)npl_apply(thread->thunk, 1, arguments);
@@ -193,10 +218,10 @@ static void *thread_entry(void *argument)
      * cooperative cancellation (longjmp). A longjmp may have skipped frames
      * holding the shared-object lock. */
     npl_shared_release_all();
-    pthread_mutex_lock(&npl_sched_lock);
+    npl_sched_lock_enter();
     npl_sched_abandon_mutexes(thread);
     npl_sched_finish(thread, 1);
-    pthread_mutex_unlock(&npl_sched_lock);
+    npl_sched_lock_leave();
 
     /* A longjmp may have skipped trampoline epilogues; those frames are on
      * the dead part of this C stack, so drop every pointer to them. */
@@ -217,13 +242,37 @@ struct wait_predicate {
     void *data;
 };
 
+/* npl_sched_cond is a default PTHREAD_COND_INITIALIZER, so timed waits use
+ * CLOCK_REALTIME, while every NPL deadline (npl_thread_timeout) is computed
+ * with CLOCK_MONOTONIC. Convert the remaining monotonic delay into an
+ * absolute realtime deadline at wait time. This is portable to Darwin, which
+ * has no pthread_condattr_setclock, and avoids treating a monotonic
+ * seconds-since-boot value as an already-expired Unix-epoch deadline. */
+static void realtime_deadline(const struct timespec *deadline,
+                              struct timespec *out)
+{
+    struct timespec mono, real;
+    clock_gettime(CLOCK_MONOTONIC, &mono);
+    clock_gettime(CLOCK_REALTIME, &real);
+    time_t sec = deadline->tv_sec - mono.tv_sec;
+    long nsec = deadline->tv_nsec - mono.tv_nsec;
+    if (nsec < 0) { sec--; nsec += 1000000000L; }
+    if (sec < 0) { sec = 0; nsec = 0; }   /* deadline already passed */
+    out->tv_sec = real.tv_sec + sec;
+    out->tv_nsec = real.tv_nsec + nsec;
+    if (out->tv_nsec >= 1000000000L) {
+        out->tv_sec++;
+        out->tv_nsec -= 1000000000L;
+    }
+}
+
 static int wait_loop(NplThread *self, int (*ready)(NplThread *, void *),
                      void *data, struct timespec *deadline, int has_deadline)
 {
     /* Publish the safe blocked snapshot before releasing exclusion. The
      * thread stays parked for GC for the whole wait. */
     npl_gc_block_begin();
-    pthread_mutex_lock(&npl_sched_lock);
+    npl_sched_lock_enter();
     int timed_out = 0;
     int done = ready(self, data);
     while (!done && !self->cancel_requested) {
@@ -236,20 +285,44 @@ static int wait_loop(NplThread *self, int (*ready)(NplThread *, void *),
                 timed_out = 1;
                 break;
             }
+            struct timespec wait_deadline;
+            realtime_deadline(deadline, &wait_deadline);
             int rc = pthread_cond_timedwait(&npl_sched_cond, &npl_sched_lock,
-                                            deadline);
-            if (rc == ETIMEDOUT) { timed_out = 1; break; }
+                                            &wait_deadline);
+            if (rc == ETIMEDOUT) {
+                /* A forward CLOCK_REALTIME jump can make the converted
+                 * deadline expire early; recheck the monotonic deadline. */
+                struct timespec check;
+                clock_gettime(CLOCK_MONOTONIC, &check);
+                if (check.tv_sec > deadline->tv_sec ||
+                    (check.tv_sec == deadline->tv_sec &&
+                     check.tv_nsec >= deadline->tv_nsec)) {
+                    timed_out = 1;
+                    break;
+                }
+                continue;
+            }
         } else {
             pthread_cond_wait(&npl_sched_cond, &npl_sched_lock);
         }
         done = ready(self, data);
     }
+    /* Capture the wait fields before clearing them: a cancellation longjmps
+     * out of this function, so the waiter entry must be retired first. */
+    int cancelled = self->cancel_requested;
+    int saved_wait_kind = self->wait_kind;
+    void *saved_wait_target = self->wait_target;
     self->wake = 0;
     self->wait_kind = NPL_WAIT_NONE;
     self->wait_target = NULL;
-    pthread_mutex_unlock(&npl_sched_lock);
+    npl_sched_lock_leave();
     npl_gc_block_end();
-    if (self->cancel_requested) npl_safepoint_cancelled();
+    if (cancelled) {
+        npl_sched_lock_enter();
+        npl_sched_remove_waiter(self, saved_wait_kind, saved_wait_target);
+        npl_sched_lock_leave();
+        npl_safepoint_cancelled();
+    }
     if (timed_out && !done) return 0;   /* 0 = timeout */
     return done ? 1 : 0;
 }
@@ -258,6 +331,12 @@ static int wait_loop(NplThread *self, int (*ready)(NplThread *, void *),
 
 NplVal npl_thread_make_prim(NplVal thunk, NplVal name)
 {
+    /* The library-level make-thread must reject a non-procedure thunk here:
+     * the error is catchable and happens before the thread object exists.
+     * npl_thread_make itself is also used for the primordial thread object,
+     * whose thunk is nil, so validation belongs in this primitive. */
+    if (!npl_is_ptr(thunk) || npl_header(thunk)->tag != BOX_CLOSURE)
+        npl_primitive_error("make-thread", "expected a procedure", thunk);
     return npl_thread_make(thunk, name, npl_ctx()->current_parameters);
 }
 
@@ -271,34 +350,46 @@ NplVal npl_thread_start(NplVal value)
      * guaranteed. npl_safepoint_poll in the handshake keeps this thread
      * parkable while it waits. */
     npl_gc_root(&value);
-    pthread_mutex_lock(&npl_sched_lock);
+    /* Allocate the possible termination exception outside the scheduler lock:
+     * npl_thread_exception() polls at allocation entry. */
+    NplVal terminated_exception =
+        npl_thread_exception(NPL_EXC_TERMINATED_THREAD, npl_unspecified());
+    npl_gc_root(&terminated_exception);
+    npl_sched_lock_enter();
     if (thread->state != NPL_THREAD_NEW) {
-        pthread_mutex_unlock(&npl_sched_lock);
+        npl_sched_lock_leave();
+        npl_gc_unroot(&terminated_exception);
         npl_gc_unroot(&value);
         npl_primitive_error("thread-start!", "thread is not new", value);
     }
     if (thread->cancel_requested) {
         /* not-started -> terminated: no poll site exists, complete here. */
-        thread->end_exception =
-            npl_thread_exception(NPL_EXC_TERMINATED_THREAD, npl_unspecified());
+        thread->end_exception = terminated_exception;
+        npl_gc_write_barrier(thread, terminated_exception);
         npl_sched_finish(thread, 1);
-        pthread_mutex_unlock(&npl_sched_lock);
+        npl_sched_lock_leave();
+        npl_gc_unroot(&terminated_exception);
         npl_gc_unroot(&value);
         return value;
     }
     thread->state = NPL_THREAD_RUNNABLE;
     thread->started = 1;
+    /* Publish has_native before pthread_create: the worker may run user code
+     * (and observe a cancellation) before the creator returns from create. */
+    thread->has_native = 1;
     int rc = pthread_create(&thread->handle, NULL, thread_entry,
                             (void *)npl_header(value));
     if (rc != 0) {
         thread->state = NPL_THREAD_NEW;
         thread->started = 0;
-        pthread_mutex_unlock(&npl_sched_lock);
+        thread->has_native = 0;
+        npl_sched_lock_leave();
+        npl_gc_unroot(&terminated_exception);
         npl_gc_unroot(&value);
         npl_primitive_error("thread-start!", "pthread_create failed", value);
     }
-    thread->has_native = 1;
-    pthread_mutex_unlock(&npl_sched_lock);
+    npl_sched_lock_leave();
+    npl_gc_unroot(&terminated_exception);
     while (!__sync_fetch_and_add(&thread->registered, 0)) {
         npl_safepoint_poll();
         sched_yield();
@@ -383,26 +474,46 @@ NplVal npl_thread_terminate(NplVal value)
          * all threads when the primordial thread terminates. */
         self->end_exception =
             npl_thread_exception(NPL_EXC_TERMINATED_THREAD, npl_unspecified());
+        npl_gc_write_barrier(self, self->end_exception);
         npl_gc_exclude();
-        pthread_mutex_lock(&npl_sched_lock);
+        npl_sched_lock_enter();
         npl_sched_abandon_mutexes(self);
         npl_sched_finish(self, 1);
-        pthread_mutex_unlock(&npl_sched_lock);
+        npl_sched_lock_leave();
         if (!self->has_native) exit(0);
         longjmp(self->terminate_jump, 1);
     }
-    pthread_mutex_lock(&npl_sched_lock);
+    /* Allocate the possible termination exception outside the scheduler lock. */
+    NplVal terminated_exception =
+        npl_thread_exception(NPL_EXC_TERMINATED_THREAD, npl_unspecified());
+    npl_gc_root(&terminated_exception);
+    npl_sched_lock_enter();
     if (target->state == NPL_THREAD_TERMINATED) {
-        pthread_mutex_unlock(&npl_sched_lock);
+        npl_sched_lock_leave();
+        npl_gc_unroot(&terminated_exception);
         return npl_unspecified();
     }
     if (target->state == NPL_THREAD_NEW) {
         /* No poll site on a never-started thread: complete here. */
-        target->end_exception =
-            npl_thread_exception(NPL_EXC_TERMINATED_THREAD, npl_unspecified());
+        target->end_exception = terminated_exception;
+        npl_gc_write_barrier(target, terminated_exception);
         npl_sched_finish(target, 1);
-        pthread_mutex_unlock(&npl_sched_lock);
+        npl_sched_lock_leave();
+        npl_gc_unroot(&terminated_exception);
         return npl_unspecified();
+    }
+    if (!target->has_native) {
+        /* The primordial thread has no generated poll sites, no context for
+         * npl_thread_request_cancel and no jump target, so a remote
+         * thread-terminate! would wait forever. SRFI 18: terminating the
+         * primordial thread terminates all threads. */
+        target->end_exception = terminated_exception;
+        npl_gc_write_barrier(target, terminated_exception);
+        npl_sched_finish(target, 1);
+        npl_sched_wake_all();
+        npl_sched_lock_leave();
+        npl_gc_unroot(&terminated_exception);
+        exit(0);
     }
     target->cancel_requested = 1;
     target->wake = 1;
@@ -412,7 +523,8 @@ NplVal npl_thread_terminate(NplVal value)
     if (target->context)
         npl_thread_request_cancel((void *)target->context);
     npl_sched_wake_all();
-    pthread_mutex_unlock(&npl_sched_lock);
+    npl_sched_lock_leave();
+    npl_gc_unroot(&terminated_exception);
     /* SRFI 18: termination must be acknowledged before returning. */
     self->wait_kind = NPL_WAIT_JOIN;
     self->wait_target = target;
@@ -455,58 +567,71 @@ NplVal npl_mutex_lock(NplVal value, NplVal timeout, NplVal thread_value,
     if (count >= 1)
         (void)npl_thread_timeout(timeout, &deadline, &has_deadline,
                                  "mutex-lock!");
-    NplVal owner_thread = npl_thread_current_object();
+    NplVal self_value = npl_thread_current_object();
+    NplVal owner_thread = self_value;
     int not_owned = 0;
+    NplThread *requested_owner = NULL;
     if (count >= 2) {
         if (npl_is_false(thread_value)) {
             not_owned = 1;
         } else {
-            NplThread *given = require_thread(thread_value, "mutex-lock!");
+            requested_owner = require_thread(thread_value, "mutex-lock!");
             owner_thread = thread_value;
-            if (given->state == NPL_THREAD_TERMINATED) {
-                pthread_mutex_lock(&npl_sched_lock);
-                mutex->state = NPL_MUTEX_UNLOCKED_ABANDONED;
-                mutex->owner = npl_false();
-                pthread_mutex_unlock(&npl_sched_lock);
-                raise_object(npl_thread_exception(NPL_EXC_ABANDONED_MUTEX,
-                                                  npl_unspecified()));
-            }
         }
     }
-    NplThread *self = (NplThread *)npl_header(npl_thread_current_object());
+    NplThread *self = (NplThread *)npl_header(self_value);
     self->wait_kind = NPL_WAIT_MUTEX;
     self->wait_target = mutex;
 
     int abandoned = 0;
     for (;;) {
-        pthread_mutex_lock(&npl_sched_lock);
+        /* Allocate cons cells outside the scheduler lock (see list_link). */
+        NplVal waiter_cell = list_cell(self_value);
+        NplVal owned_cell = list_cell(value);
+        npl_sched_lock_enter();
         int free = mutex_free(self, mutex);
         if (!free) {
             /* Non-recursive: even the owner waits. */
-            if (!list_contains(mutex->waiters, npl_thread_current_object()))
-                mutex->waiters = list_cons(npl_thread_current_object(),
-                                           mutex->waiters);
-            pthread_mutex_unlock(&npl_sched_lock);
+            if (!list_contains(mutex->waiters, self_value))
+                list_link(&mutex->waiters, mutex, waiter_cell);
+            npl_sched_lock_leave();
             int result = wait_loop(self, mutex_free, mutex, &deadline,
                                    has_deadline);
-            if (result == 0) return npl_false();
+            if (result == 0) {
+                /* Timed out: retire this thread's waiter entry under the lock
+                 * instead of leaving it on the mutex forever. */
+                npl_sched_lock_enter();
+                list_unlink(&mutex->waiters, mutex, self_value);
+                npl_sched_lock_leave();
+                return npl_false();
+            }
             continue;
         }
         abandoned = mutex->state == NPL_MUTEX_UNLOCKED_ABANDONED;
-        if (list_contains(mutex->waiters, npl_thread_current_object()))
-            mutex->waiters = list_remove(mutex->waiters,
-                                         npl_thread_current_object());
+        /* A termination race on an explicitly requested owner is resolved
+         * INSIDE the acquisition transaction: never clear a busy mutex's
+         * ownership just because the requested owner has terminated. */
+        if (requested_owner &&
+            requested_owner->state == NPL_THREAD_TERMINATED) {
+            mutex->state = NPL_MUTEX_UNLOCKED_ABANDONED;
+            mutex->owner = npl_false();
+            npl_sched_lock_leave();
+            raise_object(npl_thread_exception(NPL_EXC_ABANDONED_MUTEX,
+                                              npl_unspecified()));
+        }
+        list_unlink(&mutex->waiters, mutex, self_value);
         if (not_owned) {
             mutex->state = NPL_MUTEX_LOCKED_NOT_OWNED;
             mutex->owner = npl_false();
         } else {
             mutex->state = NPL_MUTEX_LOCKED_OWNED;
             mutex->owner = owner_thread;
+            npl_gc_write_barrier(mutex, owner_thread);
             NplThread *owner = (NplThread *)npl_header(owner_thread);
             if (!list_contains(owner->owned_mutexes, value))
-                owner->owned_mutexes = list_cons(value, owner->owned_mutexes);
+                list_link(&owner->owned_mutexes, owner, owned_cell);
         }
-        pthread_mutex_unlock(&npl_sched_lock);
+        npl_sched_lock_leave();
         break;
     }
     if (abandoned)
@@ -535,28 +660,39 @@ NplVal npl_mutex_unlock(NplVal value, NplVal condvar_value, NplVal timeout,
         (void)npl_thread_timeout(timeout, &deadline, &has_deadline,
                                  "mutex-unlock!");
 
-    NplThread *self = (NplThread *)npl_header(npl_thread_current_object());
+    NplVal self_value = npl_thread_current_object();
+    NplThread *self = (NplThread *)npl_header(self_value);
+    /* A condvar waiter cell is allocated outside the scheduler lock. */
+    NplVal waiter_cell = cv ? list_cell(self_value) : npl_nil();
+    npl_sched_lock_enter();
     self->wake = 0;
-    pthread_mutex_lock(&npl_sched_lock);
-    /* Unlocking an unlocked mutex or one owned by any thread is not an error. */
+    /* Unlocking an unlocked mutex or one owned by any thread is not an error.
+     * Remove the mutex from its ACTUAL owner's list, not the caller's: a
+     * foreign unlock must not leave a stale entry in the previous owner's
+     * owned_mutexes (it would later abandon a mutex owned by someone else). */
+    NplVal previous_owner = mutex->owner;
+    if (tagged(previous_owner, BOX_THREAD)) {
+        NplThread *owner = (NplThread *)npl_header(previous_owner);
+        list_unlink(&owner->owned_mutexes, owner, value);
+    } else {
+        list_unlink(&self->owned_mutexes, self, value);
+    }
     mutex->state = NPL_MUTEX_UNLOCKED_NOT_ABANDONED;
     mutex->owner = npl_false();
-    if (list_contains(self->owned_mutexes, value))
-        self->owned_mutexes = list_remove(self->owned_mutexes, value);
     if (cv) {
-        if (!list_contains(cv->waiters, npl_thread_current_object()))
-            cv->waiters = list_cons(npl_thread_current_object(), cv->waiters);
+        if (!list_contains(cv->waiters, self_value))
+            list_link(&cv->waiters, cv, waiter_cell);
         self->wait_kind = NPL_WAIT_CONDVAR;
         self->wait_target = cv;
     }
     wake_one_mutex_waiter(mutex);
-    pthread_mutex_unlock(&npl_sched_lock);
+    npl_sched_lock_leave();
 
     if (cv) {
         int result = wait_loop(self, cv_ready, cv, &deadline, has_deadline);
-        pthread_mutex_lock(&npl_sched_lock);
-        cv->waiters = list_remove(cv->waiters, npl_thread_current_object());
-        pthread_mutex_unlock(&npl_sched_lock);
+        npl_sched_lock_enter();
+        list_unlink(&cv->waiters, cv, self_value);
+        npl_sched_lock_leave();
         if (result == 0) return npl_false();
     }
     return npl_true();
@@ -565,22 +701,26 @@ NplVal npl_mutex_unlock(NplVal value, NplVal condvar_value, NplVal timeout,
 NplVal npl_condvar_signal(NplVal value)
 {
     NplCondvar *cv = require_condvar(value, "condition-variable-signal!");
-    pthread_mutex_lock(&npl_sched_lock);
+    npl_sched_lock_enter();
     NplVal rest = cv->waiters;
     if (npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PAIR) {
         NplVal waiter = npl_pair_ptr(rest)->car;
-        if (tagged(waiter, BOX_THREAD))
+        if (tagged(waiter, BOX_THREAD)) {
             ((NplThread *)npl_header(waiter))->wake = 1;
+            /* Consume this waiter so a second signal wakes the NEXT one
+             * rather than setting wake=1 on an already-woken thread. */
+            list_unlink(&cv->waiters, cv, waiter);
+        }
     }
     npl_sched_wake_all();
-    pthread_mutex_unlock(&npl_sched_lock);
+    npl_sched_lock_leave();
     return npl_unspecified();
 }
 
 NplVal npl_condvar_broadcast(NplVal value)
 {
     NplCondvar *cv = require_condvar(value, "condition-variable-broadcast!");
-    pthread_mutex_lock(&npl_sched_lock);
+    npl_sched_lock_enter();
     for (NplVal rest = cv->waiters;
          npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PAIR;
          rest = npl_pair_ptr(rest)->cdr) {
@@ -589,6 +729,6 @@ NplVal npl_condvar_broadcast(NplVal value)
             ((NplThread *)npl_header(waiter))->wake = 1;
     }
     npl_sched_wake_all();
-    pthread_mutex_unlock(&npl_sched_lock);
+    npl_sched_lock_leave();
     return npl_unspecified();
 }

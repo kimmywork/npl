@@ -688,6 +688,81 @@ SSA. The `src/compiler/**` change was re-seeded (352,219 lines, SHA
 Work stealing between the per-carrier queues and a CPU-derived carrier count
 remain later tuning.
 
+## PR #8 review fixes (2026-11-25)
+
+The CodeRabbit and Gemini reviews on PR #8 were triaged against the code; all
+confirmed functional defects were fixed, with regression tests. The branch
+was also **rebased onto `origin/master`** (`b6f52fa`, PR #7) and the PR #7
+deletions (`.agents/workstate.md`, the plan/skills files) were dropped;
+`docs/thread.md` is linked from `docs/README.md`.
+
+Confirmed and fixed (highest impact first):
+
+- **Clock mismatch**: deadlines were `CLOCK_MONOTONIC` but `npl_sched_cond`
+  used the default `CLOCK_REALTIME`, so every timed `thread-sleep!` /
+  `thread-join!` / `mutex-lock!` returned immediately. `wait_loop` now
+  converts the remaining monotonic delay to a realtime deadline, rechecks the
+  monotonic deadline on `ETIMEDOUT`, and negative/NaN relative timeouts are
+  normalized (`runtime/thread-lifecycle.c`, `runtime/thread-sched.c`).
+  Regression: `tests/unit/thread-timeouts.npl` measures elapsed time.
+- **Reversed parameter inheritance**: `clone_parameter_chain` prepended while
+  walking head→tail, so a child thread saw the OUTER binding of nested
+  `parameterize`. It now uses the order-preserving
+  `npl_clone_parameter_bindings` (also made iterative). Regression included
+  in `thread-timeouts.npl`.
+- **Double-clone on cross-thread transfer**: the destination chain and the
+  wind frames were cloned separately, so a `parameter-set!` in a before thunk
+  was lost. `NplWindTransition` now carries a `(src . copy)` cache; shared
+  bindings resolve to one localized node. Regression:
+  `tests/unit/cross-thread-wind-parameters.npl` (A/B confirmed it fails
+  without the cache).
+- **STW deadlock under `npl_sched_lock`**: allocations (`list_cons`,
+  `list_remove`, `npl_thread_exception`) and missing write barriers happened
+  while holding the scheduler lock. `npl_sched_lock_enter()` is now
+  trylock + safepoint poll; waiter/owned lists use pre-allocated cells and
+  allocation-free `list_link`/`list_unlink` with write barriers; exceptions
+  are allocated outside the lock.
+- **SRFI 18 edge cases**: mutex waiters retired on timeout and cancellation,
+  foreign `mutex-unlock!` removes the mutex from the ACTUAL owner's list (and
+  abandonment verifies the current owner), `condition-variable-signal!`
+  dequeues the woken waiter, `mutex-state` snapshots under the lock,
+  `thread-terminate!` on the primordial thread ends the process instead of
+  hanging, pre-registration cancellation is replayed after `setjmp`,
+  `thread_entry` detaches its pthread, `make-thread` validates its thunk,
+  explicit `#f` names are preserved, and exact rationals are valid timeouts.
+- **Cancellation bookkeeping**: `cancel_owed` replaces the zero-initialized
+  `cancel_consumed` so an uncaught raise in a fresh thread cannot consume
+  another thread's pending sweep; detach releases the contribution; attach
+  waits for an active world stop before admitting a mutator.
+- **Virtual threads**: `g_all` no longer retains terminated records (pruned
+  in `finish_vt` under `g_lock` — an earlier mark-time compaction proved
+  racy and was replaced); `npl_vthread_start` claims `NEW` under the lock and
+  starts carriers immediately (the C harness uses an explicit defer flag);
+  `virtual-thread-join!` from inside a virtual thread parks via
+  `virtual-thread-block!` so it cannot block a carrier; join re-raises the
+  target's uncaught exception; helper workers install an initial uncaught
+  handler and the pool grows when all helpers are busy; the arbitrary
+  `+4096` helper stack bound was removed. Regression:
+  `tests/unit/virtual-thread-edge.npl`.
+- **GC / reader / ports**: `npl_byte_ready_p` and the port entry points now
+  validate under `NPL_SHARED_GUARD()`; `npl_utf8_to_string` roots the source
+  bytevector and registers a longjmp-safe cleanup; reader and numeric scratch
+  buffers are freed on cancellation via a new `npl_cleanup_push/pop` stack
+  released at every longjmp landing; parameter-owner identity is the
+  monotonic `NplThreadContext.id` (no ABA after a context is freed);
+  `npl_raise` resolves an empty captured handler chain to the invoking
+  worker's initial handler; allocator trigger counters use relaxed atomics
+  and one-time init publishes `g_runtime_initialized` only when complete
+  (other threads wait in `pthread_once`).
+
+Deferred with reasons (documented in the PR response): a global shared lock
+still held across blocking `fread`/`fwrite` (needs per-port lifetime
+management), `parameter_extents` weak pruning (needs GC integration to keep
+continuation re-entry state), the narrow `src->value` snapshot race (needs a
+parameter-write synchronization protocol), platform stack-window sizing for
+native workers, `npl_gc_stop_requested` atomics (C99 + frozen QBE SSA
+constraint), and Linux/late-`dlopen` execution evidence.
+
 ## T3 SRFI 230
 
 Atomics need runtime support regardless of scheduler. [SRFI 230](../../docs/reference/srfi-230.html)

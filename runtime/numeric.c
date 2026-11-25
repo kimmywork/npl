@@ -630,6 +630,10 @@ NplVal npl_number_gcd(NplVal left, NplVal right)
  * of digits per division by radix^k (the largest power below 2^32), so a
  * conversion is quadratic in the length with a small constant, not cubic
  * as with one full division per digit. */
+/* A cancellation or primitive error can longjmp out of the conversion loop;
+ * the cleanup stack frees these C scratch buffers at the unwind landing. */
+static void free_scratch_buffer(void *argument) { free(argument); }
+
 static NplVal integer_to_string_radix(NplVal value, int radix)
 {
     static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
@@ -639,6 +643,7 @@ static NplVal integer_to_string_radix(NplVal value, int radix)
     size_t capacity = (size_t)view.count * 32 + 2;
     char *buffer = malloc(capacity);
     if (!buffer) npl_runtime_oom_internal();
+    npl_cleanup_push(free_scratch_buffer, buffer);
     size_t length = 0;
     if (radix == 10) {
         char chunk[16];
@@ -662,6 +667,7 @@ static NplVal integer_to_string_radix(NplVal value, int radix)
         uint32_t count = view.count;
         uint32_t *work = malloc((size_t)count * sizeof(uint32_t));
         if (!work) npl_runtime_oom_internal();
+        npl_cleanup_push(free_scratch_buffer, work);
         memcpy(work, view.limbs, (size_t)count * sizeof(uint32_t));
         while (count) {
             npl_safepoint_poll();   /* long runtime loop: bignum printing */
@@ -673,6 +679,7 @@ static NplVal integer_to_string_radix(NplVal value, int radix)
             }
         }
         free(work);
+        npl_cleanup_pop();
         if (view.sign < 0) buffer[length++] = '-';
         for (size_t index = 0; index < length / 2; index++) {
             char swap = buffer[index];
@@ -682,6 +689,7 @@ static NplVal integer_to_string_radix(NplVal value, int radix)
     }
     NplVal result = npl_string(buffer, (uint32_t)length);
     free(buffer);
+    npl_cleanup_pop();
     return result;
 }
 

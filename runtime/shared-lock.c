@@ -56,6 +56,9 @@ void npl_shared_unlock(void)
 void npl_shared_release_all(void)
 {
     NplThreadContext *context = npl_ctx();
+    /* Every longjmp landing calls this; release C scratch buffers whose
+     * owning frames were skipped by the unwind. */
+    npl_cleanup_release_all();
     while (context->shared_depth > 0) {
         context->shared_depth--;
         pthread_mutex_unlock(&g_shared_lock);

@@ -187,5 +187,17 @@ helper is a known limitation. Native SRFI 18 threads are unaffected.
 
 Work stealing between carrier queues and a CPU-derived carrier count are
 later tuning. Virtual-thread behaviour is accepted by native tests with one
-and four carriers; the evaluator (`npli`) does not provide a carrier
-scheduler surface.
+and four carriers.
+
+The evaluator (`npli`) binds the same control operators and C substrate, so
+`(npl thread virtual)` can also be used there: `virtual-thread-yield!` and
+`virtual-thread-block!` outside a virtual thread raise a defined diagnostic
+or run the thunk synchronously. The native-only unit tests exist because the
+differential fixture runner requires identical nplc/npli output, not because
+the evaluator lacks an implementation.
+
+Remaining known limits: a work thunk runs on a helper with its own dynamic
+state (pass values explicitly); a parameter extent that is entered and left
+in a long loop retains one mapping per iteration until a GC-driven weak-prune
+is added; a process-wide shared lock still serializes port I/O, so one thread
+blocked on a pipe can stall other threads' port operations.

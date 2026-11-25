@@ -66,7 +66,9 @@ build_ssa "$ROOT/bootstrap/current.ssa" "$WORK/compiler"
 # the differential fixture runner compares nplc and npli output, but a
 # cross-thread scenario has no evaluator surface. Each harness asserts
 # internally and exits non-zero on failure.
-for name in cross-thread-terminal cross-thread-continuation virtual-threads; do
+for name in cross-thread-terminal cross-thread-continuation \
+            cross-thread-wind-parameters virtual-threads virtual-thread-edge \
+            thread-timeouts; do
     emit "$WORK/compiler" "$ROOT/tests/unit/$name.npl" "$WORK/$name.ssa"
     build_ssa "$WORK/$name.ssa" "$WORK/$name"
     "$WORK/$name" > "$WORK/$name.out" 2>&1

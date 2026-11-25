@@ -101,15 +101,18 @@
       "npl_mutex_unlock")
 
     ;; ---- public surface with optional arguments ----
+    ;; An omitted name is the unspecified value, not #f: an explicitly
+    ;; supplied #f is a valid Scheme object and must be preserved.
     (define (make-thread thunk . maybe-name)
-      (%thread-make thunk (if (null? maybe-name) #f (car maybe-name))))
+      (%thread-make thunk
+                    (if (null? maybe-name) (if #f #f) (car maybe-name))))
 
     (define (make-mutex . maybe-name)
-      (%mutex-make (if (null? maybe-name) #f (car maybe-name))))
+      (%mutex-make (if (null? maybe-name) (if #f #f) (car maybe-name))))
 
     (define (make-condition-variable . maybe-name)
       (%condition-variable-make
-        (if (null? maybe-name) #f (car maybe-name))))
+        (if (null? maybe-name) (if #f #f) (car maybe-name))))
 
     (define (thread-join! thread . rest)
       (let ((count (length rest)))

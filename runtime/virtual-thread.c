@@ -73,22 +73,30 @@ static int g_shutdown;
 static int g_carrier_count = 2;
 static pthread_t *g_carrier_handles;
 static pthread_once_t g_carrier_once = PTHREAD_ONCE_INIT;
+static int g_defer_start;       /* harness-only: batch before starting carriers */
 
 /* ---- helper-worker pool for synchronous blocking work ----
  *
  * Work items are virtual-thread records (their `work` field holds the thunk).
  * The records are already in g_all / marked, so the helper queue needs no
  * separate GC root. A helper is a normal attached mutator; it parks with
- * npl_gc_block_begin/end while idle. */
+ * npl_gc_block_begin/end while idle. The pool grows when all helpers are
+ * busy, so a long blocking thunk cannot starve queued work. */
 #define NPL_VTHREAD_HELPERS 2
 static NplVirtualThread *g_work_head;
 static NplVirtualThread *g_work_tail;
 static pthread_mutex_t g_helper_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_helper_cond = PTHREAD_COND_INITIALIZER;
-static pthread_t g_helper_handles[NPL_VTHREAD_HELPERS];
+static pthread_t *g_helper_handles;
+static int g_helper_count;
+static int g_helper_capacity;
+static int g_helper_idle;       /* helpers waiting for work, under g_helper_lock */
 static int g_helpers_started;
 static int g_helper_shutdown;
+static void helper_spawn(void);  /* defined with the helper loop, used by await */
 
+/* Every virtual-thread record is a strong root while it can still be
+ * scheduled; finish_vt() removes terminated ones under g_lock. */
 void npl_virtual_thread_mark_roots(void)
 {
     for (int i = 0; i < g_all_count; i++)
@@ -106,6 +114,20 @@ static void registry_add(NplVal value)
         g_all_capacity = capacity;
     }
     g_all[g_all_count++] = value;
+}
+
+/* Called under g_lock. A terminated virtual thread no longer needs to be a
+ * strong root: a live joiner still holds its value on its own stack, and the
+ * currently running trampoline reaches it through the root closure. */
+static void registry_remove(NplVirtualThread *vt)
+{
+    NplVal value = boxed(vt);
+    for (int i = 0; i < g_all_count; i++) {
+        if (g_all[i] == value) {
+            g_all[i] = g_all[--g_all_count];
+            return;
+        }
+    }
 }
 
 /* Called under g_lock. The queue count is frozen at the first enqueue so a
@@ -227,6 +249,7 @@ static void finish_vt(NplVirtualThread *vt, NplVal result, NplVal exception)
     set_field(vt, &vt->end_exception, exception);
     vt->state = NPL_VTHREAD_TERMINATED;
     vt->continuation = npl_nil();
+    registry_remove(vt);
     pthread_cond_broadcast(&g_cond);
     pthread_mutex_unlock(&g_lock);
 }
@@ -275,7 +298,7 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
         npl_alloc_object(sizeof(NplVirtualThread));
     vt->header.tag = BOX_VIRTUAL_THREAD;
     vt->header.flags = 0;
-    vt->name = npl_is_false(name) ? npl_unspecified() : name;
+    vt->name = name;
     vt->end_result = npl_unspecified();
     vt->end_exception = npl_false();
     vt->thunk = thunk;
@@ -428,6 +451,9 @@ void npl_vthread_await(NplVal work, NplVal continuation)
     pthread_mutex_unlock(&g_lock);
     pthread_mutex_lock(&g_helper_lock);
     helper_enqueue(vt);
+    /* If every helper is busy with a long blocking thunk, grow the pool so
+     * this newly queued item gets its own pthread immediately. */
+    if (g_helper_idle == 0) helper_spawn();
     pthread_cond_broadcast(&g_helper_cond);
     pthread_mutex_unlock(&g_helper_lock);
     CTX->logical_thread = NULL;
@@ -436,6 +462,27 @@ void npl_vthread_await(NplVal work, NplVal continuation)
 
 static void *carrier_entry(void *argument);
 static void *helper_entry(void *argument);
+
+/* Called with g_helper_lock held. Grows the pool so a queued work item is
+ * never left without a helper while every existing helper is blocked. */
+static void helper_spawn(void)
+{
+    if (g_helper_shutdown) return;   /* nothing new during shutdown */
+    if (g_helper_count == g_helper_capacity) {
+        int capacity = g_helper_capacity ? g_helper_capacity * 2 : 8;
+        pthread_t *grown = (pthread_t *)realloc(
+            g_helper_handles, (size_t)capacity * sizeof(pthread_t));
+        if (!grown) npl_runtime_oom_internal();
+        g_helper_handles = grown;
+        g_helper_capacity = capacity;
+    }
+    if (pthread_create(&g_helper_handles[g_helper_count], NULL,
+                       helper_entry, NULL) != 0) {
+        fprintf(stderr, "virtual thread: cannot start helper\n");
+        exit(1);
+    }
+    g_helper_count++;
+}
 
 static void start_carriers(void)
 {
@@ -453,36 +500,49 @@ static void start_carriers(void)
             exit(1);
         }
     }
-    for (int i = 0; i < NPL_VTHREAD_HELPERS; i++) {
-        if (pthread_create(&g_helper_handles[i], NULL,
-                           helper_entry, NULL) != 0) {
-            fprintf(stderr, "virtual thread: cannot start helper\n");
-            exit(1);
-        }
-    }
+    pthread_mutex_lock(&g_helper_lock);
+    for (int i = 0; i < NPL_VTHREAD_HELPERS; i++)
+        helper_spawn();
+    pthread_mutex_unlock(&g_helper_lock);
     g_helpers_started = 1;
 }
 
 NplVal npl_vthread_start(NplVal value)
 {
     NplVirtualThread *vt = require_vthread(value, "virtual-thread-start!");
-    if (vt->state != NPL_VTHREAD_NEW)
-        npl_primitive_error("virtual-thread-start!",
-                            "virtual thread already started", value);
+    int already = 0;
+    /* Claim the NEW state under the lock: a concurrent second start must not
+     * enqueue the same record twice (self-loop / double resume). */
     pthread_mutex_lock(&g_lock);
     ensure_queues();
-    vt->state = NPL_VTHREAD_RUNNABLE;
-    enqueue_to(vt, g_next_carrier % g_queues_count);
-    g_next_carrier++;
-    pthread_cond_broadcast(&g_cond);
+    if (vt->state != NPL_VTHREAD_NEW) {
+        already = 1;
+    } else {
+        vt->state = NPL_VTHREAD_RUNNABLE;
+        enqueue_to(vt, g_next_carrier % g_queues_count);
+        g_next_carrier++;
+        pthread_cond_broadcast(&g_cond);
+    }
     pthread_mutex_unlock(&g_lock);
+    if (already)
+        npl_primitive_error("virtual-thread-start!",
+                            "virtual thread already started", value);
+    /* A started virtual thread must run without requiring a join first. */
+    if (!g_defer_start) npl_virtual_thread_run();
     return value;
 }
 
-/* Carriers start lazily, after the initial batch is enqueued, so the first
- * validation observes deterministic round-robin multiplexing. */
+/* Carriers normally start with the first virtual-thread-start!. The C
+ * acceptance harness enqueues a whole batch before starting them so its
+ * round-robin ordering is deterministic. */
+void npl_virtual_thread_defer_start(void)
+{
+    g_defer_start = 1;
+}
+
 void npl_virtual_thread_run(void)
 {
+    g_defer_start = 0;
     pthread_once(&g_carrier_once, start_carriers);
 }
 
@@ -490,15 +550,20 @@ NplVal npl_vthread_join(NplVal value)
 {
     NplVirtualThread *vt = require_vthread(value, "virtual-thread-join!");
     npl_virtual_thread_run();
-    /* The caller is a native thread (or a carrier parked by block_begin);
-     * publish a safe snapshot so a collection never waits on this wait. */
+    /* The caller is a native thread or a helper worker (virtual callers go
+     * through virtual-thread-block! in the library). Publish a safe snapshot
+     * so a collection never waits on this wait. */
     npl_gc_block_begin();
     pthread_mutex_lock(&g_lock);
     while (vt->state != NPL_VTHREAD_TERMINATED)
         pthread_cond_wait(&g_cond, &g_lock);
     NplVal result = vt->end_result;
+    NplVal exc = vt->end_exception;
     pthread_mutex_unlock(&g_lock);
     npl_gc_block_end();
+    /* Mirror native thread-join!: re-raise the target's uncaught exception
+     * instead of silently returning an unspecified end result. */
+    if (!npl_is_false(exc)) npl_raise_record(exc);
     return result;
 }
 
@@ -522,11 +587,19 @@ void npl_virtual_thread_shutdown(void)
     pthread_mutex_unlock(&g_helper_lock);
     if (g_helpers_started) {
         npl_gc_exclude();
-        for (int i = 0; i < NPL_VTHREAD_HELPERS; i++)
+        for (int i = 0; i < g_helper_count; i++)
             (void)pthread_join(g_helper_handles[i], NULL);
         npl_gc_include();
         g_helpers_started = 0;
+        free(g_helper_handles);
+        g_helper_handles = NULL;
+        g_helper_count = 0;
+        g_helper_capacity = 0;
     }
+    free(g_all);
+    g_all = NULL;
+    g_all_count = 0;
+    g_all_capacity = 0;
     if (g_carrier_handles) {
         /* pthread_join is an unwrapped C wait with no poll site. */
         npl_gc_exclude();
@@ -547,18 +620,21 @@ static void *helper_entry(void *argument)
 {
     (void)argument;
     uintptr_t marker = 0;
+    /* This frame is the top of the helper's C stack: the pthread start frames
+     * above it hold no NplVal, and the trampoline frames for the work thunk
+     * are below it. A hardcoded +4096 slack could point past the stack
+     * mapping into a guard page, so keep the exact bound from attach. */
     (void)npl_thread_attach_exact(
         (uintptr_t)(void *)&marker + sizeof(marker));
-    /* Publish a bound that covers the pthread start frames above us, so a
-     * collection scans this helper's whole C stack while it runs a thunk. */
-    (void)npl_gc_swap_stack_bottom(
-        (uintptr_t)(void *)&marker + 4096);
 
     for (;;) {
         npl_gc_block_begin();
         pthread_mutex_lock(&g_helper_lock);
-        while (!g_work_head && !g_helper_shutdown)
+        while (!g_work_head && !g_helper_shutdown) {
+            g_helper_idle++;
             pthread_cond_wait(&g_helper_cond, &g_helper_lock);
+            g_helper_idle--;
+        }
         NplVirtualThread *vt = g_helper_shutdown ? NULL : helper_dequeue();
         pthread_mutex_unlock(&g_helper_lock);
         npl_gc_block_end();
@@ -569,6 +645,12 @@ static void *helper_entry(void *argument)
                     "virtual thread: invalid await work thunk\n");
             exit(1);
         }
+        /* A raise inside the blocking thunk must terminate the virtual thread
+         * with an uncaught exception (and wake joiners), not exit the process.
+         * The helper's fresh context has an empty handler chain otherwise. */
+        NplVal handler = npl_make_closure(vthread_uncaught, boxed(vt), 2);
+        CTX->current_handler = npl_nil();
+        CTX->initial_handler = npl_handler_push_initial(handler);
         NplVal done = npl_make_closure(helper_done, boxed(vt), 1);
         /* Root the completion closure for the whole trampoline run: it is
          * the work thunk's trailing continuation and must survive any GC
@@ -579,6 +661,8 @@ static void *helper_entry(void *argument)
          * is blocked and the suspended virtual thread retains no C frame. */
         (void)npl_apply(vt->work, 1, argv);
         npl_gc_unroot(&done);
+        CTX->current_handler = npl_nil();
+        CTX->initial_handler = npl_nil();
     }
 
     npl_thread_detach();
@@ -614,21 +698,28 @@ static void *carrier_entry(void *argument)
         while (!g_queues[index].head && !g_shutdown)
             pthread_cond_wait(&g_cond, &g_lock);
         NplVirtualThread *vt = g_shutdown ? NULL : dequeue_from(index);
+        /* Claim the record under the lock: a joiner reads state under the
+         * same lock, so the transition must be atomic with the dequeue. */
+        int first = 0;
+        int invalid = 0;
+        if (vt) {
+            first = vt->state == NPL_VTHREAD_RUNNABLE &&
+                    vt->resume_count == 0 && vt->park_count == 0;
+            vt->state = NPL_VTHREAD_RUNNING;
+            invalid = !first && npl_is_nil(vt->continuation);
+            if (!invalid && !first &&
+                vt->carrier_context != (void *)npl_ctx())
+                vt->migration_count++;
+        }
         pthread_mutex_unlock(&g_lock);
         npl_gc_block_end();
         if (!vt) break;
-
-        int first = vt->state == NPL_VTHREAD_RUNNABLE &&
-                    vt->resume_count == 0 && vt->park_count == 0;
-        vt->state = NPL_VTHREAD_RUNNING;
-        if (!first && npl_is_nil(vt->continuation)) {
+        if (invalid) {
             fprintf(stderr,
                     "virtual thread: one-shot scheduler continuation "
                     "resumed twice\n");
             exit(1);
         }
-        if (!first && vt->carrier_context != (void *)npl_ctx())
-            vt->migration_count++;
 
         NplVal argv[1];
         if (first) {

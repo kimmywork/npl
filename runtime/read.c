@@ -3,6 +3,7 @@
 
 #include "port.h"
 #include "thread.h"
+#include "read-buffer.h"
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,9 +36,9 @@ static void read_error(const char *message)
     npl_primitive_read_error(message);
 }
 
-static void read_buffer_error(char *buffer, const char *message)
+static void read_buffer_error(NplReadBuffer *buffer, const char *message)
 {
-    free(buffer);
+    (void)buffer;   /* freed by the cleanup frame at the longjmp landing */
     read_error(message);
 }
 
@@ -78,6 +79,7 @@ static void skip_block_comment(NplDatumReader *reader)
     int depth = 1;
     int previous = 0;
     while (depth > 0) {
+        npl_safepoint_poll();   /* a large block comment can be long */
         int code = reader_get(reader);
         if (code == EOF) read_error("unterminated block comment");
         if (previous == '|' && code == '#') { depth--; code = 0; }
@@ -126,7 +128,9 @@ static void reader_skip_space(NplDatumReader *reader)
             code == '\f') {
             (void)reader_get(reader);
         } else if (code == ';') {
-            while ((code = reader_get(reader)) != EOF && code != '\n') {}
+            while ((code = reader_get(reader)) != EOF && code != '\n') {
+                npl_safepoint_poll();   /* long line comment */
+            }
         } else if (code == '#') {
             (void)reader_get(reader);
             int next = reader_peek(reader);
@@ -162,25 +166,6 @@ static void reader_skip_space(NplDatumReader *reader)
     }
 }
 
-/* Append a character to a malloc'd UTF-8 buffer. */
-static void buffer_push(char **buffer, size_t *length, size_t *capacity,
-                        int code)
-{
-    if (*length + 5 >= *capacity) {
-        size_t next = *capacity ? *capacity * 2 : 32;
-        char *grown = (char *)realloc(*buffer, next);
-        if (!grown) npl_runtime_oom_internal();
-        *buffer = grown;
-        *capacity = next;
-    }
-    if (code == 0) {
-        (*buffer)[(*length)++] = '\0';
-        return;
-    }
-    *length += npl_utf8_encode_internal((uint32_t)code,
-                                        (uint8_t *)*buffer + *length);
-}
-
 /* \x<hex>; in strings (R7RS 6.7) and #\x<hex> characters. */
 static int hex_scalar(const char *text, size_t length, uint32_t *code)
 {
@@ -203,9 +188,7 @@ static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof);
 
 static NplVal read_string_datum(NplDatumReader *reader)
 {
-    char *buffer = NULL;
-    size_t length = 0;
-    size_t capacity = 0;
+    NplReadBuffer *buffer = npl_read_buffer_new();
     for (;;) {
         npl_safepoint_poll();   /* long runtime loop: large string */
         int code = reader_get(reader);
@@ -249,22 +232,21 @@ static NplVal read_string_datum(NplDatumReader *reader)
             } else if (code != '"' && code != '\\' && code != '|')
                 read_buffer_error(buffer, "unknown string escape");
         }
-        buffer_push(&buffer, &length, &capacity, code);
+        npl_read_buffer_push(buffer, code);
     }
-    NplVal value = npl_string_from_utf8((const uint8_t *)buffer, length,
-                                        BOX_STRING);
-    free(buffer);
+    NplVal value = npl_string_from_utf8((const uint8_t *)buffer->data,
+                                        buffer->length, BOX_STRING);
+    npl_read_buffer_finish(buffer);
     return value;
 }
 
 /* Characters of a |...| symbol (R7RS 2.1), with string-like escapes. */
-static void read_bar_symbol_part(NplDatumReader *reader, char **buffer,
-                                 size_t *length, size_t *capacity)
+static void read_bar_symbol_part(NplDatumReader *reader, NplReadBuffer *buffer)
 {
     for (;;) {
         npl_safepoint_poll();   /* long runtime loop: barred symbol */
         int code = reader_get(reader);
-        if (code == EOF) read_buffer_error(*buffer, "unterminated |symbol|");
+        if (code == EOF) read_buffer_error(buffer, "unterminated |symbol|");
         if (code == '|') return;
         if (code == '\\') {
             code = reader_get(reader);
@@ -273,12 +255,12 @@ static void read_bar_symbol_part(NplDatumReader *reader, char **buffer,
                 size_t used = 0;
                 while ((code = reader_get(reader)) != ';') {
                     if (code == EOF || used == sizeof(hex))
-                        read_buffer_error(*buffer, "malformed \\x escape");
+                        read_buffer_error(buffer, "malformed \\x escape");
                     hex[used++] = (char)code;
                 }
                 uint32_t scalar;
                 if (!hex_scalar(hex, used, &scalar))
-                    read_buffer_error(*buffer, "malformed \\x escape");
+                    read_buffer_error(buffer, "malformed \\x escape");
                 code = (int)scalar;
             } else if (code == 'n') code = '\n';
             else if (code == 't') code = '\t';
@@ -286,25 +268,23 @@ static void read_bar_symbol_part(NplDatumReader *reader, char **buffer,
             else if (code == 'a') code = 7;
             else if (code == 'b') code = 8;
             else if (code != '|' && code != '\\' && code != '"')
-                read_buffer_error(*buffer, "unknown escape in |symbol|");
+                read_buffer_error(buffer, "unknown escape in |symbol|");
         }
-        buffer_push(buffer, length, capacity, code);
+        npl_read_buffer_push(buffer, code);
     }
 }
 
 static NplVal read_token_datum(NplDatumReader *reader, int first)
 {
-    char *buffer = NULL;
-    size_t length = 0;
-    size_t capacity = 0;
+    NplReadBuffer *buffer = npl_read_buffer_new();
     int barred = 0;
     if (first == '|') {
         barred = 1;
-        read_bar_symbol_part(reader, &buffer, &length, &capacity);
+        read_bar_symbol_part(reader, buffer);
     } else {
         if (first == '\\')
             read_error("backslash is not a valid identifier character");
-        buffer_push(&buffer, &length, &capacity, first);
+        npl_read_buffer_push(buffer, first);
     }
     /* A |...| part may continue the token, and vice versa (abc|d e|f). */
     for (;;) {
@@ -313,35 +293,39 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
         if (code == '|') {
             (void)reader_get(reader);
             barred = 1;
-            read_bar_symbol_part(reader, &buffer, &length, &capacity);
+            read_bar_symbol_part(reader, buffer);
         } else if (datum_delimiter(code)) {
             break;
         } else {
             if (code == '\\' && !barred)
                 read_buffer_error(buffer,
                     "backslash is not a valid identifier character");
-            buffer_push(&buffer, &length, &capacity, reader_get(reader));
+            npl_read_buffer_push(buffer, reader_get(reader));
         }
     }
-    buffer_push(&buffer, &length, &capacity, 0);
+    npl_read_buffer_push(buffer, 0);
     if (barred) {
-        NplVal symbol = npl_symbol(buffer, (uint32_t)(length - 1));
-        free(buffer);
+        NplVal symbol = npl_symbol(buffer->data,
+                                   (uint32_t)(buffer->length - 1));
+        npl_read_buffer_finish(buffer);
         return symbol;
     }
 
-    NplVal token = npl_string_from_utf8((const uint8_t *)buffer, length - 1,
-                                        BOX_STRING);
+    NplVal token = npl_string_from_utf8(
+        (const uint8_t *)buffer->data, buffer->length - 1, BOX_STRING);
     NplVal value = npl_number_from_string(token);
     if (value == npl_false()) {
-        int numeric_start = buffer[0] >= '0' && buffer[0] <= '9';
-        if ((buffer[0] == '+' || buffer[0] == '-') && length > 2)
-            numeric_start = buffer[1] >= '0' && buffer[1] <= '9';
-        if (numeric_start) read_buffer_error(buffer, "invalid exact number");
-        value = npl_symbol(buffer, (uint32_t)(length - 1));
+        int numeric_start = buffer->data[0] >= '0' && buffer->data[0] <= '9';
+        if ((buffer->data[0] == '+' || buffer->data[0] == '-') &&
+            buffer->length > 2)
+            numeric_start = buffer->data[1] >= '0' &&
+                            buffer->data[1] <= '9';
+        if (numeric_start)
+            read_buffer_error(buffer, "invalid exact number");
+        value = npl_symbol(buffer->data, (uint32_t)(buffer->length - 1));
         if (reader->fold_case) value = npl_symbol_fold_internal(value);
     }
-    free(buffer);
+    npl_read_buffer_finish(buffer);
     return value;
 }
 
@@ -455,17 +439,15 @@ static NplVal bytevector_from_list(NplVal list)
 
 static NplVal read_hash_radix_datum(NplDatumReader *reader, int prefix)
 {
-    char *buffer = NULL;
-    size_t length = 0;
-    size_t capacity = 0;
-    buffer_push(&buffer, &length, &capacity, '#');
-    buffer_push(&buffer, &length, &capacity, prefix);
+    NplReadBuffer *buffer = npl_read_buffer_new();
+    npl_read_buffer_push(buffer, '#');
+    npl_read_buffer_push(buffer, prefix);
     while (!datum_delimiter(reader_peek(reader)))
-        buffer_push(&buffer, &length, &capacity, reader_get(reader));
-    NplVal text = npl_string_from_utf8((const uint8_t *)buffer, length,
-                                       BOX_STRING);
+        npl_read_buffer_push(buffer, reader_get(reader));
+    NplVal text = npl_string_from_utf8((const uint8_t *)buffer->data,
+                                       buffer->length, BOX_STRING);
     NplVal value = npl_number_from_string(text);
-    free(buffer);
+    npl_read_buffer_finish(buffer);
     if (value == npl_false()) read_error("invalid radix number");
     return value;
 }

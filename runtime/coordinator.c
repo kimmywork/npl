@@ -74,6 +74,11 @@ void npl_coordinator_attach_internal(NplThreadContext *context)
 {
     (void)context;
     pthread_mutex_lock(&g_coord_lock);
+    /* A world stop may already be active: admitting an unparked mutator now
+     * would let it enter managed execution during the collection (the
+     * collector does not recheck the count). Wait for the stop to clear. */
+    while (g_stop_requested)
+        pthread_cond_wait(&g_resume_cond, &g_coord_lock);
     g_active_mutators++;
     pthread_mutex_unlock(&g_coord_lock);
 }
@@ -81,6 +86,14 @@ void npl_coordinator_attach_internal(NplThreadContext *context)
 void npl_coordinator_detach_internal(NplThreadContext *context)
 {
     pthread_mutex_lock(&g_coord_lock);
+    /* A thread detaching with an unconsumed cancellation must release its
+     * contribution, or npl_gc_stop_requested stays set for the whole
+     * process and every poll takes the slow path forever. */
+    if (context->cancel_owed) {
+        context->cancel_owed = 0;
+        if (g_cancel_pending > 0) g_cancel_pending--;
+        refresh_stop_flag();
+    }
     if (!context->gc_excluded)
         g_active_mutators--;
     if (context->blocked)
@@ -273,8 +286,13 @@ void npl_thread_request_cancel(void *target)
     if (!context) return;
     pthread_mutex_lock(&g_coord_lock);
     context->cancellation_requested = 1;
-    context->cancel_consumed = 0;
-    g_cancel_pending++;
+    /* Only one contribution per context: duplicate termination requests must
+     * not leak g_cancel_pending increments. A fresh context owes nothing, so
+     * an unrelated uncaught raise cannot consume another thread's sweep. */
+    if (!context->cancel_owed) {
+        context->cancel_owed = 1;
+        g_cancel_pending++;
+    }
     refresh_stop_flag();
     /* Wake runtime-managed blocking waits so they can observe the request. */
     pthread_cond_broadcast(&g_resume_cond);
@@ -287,8 +305,8 @@ void npl_cancel_consumed(void)
 {
     NplThreadContext *context = npl_ctx();
     pthread_mutex_lock(&g_coord_lock);
-    if (!context->cancel_consumed) {
-        context->cancel_consumed = 1;
+    if (context->cancel_owed) {
+        context->cancel_owed = 0;
         if (g_cancel_pending > 0) g_cancel_pending--;
         refresh_stop_flag();
     }

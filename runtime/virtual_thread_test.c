@@ -188,6 +188,10 @@ int main(int argc, char **argv)
     }
 
     npl_virtual_thread_set_carriers(carriers);
+    /* Keep this harness deterministic: enqueue the whole batch before any
+     * carrier starts. Production virtual-thread-start! starts the scheduler
+     * immediately. */
+    npl_virtual_thread_defer_start();
     /* Enqueue the whole batch before any carrier starts: with one carrier
      * this gives deterministic round-robin; with M carriers it spreads the
      * initial batch across the per-carrier queues. */

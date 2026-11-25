@@ -77,22 +77,44 @@ static void extent_register(NplVal key, NplVal local, NplVal baseline)
  * chain is reused as-is so in-place parameter-set! mutations remain visible
  * on continuation re-entry. baseline_out receives the chain with the
  * extent's leading binding_count nodes removed. */
+/* Iterative, order-preserving clone: a deeply nested parameterize chain lives
+ * on the heap, so a recursive C clone could overflow the native stack. */
 static NplVal clone_parameter_bindings(NplVal source)
 {
-    if (!npl_is_ptr(source) ||
-        npl_header(source)->tag != BOX_PARAMETER_BINDING)
-        return npl_nil();
-    NplParameterBinding *src = (NplParameterBinding *)npl_header(source);
-    NplVal parent = clone_parameter_bindings(src->parent);
-    NplParameterBinding *copy = (NplParameterBinding *)
-        npl_alloc_object(sizeof(NplParameterBinding));
-    copy->header.tag = BOX_PARAMETER_BINDING;
-    copy->header.flags = 0;
-    copy->parent = parent;
-    copy->parameter = src->parameter;
-    copy->value = src->value;
-    copy->owner = (uintptr_t)npl_ctx();
-    return boxed(copy);
+    uint32_t length = 0;
+    for (NplVal rest = source;
+         npl_is_ptr(rest) &&
+         npl_header(rest)->tag == BOX_PARAMETER_BINDING;
+         rest = ((NplParameterBinding *)npl_header(rest))->parent)
+        length++;
+    if (length == 0) return npl_nil();
+    NplVal *nodes = (NplVal *)malloc((size_t)length * sizeof(NplVal));
+    if (!nodes) npl_runtime_oom_internal();
+    uint32_t index = 0;
+    for (NplVal rest = source;
+         npl_is_ptr(rest) &&
+         npl_header(rest)->tag == BOX_PARAMETER_BINDING;
+         rest = ((NplParameterBinding *)npl_header(rest))->parent)
+        nodes[index++] = rest;
+
+    NplVal parent = npl_nil();
+    npl_gc_root(&parent);
+    for (uint32_t i = length; i > 0; i--) {
+        NplParameterBinding *src =
+            (NplParameterBinding *)npl_header(nodes[i - 1]);
+        NplParameterBinding *copy = (NplParameterBinding *)
+            npl_alloc_object(sizeof(NplParameterBinding));
+        copy->header.tag = BOX_PARAMETER_BINDING;
+        copy->header.flags = 0;
+        copy->parent = parent;
+        copy->parameter = src->parameter;
+        copy->value = src->value;
+        copy->owner = (uintptr_t)npl_ctx()->id;
+        parent = boxed(copy);
+    }
+    npl_gc_unroot(&parent);
+    free(nodes);
+    return parent;
 }
 
 /* T2b: a new virtual thread inherits its creator's parameter chain under
@@ -112,7 +134,7 @@ NplVal npl_clone_parameter_bindings(NplVal chain)
  * single walk covers both. */
 void npl_relocalize_parameter_bindings(NplVal chain)
 {
-    uintptr_t owner = (uintptr_t)npl_ctx();
+    uintptr_t owner = (uintptr_t)npl_ctx()->id;
     for (NplVal rest = chain;
          npl_is_ptr(rest) &&
          npl_header(rest)->tag == BOX_PARAMETER_BINDING;
@@ -123,29 +145,108 @@ void npl_relocalize_parameter_bindings(NplVal chain)
     }
 }
 
-static NplVal localize_parameters(NplVal source, uint32_t binding_count,
-                                  NplVal *baseline_out)
+static uint32_t binding_chain_length(NplVal source)
 {
-    int owned = 1;
+    uint32_t length = 0;
+    for (NplVal rest = source;
+         npl_is_ptr(rest) &&
+         npl_header(rest)->tag == BOX_PARAMETER_BINDING;
+         rest = ((NplParameterBinding *)npl_header(rest))->parent)
+        length++;
+    return length;
+}
+
+static int binding_chain_owned(NplVal source)
+{
+    uintptr_t owner = (uintptr_t)npl_ctx()->id;
     for (NplVal rest = source;
          npl_is_ptr(rest) &&
          npl_header(rest)->tag == BOX_PARAMETER_BINDING;
          rest = ((NplParameterBinding *)npl_header(rest))->parent) {
-        if (((NplParameterBinding *)npl_header(rest))->owner !=
-            (uintptr_t)npl_ctx()) {
-            owned = 0;
-            break;
-        }
+        if (((NplParameterBinding *)npl_header(rest))->owner != owner)
+            return 0;
     }
-    NplVal local = owned ? source
-                         : clone_parameter_bindings(source);
-    NplVal baseline = local;
+    return 1;
+}
+
+/* One (src . copy) association. `owner` is the heap object holding *cache
+ * when it needs a write barrier, or NULL for a C-stack local. */
+static void cache_put(NplVal *cache, void *owner, NplVal src, NplVal copy)
+{
+    NplVal entry = npl_cons(src, copy);
+    NplVal pair = npl_cons(entry, *cache);
+    *cache = pair;
+    if (owner) npl_gc_write_barrier(owner, pair);
+}
+
+static NplVal cache_find(NplVal cache, NplVal src)
+{
+    for (NplVal rest = cache;
+         npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PAIR;
+         rest = npl_pair_ptr(rest)->cdr) {
+        NplVal entry = npl_pair_ptr(rest)->car;
+        if (npl_pair_ptr(entry)->car == src)
+            return npl_pair_ptr(entry)->cdr;
+    }
+    return npl_nil();
+}
+
+static NplVal make_local_binding(NplVal src, NplVal parent)
+{
+    NplParameterBinding *s = (NplParameterBinding *)npl_header(src);
+    NplParameterBinding *copy = (NplParameterBinding *)
+        npl_alloc_object(sizeof(NplParameterBinding));
+    copy->header.tag = BOX_PARAMETER_BINDING;
+    copy->header.flags = 0;
+    copy->parent = parent;
+    copy->parameter = s->parameter;
+    copy->value = s->value;
+    copy->owner = (uintptr_t)npl_ctx()->id;
+    return boxed(copy);
+}
+
+/* Localize a binding chain with a per-transfer (src . copy) cache so a
+ * binding shared by the destination chain and a wind frame resolves to ONE
+ * node. `seed` builds the cache for the destination chain; `owner` is the
+ * transition object when the cache lives on the heap (write barrier).
+ * Preserves chain direction (head = innermost). */
+static NplVal localize_cached_chain(NplVal source, NplVal *cache,
+                                    void *owner, int seed, int reuse_source,
+                                    uint32_t binding_count,
+                                    NplVal *baseline_out)
+{
+    uint32_t length = binding_chain_length(source);
+    NplVal *nodes = (NplVal *)malloc(
+        (size_t)(length ? length : 1) * sizeof(NplVal));
+    if (!nodes) npl_runtime_oom_internal();
+    uint32_t index = 0;
+    for (NplVal rest = source;
+         npl_is_ptr(rest) &&
+         npl_header(rest)->tag == BOX_PARAMETER_BINDING;
+         rest = ((NplParameterBinding *)npl_header(rest))->parent)
+        nodes[index++] = rest;
+
+    NplVal parent_copy = npl_nil();
+    NplVal head_copy = npl_nil();
+    for (uint32_t i = length; i > 0; i--) {
+        NplVal src = nodes[i - 1];
+        NplVal copy = seed ? npl_nil() : cache_find(*cache, src);
+        if (npl_is_nil(copy)) {
+            copy = reuse_source ? src : make_local_binding(src, parent_copy);
+            cache_put(cache, owner, src, copy);
+        }
+        parent_copy = copy;
+        head_copy = copy;
+    }
+    free(nodes);
+
+    NplVal baseline = head_copy;
     for (uint32_t i = 0; i < binding_count &&
          npl_is_ptr(baseline) &&
          npl_header(baseline)->tag == BOX_PARAMETER_BINDING; i++)
         baseline = ((NplParameterBinding *)npl_header(baseline))->parent;
     *baseline_out = baseline;
-    return local;
+    return head_copy;
 }
 
 /* User handler frames are kept by identity: npl_handler_pop validates
@@ -220,7 +321,7 @@ NplVal npl_parameters_enter(NplVal parameters_value, NplVal values_value,
         binding->parent = local;
         binding->parameter = parameters->data[i];
         binding->value = values->data[i];
-        binding->owner = (uintptr_t)npl_ctx();
+        binding->owner = (uintptr_t)npl_ctx()->id;
         local = boxed(binding);
     }
     CTX->current_parameters = local;
@@ -293,7 +394,12 @@ static void install_frame_environment(NplWindTransition *transition,
     if (npl_is_ptr(key) && npl_header(key)->tag == BOX_VECTOR)
         count = ((NplVector *)npl_header(key))->length;
     NplVal baseline;
-    NplVal local = localize_parameters(frame->parameters, count, &baseline);
+    /* Reuse the transfer's (src . copy) cache: a binding shared with the
+     * destination chain must stay the SAME node, so a parameter-set! in this
+     * before/after thunk is visible to the continuation body. */
+    NplVal local = localize_cached_chain(
+        frame->parameters, &transition->cache, transition, 0, 0,
+        count, &baseline);
     CTX->current_parameters = local;
     if (!npl_is_nil(key))
         extent_register(key, local, baseline);
@@ -361,7 +467,8 @@ static NplVal wind_transition_resume(NplVal environment, int64_t argc,
 
 static NplVal make_transition(NplVal target, NplVal target_handler,
                               NplVal continuation, NplVal value,
-                              NplVal context, NplVal target_parameters)
+                              NplVal context, NplVal target_parameters,
+                              NplVal cache)
 {
     NplVal common = wind_common_ancestor(CTX->current_wind, target);
     uint32_t exit_count = 0;
@@ -389,6 +496,7 @@ static NplVal make_transition(NplVal target, NplVal target_handler,
     transition->entering = npl_nil();
     transition->context = context;
     transition->target_parameters = target_parameters;
+    transition->cache = cache;
 
     size_t index = 0;
     for (NplVal frame = CTX->current_wind; frame != common;
@@ -418,7 +526,7 @@ static void transfer_legacy(NplVal target, NplVal target_handler,
     }
     schedule_wind_transition(make_transition(
         target, target_handler, continuation, value,
-        npl_nil(), npl_nil()));
+        npl_nil(), npl_nil(), npl_nil()));
 }
 
 static void transfer_with_context(NplVal context_value,
@@ -434,9 +542,15 @@ static void transfer_with_context(NplVal context_value,
     NplVal target = context->wind;
     if (!npl_is_nil(target))
         (void)require_wind_frame(target, "continuation");
+    /* Build ONE localized destination chain and record (src . copy) for
+     * every binding. install_frame_environment later reuses these copies for
+     * the wind frames, so shared bindings are not cloned twice. */
+    NplVal cache = npl_nil();
     NplVal ignored_baseline;
-    NplVal target_parameters = localize_parameters(
-        context->parameters, 0, &ignored_baseline);
+    int reuse_source = binding_chain_owned(context->parameters);
+    NplVal target_parameters = localize_cached_chain(
+        context->parameters, &cache, NULL, 1, reuse_source,
+        0, &ignored_baseline);
     NplVal target_handler = localize_handler(context->handler);
 
     if (CTX->current_wind == target) {
@@ -447,7 +561,7 @@ static void transfer_with_context(NplVal context_value,
     }
     schedule_wind_transition(make_transition(
         target, target_handler, continuation, value,
-        context_value, target_parameters));
+        context_value, target_parameters, cache));
 }
 
 /* The first argument is a BOX_DYNAMIC_CONTEXT for a compiler emitted after

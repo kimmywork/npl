@@ -1,0 +1,68 @@
+; PR #8 review: a cross-thread continuation transfer once cloned the saved
+; parameter chain twice (once for the destination, once for each wind frame).
+; A parameter-set! in a before thunk then wrote a node that the continuation
+; body never saw. With one shared localized node per source binding, the body
+; must observe the before thunk's update.
+;
+; Native-only: the differential fixture runner compares nplc and npli output,
+; but this scenario has no evaluator surface.
+(import (scheme base) (scheme write) (scheme process-context) (npl thread))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+(define p (make-parameter 1))
+(define k #f)
+(define phase 0)
+(define observed '())
+(define (note x) (set! observed (cons x observed)))
+
+(define (worker)
+  (parameterize ((p 1))
+    (dynamic-wind
+      (lambda ()
+        (set! phase (+ phase 1))
+        ; On the cross-thread re-entry, update the parameter in the before
+        ; thunk. The continuation body must see this value.
+        (if (= phase 2) (p 2))
+        (note (list 'before (p))))
+      (lambda ()
+        (let ((v (call/cc (lambda (c) (set! k c) 0))))
+          (note (list 'body v (p)))
+          'done))
+      (lambda () (note (list 'after (p)))))))
+
+(define a (make-thread worker))
+(thread-start! a)
+(check "source result" 'done (thread-join! a))
+(check "captured" #t (procedure? k))
+
+; B invokes the continuation captured on A, inside its own parameterize.
+(define b (make-thread (lambda () (parameterize ((p 7)) (k 42)))))
+(thread-start! b)
+(check "invoker result" 'done (thread-join! b))
+
+; The before thunk ran twice; on the second (cross-thread) entry it set p=2,
+; which the continuation body must observe.
+(check "before-thunk update visible to body"
+       #t
+       (let loop ((rest (reverse observed)))
+         (if (null? rest)
+             #f
+             (let ((entry (car rest)))
+               (if (and (= (length entry) 3)
+                        (eq? (car entry) 'body)
+                        (= (car (cdr entry)) 42)
+                        (= (car (cdr (cdr entry))) 2))
+                   #t
+                   (loop (cdr rest)))))))
+
+(if (= failures 0)
+    (begin (display "cross-thread-wind-parameters: PASS") (newline) (exit 0))
+    (begin (display "cross-thread-wind-parameters: FAIL") (newline)
+           (exit 1)))

@@ -146,6 +146,7 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(transition->entering);
             visit(transition->context);
             visit(transition->target_parameters);
+            visit(transition->cache);
             uint32_t count = transition->exit_count + transition->entry_count;
             for (uint32_t i = 0; i < count; i++)
                 visit(transition->frames[i]);

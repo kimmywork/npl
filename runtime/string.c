@@ -353,6 +353,9 @@ NplVal npl_string_to_utf8(NplVal value, NplVal start, NplVal end)
     return (NplVal)(uintptr_t)bytes | TAG_PTR;
 }
 
+/* A cancellation can longjmp out of the decode loop. */
+static void free_utf8_chars(void *argument) { free(argument); }
+
 /* utf8->string over bytes [start, end); invalid UTF-8 raises (as Guile). */
 NplVal npl_utf8_to_string(NplVal value, NplVal start, NplVal end)
 {
@@ -369,6 +372,11 @@ NplVal npl_utf8_to_string(NplVal value, NplVal start, NplVal end)
     size_t to = (size_t)npl_fixnum_value(end);
     uint32_t *chars = (uint32_t *)malloc((to - from + 1) * sizeof(uint32_t));
     if (!chars) npl_runtime_oom_internal();
+    npl_cleanup_push(free_utf8_chars, chars);
+    /* `value` must stay a root for the whole decode loop: the only other
+     * references are `bytes`/`data`, an interior pointer the collector cannot
+     * keep alive, and a poll inside the loop can trigger a collection. */
+    npl_gc_root(&value);
     uint32_t count = 0;
     size_t index = 0;
     const uint8_t *data = bytes->data + from;
@@ -380,6 +388,8 @@ NplVal npl_utf8_to_string(NplVal value, NplVal start, NplVal end)
             !(index - before == 3 && data[before] == 0xEF &&
               data[before + 1] == 0xBF && data[before + 2] == 0xBD)) {
             free(chars);
+            npl_cleanup_pop();
+            npl_gc_unroot(&value);
             npl_primitive_error("utf8->string", "invalid UTF-8 sequence",
                                 npl_fixnum((int64_t)(from + before)));
         }
@@ -387,5 +397,7 @@ NplVal npl_utf8_to_string(NplVal value, NplVal start, NplVal end)
     }
     NplVal out = npl_string_from_chars_internal(chars, count, BOX_STRING);
     free(chars);
+    npl_cleanup_pop();
+    npl_gc_unroot(&value);
     return out;
 }

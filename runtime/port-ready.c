@@ -36,6 +36,10 @@ static int stream_byte_ready(NplPort *port)
  * always ready. */
 NplVal npl_byte_ready_p(NplVal value)
 {
+    /* Like npl_port_ready_p: validate the port and read its FILE* under the
+     * shared lock, so a concurrent close cannot release the stream between
+     * the check and stream_byte_ready(). */
+    NPL_SHARED_GUARD();
     NplPort *port = npl_port_require_mode_internal(value, NPL_PORT_INPUT,
                                    NPL_PORT_INPUT, "u8-ready?");
     if ((port->mode & NPL_PORT_MEMORY) != 0) return npl_true();

@@ -197,6 +197,10 @@ typedef struct {
      * context driving per-thunk environment restoration. */
     NplVal context;
     NplVal target_parameters;
+    /* (src-binding . localized-copy) map for this transfer. A binding shared
+     * by a destination chain and a wind frame must resolve to ONE node, so a
+     * parameter-set! in a before thunk is visible to the continuation body. */
+    NplVal cache;
     NplVal frames[];
 } NplWindTransition;
 
@@ -872,6 +876,12 @@ NplVal npl_platform_triple(void);
 NplVal npl_symbol_fold_internal(NplVal symbol);
 NplVal npl_utf8_to_string(NplVal bytevector, NplVal start, NplVal end);
 void npl_control_init(void);
+/* Longjmp-safe C scratch buffers (thread.c): push a free callback that runs
+ * if a cancellation / primitive error unwinds past the frame. Pop on normal
+ * completion; npl_shared_release_all runs any remaining frames. */
+void npl_cleanup_push(void (*function)(void *), void *argument);
+void npl_cleanup_pop(void);
+void npl_cleanup_release_all(void);
 /* Shared dynamic-state helpers (control.c, dynamic-context.c). */
 NplWindFrame *require_wind_frame(NplVal value, const char *who);
 NplParameter *require_parameter(NplVal value, const char *who);

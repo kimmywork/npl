@@ -59,6 +59,7 @@ static void init_context(NplThreadContext *context, uintptr_t stack_bottom)
     context->pending_extent_key = npl_nil();
     context->initial_handler = npl_nil();
     context->current_thread_object = npl_nil();
+    context->cleanup = NULL;
     context->next_wind_id = 1;
     context->next_escape_id = 1;
     context->next_sync_id = 1;
@@ -107,6 +108,10 @@ NplThreadContext *npl_current_context(void)
 
 NplThreadContext *npl_thread_attach(void)
 {
+    /* An implicit attach (npl_current_context) may already have registered a
+     * context for this thread. Reuse it instead of replacing the TLS pointer
+     * and inserting a second registry entry that detach would leave behind. */
+    if (npl_tls_current_context) return npl_tls_current_context;
     uintptr_t marker = 0;
     return attach_context((uintptr_t)(void *)&marker + sizeof(marker));
 }
@@ -157,6 +162,8 @@ void npl_thread_detach(void)
     context->parameter_extents = npl_nil();
     context->pending_extent_key = npl_nil();
     context->initial_handler = npl_nil();
+    /* A detached foreign thread must not leave scratch buffers behind. */
+    npl_cleanup_release_all();
     context->tail_context = NULL;
     context->sync_frame = NULL;
     context->read_recovery = NULL;
@@ -190,6 +197,39 @@ int npl_thread_count(void)
  * These used to be process-global in alloc.c.  The root stack is owned by the
  * calling thread's context, so register/unregister and the longjmp
  * save/restore protocol all act on that one stack. */
+
+/* ---- longjmp-safe C scratch buffers ---- */
+
+void npl_cleanup_push(void (*function)(void *), void *argument)
+{
+    NplCleanupFrame *frame = (NplCleanupFrame *)malloc(sizeof(*frame));
+    if (!frame) npl_runtime_oom_internal();
+    frame->function = function;
+    frame->argument = argument;
+    frame->previous = CTX->cleanup;
+    CTX->cleanup = frame;
+}
+
+void npl_cleanup_pop(void)
+{
+    NplCleanupFrame *frame = CTX->cleanup;
+    if (!frame) return;
+    CTX->cleanup = frame->previous;
+    free(frame);
+}
+
+void npl_cleanup_release_all(void)
+{
+    NplThreadContext *context = CTX;
+    NplCleanupFrame *frame = context->cleanup;
+    context->cleanup = NULL;
+    while (frame) {
+        NplCleanupFrame *next = frame->previous;
+        frame->function(frame->argument);
+        free(frame);
+        frame = next;
+    }
+}
 
 void npl_gc_root(NplVal *root)
 {

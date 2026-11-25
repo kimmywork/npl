@@ -23,6 +23,15 @@
 #define NPL_MAX_ESCAPE_DEPTH 64
 #define NPL_READ_ERROR_SIZE 128
 
+/* A longjmp (cooperative cancellation or primitive error) skips C frames
+ * holding malloc'd scratch buffers. Frames are heap allocated so they stay
+ * valid across the unwind; npl_shared_release_all runs them at every landing. */
+typedef struct NplCleanupFrame {
+    struct NplCleanupFrame *previous;
+    void (*function)(void *);
+    void *argument;
+} NplCleanupFrame;
+
 /* ---- Trampoline / escape / synchronous-call frames ----
  * These used to be file-static in trampoline.c.  They are per-thread because
  * they point at C stack frames and describe one thread's control state. */
@@ -128,7 +137,7 @@ typedef struct NplThreadContext {
     int blocked;
     int cancellation_requested;
     int cancel_observed;            /* latched at a safepoint; T2 raises */
-    int cancel_consumed;            /* the pending poll sweep was consumed */
+    int cancel_owed;                /* this context owns one g_cancel_pending contribution */
     int shared_depth;               /* recursive shared-object lock depth */
     uint64_t parked_epoch;          /* world-stop generation this park is for */
 
@@ -136,6 +145,10 @@ typedef struct NplThreadContext {
     NplVal current_thread_object;
     /* T2b: logical thread currently mounted on this carrier. */
     void *logical_thread;
+    /* C-side scratch buffers that must be freed when a cancellation or
+     * primitive-error longjmp skips their function. Frames are heap allocated
+     * so they survive the unwind; npl_shared_release_all releases them. */
+    struct NplCleanupFrame *cleanup;
 } NplThreadContext;
 
 /* The current context lives in one native TLS slot.  npl_ctx() is the hot
@@ -150,6 +163,11 @@ static inline NplThreadContext *npl_ctx(void)
     NplThreadContext *context = npl_tls_current_context;
     return context ? context : npl_current_context();
 }
+/* Attach a foreign thread. The default stack bound covers this function's
+ * own frame only: a caller holding an unrooted NplVal across a safepoint must
+ * either root it (npl_gc_root) or publish its own bound with
+ * npl_gc_swap_stack_bottom / npl_thread_attach_exact. A thread that already
+ * has a TLS context (e.g. an implicit attach) reuses it. */
 NplThreadContext *npl_thread_attach(void);
 void npl_thread_detach(void);
 

@@ -204,6 +204,7 @@ static NplVal open_file_port(NplVal path, const char *mode,
  * the port layout. */
 NplVal npl_port_fileno(NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port;
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PORT)
         return npl_false();
@@ -576,6 +577,7 @@ static int peek_utf8_char(NplPort *port)
 
 NplVal npl_read_char(NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_INPUT,
                                      NPL_PORT_TEXTUAL, "read-char");
     int code = read_utf8_char(port);
@@ -584,6 +586,7 @@ NplVal npl_read_char(NplVal value)
 
 NplVal npl_peek_char(NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_INPUT,
                                      NPL_PORT_TEXTUAL, "peek-char");
     int code = peek_utf8_char(port);
@@ -592,6 +595,7 @@ NplVal npl_peek_char(NplVal value)
 
 NplVal npl_write_char(NplVal character, NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_OUTPUT,
                                      NPL_PORT_TEXTUAL, "write-char");
     if (!npl_is_char(character))
@@ -602,6 +606,7 @@ NplVal npl_write_char(NplVal character, NplVal value)
 
 NplVal npl_read_byte(NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_INPUT,
                                      NPL_PORT_BINARY, "read-u8");
     int byte = port_read_byte_raw(port);
@@ -610,6 +615,7 @@ NplVal npl_read_byte(NplVal value)
 
 NplVal npl_peek_byte(NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_INPUT,
                                      NPL_PORT_BINARY, "peek-u8");
     int byte = port_peek_byte_raw(port, "peek-u8");
@@ -618,6 +624,7 @@ NplVal npl_peek_byte(NplVal value)
 
 NplVal npl_write_byte(NplVal byte, NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_OUTPUT,
                                      NPL_PORT_BINARY, "write-u8");
     if (!npl_is_fixnum(byte) || npl_fixnum_value(byte) < 0 ||
@@ -651,6 +658,7 @@ static void require_bytevector_range(NplBytevector *bytes, NplVal start_value,
 
 NplVal npl_read_bytevector(int64_t argc, NplVal *argv)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     if (argc != 2) {
         fprintf(stderr, "read-bytevector: internal arity mismatch\n");
         exit(1);
@@ -669,6 +677,7 @@ NplVal npl_read_bytevector(int64_t argc, NplVal *argv)
 
 NplVal npl_read_bytevector_into(int64_t argc, NplVal *argv)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     if (argc != 4) {
         fprintf(stderr, "read-bytevector!: internal arity mismatch\n");
         exit(1);
@@ -690,6 +699,7 @@ NplVal npl_read_bytevector_into(int64_t argc, NplVal *argv)
 
 NplVal npl_write_bytevector(int64_t argc, NplVal *argv)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     if (argc != 4) {
         fprintf(stderr, "write-bytevector: internal arity mismatch\n");
         exit(1);

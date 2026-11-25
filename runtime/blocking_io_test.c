@@ -36,7 +36,7 @@ static void *reader(void *argument)
     /* Not rooted: survives the collections only if the collector scans this
      * parked thread's C stack. */
     NplVal keep = npl_cons(npl_fixnum(101), npl_fixnum(202));
-    shared->entered = 1;
+    __atomic_store_n(&shared->entered, 1, __ATOMIC_RELEASE);
 
     NplVal character = npl_read_char(port);   /* blocks until a byte arrives */
     (void)character;
@@ -44,7 +44,7 @@ static void *reader(void *argument)
     if (npl_car(keep) != npl_fixnum(101)) failures++;
     if (npl_cdr(keep) != npl_fixnum(202)) failures++;
     npl_gc_unroot(&port);
-    shared->done = 1;
+    __atomic_store_n(&shared->done, 1, __ATOMIC_RELEASE);
     npl_thread_detach();
     return NULL;
 }
@@ -64,7 +64,7 @@ int main(void)
         fprintf(stderr, "FAIL: pthread_create\n");
         return 1;
     }
-    while (!shared.entered) usleep(1000);
+    while (!__atomic_load_n(&shared.entered, __ATOMIC_ACQUIRE)) usleep(1000);
     /* Let the reader reach fread before collecting. */
     usleep(50000);
     for (int i = 0; i < 30; i++) npl_gc_collect();
@@ -76,7 +76,7 @@ int main(void)
     pthread_join(thread, NULL);
     npl_gc_include();
     close(fds[1]);
-    if (!shared.done) failures++;
+    if (!__atomic_load_n(&shared.done, __ATOMIC_ACQUIRE)) failures++;
     npl_gc_collect();
     if (failures) {
         fprintf(stderr, "blocking io: %d failure(s)\n", failures);

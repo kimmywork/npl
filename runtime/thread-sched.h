@@ -205,6 +205,17 @@ NplVal npl_condvar_broadcast(NplVal value);
 void npl_sched_wake_all(void);
 void npl_sched_abandon_mutexes(NplThread *thread);
 void npl_sched_finish(NplThread *thread, int terminated);
+/* Acquire the scheduler lock with a trylock + safepoint poll loop: a waiter
+ * blocked in pthread_mutex_lock is not at a poll site and would deadlock a
+ * world stop. All scheduler-lock critical sections must also avoid NPL
+ * allocation, which polls at its entry. */
+void npl_sched_lock_enter(void);
+void npl_sched_lock_leave(void);
+/* Remove a terminating thread from a mutex / condition-variable waiter list.
+ * Called under npl_sched_lock, with the wait fields captured before the wait
+ * loop clears them. */
+void npl_sched_remove_waiter(NplThread *self, int wait_kind,
+                             void *wait_target);
 
 /* T2b virtual-thread substrate (virtual-thread.c). The public library
  * (npl thread virtual) wraps these; C harnesses call them directly. */
@@ -221,6 +232,7 @@ int npl_vthread_park_count(NplVal value);
 int npl_vthread_resume_count(NplVal value);
 int npl_vthread_migration_count(NplVal value);
 void npl_virtual_thread_set_carriers(int count);
+void npl_virtual_thread_defer_start(void);
 void npl_virtual_thread_run(void);
 void npl_virtual_thread_shutdown(void);
 
