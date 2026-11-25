@@ -183,6 +183,18 @@ target_compile_options(thread_lifecycle_test PRIVATE
 set_target_properties(thread_lifecycle_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
+# T1.3 acceptance: a blocking libc call publishes its context for GC.
+add_executable(blocking_io_test
+  ${RUNTIME_SRC_DIR}/blocking_io_test.c
+  ${RUNTIME_SRC_DIR}/standalone-slots.c
+)
+target_include_directories(blocking_io_test PRIVATE ${RUNTIME_SRC_DIR})
+target_link_libraries(blocking_io_test PRIVATE npl_runtime)
+target_compile_options(blocking_io_test PRIVATE
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+set_target_properties(blocking_io_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
+
 # T1.3 acceptance: shared-object lock under concurrent mutation + GC.
 add_executable(shared_lock_test
   ${RUNTIME_SRC_DIR}/shared_lock_test.c

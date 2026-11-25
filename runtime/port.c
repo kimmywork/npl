@@ -342,7 +342,15 @@ static NplVal close_port_direction(NplVal value, uint32_t access,
         npl_primitive_error(who, "wrong port direction", value);
     if ((port->mode & NPL_PORT_CLOSED) != 0) return npl_unspecified();
     if ((port->mode & NPL_PORT_OWNED) != 0 && port->stream) {
-        if (fclose(port->stream) != 0) {
+        /* fclose can block (e.g. flushing a pipe with no reader). Publish the
+         * safe context and park so a concurrent collection neither waits on
+         * this thread nor loses its C-stack roots. The raise happens after
+         * block_end so a longjmp cannot leave the blocked state set. */
+        int failed;
+        npl_gc_block_begin();
+        failed = fclose(port->stream) != 0;
+        npl_gc_block_end();
+        if (failed) {
             port->stream = NULL;
             port->mode |= NPL_PORT_CLOSED;
             npl_primitive_file_error(who, "close failed", value);
@@ -374,8 +382,16 @@ NplVal npl_flush_output_port(NplVal value)
 {
     NPL_SHARED_GUARD();
     NplPort *port = require_port(value, NPL_PORT_OUTPUT, "flush-output-port");
-    if ((port->mode & NPL_PORT_MEMORY) == 0 && fflush(port->stream) != 0)
-        npl_primitive_file_error("flush-output-port", "flush failed", value);
+    int failed = 0;
+    if ((port->mode & NPL_PORT_MEMORY) == 0) {
+        int status;
+        npl_gc_block_begin();
+        status = fflush(port->stream);
+        npl_gc_block_end();
+        failed = status != 0;
+        if (failed) npl_primitive_file_error("flush-output-port", "flush failed",
+                                             value);
+    }
     return npl_unspecified();
 }
 
@@ -404,7 +420,15 @@ static size_t port_read_bytes(NplPort *port, uint8_t *output, size_t count)
             memmove(port->pushback, port->pushback + 1, --port->pushed);
         }
         if (taken == count) return taken;
-        return taken + fread(output + taken, 1, count - taken, port->stream);
+        /* fread may block indefinitely on a pipe with no writer. Publish the
+         * safe context and park; the collector scans this thread's stack
+         * instead of waiting for it. The output buffer is a caller-owned
+         * bytevector, kept alive by the caller's stack and roots. */
+        size_t got;
+        npl_gc_block_begin();
+        got = fread(output + taken, 1, count - taken, port->stream);
+        npl_gc_block_end();
+        return taken + got;
     }
     const uint8_t *data = memory_input_data(port, "read");
     uint32_t available = port->position < port->length
@@ -441,7 +465,16 @@ static void port_write_bytes(NplPort *port, const uint8_t *bytes, size_t count,
 {
     NPL_SHARED_GUARD();
     if ((port->mode & NPL_PORT_MEMORY) == 0) {
-        if (count && fwrite(bytes, 1, count, port->stream) != count)
+        size_t written = count;
+        if (count) {
+            /* fwrite can block on a pipe with no reader. Publish the safe
+             * context and park; raise only after block_end so a longjmp
+             * cannot leave the blocked state set. */
+            npl_gc_block_begin();
+            written = fwrite(bytes, 1, count, port->stream);
+            npl_gc_block_end();
+        }
+        if (written != count)
             npl_primitive_file_error(who, "write failed",
                                      (NplVal)(uintptr_t)port | TAG_PTR);
         return;

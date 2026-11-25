@@ -108,8 +108,10 @@ the exception: the runtime serializes access to the same port.
   is not yet supported.
 - Ports, FFI blocks, directory handles and the symbol table are serialized
   by one shared lock with a trylock+poll acquisition and a `longjmp` release
-  hook. A blocking libc port call still holds that lock without a GC
-  exclusion boundary; file, string and bytevector ports do not block.
+  hook. Blocking libc I/O (`fread` / `fwrite` / `fclose` / `fflush` and
+  `run-process`'s `waitpid`) now publishes its context and parks through the
+  safe blocked-state transition, so a collection on another thread does not
+  stall.
 - SRFI 21 priority/quantum procedures and the three-argument `make-thread`
   are not part of SRFI 18 and are not exported.
 - SRFI 226 prompts/continuation marks are a separate, later increment (T4).

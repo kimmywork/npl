@@ -13,7 +13,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts thread_test safepoint_test thread_object_test thread_lifecycle_test shared_lock_test >/dev/null
+ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts thread_test safepoint_test thread_object_test thread_lifecycle_test shared_lock_test blocking_io_test >/dev/null
 # zlib is optional; the target exists only when CMake found the library.
 ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
 
@@ -29,6 +29,8 @@ ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
 "$BUILD/runtime/thread_lifecycle_test"
 # T1.3 acceptance: shared-object lock under concurrent mutation + GC.
 "$BUILD/runtime/shared_lock_test"
+# T1.3 acceptance: blocking libc call publishes context for GC.
+"$BUILD/runtime/blocking_io_test"
 
 EXTRA_NATIVE=()
 EXTRA_LIBS=()

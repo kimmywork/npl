@@ -303,10 +303,6 @@ The items in this list are **resolved by T2 and the follow-up increment**
 - Cross-target execution evidence (only host macOS arm64 is executed; other
   targets have emission evidence). Linux execution and late `dlopen` are
   untested.
-- A blocking libc port call (`fread` / `fwrite` on a pipe) still holds the
-  shared lock without a GC-exclusion boundary; file, string and bytevector
-  ports do not block. Wrapping that path needs `npl_gc_exclude` around the
-  call and is a separate refinement.
 
 ## T1.3 remaining implementation status (2026-11-25)
 
@@ -333,6 +329,17 @@ cleanup attribute for every normal return.
   the collector waiting for a thread that has left. Found by
   `runtime/shared_lock_test.c`, which runs three concurrent interning
   mutators with forced collections (8x and under `NPL_GC_VERIFY=100`).
+- Blocking libc calls now use the safe blocked-state transition:
+  `fread` / `fwrite` / `fclose` / `fflush` (`port.c`) and the two `waitpid`
+  calls in `run-process` / `run-process*` (`io.c`) are bracketed by
+  `npl_gc_block_begin` / `npl_gc_block_end`, so the thread publishes its
+  stack/register snapshot and parks instead of stalling a world stop with
+  no poll site. Error raises moved after `block_end` so a `longjmp` cannot
+  leave the blocked state set. `runtime/blocking_io_test.c` blocks a reader
+  on a pipe while the main thread forces 30 collections; an A/B check with
+  the boundary removed hangs, and with it restored the test passes (5x and
+  under `NPL_GC_VERIFY=100`), including a value reachable only from the
+  parked thread's C stack.
 
 ## T2 SRFI 18
 
