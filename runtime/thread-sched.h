@@ -105,6 +105,11 @@ NplVal npl_thread_current_object(void);
 
 /* Called from coordinator.c when a safepoint observes cancellation. */
 void npl_safepoint_cancelled(void);
+/* Terminate the *current* thread: SRFI 18's initial continuation and initial
+ * exception handler act on the (then) current thread, not on the thread whose
+ * closure was captured. end_exception is npl_false() to keep the value the
+ * caller already recorded. Never longjmps to a dead jmp_buf. */
+void npl_thread_finish_current(NplVal end_exception);
 
 /* Timeout decoding shared by thread-lifecycle.c / thread-sync.c. */
 int npl_thread_timeout(NplVal timeout, struct timespec *deadline,

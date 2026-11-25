@@ -517,6 +517,17 @@ NplVal npl_handler_push(NplVal procedure)
     return CTX->current_handler;
 }
 
+/* Mark a handler frame as the thread's initial uncaught handler. A captured
+ * handler chain keeps its user frames but this bottom frame is resolved
+ * against the invoking thread (SRFI 18). The flag lives in header.flags, so
+ * no GC traversal changes are needed. */
+NplVal npl_handler_push_initial(NplVal procedure)
+{
+    NplVal frame = npl_handler_push(procedure);
+    npl_header(frame)->flags |= NPL_FLAG_INITIAL_HANDLER;
+    return frame;
+}
+
 NplVal npl_handler_pop(NplVal value)
 {
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_HANDLER_FRAME ||

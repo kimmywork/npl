@@ -396,7 +396,7 @@ void npl_sched_finish(NplThread *thread, int terminated)
 
 /* ---- cancellation observed at a safepoint ---- */
 
-void npl_safepoint_cancelled(void)
+void npl_thread_finish_current(NplVal end_exception)
 {
     NplThreadContext *context = npl_ctx();
     NplVal object = context->current_thread_object;
@@ -410,10 +410,20 @@ void npl_safepoint_cancelled(void)
      * mutator so a concurrent world stop does not wait forever for it. */
     npl_gc_exclude();
     pthread_mutex_lock(&npl_sched_lock);
-    thread->end_exception =
-        npl_thread_exception(NPL_EXC_TERMINATED_THREAD, npl_unspecified());
+    if (!npl_is_false(end_exception)) {
+        thread->end_exception = end_exception;
+        npl_gc_write_barrier(thread, end_exception);
+    }
     npl_sched_abandon_mutexes(thread);
     npl_sched_finish(thread, 1);
     pthread_mutex_unlock(&npl_sched_lock);
+    /* Only the thread whose thread_entry called setjmp owns this jmp_buf;
+     * longjmp unwinds to its own unified termination path. */
     longjmp(thread->terminate_jump, 1);
+}
+
+void npl_safepoint_cancelled(void)
+{
+    npl_thread_finish_current(
+        npl_thread_exception(NPL_EXC_TERMINATED_THREAD, npl_unspecified()));
 }

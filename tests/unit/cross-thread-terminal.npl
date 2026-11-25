@@ -1,0 +1,53 @@
+; SRFI 18 (reference, "make-thread"): the initial continuation and the
+; initial exception handler act on the "(then) current thread". A continuation
+; captured on one thread and invoked on another must therefore terminate the
+; invoking thread, not the (possibly already ended) source thread.
+;
+; Native-only: the differential fixture runner compares nplc and npli output,
+; but a cross-thread scenario has no evaluator surface.
+(import (scheme base) (scheme write) (scheme process-context) (npl thread))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+; Scenario 1: normal completion. A captures k and ends; the still-live B
+; invokes it, and k's remaining computation reaches B's initial continuation.
+(define k #f)
+(define log '())
+(define (worker)
+  (let ((v (call/cc (lambda (c) (set! k c) 0))))
+    (set! log (cons (list 'resumed v) log))
+    'done))
+(define a (make-thread worker))
+(thread-start! a)
+(thread-join! a)
+(check "captured" #t (procedure? k))
+(define b (make-thread (lambda () (k 42))))
+(thread-start! b)
+(check "end-result" 'done (thread-join! b))
+(check "log" '((resumed 0) (resumed 42)) (reverse log))
+
+; Scenario 2: uncaught exception. The initial exception handler must record
+; the exception on B and terminate B, never longjmp to A's dead jmp_buf.
+(define k2 #f)
+(define (worker2)
+  (let ((v (call/cc (lambda (c) (set! k2 c) 0))))
+    (if (= v 42) (raise 'boom) 'first))
+  'done)
+(define a2 (make-thread worker2))
+(thread-start! a2)
+(thread-join! a2)
+(define b2 (make-thread (lambda () (k2 42))))
+(thread-start! b2)
+(check "uncaught"
+        #t
+        (guard (e (else (uncaught-exception? e))) (thread-join! b2)))
+
+(if (= failures 0)
+    (begin (display "cross-thread-terminal: PASS") (newline) (exit 0))
+    (begin (display "cross-thread-terminal: FAIL") (newline) (exit 1)))

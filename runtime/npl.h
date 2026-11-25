@@ -89,6 +89,10 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
  * (data-segment) objects never carry these bits. */
 #define NPL_FLAG_OLD 8
 #define NPL_FLAG_REMEMBERED 16
+/* Handler frames (control.c): the thread's initial uncaught handler. A
+ * captured handler chain keeps its user frames but this bottom frame is
+ * resolved against the invoking thread (SRFI 18). */
+#define NPL_FLAG_INITIAL_HANDLER 32
 #define IMM_CHAR_TAG 14
 
 /* ---- Immediate values ---- */
@@ -553,6 +557,7 @@ NplVal npl_wind_pop(NplVal frame);
 NplVal npl_wind_exit_step(void);
 NplVal npl_current_handler(void);
 NplVal npl_handler_push(NplVal procedure);
+NplVal npl_handler_push_initial(NplVal procedure);
 NplVal npl_handler_pop(NplVal frame);
 NplVal npl_make_parameter(NplVal converter, NplVal value);
 NplVal npl_parameter_ref(NplVal parameter);

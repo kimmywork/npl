@@ -119,23 +119,37 @@ static NplVal clone_parameter_chain(NplVal chain, NplThreadContext *context)
 
 /* ---- initial continuation and exception handler ---- */
 
+/* SRFI 18: the initial continuation stores its result in the end-result
+ * field of the (then) current thread and terminates it. Resolve the thread
+ * at call time: this closure sits at the bottom of the CPS chain, so a
+ * continuation captured on one thread and invoked on another reaches it on
+ * the invoking thread. */
 static NplVal thread_done(NplVal environment, int64_t argc, NplVal *argv)
 {
+    (void)environment;
     (void)argc;
-    NplThread *thread = (NplThread *)npl_header(environment);
+    NplVal self = npl_thread_current_object();
+    NplThread *thread = (NplThread *)npl_header(self);
     thread->end_result = argv[0];
     npl_gc_write_barrier(thread, argv[0]);
+    /* Returning with no pending tail request ends the *current* thread's
+     * outermost trampoline; thread_entry's unified termination path then
+     * abandons its mutexes, marks it terminated and wakes joiners. */
     return npl_nil();
 }
 
+/* SRFI 18: the initial exception handler records an uncaught-exception
+ * object in the (then) current thread and terminates it. It never longjmps
+ * to a jmp_buf captured from another (possibly dead) thread. */
 static NplVal thread_uncaught(NplVal environment, int64_t argc, NplVal *argv)
 {
+    (void)environment;
     (void)argc;
-    NplThread *thread = (NplThread *)npl_header(environment);
     NplVal exc = npl_thread_exception(NPL_EXC_UNCAUGHT, argv[0]);
-    thread->end_exception = exc;
-    npl_gc_write_barrier(thread, exc);
-    longjmp(thread->terminate_jump, 1);
+    npl_thread_finish_current(exc);
+    /* The primordial thread has no setjmp target: fall through so raise
+     * reports the error object and exits, as it did before. */
+    return npl_nil();
 }
 
 /* ---- pthread entry ---- */
@@ -157,16 +171,20 @@ static void *thread_entry(void *argument)
     __sync_fetch_and_add(&thread->registered, 1);
 
     /* SRFI 18: inherit the dynamic environment, but with a fresh initial
-     * exception handler and an empty dynamic-wind stack. */
+     * exception handler and an empty dynamic-wind stack. The initial
+     * continuation and initial handler act on the (then) current thread, so
+     * their closures are thread-agnostic (environment = nil) and resolve
+     * npl_ctx() when invoked; the initial handler frame is marked so a
+     * captured chain can replace it with the invoking thread's own. */
     context->current_parameters = clone_parameter_chain(thread->parameters,
                                                         context);
     context->current_wind = npl_nil();
     context->current_handler = npl_nil();
-    NplVal handler = npl_make_closure(thread_uncaught, self, 2);
-    (void)npl_handler_push(handler);
+    NplVal handler = npl_make_closure(thread_uncaught, npl_nil(), 2);
+    (void)npl_handler_push_initial(handler);
 
     if (setjmp(thread->terminate_jump) == 0) {
-        NplVal continuation = npl_make_closure(thread_done, self, 1);
+        NplVal continuation = npl_make_closure(thread_done, npl_nil(), 1);
         NplVal arguments[1] = { continuation };
         (void)npl_apply(thread->thunk, 1, arguments);
     }
