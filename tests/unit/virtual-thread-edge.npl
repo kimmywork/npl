@@ -29,8 +29,13 @@
 (check "start runs without join" 1 (vector-ref flag 0))
 (check "start result after wait" 42 (virtual-thread-join! runner))
 
-; A virtual thread joining a child must not block its carrier.
-(define (child n) (* n 2))
+; A virtual thread joining a child must not block its carrier. Add a
+; grandchild so BOTH carriers are occupied by joiners: a blocking join
+; regression leaves the grandchild queued forever (this test then hangs).
+(define (child n)
+  (let ((grandchild (virtual-thread-start!
+                      (make-virtual-thread (lambda () (* n 2))))))
+    (virtual-thread-join! grandchild)))
 (define parent-result
   (virtual-thread-join!
     (virtual-thread-start!

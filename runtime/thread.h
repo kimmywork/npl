@@ -135,6 +135,10 @@ typedef struct NplThreadContext {
      * blocking call publishes its snapshot first and stays parked. */
     int gc_excluded;
     int blocked;
+    /* Only blocked contexts that are still counted in g_active_mutators
+     * contribute to g_blocked_mutators; an excluded mutator must not reduce
+     * the stop-world expectation twice. */
+    int blocked_counted;
     int cancellation_requested;
     int cancel_observed;            /* latched at a safepoint; T2 raises */
     int cancel_owed;                /* this context owns one g_cancel_pending contribution */
@@ -149,6 +153,7 @@ typedef struct NplThreadContext {
      * primitive-error longjmp skips their function. Frames are heap allocated
      * so they survive the unwind; npl_shared_release_all releases them. */
     struct NplCleanupFrame *cleanup;
+    int cleanup_depth;
 } NplThreadContext;
 
 /* The current context lives in one native TLS slot.  npl_ctx() is the hot

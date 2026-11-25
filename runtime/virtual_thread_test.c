@@ -40,7 +40,7 @@ static void *gc_worker(void *argument)
     (void)argument;
     uintptr_t marker = 0;
     (void)npl_thread_attach_exact(
-        (uintptr_t)(void *)&marker + sizeof(marker) + 4096);
+        (uintptr_t)(void *)&marker + sizeof(marker));
     while (!g_gc_done && g_gc_collections < 1000) {
         npl_gc_collect();
         __sync_fetch_and_add(&g_gc_collections, 1);

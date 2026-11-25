@@ -628,6 +628,8 @@ NplVal npl_box_bool(int32_t value);
 NplVal npl_box_float(double value);
 NplVal npl_box_identity(NplVal value);
 NplVal npl_apply(NplVal closure, int64_t argc, NplVal *argv);
+/* Release argument buffers of trampoline frames skipped by a longjmp. */
+void npl_trampoline_release_abandoned(void);
 void npl_wrong_argument_count(int64_t argc);
 void npl_apply_tail(int64_t argc, NplVal *argv);
 void npl_tail_request_closure(NplVal closure, int64_t argc, NplVal *argv);
@@ -701,6 +703,8 @@ void npl_gc_mark_words_internal(uintptr_t begin, uintptr_t end);
  * call npl_shared_release_all so a primitive error cannot leave it held. */
 void npl_shared_lock(void);
 void npl_shared_unlock(void);
+int npl_shared_depth(void);
+void npl_shared_release_to(int depth);
 void npl_shared_release_all(void);
 
 /* Shared-object critical section: one guard per function scope. A cleanup
@@ -881,16 +885,25 @@ void npl_control_init(void);
  * completion; npl_shared_release_all runs any remaining frames. */
 void npl_cleanup_push(void (*function)(void *), void *argument);
 void npl_cleanup_pop(void);
+int npl_cleanup_depth(void);
+void npl_cleanup_release_to(int depth);
 void npl_cleanup_release_all(void);
 /* Shared dynamic-state helpers (control.c, dynamic-context.c). */
 NplWindFrame *require_wind_frame(NplVal value, const char *who);
 NplParameter *require_parameter(NplVal value, const char *who);
 /* T2b: order-preserving parameter-chain clone for a new virtual thread, and
- * ownership re-stamping when it migrates to a different carrier. */
+ * ownership re-stamping when it migrates to a different carrier. The owner
+ * identity must be per-LOGICAL-thread, not the carrier's context id: two
+ * virtual threads on one carrier otherwise share an owner and break COW. */
 NplVal npl_clone_parameter_bindings(NplVal chain);
-void npl_relocalize_parameter_bindings(NplVal chain);
+uintptr_t npl_binding_owner(void);
+void npl_relocalize_parameter_bindings(NplVal chain, uintptr_t owner);
 /* T2b: heap-rooted suspended scheduler tokens (virtual-thread.c). */
 void npl_virtual_thread_mark_roots(void);
+/* Startup rooting handshake (thread-start-root.c). */
+void npl_pending_thread_mark_roots(void);
+void npl_pending_thread_add(NplVal value);
+void npl_pending_thread_remove(NplVal value);
 /* T2b: control-transfer intrinsics emitted by the backend in tail position.
  * They store the raw CPS continuation and return WITHOUT a tail request, so
  * the trampoline breaks and the carrier loop regains control. Await also

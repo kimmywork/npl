@@ -53,14 +53,28 @@ void npl_shared_unlock(void)
     }
 }
 
+int npl_shared_depth(void)
+{
+    return npl_ctx()->shared_depth;
+}
+
+/* Release only acquisitions made since `depth` was captured, so a caught
+ * error does not drop a shared lock held by a surviving outer caller. */
+void npl_shared_release_to(int depth)
+{
+    NplThreadContext *context = npl_ctx();
+    while (context->shared_depth > depth) {
+        context->shared_depth--;
+        pthread_mutex_unlock(&g_shared_lock);
+    }
+}
+
 void npl_shared_release_all(void)
 {
     NplThreadContext *context = npl_ctx();
     /* Every longjmp landing calls this; release C scratch buffers whose
      * owning frames were skipped by the unwind. */
     npl_cleanup_release_all();
-    while (context->shared_depth > 0) {
-        context->shared_depth--;
-        pthread_mutex_unlock(&g_shared_lock);
-    }
+    npl_shared_release_to(0);
+    (void)context;
 }

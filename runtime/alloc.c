@@ -515,6 +515,7 @@ void npl_gc_mark_roots_internal(void)
     npl_thread_foreach(mark_thread_roots, NULL);
     npl_control_mark_roots();
     npl_virtual_thread_mark_roots();
+    npl_pending_thread_mark_roots();
     npl_symbol_mark_roots();
     if (g_minor)
         for (size_t i = 0; i < g_remembered_count; i++)
@@ -549,8 +550,14 @@ void npl_gc_write_barrier_value(NplVal holder, NplVal value)
 void npl_gc_remember_internal(NplHeader *object)
 {
     /* Remembered-set writes are process-wide heap metadata.  The lock is
-     * only taken on the slow barrier path, never while a poll parks. */
+     * only taken on the slow barrier path, never while a poll parks. Two
+     * mutators can pass the unlocked flag check for the same object; re-check
+     * under the lock so it is enqueued at most once. */
     npl_heap_lock();
+    if (object->flags & NPL_FLAG_REMEMBERED) {
+        npl_heap_unlock();
+        return;
+    }
     if (g_remembered_count == g_remembered_capacity) {
         size_t capacity = g_remembered_capacity ? g_remembered_capacity * 2
                                                 : 1024;

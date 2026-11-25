@@ -744,14 +744,19 @@ NplVal npl_read_result(NplVal port_value)
     jmp_buf recovery;
     jmp_buf *previous = CTX->read_recovery;
     CTX->read_recovery = &recovery;
-    /* read_error longjmps past the reader's roots; drop them on recovery. */
+    /* read_error longjmps past the reader's roots; drop them on recovery.
+     * Only unwind locks/cleanup frames acquired by THIS call: an outer
+     * caller may still hold a shared lock or a scratch buffer across read. */
     int roots = npl_gc_root_count_internal();
+    int shared = npl_shared_depth();
+    int cleanup = npl_cleanup_depth();
     NplVal items[2];
     if (setjmp(recovery) == 0) {
         items[0] = npl_true();
         items[1] = npl_read_datum(port_value);
     } else {
-        npl_shared_release_all();
+        npl_shared_release_to(shared);
+        npl_cleanup_release_to(cleanup);
         npl_gc_restore_root_count_internal(roots);
         items[0] = npl_false();
         items[1] = npl_string(CTX->read_error_message,

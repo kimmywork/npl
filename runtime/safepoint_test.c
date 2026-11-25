@@ -32,17 +32,17 @@ static void *worker(void *argument)
     Worker *worker = (Worker *)argument;
     (void)npl_thread_attach();
 
-    /* reachable only from this C stack (not registered as a root) */
-    volatile NplVal stack_only = npl_cons(npl_fixnum(1000 + worker->id),
-                                          npl_fixnum(7));
-    NplVal rooted = npl_cons(npl_fixnum(2000 + worker->id), npl_fixnum(9));
-    npl_gc_root(&rooted);
-
-    /* attach_context's bound is deeper (inside npl_thread_attach); publish
-     * one that includes this frame so the parked stack scan reaches both
-     * values.  The slack covers the start routine's frame above us. */
+    /* Publish the scan bound BEFORE the first allocation that can trigger a
+     * collection: attach_context's bound is deeper (inside npl_thread_attach)
+     * and would omit this frame's stack_only value. The slack covers the
+     * start routine's frame above us. */
+    volatile NplVal stack_only;
     (void)npl_gc_swap_stack_bottom(
         (uintptr_t)(void *)&stack_only + 4096);
+    /* reachable only from this C stack (not registered as a root) */
+    stack_only = npl_cons(npl_fixnum(1000 + worker->id), npl_fixnum(7));
+    NplVal rooted = npl_cons(npl_fixnum(2000 + worker->id), npl_fixnum(9));
+    npl_gc_root(&rooted);
     /* COW: this thread's parameter-set! shadows the shared default instead
      * of mutating it, so the other threads still see 7. */
     (void)npl_parameter_set(g_shared_parameter,

@@ -166,7 +166,19 @@ static NplVal thread_uncaught(NplVal environment, int64_t argc, NplVal *argv)
     return npl_nil();
 }
 
+/* ---- startup rooting handshake (runtime/thread-start-root.c) ----
+ * The NplThread object is rooted independently of the creator's root stack
+ * between pthread_create and the worker publishing its own context root. */
+
 /* ---- pthread entry ---- */
+
+/* Boot the thread's thunk through a real trampoline so non-closure procedures
+ * (parameter objects) can dispatch through npl_tail_request_closure. */
+static NplVal thread_boot(NplVal environment, int64_t argc, NplVal *argv)
+{
+    npl_tail_request_closure(environment, argc, argv);
+    return npl_nil();
+}
 
 static void *thread_entry(void *argument)
 {
@@ -182,6 +194,9 @@ static void *thread_entry(void *argument)
         (uintptr_t)(void *)&marker + sizeof(marker));
     context->current_thread_object = self;
     thread->context = context;
+    /* The object is now rooted by this thread's own context; drop the
+     * independent startup root so a cancelled creator cannot strand it. */
+    npl_pending_thread_remove(self);
     /* Release the creator's startup handshake: from now on this object is
      * rooted by this thread's own context. */
     __sync_synchronize();
@@ -201,31 +216,48 @@ static void *thread_entry(void *argument)
     context->initial_handler = npl_handler_push_initial(handler);
 
     if (setjmp(thread->terminate_jump) == 0) {
-        /* A termination requested after pthread_create but before this worker
-         * published thread->context could not be forwarded to the coordinator
-         * flag. The jump target is live now, so observe it before user code.
-         * Read the flag under the scheduler lock (its writer holds it). */
+        /* The jump target is live now. Publish `armed` under the scheduler
+         * lock so npl_thread_terminate can start forwarding cancellations to
+         * the coordinator flag; before this point a forwarded request could
+         * longjmp on a still-zeroed jmp_buf. Then replay any request that
+         * arrived during the startup window (before context was published). */
         npl_sched_lock_enter();
+        thread->armed = 1;
         int cancelled = thread->cancel_requested;
         npl_sched_lock_leave();
         if (cancelled) npl_safepoint_cancelled();
         NplVal continuation = npl_make_closure(thread_done, npl_nil(), 1);
         NplVal arguments[1] = { continuation };
-        (void)npl_apply(thread->thunk, 1, arguments);
+        (void)npl_trampoline(thread_boot, thread->thunk, 1, arguments);
     }
 
     /* Unified termination: normal return, uncaught raise (longjmp), or
      * cooperative cancellation (longjmp). A longjmp may have skipped frames
      * holding the shared-object lock. */
     npl_shared_release_all();
+    /* A termination request can arrive after this thread's last poll. The
+     * terminator sets cancel_requested under npl_sched_lock and waits for
+     * TERMINATED, so resolve the pending request under that same lock BEFORE
+     * publishing termination; otherwise thread-join! returns the normal
+     * result instead of raising a terminated-thread exception. Allocate the
+     * exception outside the lock. */
+    NplVal terminated_exception =
+        npl_thread_exception(NPL_EXC_TERMINATED_THREAD, npl_unspecified());
+    npl_gc_root(&terminated_exception);
     npl_sched_lock_enter();
+    if (thread->cancel_requested && npl_is_false(thread->end_exception)) {
+        thread->end_exception = terminated_exception;
+        npl_gc_write_barrier(thread, terminated_exception);
+    }
+    thread->armed = 0;
     npl_sched_abandon_mutexes(thread);
     npl_sched_finish(thread, 1);
     npl_sched_lock_leave();
+    npl_gc_unroot(&terminated_exception);
 
-    /* A longjmp may have skipped trampoline epilogues; those frames are on
-     * the dead part of this C stack, so drop every pointer to them. */
-    context->tail_context = NULL;
+    /* A longjmp may have skipped trampoline epilogues; free their argument
+     * buffers, then drop every pointer to those dead C frames. */
+    npl_trampoline_release_abandoned();
     context->sync_frame = NULL;
     context->escape_depth = 0;
     context->current_handler = npl_nil();
@@ -334,10 +366,19 @@ NplVal npl_thread_make_prim(NplVal thunk, NplVal name)
     /* The library-level make-thread must reject a non-procedure thunk here:
      * the error is catchable and happens before the thread object exists.
      * npl_thread_make itself is also used for the primordial thread object,
-     * whose thunk is nil, so validation belongs in this primitive. */
-    if (!npl_is_ptr(thunk) || npl_header(thunk)->tag != BOX_CLOSURE)
+     * whose thunk is nil, so validation belongs in this primitive. Parameter
+     * objects are procedures too (npl_procedure_p / npl_apply accept them). */
+    if (npl_is_false(npl_procedure_p(thunk)))
         npl_primitive_error("make-thread", "expected a procedure", thunk);
-    return npl_thread_make(thunk, name, npl_ctx()->current_parameters);
+    /* SRFI 18: the child inherits the dynamic environment from the creating
+     * thread AT make-thread time. Snapshot it now so later parent mutations
+     * between make-thread and thread-start! cannot leak into the child. */
+    NplVal snapshot = npl_clone_parameter_bindings(
+        npl_ctx()->current_parameters);
+    npl_gc_root(&snapshot);
+    NplVal result = npl_thread_make(thunk, name, snapshot);
+    npl_gc_unroot(&snapshot);
+    return result;
 }
 
 NplVal npl_thread_current(void) { return npl_thread_current_object(); }
@@ -350,6 +391,9 @@ NplVal npl_thread_start(NplVal value)
      * guaranteed. npl_safepoint_poll in the handshake keeps this thread
      * parkable while it waits. */
     npl_gc_root(&value);
+    /* Independent of the creator's root stack: if the creator is cancelled
+     * while waiting for `registered`, this process-wide root survives. */
+    npl_pending_thread_add(value);
     /* Allocate the possible termination exception outside the scheduler lock:
      * npl_thread_exception() polls at allocation entry. */
     NplVal terminated_exception =
@@ -358,6 +402,7 @@ NplVal npl_thread_start(NplVal value)
     npl_sched_lock_enter();
     if (thread->state != NPL_THREAD_NEW) {
         npl_sched_lock_leave();
+        npl_pending_thread_remove(value);
         npl_gc_unroot(&terminated_exception);
         npl_gc_unroot(&value);
         npl_primitive_error("thread-start!", "thread is not new", value);
@@ -368,6 +413,7 @@ NplVal npl_thread_start(NplVal value)
         npl_gc_write_barrier(thread, terminated_exception);
         npl_sched_finish(thread, 1);
         npl_sched_lock_leave();
+        npl_pending_thread_remove(value);
         npl_gc_unroot(&terminated_exception);
         npl_gc_unroot(&value);
         return value;
@@ -384,6 +430,7 @@ NplVal npl_thread_start(NplVal value)
         thread->started = 0;
         thread->has_native = 0;
         npl_sched_lock_leave();
+        npl_pending_thread_remove(value);
         npl_gc_unroot(&terminated_exception);
         npl_gc_unroot(&value);
         npl_primitive_error("thread-start!", "pthread_create failed", value);
@@ -517,10 +564,11 @@ NplVal npl_thread_terminate(NplVal value)
     }
     target->cancel_requested = 1;
     target->wake = 1;
-    /* Wake the coordinator's cancellation flag too: generated safepoint
-     * polls observe NplThreadContext.cancellation_requested, not the thread
-     * object's field. A runtime-managed blocking wait is woken as well. */
-    if (target->context)
+    /* Wake the coordinator's cancellation flag too, but ONLY once the worker
+     * has armed its terminate_jump. A request forwarded earlier would make a
+     * startup-time poll longjmp through a zeroed jmp_buf (UB). Before arming,
+     * thread_entry's post-setjmp replay delivers the request. */
+    if (target->armed && target->context)
         npl_thread_request_cancel((void *)target->context);
     npl_sched_wake_all();
     npl_sched_lock_leave();
@@ -580,8 +628,6 @@ NplVal npl_mutex_lock(NplVal value, NplVal timeout, NplVal thread_value,
         }
     }
     NplThread *self = (NplThread *)npl_header(self_value);
-    self->wait_kind = NPL_WAIT_MUTEX;
-    self->wait_target = mutex;
 
     int abandoned = 0;
     for (;;) {
@@ -595,6 +641,12 @@ NplVal npl_mutex_lock(NplVal value, NplVal timeout, NplVal thread_value,
             if (!list_contains(mutex->waiters, self_value))
                 list_link(&mutex->waiters, mutex, waiter_cell);
             npl_sched_lock_leave();
+            /* Publish the descriptor only while a wait is active. wait_loop
+             * clears it on return, and an uncontended acquisition never sets
+             * it, so no stale wait_target (an untraced void*) can survive to
+             * a later cancellation's npl_sched_remove_waiter. */
+            self->wait_kind = NPL_WAIT_MUTEX;
+            self->wait_target = mutex;
             int result = wait_loop(self, mutex_free, mutex, &deadline,
                                    has_deadline);
             if (result == 0) {
@@ -613,11 +665,17 @@ NplVal npl_mutex_lock(NplVal value, NplVal timeout, NplVal thread_value,
          * ownership just because the requested owner has terminated. */
         if (requested_owner &&
             requested_owner->state == NPL_THREAD_TERMINATED) {
+            /* SRFI 18: an abandoned-mutex exception is raised only if the
+             * mutex was unlocked/abandoned BEFORE this state change. A
+             * terminated requested owner merely leaves it unlocked/abandoned
+             * and mutex-lock! returns #t. */
             mutex->state = NPL_MUTEX_UNLOCKED_ABANDONED;
             mutex->owner = npl_false();
             npl_sched_lock_leave();
-            raise_object(npl_thread_exception(NPL_EXC_ABANDONED_MUTEX,
-                                              npl_unspecified()));
+            if (abandoned)
+                raise_object(npl_thread_exception(NPL_EXC_ABANDONED_MUTEX,
+                                                  npl_unspecified()));
+            return npl_true();
         }
         list_unlink(&mutex->waiters, mutex, self_value);
         if (not_owned) {
@@ -666,6 +724,12 @@ NplVal npl_mutex_unlock(NplVal value, NplVal condvar_value, NplVal timeout,
     NplVal waiter_cell = cv ? list_cell(self_value) : npl_nil();
     npl_sched_lock_enter();
     self->wake = 0;
+    /* A plain unlock is not a wait; clear any stale descriptor so a later
+     * cancellation cannot dereference an untraced, collected wait_target. */
+    if (!cv) {
+        self->wait_kind = NPL_WAIT_NONE;
+        self->wait_target = NULL;
+    }
     /* Unlocking an unlocked mutex or one owned by any thread is not an error.
      * Remove the mutex from its ACTUAL owner's list, not the caller's: a
      * foreign unlock must not leave a stale entry in the previous owner's

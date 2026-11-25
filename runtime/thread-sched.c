@@ -159,6 +159,7 @@ NplVal npl_thread_make(NplVal thunk, NplVal name, NplVal parameters)
     thread->wait_target = NULL;
     thread->has_native = 0;
     thread->registered = 0;
+    thread->armed = 0;
     thread->context = NULL;
     return boxed(thread);
 }

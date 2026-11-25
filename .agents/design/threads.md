@@ -763,6 +763,65 @@ parameter-write synchronization protocol), platform stack-window sizing for
 native workers, `npl_gc_stop_requested` atomics (C99 + frozen QBE SSA
 constraint), and Linux/late-`dlopen` execution evidence.
 
+## PR #8 review round 2 (2026-11-25)
+
+The second Gemini review was verified STALE (`head_sha=7ab3205`, the pre-rebase
+head); nearly all of its items restate round-1 findings already handled above.
+The second CodeRabbit review (13:44) was against `da0fdf3` and found real
+issues, including regressions introduced by round 1. All valid items fixed:
+
+- **Coordinator / GC**: `npl_safepoint_poll` now skips parking and snapshot
+  state when `context->blocked` (the new trylock poll had let a blocked waiter
+  satisfy the stop quorum and then lose its published stack); a `blocked_counted`
+  flag enforces `g_blocked_mutators ⊆ g_active_mutators` so an excluded mutator
+  cannot reduce the expected parked count twice; `cancellation_requested` is
+  exchanged atomically with its writer; an `armed` flag prevents forwarding a
+  cancellation before `thread_entry`'s `setjmp` (a poll in that window could
+  longjmp through a zeroed `jmp_buf`); skipped trampoline argument buffers are
+  freed on abnormal worker exit; the remembered set re-checks
+  `NPL_FLAG_REMEMBERED` under the heap lock.
+- **Reader recovery**: `npl_read_result` now saves shared-lock/cleanup depth
+  on entry and releases only to that depth on recovery, so a caught read error
+  cannot free an outer caller's scratch buffer or drop its shared lock.
+- **Handlers**: the primordial thread now has an initial exception handler
+  (`primordial_uncaught`), so `current-exception-handler` returns a procedure
+  on every thread and a foreign continuation's `INITIAL_HANDLER` frame is
+  resolved against the invoker's own handler rather than running the source
+  virtual thread's `finish_vt`.
+- **Parameter ownership**: binding owner is now the LOGICAL virtual thread
+  (`CTX->logical_thread`) rather than the carrier's context id, restoring COW
+  isolation between virtual threads sharing one carrier; the two malloc'd
+  `nodes` arrays are registered with the cleanup stack; `make-thread` snapshots
+  the parent's bindings at creation time (SRFI 18 inheritance point).
+- **SRFI 18 / lifecycle**: a terminated explicit `mutex-lock!` owner on a
+  not-abandoned mutex returns `#t` (SRFI 18 raises only if it was already
+  abandoned); `make-thread` accepts parameter-object thunks and boots them
+  through a real trampoline; wait descriptors are published only during an
+  active wait and cleared afterwards; thread finalization resolves a pending
+  cancellation under the scheduler lock; an independent process-wide root
+  (`runtime/thread-start-root.c`) covers the pthread-start handshake.
+- **Virtual threads**: `registry_add` moved from creation to start so
+  unstarted discarded records are collectable; helper-pool growth compares
+  unclaimed queued work against available helpers (a broadcast does not
+  decrement the idle count until helpers resume).
+- **Tests / docs**: `tests/unit/review-fixes.npl` covers the observable items;
+  `virtual-thread-edge.npl` adds a grandchild so both carriers are occupied by
+  joiners; `safepoint_test.c` publishes its stack bound before the first
+  allocation; `virtual_thread_test.c` drops the `+4096` slack;
+  `thread_object_test.c` stores heap objects to exercise GC field tracing; the
+  condition-variable example in `docs/thread.md` re-locks after each wake.
+
+Skipped with reasons (verified against current code and SRFI 18): repeated
+foreign re-entry correctly REINSTATES the saved environment (a previous
+invocation's mutation is not part of the capture — SRFI 18 6.4), the legacy
+4-argument `npl_wind_transfer` shim is deliberate ABI tolerance, the scoped
+one-argument parameter update is implementation-dependent (writing a shared
+default would break thread isolation), and `npl_gc_stop_requested` atomicity
+plus the `npl_gc_block_begin` register-snapshot refactor remain deferred.
+
+`runtime/thread-start-root.c` was extracted to keep `thread-lifecycle.c` under
+the 800-line soft limit. No frontend change, so the seed is unchanged.
+
 ## T3 SRFI 230
 
 Atomics need runtime support regardless of scheduler. [SRFI 230](../../docs/reference/srfi-230.html)

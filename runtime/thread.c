@@ -60,6 +60,7 @@ static void init_context(NplThreadContext *context, uintptr_t stack_bottom)
     context->initial_handler = npl_nil();
     context->current_thread_object = npl_nil();
     context->cleanup = NULL;
+    context->cleanup_depth = 0;
     context->next_wind_id = 1;
     context->next_escape_id = 1;
     context->next_sync_id = 1;
@@ -208,6 +209,7 @@ void npl_cleanup_push(void (*function)(void *), void *argument)
     frame->argument = argument;
     frame->previous = CTX->cleanup;
     CTX->cleanup = frame;
+    CTX->cleanup_depth++;
 }
 
 void npl_cleanup_pop(void)
@@ -215,20 +217,32 @@ void npl_cleanup_pop(void)
     NplCleanupFrame *frame = CTX->cleanup;
     if (!frame) return;
     CTX->cleanup = frame->previous;
+    CTX->cleanup_depth--;
     free(frame);
+}
+
+int npl_cleanup_depth(void)
+{
+    return CTX->cleanup_depth;
+}
+
+/* Unwind only the frames registered since `depth` was captured. A caught
+ * reader error must not free scratch buffers owned by surviving callers. */
+void npl_cleanup_release_to(int depth)
+{
+    NplThreadContext *context = CTX;
+    while (context->cleanup && context->cleanup_depth > depth) {
+        NplCleanupFrame *frame = context->cleanup;
+        context->cleanup = frame->previous;
+        context->cleanup_depth--;
+        frame->function(frame->argument);
+        free(frame);
+    }
 }
 
 void npl_cleanup_release_all(void)
 {
-    NplThreadContext *context = CTX;
-    NplCleanupFrame *frame = context->cleanup;
-    context->cleanup = NULL;
-    while (frame) {
-        NplCleanupFrame *next = frame->previous;
-        frame->function(frame->argument);
-        free(frame);
-        frame = next;
-    }
+    npl_cleanup_release_to(0);
 }
 
 void npl_gc_root(NplVal *root)

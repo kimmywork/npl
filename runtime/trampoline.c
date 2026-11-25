@@ -233,6 +233,18 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
     return result;
 }
 
+/* A cancellation / uncaught-exception longjmp to thread_entry skips the
+ * trampoline epilogues, so their malloc'd argument buffers leak. The
+ * NplTailContext frames live on the (still intact) C stack below the setjmp
+ * landing; walk the chain and free each buffer before dropping it. */
+void npl_trampoline_release_abandoned(void)
+{
+    for (NplTailContext *frame = CTX->tail_context; frame;
+         frame = frame->previous)
+        free(frame->arguments);
+    CTX->tail_context = NULL;
+}
+
 NplVal npl_apply(NplVal value, int64_t argc, NplVal *argv)
 {
     if (npl_is_ptr(value) && npl_header(value)->tag == BOX_PARAMETER) {

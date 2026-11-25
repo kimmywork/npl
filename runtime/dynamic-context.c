@@ -90,6 +90,9 @@ static NplVal clone_parameter_bindings(NplVal source)
     if (length == 0) return npl_nil();
     NplVal *nodes = (NplVal *)malloc((size_t)length * sizeof(NplVal));
     if (!nodes) npl_runtime_oom_internal();
+    /* The loop below allocates (and polls); a cancellation longjmp must not
+     * leak this C buffer. Register it with the cleanup stack. */
+    npl_cleanup_push(free, nodes);
     uint32_t index = 0;
     for (NplVal rest = source;
          npl_is_ptr(rest) &&
@@ -109,10 +112,11 @@ static NplVal clone_parameter_bindings(NplVal source)
         copy->parent = parent;
         copy->parameter = src->parameter;
         copy->value = src->value;
-        copy->owner = (uintptr_t)npl_ctx()->id;
+        copy->owner = npl_binding_owner();
         parent = boxed(copy);
     }
     npl_gc_unroot(&parent);
+    npl_cleanup_pop();
     free(nodes);
     return parent;
 }
@@ -125,16 +129,20 @@ NplVal npl_clone_parameter_bindings(NplVal chain)
     return clone_parameter_bindings(chain);
 }
 
-/* T2b: when a virtual thread is remounted on a different carrier, its saved
- * binding chain still carries the previous carrier's ownership stamp. Re-stamp
- * it so in-place parameter-set! keeps working (otherwise every write would
- * COW-clone and a continuation re-entry would see the pre-write value). The
- * chain is private to the virtual thread (cloned at its first mount), and the
- * per-thread parameter_extents mapping points into this same chain, so a
- * single walk covers both. */
-void npl_relocalize_parameter_bindings(NplVal chain)
+/* A virtual thread keeps the SAME owner identity across carrier migration,
+ * so no re-stamping is needed for migration itself; this helper is kept for
+ * re-homing a chain to a specific logical thread. */
+uintptr_t npl_binding_owner(void)
 {
-    uintptr_t owner = (uintptr_t)npl_ctx()->id;
+    void *logical = CTX->logical_thread;
+    return logical ? (uintptr_t)logical : (uintptr_t)npl_ctx()->id;
+}
+
+/* The chain is private to the virtual thread (cloned at its first mount),
+ * and the per-thread parameter_extents mapping points into this same chain,
+ * so a single walk covers both. */
+void npl_relocalize_parameter_bindings(NplVal chain, uintptr_t owner)
+{
     for (NplVal rest = chain;
          npl_is_ptr(rest) &&
          npl_header(rest)->tag == BOX_PARAMETER_BINDING;
@@ -158,7 +166,7 @@ static uint32_t binding_chain_length(NplVal source)
 
 static int binding_chain_owned(NplVal source)
 {
-    uintptr_t owner = (uintptr_t)npl_ctx()->id;
+    uintptr_t owner = npl_binding_owner();
     for (NplVal rest = source;
          npl_is_ptr(rest) &&
          npl_header(rest)->tag == BOX_PARAMETER_BINDING;
@@ -201,7 +209,7 @@ static NplVal make_local_binding(NplVal src, NplVal parent)
     copy->parent = parent;
     copy->parameter = s->parameter;
     copy->value = s->value;
-    copy->owner = (uintptr_t)npl_ctx()->id;
+    copy->owner = npl_binding_owner();
     return boxed(copy);
 }
 
@@ -219,6 +227,7 @@ static NplVal localize_cached_chain(NplVal source, NplVal *cache,
     NplVal *nodes = (NplVal *)malloc(
         (size_t)(length ? length : 1) * sizeof(NplVal));
     if (!nodes) npl_runtime_oom_internal();
+    npl_cleanup_push(free, nodes);
     uint32_t index = 0;
     for (NplVal rest = source;
          npl_is_ptr(rest) &&
@@ -238,6 +247,7 @@ static NplVal localize_cached_chain(NplVal source, NplVal *cache,
         parent_copy = copy;
         head_copy = copy;
     }
+    npl_cleanup_pop();
     free(nodes);
 
     NplVal baseline = head_copy;
@@ -321,7 +331,7 @@ NplVal npl_parameters_enter(NplVal parameters_value, NplVal values_value,
         binding->parent = local;
         binding->parameter = parameters->data[i];
         binding->value = values->data[i];
-        binding->owner = (uintptr_t)npl_ctx()->id;
+        binding->owner = npl_binding_owner();
         local = boxed(binding);
     }
     CTX->current_parameters = local;

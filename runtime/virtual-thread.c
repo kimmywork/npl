@@ -85,6 +85,7 @@ static int g_defer_start;       /* harness-only: batch before starting carriers 
 #define NPL_VTHREAD_HELPERS 2
 static NplVirtualThread *g_work_head;
 static NplVirtualThread *g_work_tail;
+static int g_helper_queued;     /* work items no helper has claimed yet */
 static pthread_mutex_t g_helper_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_helper_cond = PTHREAD_COND_INITIALIZER;
 static pthread_t *g_helper_handles;
@@ -168,6 +169,7 @@ static void helper_enqueue(NplVirtualThread *vt)
     if (g_work_tail) g_work_tail->queue_next = vt;
     else g_work_head = vt;
     g_work_tail = vt;
+    g_helper_queued++;
 }
 
 static NplVirtualThread *helper_dequeue(void)
@@ -177,6 +179,7 @@ static NplVirtualThread *helper_dequeue(void)
     g_work_head = vt->queue_next;
     if (!g_work_head) g_work_tail = NULL;
     vt->queue_next = NULL;
+    g_helper_queued--;
     return vt;
 }
 
@@ -210,10 +213,14 @@ static void save_state(NplVirtualThread *vt)
 
 static void restore_state(NplVirtualThread *vt)
 {
-    /* A different carrier now owns the saved bindings; re-stamp ownership so
-     * in-place parameter-set! and continuation re-entry keep working. */
+    /* Establish the logical-thread identity FIRST: parameter binding owners
+     * are per-virtual-thread, so any re-stamping must use this vt, not the
+     * carrier's context id. The owner is migration-stable, so re-stamping is
+     * only needed when a chain came from a different logical thread. */
+    CTX->logical_thread = vt;
     if (vt->carrier_context != (void *)npl_ctx())
-        npl_relocalize_parameter_bindings(vt->parameters);
+        npl_relocalize_parameter_bindings(vt->parameters,
+                                          (uintptr_t)vt);
     CTX->current_wind = vt->wind;
     CTX->current_handler = vt->handler;
     CTX->current_parameters = vt->parameters;
@@ -221,7 +228,6 @@ static void restore_state(NplVirtualThread *vt)
     CTX->pending_extent_key = vt->pending_extent_key;
     CTX->initial_handler = vt->initial_handler;
     CTX->next_wind_id = vt->next_wind_id;
-    CTX->logical_thread = vt;
 }
 
 static void clear_carrier_state(void)
@@ -328,9 +334,8 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
     npl_gc_write_barrier(vt, vt->name);
     npl_gc_write_barrier(vt, thunk);
 
-    pthread_mutex_lock(&g_lock);
-    registry_add(value);
-    pthread_mutex_unlock(&g_lock);
+    /* Registration happens at start, not creation: an unstarted virtual
+     * thread that the caller discards must not stay a permanent strong root. */
     return value;
 }
 
@@ -451,9 +456,12 @@ void npl_vthread_await(NplVal work, NplVal continuation)
     pthread_mutex_unlock(&g_lock);
     pthread_mutex_lock(&g_helper_lock);
     helper_enqueue(vt);
-    /* If every helper is busy with a long blocking thunk, grow the pool so
-     * this newly queued item gets its own pthread immediately. */
-    if (g_helper_idle == 0) helper_spawn();
+    /* Grow when more items are queued than helpers can still claim. A
+     * broadcast wakes all idle helpers but they are not decremented until
+     * they reacquire this lock, so comparing against g_helper_idle alone
+     * under-counts work queued in a burst. g_helper_queued counts items no
+     * helper has dequeued yet. */
+    if (g_helper_queued > g_helper_idle) helper_spawn();
     pthread_cond_broadcast(&g_helper_cond);
     pthread_mutex_unlock(&g_helper_lock);
     CTX->logical_thread = NULL;
@@ -518,6 +526,7 @@ NplVal npl_vthread_start(NplVal value)
     if (vt->state != NPL_VTHREAD_NEW) {
         already = 1;
     } else {
+        registry_add(value);   /* rooted from the moment it can be scheduled */
         vt->state = NPL_VTHREAD_RUNNABLE;
         enqueue_to(vt, g_next_carrier % g_queues_count);
         g_next_carrier++;
@@ -674,12 +683,13 @@ static void *helper_entry(void *argument)
 static void mount_new(NplVirtualThread *vt)
 {
     clear_carrier_state();
-    /* Inherit the creator's parameter chain under this carrier's ownership. */
+    /* The clone stamps bindings with the LOGICAL thread owner, so publish
+     * the vt identity before cloning (clear_carrier_state reset it). */
+    CTX->logical_thread = vt;
     CTX->current_parameters = npl_clone_parameter_bindings(vt->parameters);
     NplVal handler = npl_make_closure(vthread_uncaught, boxed(vt), 2);
     CTX->initial_handler = npl_handler_push_initial(handler);
     save_state(vt);
-    CTX->logical_thread = vt;
 }
 
 static void *carrier_entry(void *argument)

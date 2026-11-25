@@ -67,6 +67,7 @@ typedef struct {
     void *wait_target;
     int has_native;            /* pthread_create succeeded */
     int registered;            /* thread_entry published its context root */
+    int armed;                 /* terminate_jump is live (setjmp returned 0) */
     NplThreadContext *context; /* owner context, for cancellation wakeups */
 } NplThread;
 

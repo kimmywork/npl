@@ -67,8 +67,8 @@ unlocked/abandoned and the next successful `mutex-lock!` raises an
 SRFI 18 has **no `condition-variable-wait!`**. Waiting is:
 
 ```scheme
-(mutex-lock! m)
 (let loop ()
+  (mutex-lock! m)                ; reacquire after each wake
   (if (condition-is-true?)
       (begin (do-work) (mutex-unlock! m))
       (begin (mutex-unlock! m cv) (loop))))

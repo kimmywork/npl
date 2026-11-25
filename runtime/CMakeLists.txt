@@ -31,6 +31,7 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/thread.c
   ${RUNTIME_SRC_DIR}/thread-sched.c
   ${RUNTIME_SRC_DIR}/thread-lifecycle.c
+  ${RUNTIME_SRC_DIR}/thread-start-root.c
   ${RUNTIME_SRC_DIR}/trampoline.c
   ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c
@@ -85,6 +86,7 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/thread.c
   ${RUNTIME_SRC_DIR}/thread-sched.c
   ${RUNTIME_SRC_DIR}/thread-lifecycle.c
+  ${RUNTIME_SRC_DIR}/thread-start-root.c
   ${RUNTIME_SRC_DIR}/trampoline.c
   ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c

@@ -15,12 +15,29 @@
 
 #define CTX npl_ctx()
 
+/* SRFI 18: the primordial thread also has an initial exception handler.
+ * It reports the uncaught object and exits (the same fallback npl_raise used
+ * when no handler chain exists). Installing it as a marked initial frame
+ * means current-exception-handler returns a procedure on every thread, and a
+ * foreign continuation's INITIAL_HANDLER frame is resolved against this
+ * thread's own handler instead of running the source thread's termination. */
+static NplVal primordial_uncaught(NplVal environment, int64_t argc,
+                                  NplVal *argv)
+{
+    (void)environment;
+    (void)argc;
+    npl_report_error_object(argv[0]);
+    exit(1);
+}
+
 void npl_control_init(void)
 {
     /* Roots are registered by npl_thread_attach / npl_thread_init_internal. */
     CTX->current_wind = npl_nil();
     CTX->current_handler = npl_nil();
     CTX->current_parameters = npl_nil();
+    NplVal handler = npl_make_closure(primordial_uncaught, npl_nil(), 2);
+    CTX->initial_handler = npl_handler_push_initial(handler);
 }
 
 NplVal npl_make_values(int64_t argc, NplVal *argv)
@@ -181,7 +198,7 @@ static NplVal new_parameter_binding(NplVal parameter, NplVal value)
     /* Owner is the stable monotonic context id, not the context address: a
      * freed context's address can be reused by a new thread, which would let
      * it mutate bindings retained by a captured continuation. */
-    binding->owner = (uintptr_t)npl_ctx()->id;
+    binding->owner = npl_binding_owner();
     NplVal boxed = (NplVal)(uintptr_t)binding | TAG_PTR;
     CTX->current_parameters = boxed;
     return boxed;
@@ -199,7 +216,7 @@ NplVal npl_parameter_set(NplVal parameter_value, NplVal value)
         NplParameterBinding *binding =
             (NplParameterBinding *)npl_header(binding_value);
         if (binding->parameter == parameter_value) {
-            if (binding->owner == (uintptr_t)npl_ctx()->id) {
+            if (binding->owner == npl_binding_owner()) {
                 binding->value = value;
                 npl_gc_write_barrier(binding, value);
                 return npl_nil();

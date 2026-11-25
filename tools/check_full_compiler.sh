@@ -68,7 +68,7 @@ build_ssa "$ROOT/bootstrap/current.ssa" "$WORK/compiler"
 # internally and exits non-zero on failure.
 for name in cross-thread-terminal cross-thread-continuation \
             cross-thread-wind-parameters virtual-threads virtual-thread-edge \
-            thread-timeouts; do
+            thread-timeouts review-fixes; do
     emit "$WORK/compiler" "$ROOT/tests/unit/$name.npl" "$WORK/$name.ssa"
     build_ssa "$WORK/$name.ssa" "$WORK/$name"
     "$WORK/$name" > "$WORK/$name.out" 2>&1

@@ -96,11 +96,12 @@ void npl_coordinator_detach_internal(NplThreadContext *context)
     }
     if (!context->gc_excluded)
         g_active_mutators--;
-    if (context->blocked)
+    if (context->blocked_counted)
         g_blocked_mutators--;
     context->parked = 0;
     context->snapshot_valid = 0;
     context->blocked = 0;
+    context->blocked_counted = 0;
     pthread_cond_broadcast(&g_parked_cond);
     pthread_mutex_unlock(&g_coord_lock);
 }
@@ -134,15 +135,18 @@ void npl_safepoint_poll(void)
 {
     NplThreadContext *context = npl_ctx();
     /* Cancellation is observed at the same polls as a world stop.  T2 wires
-     * the raise; here the observation is latched for the scheduler. */
-    if (context->cancellation_requested) {
-        context->cancellation_requested = 0;
+     * the raise; here the observation is latched for the scheduler. The
+     * request is exchanged atomically with npl_thread_request_cancel's
+     * store, which happens under g_coord_lock. */
+    if (__atomic_exchange_n(&context->cancellation_requested, 0,
+                            __ATOMIC_ACQ_REL)) {
         context->cancel_observed = 1;
         /* Consume the poll sweep before terminating; only the target thread
          * has this flag, so the counter returns to zero exactly once. */
         npl_cancel_consumed();
         /* T2 wires the cooperative termination here; it may longjmp out of
-         * the thread (and excludes this thread from the mutator count first). */
+         * the thread (and excludes this thread from the mutator count first).
+         * No coordinator lock is held here. */
         npl_safepoint_cancelled();
     }
     if (!npl_gc_stop_requested)
@@ -152,7 +156,11 @@ void npl_safepoint_poll(void)
      * so the published stack range includes every older NPL C frame. */
     uintptr_t marker = (uintptr_t)(void *)&context;
     pthread_mutex_lock(&g_coord_lock);
-    if (!g_stop_requested) {
+    /* A wrapped blocking call already published a snapshot and is counted in
+     * g_blocked_mutators for every epoch. It must not also park here: that
+     * would satisfy the stop quorum with a thread the collector already
+     * excluded, and the poll's epilogue would clear the published snapshot. */
+    if (!g_stop_requested || context->blocked) {
         pthread_mutex_unlock(&g_coord_lock);
         return;
     }
@@ -220,6 +228,9 @@ void npl_gc_mark_parked_stacks(void)
 
 /* ---- Exclusion and safe blocked-state transitions ---- */
 
+/* Invariant: g_blocked_mutators counts only threads still included in
+ * g_active_mutators. A GC-excluded mutator must not reduce the stop-world
+ * expectation (active - 1 - blocked) twice. */
 void npl_gc_exclude(void)
 {
     NplThreadContext *context = npl_ctx();
@@ -227,6 +238,10 @@ void npl_gc_exclude(void)
     if (!context->gc_excluded) {
         context->gc_excluded = 1;
         g_active_mutators--;
+        if (context->blocked_counted) {
+            context->blocked_counted = 0;
+            g_blocked_mutators--;
+        }
     }
     pthread_cond_broadcast(&g_parked_cond);
     pthread_mutex_unlock(&g_coord_lock);
@@ -243,6 +258,10 @@ void npl_gc_include(void)
     if (context->gc_excluded) {
         context->gc_excluded = 0;
         g_active_mutators++;
+        if (context->blocked) {
+            context->blocked_counted = 1;
+            g_blocked_mutators++;
+        }
     }
     pthread_mutex_unlock(&g_coord_lock);
 }
@@ -256,7 +275,10 @@ void npl_gc_block_begin(void)
     context->blocked = 1;
     context->parked = 1;
     context->parked_epoch = 0;
-    g_blocked_mutators++;
+    if (!context->gc_excluded) {
+        context->blocked_counted = 1;
+        g_blocked_mutators++;
+    }
     pthread_cond_broadcast(&g_parked_cond);
     pthread_mutex_unlock(&g_coord_lock);
 }
@@ -273,7 +295,10 @@ void npl_gc_block_end(void)
         context->blocked = 0;
         context->parked = 0;
         context->snapshot_valid = 0;
-        g_blocked_mutators--;
+        if (context->blocked_counted) {
+            context->blocked_counted = 0;
+            g_blocked_mutators--;
+        }
     }
     pthread_mutex_unlock(&g_coord_lock);
 }
@@ -285,7 +310,7 @@ void npl_thread_request_cancel(void *target)
     NplThreadContext *context = (NplThreadContext *)target;
     if (!context) return;
     pthread_mutex_lock(&g_coord_lock);
-    context->cancellation_requested = 1;
+    __atomic_store_n(&context->cancellation_requested, 1, __ATOMIC_RELEASE);
     /* Only one contribution per context: duplicate termination requests must
      * not leak g_cancel_pending increments. A fresh context owes nothing, so
      * an unrelated uncaught raise cannot consume another thread's sweep. */
