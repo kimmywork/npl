@@ -49,7 +49,7 @@
 (define fresh-mutex (make-mutex))
 (check "terminated owner on a fresh mutex returns #t"
        #t
-       (guard (e (else #f)) (mutex-lock! fresh-mutex 1 dead) #t))
+       (guard (e (else #f)) (mutex-lock! fresh-mutex 1 dead)))
 
 ; V4/registry + helper pool: unstarted virtual threads are collectable, and
 ; a burst of blocking thunks must not starve the last one (the helper pool

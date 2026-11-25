@@ -189,7 +189,14 @@ void npl_gc_stop_world(void)
      * while we wait, and npl_coordinator_detach_internal broadcasts this
      * condvar so the collector observes the smaller set. */
     for (;;) {
-        int expected = g_active_mutators - 1 - g_blocked_mutators;
+        /* Only subtract this collector when it contributes to
+         * g_active_mutators. A collector inside an unwrapped, GC-excluded
+         * region has already been removed from that count. */
+        NplThreadContext *collector = npl_ctx();
+        int collector_counted =
+            collector->attached && !collector->gc_excluded;
+        int expected = g_active_mutators - collector_counted -
+                       g_blocked_mutators;
         if (expected < 0) expected = 0;
         if (g_parked_for_epoch >= expected) break;
         pthread_cond_wait(&g_parked_cond, &g_coord_lock);

@@ -53,6 +53,15 @@ typedef struct NplTailContext {
     uintptr_t stack_limit;
 } NplTailContext;
 
+/* Heap-owned argument buffers for active trampolines. Unlike
+ * NplTailContext, these records remain valid after a longjmp unwinds the C
+ * stack, so thread-entry cleanup can release every abandoned buffer safely. */
+typedef struct NplTailBuffer {
+    struct NplTailBuffer *previous;
+    NplVal *arguments;
+    int64_t argc;
+} NplTailBuffer;
+
 typedef struct NplEscapeFrame {
     jmp_buf jump;
     uint64_t id;
@@ -112,6 +121,7 @@ typedef struct NplThreadContext {
 
     /* Trampoline / escape / synchronous-call context. */
     NplTailContext *tail_context;
+    NplTailBuffer *tail_buffers;
     int escape_depth;
     NplEscapeFrame escape_frames[NPL_MAX_ESCAPE_DEPTH];
     uint64_t next_escape_id;

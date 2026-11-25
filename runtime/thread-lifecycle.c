@@ -391,9 +391,6 @@ NplVal npl_thread_start(NplVal value)
      * guaranteed. npl_safepoint_poll in the handshake keeps this thread
      * parkable while it waits. */
     npl_gc_root(&value);
-    /* Independent of the creator's root stack: if the creator is cancelled
-     * while waiting for `registered`, this process-wide root survives. */
-    npl_pending_thread_add(value);
     /* Allocate the possible termination exception outside the scheduler lock:
      * npl_thread_exception() polls at allocation entry. */
     NplVal terminated_exception =
@@ -423,6 +420,11 @@ NplVal npl_thread_start(NplVal value)
     /* Publish has_native before pthread_create: the worker may run user code
      * (and observe a cancellation) before the creator returns from create. */
     thread->has_native = 1;
+    /* Independent of the creator's root stack: after this point the worker
+     * may start before the creator finishes its registration handshake. No
+     * safepoint or allocating NPL operation separates this root publication
+     * from pthread_create. */
+    npl_pending_thread_add(value);
     int rc = pthread_create(&thread->handle, NULL, thread_entry,
                             (void *)npl_header(value));
     if (rc != 0) {

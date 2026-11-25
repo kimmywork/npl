@@ -37,11 +37,12 @@ static void mark_context_tails(NplThreadContext *owner, void *data)
     (void)data;
     if (!owner->attached) return;
     for (NplTailContext *context = owner->tail_context; context;
-         context = context->previous) {
+         context = context->previous)
         npl_gc_mark_candidate_internal(context->environment);
-        for (int64_t i = 0; i < context->argc; i++)
-            npl_gc_mark_candidate_internal(context->arguments[i]);
-    }
+    for (NplTailBuffer *buffer = owner->tail_buffers; buffer;
+         buffer = buffer->previous)
+        for (int64_t i = 0; i < buffer->argc; i++)
+            npl_gc_mark_candidate_internal(buffer->arguments[i]);
 }
 
 void npl_control_mark_roots(void)
@@ -76,12 +77,14 @@ void npl_tail_request(NplGenericFunction function, NplVal environment,
         if (!arguments) npl_runtime_oom_internal();
         CTX->tail_context->arguments = arguments;
         CTX->tail_context->argument_capacity = capacity;
+        CTX->tail_buffers->arguments = arguments;
     }
     for (int64_t i = 0; i < argc; i++)
         CTX->tail_context->arguments[i] = argv[i];
     CTX->tail_context->function = function;
     CTX->tail_context->environment = environment;
     CTX->tail_context->argc = argc;
+    CTX->tail_buffers->argc = argc;
     CTX->tail_context->pending = 1;
 }
 
@@ -195,6 +198,12 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
         context.argument_capacity = (size_t)argc;
         for (int64_t i = 0; i < argc; i++) context.arguments[i] = argv[i];
     }
+    NplTailBuffer *buffer = (NplTailBuffer *)malloc(sizeof(*buffer));
+    if (!buffer) npl_runtime_oom_internal();
+    buffer->previous = CTX->tail_buffers;
+    buffer->arguments = context.arguments;
+    buffer->argc = argc;
+    CTX->tail_buffers = buffer;
     CTX->tail_context = &context;
     context.root_count = npl_gc_root_count_internal();
     context.stack_bottom = stack_bottom;
@@ -228,20 +237,30 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
     }
 
     (void)npl_gc_swap_stack_bottom(saved_stack_bottom);
-    free(context.arguments);
+    NplTailBuffer *active_buffer = CTX->tail_buffers;
+    if (!active_buffer || active_buffer->arguments != context.arguments) {
+        fprintf(stderr, "npl_trampoline: tail buffer stack corrupted\n");
+        exit(1);
+    }
+    CTX->tail_buffers = active_buffer->previous;
+    free(active_buffer->arguments);
+    free(active_buffer);
     CTX->tail_context = context.previous;
     return result;
 }
 
 /* A cancellation / uncaught-exception longjmp to thread_entry skips the
- * trampoline epilogues, so their malloc'd argument buffers leak. The
- * NplTailContext frames live on the (still intact) C stack below the setjmp
- * landing; walk the chain and free each buffer before dropping it. */
+ * trampoline epilogues. Heap-owned records remain valid after that unwind. */
 void npl_trampoline_release_abandoned(void)
 {
-    for (NplTailContext *frame = CTX->tail_context; frame;
-         frame = frame->previous)
-        free(frame->arguments);
+    NplTailBuffer *buffer = CTX->tail_buffers;
+    while (buffer) {
+        NplTailBuffer *previous = buffer->previous;
+        free(buffer->arguments);
+        free(buffer);
+        buffer = previous;
+    }
+    CTX->tail_buffers = NULL;
     CTX->tail_context = NULL;
 }
 
