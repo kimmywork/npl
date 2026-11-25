@@ -131,6 +131,43 @@ static NplVal thunk(NplVal environment, int64_t argc, NplVal *argv)
     return step(environment, 0, NULL);
 }
 
+/* ---- phase 2: synchronous blocking work on the helper-worker pool ---- */
+
+static NplVal async_work(NplVal environment, int64_t argc, NplVal *argv)
+{
+    (void)argc;
+    /* The thunk must run on a helper, never on a carrier with a mounted
+     * virtual thread; otherwise the carrier would be blocked by the work. */
+    if (!npl_is_false(npl_vthread_current()))
+        fail("blocking work ran on a carrier instead of a helper");
+    for (int i = 0; i < 16; i++)
+        (void)npl_cons(npl_fixnum(i), environment);
+    NplVal result = npl_fixnum(700 + (int)npl_fixnum_value(environment));
+    npl_tail_request_closure(argv[0], 1, &result);
+    return npl_nil();
+}
+
+static NplVal async_after(NplVal environment, int64_t argc, NplVal *argv)
+{
+    (void)argc;
+    int index = (int)npl_fixnum_value(environment);
+    if (!npl_is_fixnum(argv[0]) || npl_fixnum_value(argv[0]) != 700 + index)
+        fail("helper work result was not delivered to the virtual thread");
+    NplVal root = npl_vthread_root();
+    npl_tail_request_closure(root, 1, &argv[0]);
+    return npl_nil();
+}
+
+static NplVal async_thunk(NplVal environment, int64_t argc, NplVal *argv)
+{
+    (void)argc;
+    (void)argv;
+    NplVal work = npl_make_closure(async_work, environment, 1);
+    NplVal after = npl_make_closure(async_after, environment, 1);
+    npl_vthread_await(work, after);
+    return npl_nil();
+}
+
 int main(int argc, char **argv)
 {
     int carriers = (argc > 1) ? atoi(argv[1]) : 1;
@@ -197,6 +234,32 @@ int main(int argc, char **argv)
         for (int i = 0; i < NTHREADS; i++)
             if (g_order[i] != i)
                 fail("virtual threads did not round-robin on one carrier");
+    }
+
+    /* Phase 2: await a synchronous blocking thunk on a helper worker. The
+     * collector thread is still running, so concurrent GC covers the helper
+     * trampolines and the suspended tokens too. */
+    g_order_count = 0;
+    for (int i = 0; i < NTHREADS; i++) {
+        g_progress[i] = 0;
+        NplVal environment = npl_fixnum(i);
+        NplVal procedure = npl_make_closure(async_thunk, environment, 1);
+        g_vts[i] = npl_vthread_make(procedure, npl_false(), npl_nil());
+        npl_vthread_start(g_vts[i]);
+    }
+    for (int i = 0; i < NTHREADS; i++) {
+        NplVal result = npl_vthread_join(g_vts[i]);
+        if (!npl_is_fixnum(result) || npl_fixnum_value(result) != 700 + i)
+            fail("async work result");
+        if (!npl_is_false(npl_vthread_end_exception(g_vts[i])))
+            fail("async end-exception");
+        if (npl_vthread_park_count(g_vts[i]) != 1)
+            fail("async park count");
+        if (npl_vthread_resume_count(g_vts[i]) != 1)
+            fail("async one-shot resume count");
+        int async_expected = carriers > 1 ? 1 : 0;
+        if (npl_vthread_migration_count(g_vts[i]) != async_expected)
+            fail("async migration count");
     }
 
     g_gc_done = 1;

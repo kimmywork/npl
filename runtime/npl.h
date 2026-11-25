@@ -881,10 +881,12 @@ NplVal npl_clone_parameter_bindings(NplVal chain);
 void npl_relocalize_parameter_bindings(NplVal chain);
 /* T2b: heap-rooted suspended scheduler tokens (virtual-thread.c). */
 void npl_virtual_thread_mark_roots(void);
-/* T2b: control-transfer intrinsic emitted by the backend in tail position.
- * Stores the raw CPS continuation and returns WITHOUT a tail request, so the
- * trampoline breaks and the carrier loop regains control. */
+/* T2b: control-transfer intrinsics emitted by the backend in tail position.
+ * They store the raw CPS continuation and return WITHOUT a tail request, so
+ * the trampoline breaks and the carrier loop regains control. Await also
+ * submits the work thunk to the helper-worker pool. */
 void npl_vthread_park(NplVal continuation);
+void npl_vthread_await(NplVal work, NplVal continuation);
 /* Parameter object application in CPS (control.c, trampoline.c). */
 void npl_parameter_dispatch(NplVal parameter, int64_t argc, NplVal *argv);
 void npl_control_mark_roots(void);

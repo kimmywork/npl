@@ -17,6 +17,11 @@
  * and is cleared as soon as a carrier mounts it. On a cross-carrier mount the
  * saved parameter bindings are re-stamped for the new carrier's ownership.
  *
+ * A virtual thread that must block submits work to a helper-worker pool and
+ * parks (npl_vthread_await). The helper runs the synchronous operation on its
+ * own pthread/C stack and re-enqueues the virtual thread with the result, so
+ * no carrier is blocked and the suspended virtual thread retains no C frame.
+ *
  * Work stealing (moving work between the per-carrier queues) and a
  * CPU-derived carrier count are later tuning; set_carriers() selects M.
  */
@@ -69,6 +74,21 @@ static int g_carrier_count = 2;
 static pthread_t *g_carrier_handles;
 static pthread_once_t g_carrier_once = PTHREAD_ONCE_INIT;
 
+/* ---- helper-worker pool for synchronous blocking work ----
+ *
+ * Work items are virtual-thread records (their `work` field holds the thunk).
+ * The records are already in g_all / marked, so the helper queue needs no
+ * separate GC root. A helper is a normal attached mutator; it parks with
+ * npl_gc_block_begin/end while idle. */
+#define NPL_VTHREAD_HELPERS 2
+static NplVirtualThread *g_work_head;
+static NplVirtualThread *g_work_tail;
+static pthread_mutex_t g_helper_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_helper_cond = PTHREAD_COND_INITIALIZER;
+static pthread_t g_helper_handles[NPL_VTHREAD_HELPERS];
+static int g_helpers_started;
+static int g_helper_shutdown;
+
 void npl_virtual_thread_mark_roots(void)
 {
     for (int i = 0; i < g_all_count; i++)
@@ -116,6 +136,24 @@ static NplVirtualThread *dequeue_from(int index)
     if (!vt) return NULL;
     queue->head = vt->queue_next;
     if (!queue->head) queue->tail = NULL;
+    vt->queue_next = NULL;
+    return vt;
+}
+
+static void helper_enqueue(NplVirtualThread *vt)
+{
+    vt->queue_next = NULL;
+    if (g_work_tail) g_work_tail->queue_next = vt;
+    else g_work_head = vt;
+    g_work_tail = vt;
+}
+
+static NplVirtualThread *helper_dequeue(void)
+{
+    NplVirtualThread *vt = g_work_head;
+    if (!vt) return NULL;
+    g_work_head = vt->queue_next;
+    if (!g_work_head) g_work_tail = NULL;
     vt->queue_next = NULL;
     return vt;
 }
@@ -210,6 +248,22 @@ static NplVal vthread_uncaught(NplVal environment, int64_t argc, NplVal *argv)
     return npl_nil();
 }
 
+/* Completion of a synchronous work thunk on a helper pthread. It stores the
+ * result and returns the virtual thread to the NEXT carrier queue, so the
+ * await resumes as a normal (possibly migrated) scheduler token. */
+static NplVal helper_done(NplVal environment, int64_t argc, NplVal *argv)
+{
+    (void)argc;
+    NplVirtualThread *vt = (NplVirtualThread *)npl_header(environment);
+    set_field(vt, &vt->resume_value, argv[0]);
+    set_field(vt, &vt->work, npl_nil());
+    pthread_mutex_lock(&g_lock);
+    enqueue_to(vt, (vt->carrier_index + 1) % g_queues_count);
+    pthread_cond_broadcast(&g_cond);
+    pthread_mutex_unlock(&g_lock);
+    return npl_nil();   /* ends the helper's trampoline */
+}
+
 /* ---- public C API ---- */
 
 NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
@@ -227,6 +281,8 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
     vt->thunk = thunk;
     vt->root = npl_nil();
     vt->continuation = npl_nil();
+    vt->work = npl_nil();
+    vt->resume_value = npl_unspecified();
     vt->wind = npl_nil();
     vt->handler = npl_nil();
     vt->parameters = parameters;
@@ -323,6 +379,7 @@ void npl_vthread_park(NplVal continuation)
                             "invalid scheduler continuation", continuation);
 
     set_field(vt, &vt->continuation, continuation);
+    set_field(vt, &vt->resume_value, npl_unspecified());
     save_state(vt);
     pthread_mutex_lock(&g_lock);
     vt->state = NPL_VTHREAD_SUSPENDED;
@@ -336,7 +393,49 @@ void npl_vthread_park(NplVal continuation)
     /* Deliberately no npl_tail_request: the trampoline breaks. */
 }
 
+/* T2b final increment: park a virtual thread until a synchronous blocking
+ * operation completes on a helper pthread. `work` is a 0-argument thunk;
+ * `continuation` is the raw CPS continuation of the virtual thread. Outside a
+ * virtual thread the work runs synchronously (no substrate involved). */
+void npl_vthread_await(NplVal work, NplVal continuation)
+{
+    NplVirtualThread *vt = (NplVirtualThread *)CTX->logical_thread;
+    if (!vt) {
+        npl_tail_request_closure(work, 1, &continuation);
+        return;
+    }
+    if (vt->state != NPL_VTHREAD_RUNNING)
+        npl_primitive_error("virtual-thread-block!",
+                            "no active virtual thread", npl_nil());
+    if (!npl_is_nil(vt->continuation))
+        npl_primitive_error("virtual-thread-block!",
+                            "scheduler continuation already suspended",
+                            npl_nil());
+    if (!tagged(work, BOX_CLOSURE))
+        npl_primitive_error("virtual-thread-block!", "expected a procedure",
+                            work);
+    if (!tagged(continuation, BOX_CLOSURE))
+        npl_primitive_error("virtual-thread-block!",
+                            "invalid scheduler continuation", continuation);
+
+    set_field(vt, &vt->continuation, continuation);
+    set_field(vt, &vt->work, work);
+    set_field(vt, &vt->resume_value, npl_unspecified());
+    save_state(vt);
+    pthread_mutex_lock(&g_lock);
+    vt->state = NPL_VTHREAD_SUSPENDED;
+    vt->park_count++;
+    pthread_mutex_unlock(&g_lock);
+    pthread_mutex_lock(&g_helper_lock);
+    helper_enqueue(vt);
+    pthread_cond_broadcast(&g_helper_cond);
+    pthread_mutex_unlock(&g_helper_lock);
+    CTX->logical_thread = NULL;
+    /* Deliberately no npl_tail_request: the carrier loop regains control. */
+}
+
 static void *carrier_entry(void *argument);
+static void *helper_entry(void *argument);
 
 static void start_carriers(void)
 {
@@ -354,6 +453,14 @@ static void start_carriers(void)
             exit(1);
         }
     }
+    for (int i = 0; i < NPL_VTHREAD_HELPERS; i++) {
+        if (pthread_create(&g_helper_handles[i], NULL,
+                           helper_entry, NULL) != 0) {
+            fprintf(stderr, "virtual thread: cannot start helper\n");
+            exit(1);
+        }
+    }
+    g_helpers_started = 1;
 }
 
 NplVal npl_vthread_start(NplVal value)
@@ -409,6 +516,17 @@ void npl_virtual_thread_shutdown(void)
     g_shutdown = 1;
     pthread_cond_broadcast(&g_cond);
     pthread_mutex_unlock(&g_lock);
+    pthread_mutex_lock(&g_helper_lock);
+    g_helper_shutdown = 1;
+    pthread_cond_broadcast(&g_helper_cond);
+    pthread_mutex_unlock(&g_helper_lock);
+    if (g_helpers_started) {
+        npl_gc_exclude();
+        for (int i = 0; i < NPL_VTHREAD_HELPERS; i++)
+            (void)pthread_join(g_helper_handles[i], NULL);
+        npl_gc_include();
+        g_helpers_started = 0;
+    }
     if (g_carrier_handles) {
         /* pthread_join is an unwrapped C wait with no poll site. */
         npl_gc_exclude();
@@ -421,6 +539,50 @@ void npl_virtual_thread_shutdown(void)
     free(g_queues);
     g_queues = NULL;
     g_queues_count = 0;
+}
+
+/* ---- the helper-worker loop ---- */
+
+static void *helper_entry(void *argument)
+{
+    (void)argument;
+    uintptr_t marker = 0;
+    (void)npl_thread_attach_exact(
+        (uintptr_t)(void *)&marker + sizeof(marker));
+    /* Publish a bound that covers the pthread start frames above us, so a
+     * collection scans this helper's whole C stack while it runs a thunk. */
+    (void)npl_gc_swap_stack_bottom(
+        (uintptr_t)(void *)&marker + 4096);
+
+    for (;;) {
+        npl_gc_block_begin();
+        pthread_mutex_lock(&g_helper_lock);
+        while (!g_work_head && !g_helper_shutdown)
+            pthread_cond_wait(&g_helper_cond, &g_helper_lock);
+        NplVirtualThread *vt = g_helper_shutdown ? NULL : helper_dequeue();
+        pthread_mutex_unlock(&g_helper_lock);
+        npl_gc_block_end();
+        if (!vt) break;
+
+        if (!tagged(vt->work, BOX_CLOSURE)) {
+            fprintf(stderr,
+                    "virtual thread: invalid await work thunk\n");
+            exit(1);
+        }
+        NplVal done = npl_make_closure(helper_done, boxed(vt), 1);
+        /* Root the completion closure for the whole trampoline run: it is
+         * the work thunk's trailing continuation and must survive any GC
+         * triggered by the concurrent collector. */
+        npl_gc_root(&done);
+        NplVal argv[1] = { done };
+        /* The thunk runs on this helper's own trampoline/C stack. No carrier
+         * is blocked and the suspended virtual thread retains no C frame. */
+        (void)npl_apply(vt->work, 1, argv);
+        npl_gc_unroot(&done);
+    }
+
+    npl_thread_detach();
+    return NULL;
 }
 
 /* ---- the carrier loop ---- */
@@ -478,7 +640,10 @@ static void *carrier_entry(void *argument)
             vt->continuation = npl_nil();
             vt->resume_count++;
             restore_state(vt);
-            argv[0] = npl_unspecified();
+            /* A yield resumes with an unspecified value; an await resumes
+             * with the helper's work result. */
+            argv[0] = vt->resume_value;
+            vt->resume_value = npl_nil();
             (void)npl_apply(token, 1, argv);
         }
         /* npl_apply returned: either a yield (park saved the state) or the

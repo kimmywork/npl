@@ -6,14 +6,19 @@
 ;; objects, so no carrier is blocked and no C stack frame is retained.
 ;; Native SRFI 18 threads remain 1:1 and coexist with virtual threads.
 ;;
-;; virtual-thread-yield! is a control operator (like call/cc), not a C
-;; primitive: it hands the raw current continuation to the scheduler. It is
-;; imported from (npl internal primitive) and re-exported here.
+;; virtual-thread-yield! / virtual-thread-block! are control operators (like
+;; call/cc), not C primitives: they hand the raw current continuation to the
+;; scheduler. They are imported from (npl internal primitive) and re-exported
+;; here. virtual-thread-block! runs a synchronous blocking thunk on a helper
+;; worker and parks the virtual thread until the result is ready.
 (define-library (npl thread virtual)
   (export virtual-thread? make-virtual-thread virtual-thread-start!
-          virtual-thread-yield! virtual-thread-join! current-virtual-thread)
+          virtual-thread-yield! virtual-thread-join! current-virtual-thread
+          virtual-thread-block! virtual-thread-sleep!)
   (import (scheme base)
-          (only (npl internal primitive) virtual-thread-yield!))
+          (only (npl internal primitive)
+                virtual-thread-yield! virtual-thread-block!)
+          (only (npl thread) thread-sleep!))
   (begin
     (define-c-primitive (%vthread-make (thunk any) (name any) (params any)) any
       "npl_vthread_make")
@@ -34,4 +39,12 @@
       (%vthread-start thread))
 
     (define (virtual-thread-join! thread)
-      (%vthread-join thread))))
+      (%vthread-join thread))
+
+    ;; Synchronous SRFI 18 sleep would block a whole carrier. Wrapping it
+    ;; in virtual-thread-block! moves the wait to a helper worker and yields
+    ;; the virtual thread instead. The same wrapper covers mutex/condition
+    ;; waits and blocking I/O thunks.
+    (define (virtual-thread-sleep! timeout)
+      (virtual-thread-block!
+        (lambda () (thread-sleep! timeout))))))

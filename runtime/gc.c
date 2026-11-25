@@ -127,6 +127,8 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(vt->thunk);
             visit(vt->root);
             visit(vt->continuation);
+            visit(vt->work);
+            visit(vt->resume_value);
             visit(vt->wind);
             visit(vt->handler);
             visit(vt->parameters);

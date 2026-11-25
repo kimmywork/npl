@@ -169,8 +169,23 @@ The runtime multiplexes virtual threads over **M carriers**, each with its
 own run queue. A yield hands the virtual thread to the next carrier, so
 suspended work migrates; ownership of the virtual thread's parameter bindings
 is re-stamped on each cross-carrier mount, keeping in-place
-`parameter-set!` semantics. The default is two carriers. Work stealing
-between carrier queues, a CPU-derived carrier count, and yielding variants
-of blocking primitives are later tuning. Virtual-thread behaviour is
-accepted by native tests with one and four carriers; the evaluator (`npli`)
-does not provide a carrier scheduler surface.
+`parameter-set!` semantics. The default is two carriers.
+
+A synchronous blocking call must not block a carrier. `virtual-thread-block!`
+parks the virtual thread and runs a thunk on a helper worker; when the work
+finishes, the virtual thread resumes on the next carrier with its result:
+
+```scheme
+(virtual-thread-block! (lambda () (thread-sleep! 0.1)))
+```
+
+`virtual-thread-sleep!` is the convenience wrapper for SRFI 18
+`thread-sleep!`; mutex/condition waits and blocking I/O thunks can be
+wrapped the same way. The thunk runs on a helper with its own dynamic state,
+so pass values explicitly as arguments; SRFI 18 mutex ownership inside a
+helper is a known limitation. Native SRFI 18 threads are unaffected.
+
+Work stealing between carrier queues and a CPU-derived carrier count are
+later tuning. Virtual-thread behaviour is accepted by native tests with one
+and four carriers; the evaluator (`npli`) does not provide a carrier
+scheduler surface.

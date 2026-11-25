@@ -644,8 +644,49 @@ of suspended tokens. The NPL unit test was made race-free (workers return
 their own observations; no shared mutable log or global ordering assertion)
 so M carriers cannot make it flaky.
 
-Work stealing between the per-carrier queues, a CPU-derived carrier count,
-and yielding variants of blocking primitives remain later tuning.
+### Increment D — yielding blocking primitives (async completion)
+
+A synchronous C primitive cannot suspend a virtual thread (it never receives
+a continuation) and must not block a carrier while retaining a C frame.
+T2b therefore uses a **helper-worker pool**: `npl_vthread_await(work,
+continuation)` stores the raw CPS continuation, saves the dynamic state and
+submits the work thunk to a helper queue instead of a carrier queue. A helper
+pthread runs `npl_apply(work, 1, [helper_done])` on its own trampoline/C
+stack; `helper_done` stores the result and re-enqueues the virtual thread to
+the next carrier queue, where it resumes with that result. No carrier is
+blocked, and the suspended virtual thread retains no C frame.
+
+`virtual-thread-block!` is a control-transfer form alongside
+`virtual-thread-yield!`: `control.npl` lowers it to
+`(_npl_vthread_await <thunk> <current-k>)` and `tail.npl` emits
+`call $npl_vthread_await(l work, l K); ret 2` with no tail request.
+Outside a virtual thread the runtime runs the thunk synchronously.
+`(npl thread virtual)` re-exports the operator (via `(npl internal
+primitive)`) and adds `virtual-thread-sleep!`, which wraps the SRFI 18
+`thread-sleep!` in a thunk. Mutex/condition waits and blocking I/O can be
+wrapped the same way. Native SRFI 18 exports are deliberately untouched: a
+change to `(npl thread)` would be visible to npli and break the
+differential fixture, which has no carrier scheduler surface.
+
+Work thunks run on helpers with their own dynamic state, so a thunk should
+receive what it needs as arguments rather than rely on the virtual thread's
+parameters; SRFI 18 mutex ownership inside a helper is a known limitation.
+The helper's stack is published via `npl_thread_attach_exact` plus
+`npl_gc_swap_stack_bottom`; idle helpers park with
+`npl_gc_block_begin/end`, and the completion closure is explicitly rooted
+for the whole trampoline run.
+
+Acceptance: `runtime/virtual_thread_test.c` gained an async phase run under
+1 and 4 carriers with a concurrent collector and a 64 KiB nursery. It
+asserts that the work thunk ran with no virtual thread mounted (i.e. on a
+helper), that the result was delivered, and the exact park/resume/migration
+counts. `tests/unit/virtual-threads.npl` asserts `virtual-thread-block!`
+and `virtual-thread-sleep!`, with `await` intrinsics visible in the emitted
+SSA. The `src/compiler/**` change was re-seeded (352,219 lines, SHA
+`1674d349…`), fixed point PASS.
+
+Work stealing between the per-carrier queues and a CPU-derived carrier count
+remain later tuning.
 
 ## T3 SRFI 230
 

@@ -100,7 +100,8 @@
                       (if (string=? name "with-exception-handler") #t
                           (if (string=? name "raise") #t
                               (if (string=? name "raise-continuable") #t
-                                  (string=? name "virtual-thread-yield!"))))))))))
+                                  (if (string=? name "virtual-thread-yield!") #t
+                                      (string=? name "virtual-thread-block!")))))))))))
 
 (define (control-transfer-procedure name)
   (let ((arguments (control-symbol (control-fresh-name "_npl_arguments_"))))
@@ -409,6 +410,26 @@
   (cons (control-symbol "_npl_vthread_park")
         (cons continuation ())))
 
+; T2b: virtual-thread-block! parks the virtual thread until a synchronous
+; blocking thunk has run on a helper worker. Like yield it hands over the RAW
+; CPS continuation; unlike yield it does not immediately re-enqueue, the helper
+; re-enqueues with the work result. Outside a virtual thread the runtime runs
+; the thunk synchronously.
+(define (control-vthread-block-name? head)
+  (if (sym-atom? head)
+      (string=? (cdr head) "virtual-thread-block!")
+      #f))
+
+(define (control-cps-vthread-block application continuation)
+  (if (not (= (count-up (cdr application) 0) 1))
+      (fatal "virtual-thread-block! needs one thunk"))
+  (control-evaluate-list
+    (cdr application) ()
+    (lambda (works)
+      (cons (control-symbol "_npl_vthread_await")
+        (cons (car works)
+          (cons continuation ()))))))
+
 (define (control-cps-dynamic-wind application continuation)
   (if (not (= (count-up (cdr application) 0) 3))
       (fatal "dynamic-wind needs before, thunk, and after"))
@@ -526,6 +547,9 @@
                             (if (control-vthread-yield-name? head)
                                 (control-cps-vthread-yield
                                   application continuation)
+                            (if (control-vthread-block-name? head)
+                                (control-cps-vthread-block
+                                  application continuation)
                             (if (if (sym-atom? head)
                                     (string=? (cdr head) "call-with-values")
                                     #f)
@@ -553,7 +577,7 @@
                                                     (control-symbol
                                                       callee-name)
                                                     (cdr application)
-                                                    continuation))))))))))))))))))
+                                                    continuation)))))))))))))))))))
 
 (define (control-cps-if-branches test expression continuation)
   (cons 213

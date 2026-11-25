@@ -1,4 +1,5 @@
-; T2b: (npl thread virtual) public API and one-shot scheduler continuation.
+; T2b: (npl thread virtual) public API, one-shot scheduler continuation and
+; the async helper-worker completion path.
 ;
 ; Native-only: the differential fixture runner compares nplc and npli output,
 ; but a virtual-thread scheduler has no evaluator surface. Single-thread
@@ -20,12 +21,17 @@
 
 (define (worker index)
   (let ((first (current-virtual-thread)))
-    (virtual-thread-yield!)
-    (let ((second (current-virtual-thread)))
+    ; The thunk runs on a helper worker; the virtual thread is parked until
+    ; the result is ready, so no carrier is blocked.
+    (let ((blocked (virtual-thread-block! (lambda () (+ index 100)))))
+      (virtual-thread-sleep! 0)
       (virtual-thread-yield!)
-      (list index
-            (and (virtual-thread? first) (virtual-thread? second))
-            (virtual-thread? (current-virtual-thread))))))
+      (let ((second (current-virtual-thread)))
+        (virtual-thread-yield!)
+        (list index
+              (and (virtual-thread? first) (virtual-thread? second))
+              (virtual-thread? (current-virtual-thread))
+              blocked)))))
 
 (define vt0 (make-virtual-thread (lambda () (worker 0)) 'a))
 (define vt1 (make-virtual-thread (lambda () (worker 1)) 'b))
@@ -37,6 +43,8 @@
 (check 'virtual-thread? #f (virtual-thread? 42))
 (check 'current-virtual-thread #f (current-virtual-thread))
 (check 'virtual-thread-yield! #t (procedure? virtual-thread-yield!))
+(check 'virtual-thread-block! #t (procedure? virtual-thread-block!))
+(check 'virtual-thread-sleep! #t (procedure? virtual-thread-sleep!))
 
 (virtual-thread-start! vt0)
 (virtual-thread-start! vt1)
@@ -44,7 +52,7 @@
 (check 'virtual-thread-start! #t (virtual-thread? vt0))
 
 (check 'virtual-thread-join!
-       '((0 #t #t) (1 #t #t) (2 #t #t))
+       '((0 #t #t 100) (1 #t #t 101) (2 #t #t 102))
        (list (virtual-thread-join! vt0)
              (virtual-thread-join! vt1)
              (virtual-thread-join! vt2)))

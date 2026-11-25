@@ -84,6 +84,8 @@ typedef struct NplVirtualThread {
     NplVal thunk;              /* initial CPS thunk (arity 1: trailing root) */
     NplVal root;               /* private CPS root closure, env = this vt */
     NplVal continuation;       /* one-shot suspended CPS continuation, or nil */
+    NplVal work;               /* thunk awaiting a helper worker, or nil */
+    NplVal resume_value;       /* helper result (or unspecified for a yield) */
     /* Saved dynamic environment, owned by the virtual thread, not the carrier. */
     NplVal wind;
     NplVal handler;
