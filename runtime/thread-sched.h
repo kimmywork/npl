@@ -59,6 +59,8 @@ typedef struct {
     int wait_kind;
     void *wait_target;
     int has_native;            /* pthread_create succeeded */
+    int registered;            /* thread_entry published its context root */
+    NplThreadContext *context; /* owner context, for cancellation wakeups */
 } NplThread;
 
 typedef struct {
@@ -134,7 +136,25 @@ NplVal npl_terminated_thread_exception_p(NplVal value);
 NplVal npl_uncaught_exception_p(NplVal value);
 NplVal npl_uncaught_exception_reason(NplVal value);
 
-/* Scheduler lifetime helpers used by thread-sched.c / thread-sync.c. */
+/* Thread lifecycle and synchronization primitives (thread-lifecycle.c). */
+NplVal npl_thread_make_prim(NplVal thunk, NplVal name);
+NplVal npl_thread_current(void);
+NplVal npl_thread_start(NplVal value);
+NplVal npl_thread_join(NplVal value, NplVal timeout, NplVal timeout_val,
+                       NplVal supplied);
+NplVal npl_thread_yield(void);
+NplVal npl_thread_sleep(NplVal timeout);
+NplVal npl_thread_terminate(NplVal value);
+NplVal npl_mutex_make_prim(NplVal name);
+NplVal npl_condvar_make_prim(NplVal name);
+NplVal npl_mutex_lock(NplVal value, NplVal timeout, NplVal thread_value,
+                      NplVal supplied);
+NplVal npl_mutex_unlock(NplVal value, NplVal condvar_value, NplVal timeout,
+                        NplVal supplied);
+NplVal npl_condvar_signal(NplVal value);
+NplVal npl_condvar_broadcast(NplVal value);
+
+/* Scheduler lifetime helpers used by thread-sched.c / thread-lifecycle.c. */
 void npl_sched_wake_all(void);
 void npl_sched_abandon_mutexes(NplThread *thread);
 void npl_sched_finish(NplThread *thread, int terminated);
