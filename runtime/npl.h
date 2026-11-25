@@ -672,7 +672,10 @@ extern uintptr_t npl_opaque_zero;
 /* World-stop flag read by generated safepoint polls (program.npl). The
  * executable owns the slot; the coordinator sets it when a collection asks
  * every mutator to publish its context and park. */
-extern volatile uintptr_t npl_gc_stop_requested;
+/* C accesses use __atomic_load_n/__atomic_store_n. Generated QBE polls read
+ * this naturally aligned word directly; target word loads/stores are
+ * single-copy atomic, preserving the one-load common poll path. */
+extern uintptr_t npl_gc_stop_requested;
 
 /* Garbage collection */
 void npl_gc_collect(void);

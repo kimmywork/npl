@@ -354,9 +354,13 @@
                          ; for a zero increment. nice reports that as a
                          ; POSIX permission error; accept it as well as the
                          ; normal integer result, but reject other errors.
-                         (let ((name (error-name (lambda () (nice 0)))))
-                           (or (eq? name 'no-error)
-                               (and (memq name '(EPERM EACCES)) #t))))
+                         (guard (condition
+                                 ((posix-error? condition)
+                                  (and (memq (posix-error-name condition)
+                                             '(EPERM EACCES))
+                                       #t))
+                                 (else #f))
+                           (integer? (nice 0))))
                        #t)
         ; Numeric arguments are validated before any C call (R3).
         (test-identity "set-file-mode rejects a symbol"

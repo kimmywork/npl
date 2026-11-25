@@ -199,6 +199,41 @@ static NplVal cache_find(NplVal cache, NplVal src)
     return npl_nil();
 }
 
+/* A continuation may be re-entered on the same destination thread after its
+ * localized parameter bindings have been mutated. Seed the next transfer's
+ * cache from those existing extent mappings so source bindings resolve to
+ * the same destination nodes. The wind frames retain the source extent key
+ * and source chain needed to pair each binding with its localized copy. */
+static void seed_extent_cache(NplVal target, NplVal *cache)
+{
+    for (NplVal frame_value = target; !npl_is_nil(frame_value);) {
+        NplWindFrame *frame =
+            require_wind_frame(frame_value, "continuation");
+        NplVal key = frame->extent_key;
+        if (!npl_is_nil(key)) {
+            NplVal entry = extent_lookup(key);
+            if (!npl_is_nil(entry)) {
+                NplVal source = frame->parameters;
+                NplVal local = extent_local(entry);
+                uint32_t count = ((NplVector *)npl_header(key))->length;
+                for (uint32_t i = 0; i < count &&
+                     npl_is_ptr(source) &&
+                     npl_header(source)->tag == BOX_PARAMETER_BINDING &&
+                     npl_is_ptr(local) &&
+                     npl_header(local)->tag == BOX_PARAMETER_BINDING; i++) {
+                    if (npl_is_nil(cache_find(*cache, source)))
+                        cache_put(cache, NULL, source, local);
+                    source = ((NplParameterBinding *)
+                        npl_header(source))->parent;
+                    local = ((NplParameterBinding *)
+                        npl_header(local))->parent;
+                }
+            }
+        }
+        frame_value = frame->parent;
+    }
+}
+
 static NplVal make_local_binding(NplVal src, NplVal parent)
 {
     NplParameterBinding *s = (NplParameterBinding *)npl_header(src);
@@ -556,10 +591,11 @@ static void transfer_with_context(NplVal context_value,
      * every binding. install_frame_environment later reuses these copies for
      * the wind frames, so shared bindings are not cloned twice. */
     NplVal cache = npl_nil();
+    seed_extent_cache(target, &cache);
     NplVal ignored_baseline;
     int reuse_source = binding_chain_owned(context->parameters);
     NplVal target_parameters = localize_cached_chain(
-        context->parameters, &cache, NULL, 1, reuse_source,
+        context->parameters, &cache, NULL, 0, reuse_source,
         0, &ignored_baseline);
     NplVal target_handler = localize_handler(context->handler);
 

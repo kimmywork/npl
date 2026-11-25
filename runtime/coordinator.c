@@ -50,7 +50,9 @@ static int g_cancel_pending = 0;
 
 static void refresh_stop_flag(void)
 {
-    npl_gc_stop_requested = (g_stop_requested || g_cancel_pending > 0) ? 1 : 0;
+    __atomic_store_n(&npl_gc_stop_requested,
+                     (g_stop_requested || g_cancel_pending > 0) ? 1 : 0,
+                     __ATOMIC_RELAXED);
 }
 
 static pthread_mutex_t g_heap_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -149,7 +151,7 @@ void npl_safepoint_poll(void)
          * No coordinator lock is held here. */
         npl_safepoint_cancelled();
     }
-    if (!npl_gc_stop_requested)
+    if (!__atomic_load_n(&npl_gc_stop_requested, __ATOMIC_RELAXED))
         return;
 
     /* marker lives in this frame, which stays live across the condvar wait,

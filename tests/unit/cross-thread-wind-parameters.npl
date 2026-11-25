@@ -28,8 +28,10 @@
       (lambda ()
         (set! phase (+ phase 1))
         ; On the cross-thread re-entry, update the parameter in the before
-        ; thunk. The continuation body must see this value.
-        (if (= phase 2) (p 2))
+        ; thunk. Re-enter the same foreign continuation once more from that
+        ; extent: the second transfer must reuse this destination binding.
+        (if (= phase 2)
+            (begin (p 2) (k 43)))
         (note (list 'before (p))))
       (lambda ()
         (let ((v (call/cc (lambda (c) (set! k c) 0))))
@@ -57,7 +59,7 @@
              (let ((entry (car rest)))
                (if (and (= (length entry) 3)
                         (eq? (car entry) 'body)
-                        (= (car (cdr entry)) 42)
+                        (= (car (cdr entry)) 43)
                         (= (car (cdr (cdr entry))) 2))
                    #t
                    (loop (cdr rest)))))))

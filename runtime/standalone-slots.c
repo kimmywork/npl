@@ -17,4 +17,4 @@
 
 NPL_TLS uintptr_t npl_stack_limit = 0;
 uintptr_t npl_opaque_zero = 0;
-volatile uintptr_t npl_gc_stop_requested = 0;
+uintptr_t npl_gc_stop_requested = 0;
