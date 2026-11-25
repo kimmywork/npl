@@ -5,6 +5,19 @@
 #include <stddef.h>
 #include <stdio.h>
 
+/* Native thread-local storage.  Runtime C is C99, so use the checked
+ * __thread compiler extension (Clang/GCC) rather than requiring C11
+ * _Thread_local; the compiler is verified at build time.  pthread keys back
+ * an alternative accessor only when a target lacks a proven direct TLS path.
+ * The QBE-generated executable defines the npl_stack_limit TLS slot; the
+ * runtime and every native package reach that one slot through this
+ * declaration, never through an independent copy. */
+#if defined(__clang__) || defined(__GNUC__)
+#define NPL_TLS __thread
+#else
+#error "NPL requires a C99 thread-local storage extension (__thread)"
+#endif
+
 /*
  * NPL Runtime — Value representation and core types.
  *
@@ -177,6 +190,11 @@ typedef struct {
     NplVal parent;
     NplVal parameter;
     NplVal value;
+    /* Native context that created this binding.  A thread may mutate a
+     * binding it owns in place (continuation re-entry semantics); a binding
+     * owned by another thread must be shadowed by a fresh copy instead of
+     * written, so parameter-set! cannot leak across threads (T1.3). */
+    uintptr_t owner;
 } NplParameterBinding;
 
 typedef struct {
@@ -580,8 +598,10 @@ void npl_tail_request(NplGenericFunction function, NplVal environment,
 NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
                      int64_t argc, NplVal *argv);
 /* Direct entries of compiled functions run their CPS entry through
- * npl_direct_fallback below this stack address (stack.c). */
-extern uintptr_t npl_stack_limit;
+ * npl_direct_fallback below this stack address (stack.c).  This is a native
+ * TLS slot: generated code loads it with QBE `thread $npl_stack_limit`, so
+ * each OS thread has its own C-stack window.  The executable owns the slot. */
+extern NPL_TLS uintptr_t npl_stack_limit;
 void npl_stack_init_internal(uintptr_t base);
 /* An exact integer from base-10^9 limbs, least significant first; a
  * fixnum when it fits (numeric.c; number_read.c builds integers with it). */
@@ -604,10 +624,38 @@ NplVal npl_raise_direct(NplVal object);
  * with it, so QBE does not keep the loop variables in the argument
  * registers (backend/program.npl emit-direct-function). */
 extern uintptr_t npl_opaque_zero;
+/* World-stop flag read by generated safepoint polls (program.npl). The
+ * executable owns the slot; the coordinator sets it when a collection asks
+ * every mutator to publish its context and park. */
+extern volatile uintptr_t npl_gc_stop_requested;
 
 /* Garbage collection */
 void npl_gc_collect(void);
 void npl_gc_maybe_collect(void);
+
+/* ---- T1.3 stop-the-world coordinator (runtime/coordinator.c) ----
+ * The coordinator lock is separate from the heap mutex: a collector never
+ * waits for mutators to park while holding a mutex a mutator needs to reach
+ * a safepoint. Generated polls call npl_safepoint_poll(); the collector
+ * brackets mark/sweep with npl_gc_stop_world / npl_gc_start_world. */
+void npl_safepoint_poll(void);
+void npl_gc_stop_world(void);
+void npl_gc_start_world(void);
+void npl_gc_mark_parked_stacks(void);
+void npl_heap_lock(void);
+void npl_heap_unlock(void);
+/* An unwrapped C call keeps GC excluded; a wrapped blocking call publishes
+ * its snapshot and parks before it releases exclusion. */
+void npl_gc_exclude(void);
+void npl_gc_include(void);
+void npl_gc_block_begin(void);
+void npl_gc_block_end(void);
+int npl_try_collect_lock(void);
+void npl_collect_unlock(void);
+void npl_gc_mark_words_internal(uintptr_t begin, uintptr_t end);
+/* Cooperative cancellation, observed at the same polls. */
+void npl_thread_request_cancel(void *context);
+int npl_thread_cancel_pending(void);
 
 /* Register a GC root (global variable, stack slot, etc.) */
 void npl_gc_root(NplVal *root);

@@ -8,6 +8,7 @@
 
 #include "npl.h"
 #include <setjmp.h>
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -41,6 +42,13 @@ static void mark_words(uintptr_t begin, uintptr_t end)
         memcpy(&candidate, (const void *)address, sizeof(candidate));
         npl_gc_mark_candidate_internal((NplVal)candidate);
     }
+}
+
+/* The T1.3 coordinator uses this to scan a parked mutator's C stack and
+ * register snapshot with the collector's own conservative word scan. */
+void npl_gc_mark_words_internal(uintptr_t begin, uintptr_t end)
+{
+    mark_words(begin, end);
 }
 
 /* Every NplVal field of an object, for marking and barrier verification. */
@@ -208,16 +216,32 @@ static void collect(int minor)
     uintptr_t stack_marker = 0;
     uintptr_t stack_bottom = npl_gc_stack_bottom_internal();
     jmp_buf registers;
-    int verify = verify_due();
+    int verify;
 
+    /* Only one collector at a time.  A losing collector retries at a
+     * safepoint, so it parks instead of blocking unparked on the mutex while
+     * the winner waits for all mutators to park.  Request the world stop
+     * BEFORE the heap lock: a mutator polls before it ever needs the heap
+     * lock, so that wait can never deadlock on the heap mutex. */
+    while (!npl_try_collect_lock()) {
+        npl_safepoint_poll();
+        sched_yield();
+    }
+    npl_gc_stop_world();
+    npl_heap_lock();
+
+    verify = verify_due();
     if (verify) {
         size_t missed = npl_gc_verify_barriers(1);
         if (missed != 0) verify_failed(missed, "missed write barriers");
     }
     npl_gc_begin_internal(minor);
     npl_gc_mark_roots_internal();
+    /* Every other mutator is parked with a published stack pointer and
+     * callee-saved register snapshot; scan those before draining. */
+    npl_gc_mark_parked_stacks();
 
-    /* setjmp materializes callee-saved registers into addressable memory. */
+    /* The collector's own callee-saved registers and C stack. */
     if (setjmp(registers) == 0) {
         uintptr_t reg_begin = (uintptr_t)(const void *)&registers;
         uintptr_t reg_end = reg_begin + sizeof(registers);
@@ -233,6 +257,10 @@ static void collect(int minor)
         size_t dangling = npl_gc_verify_heap_internal();
         if (dangling != 0) verify_failed(dangling, "references to freed objects");
     }
+
+    npl_heap_unlock();
+    npl_gc_start_world();
+    npl_collect_unlock();
 }
 
 void npl_gc_collect(void) { collect(0); }

@@ -265,14 +265,37 @@
 ; The stack check, emitted into the current buffer. slot is the entry's
 ; argument buffer in @start; its address is the stack position. A variadic
 ; entry's fallback spreads the rest list (npl_direct_fallback_rest).
+;
+; T1: npl_stack_limit is a native TLS slot owned by this executable
+; (`export thread data`, emitted by emit-program).  QBE `thread $sym` resolves
+; the current OS thread's copy in ONE IL instruction: no runtime accessor call
+; at each direct entry, so the guard keeps its original emitted-code cost and
+; the compiler emits no extra per-entry helper.  Plain `thread` (local-exec on
+; ELF, TLV on Apple) is valid on every QBE target nplc builds for; `extern
+; thread` (initial-exec, rejected by arm64 ELF / rv64 and unsafe for late
+; dlopen) is not needed because the executable owns the slot.
 (define (emit-direct-guard name ops slot rest)
   (emit-stack-guard (string-append "$" (lookup-func name)) "2" ops slot rest))
+
+; A safepoint poll at every direct procedure entry.  The common path is one
+; global load and a branch; the slow path calls the coordinator, which
+; publishes this thread's stack/register snapshot and parks.  QBE does not
+; lift the load out of a loop, so the same shape is used at backedges
+; (tail.npl emit-self-jump).
+(define (emit-safepoint-poll)
+  (let ((stop (new-tmp)) (poll (new-label)) (resume (new-label)))
+    (func-line (string-append stop " =l loadl $npl_gc_stop_requested"))
+    (func-line (string-append "jnz " stop ", " poll ", " resume))
+    (func-line poll)
+    (func-line "call $npl_safepoint_poll()")
+    (func-line resume)))
 
 ; function and environment: the CPS entry the fallback runs.
 (define (emit-stack-guard function environment ops slot rest)
   (let ((limit (new-tmp)) (below (new-tmp)) (result (new-tmp))
         (fallback (new-label)) (body (new-label)))
-    (func-line (string-append limit " =l loadl $npl_stack_limit"))
+    (emit-safepoint-poll)
+    (func-line (string-append limit " =l loadl thread $npl_stack_limit"))
     (func-line (string-append below " =w cultl " slot ", " limit))
     (func-line (string-append "jnz " below ", " fallback ", " body))
     (func-line fallback)
@@ -434,16 +457,20 @@
       (let ((forms (control-program lowered)))
         (pass-register-globals forms)
         (pass-register-functions forms)
-        ; In shared mode the runtime is a shared object and cannot export a
-        ; data symbol that generated code addresses directly.  The executable
-        ; owns the slot; the shared runtime resolves it at load time.
-        (if (native-package-shared?)
-            (begin
-              (data-line "export")
-              (data-line "$npl_stack_limit = { l 0 }")
-              (data-line "export")
-              (data-line "$npl_opaque_zero = { l 0 }"))
-            #f)
+        ; T1: the executable owns both direct-entry slots in EVERY link mode.
+        ; npl_stack_limit is a `thread data` TLS slot (one per OS thread);
+        ; npl_opaque_zero stays a process-wide immutable zero.  The runtime
+        ; declares both extern in npl.h and native packages reach the same
+        ; slots, so static, shared, and npli builds have one identity and the
+        ; backend has no link-mode special case here.  C-only harnesses link
+        ; runtime/standalone-slots.c instead.
+        (data-line "export thread data $npl_stack_limit = { l 0 }")
+        (data-line "export data $npl_opaque_zero = { l 0 }")
+        ; T1.3: one process-wide world-stop flag read by generated polls.
+        ; The coordinator sets it when a collection asks mutators to publish
+        ; their context and park; a plain global load keeps the fast path to
+        ; one instruction (QBE does not hoist it out of a loop).
+        (data-line "export data $npl_gc_stop_requested = { l 0 }")
         (emit-all-forms forms)
         (dump-and-print)))))
 

@@ -13,9 +13,16 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts >/dev/null
+ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts thread_test safepoint_test >/dev/null
 # zlib is optional; the target exists only when CMake found the library.
 ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
+
+# T1 acceptance: native TLS current context, per-thread stack limits and
+# dynamic state, explicit attach/detach, and GC visibility of every context.
+"$BUILD/runtime/thread_test"
+# T1.3 acceptance: concurrent mutators, world-stop park/resume, parked
+# thread stack/register scanning, cancellation, blocking/exclusion.
+"$BUILD/runtime/safepoint_test"
 
 EXTRA_NATIVE=()
 EXTRA_LIBS=()
@@ -340,7 +347,14 @@ direct_function() {
         "$WORK/direct-calls.ssa"
 }
 direct_function _npl_dfn_fib | grep -qF 'call $_npl_dfn_fib(l '
-direct_function _npl_dfn_fib | grep -qF 'loadl $npl_stack_limit'
+# T1: the guard reads the executable-owned TLS slot directly (one IL line),
+# not a global or a runtime accessor call.
+direct_function _npl_dfn_fib | grep -qF 'loadl thread $npl_stack_limit'
+grep -qF 'export thread data $npl_stack_limit = { l 0 }' "$WORK/direct-calls.ssa"
+grep -qF 'export data $npl_opaque_zero = { l 0 }' "$WORK/direct-calls.ssa"
+# T1.3: the world-stop slot and a poll at every direct entry.
+grep -qF 'export data $npl_gc_stop_requested = { l 0 }' "$WORK/direct-calls.ssa"
+direct_function _npl_dfn_fib | grep -qF 'call $npl_safepoint_poll()'
 # The CPS entry is the stack-limit fallback: it must not re-enter fib's
 # direct entry. Other direct entries (library procedures in numeric slow
 # paths) check the stack themselves.

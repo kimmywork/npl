@@ -26,11 +26,17 @@
  */
 
 #include "npl.h"
+#include "thread.h"
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
+
+/* Per-thread state (roots and the conservative stack bound) lives in the
+ * current native context; heap metadata below stays process-wide. */
+#define CTX npl_ctx()
 
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
@@ -43,7 +49,6 @@
 #define NPL_ALIGN      16u
 #define NPL_META_MAGIC_LIVE UINT64_C(0x4e504c4d45544131)
 #define NPL_META_MAGIC_FREE UINT64_C(0x4e504c4d45544130)
-#define NPL_ROOTS_INITIAL 256
 #define NPL_CHUNK_INDEX_SHIFT 20
 #define NPL_CHUNK_INDEX_BUCKETS 65536
 #define NPL_FREE_EXACT_BINS 128
@@ -96,11 +101,10 @@ static size_t g_threshold = NPL_GC_MIN_THRESHOLD;
 static size_t g_min_threshold = NPL_GC_MIN_THRESHOLD;
 static size_t g_live_objects = 0;
 static size_t g_collections = 0;
-static NplVal **g_roots = NULL;
-static int g_root_count = 0;
-static int g_root_capacity = 0;
-static uintptr_t g_stack_bottom = 0;
-static int g_runtime_initialized = 0;
+/* g_runtime_initialized is truthy once init has *started*, so the lazy
+ * allocation guard does not re-enter while control/io init allocates.
+ * One-time entry itself is guarded by pthread_once in npl_runtime_init. */
+static volatile int g_runtime_initialized = 0;
 static int g_gc_running = 0;
 static NplAllocMeta **g_young = NULL;    /* allocated since the last collection */
 static size_t g_young_count = 0;
@@ -360,6 +364,10 @@ void *npl_alloc_object(size_t size)
 {
     if (!g_runtime_initialized)
         npl_runtime_init();
+    /* Poll before taking the heap lock: the collector waits for mutators to
+     * park while holding neither the heap nor the coordinator lock that a
+     * poll needs.  Collection triggers also run outside the heap lock. */
+    npl_safepoint_poll();
     size = align_up(size, NPL_ALIGN);
     if (g_runtime_initialized && !g_gc_running) {
         if (g_allocated + size >= g_threshold)
@@ -369,6 +377,7 @@ void *npl_alloc_object(size_t size)
             npl_gc_collect_minor_internal();
     }
 
+    npl_heap_lock();
     NplAllocMeta *meta = bump_take(size);
     if (!meta) meta = refill_and_take(size);
 
@@ -396,6 +405,7 @@ void *npl_alloc_object(size_t size)
     memset(meta_object(meta), 0, meta->capacity);
     g_allocated += size;
     g_live_objects++;
+    npl_heap_unlock();
     return meta_object(meta);
 }
 
@@ -412,13 +422,15 @@ static size_t env_bytes(const char *name, size_t fallback, int allow_zero)
     return (size_t)value;
 }
 
-void npl_runtime_init(void)
+static void runtime_init_once(void)
 {
     uintptr_t marker = 0;
-    if (g_runtime_initialized) return;
+    /* Truthy once init has *started*, so the lazy allocation guard in
+     * npl_alloc_object does not re-enter while control/io init allocates. */
     g_runtime_initialized = 1;
-    g_stack_bottom = (uintptr_t)(void *)&marker + sizeof(marker);
-    npl_stack_init_internal(g_stack_bottom);
+    NplThreadContext *context = npl_thread_init_internal(
+        (uintptr_t)(void *)&marker + sizeof(marker));
+    npl_stack_init_internal(context->stack_bottom);
     /* NPL_GC_THRESHOLD_BYTES: minimum heap size for a full collection;
      * NPL_GC_NURSERY_BYTES: young bytes per minor collection, 0 = none. */
     g_min_threshold = env_bytes("NPL_GC_THRESHOLD_BYTES",
@@ -426,50 +438,26 @@ void npl_runtime_init(void)
     g_nursery_bytes = env_bytes("NPL_GC_NURSERY_BYTES",
                                 NPL_GC_NURSERY_DEFAULT, 1);
     g_threshold = g_min_threshold;
-    g_root_count = 0;
+    /* The thread's three dynamic-state roots are registered at attach; the
+     * control and io/port initializers add the process-wide roots on top. */
     npl_control_init();
     npl_io_init();
+    __sync_synchronize();
 }
 
-/* ---- GC root management and collector internals ---- */
-
-void npl_gc_root(NplVal *root)
+void npl_runtime_init(void)
 {
-    /* Compiled programs register one root per global slot, so grow. */
-    if (g_root_count == g_root_capacity) {
-        int capacity = g_root_capacity ? g_root_capacity * 2
-                                       : NPL_ROOTS_INITIAL;
-        NplVal **roots = (NplVal **)realloc(
-            g_roots, (size_t)capacity * sizeof(NplVal *));
-        if (!roots) npl_runtime_oom_internal();
-        g_roots = roots;
-        g_root_capacity = capacity;
-    }
-    g_roots[g_root_count++] = root;
+    /* pthread_once replaces the T1.1 spin: one-time and safe against
+     * concurrent entry, with the wait delegated to libc rather than a busy
+     * loop.  T1.3's coordinator lock is separate from this guard. */
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, runtime_init_once);
 }
 
-/* Primitive-error unwinding (trampoline.c) drops roots registered by the C
- * frames it discards; roots are registered and released in LIFO order. */
-int npl_gc_root_count_internal(void) { return g_root_count; }
-
-void npl_gc_restore_root_count_internal(int count)
-{
-    if (count >= 0 && count <= g_root_count) g_root_count = count;
-}
-
-/* Search from the top (roots are normally released LIFO) and keep the
- * order of the rest, so a saved root count still marks the same prefix. */
-void npl_gc_unroot(NplVal *root)
-{
-    for (int i = g_root_count - 1; i >= 0; i--) {
-        if (g_roots[i] == root) {
-            memmove(&g_roots[i], &g_roots[i + 1],
-                    (size_t)(g_root_count - 1 - i) * sizeof(NplVal *));
-            g_root_count--;
-            return;
-        }
-    }
-}
+/* ---- Collector internals ----
+ * The GC root stack is per-thread and is managed in thread.c alongside the
+ * context that owns it; the collector enumerates it through
+ * npl_thread_foreach in npl_gc_mark_roots_internal below. */
 
 void npl_gc_begin_internal(int minor)
 {
@@ -493,11 +481,22 @@ void npl_gc_mark_candidate_internal(NplVal value)
     g_mark_stack = meta;
 }
 
+/* Mark one thread's registered roots.  The collector calls this for every
+ * context in the process-wide registry, so a collection triggered on one
+ * thread still sees every other thread's root stack. */
+static void mark_thread_roots(NplThreadContext *context, void *data)
+{
+    (void)data;
+    if (!context->attached) return;
+    for (int i = 0; i < context->root_count; i++) {
+        if (context->roots[i])
+            npl_gc_mark_candidate_internal(*context->roots[i]);
+    }
+}
+
 void npl_gc_mark_roots_internal(void)
 {
-    for (int i = 0; i < g_root_count; i++) {
-        if (g_roots[i]) npl_gc_mark_candidate_internal(*g_roots[i]);
-    }
+    npl_thread_foreach(mark_thread_roots, NULL);
     npl_control_mark_roots();
     npl_symbol_mark_roots();
     if (g_minor)
@@ -532,6 +531,9 @@ void npl_gc_write_barrier_value(NplVal holder, NplVal value)
 
 void npl_gc_remember_internal(NplHeader *object)
 {
+    /* Remembered-set writes are process-wide heap metadata.  The lock is
+     * only taken on the slow barrier path, never while a poll parks. */
+    npl_heap_lock();
     if (g_remembered_count == g_remembered_capacity) {
         size_t capacity = g_remembered_capacity ? g_remembered_capacity * 2
                                                 : 1024;
@@ -543,6 +545,7 @@ void npl_gc_remember_internal(NplHeader *object)
     }
     object->flags |= NPL_FLAG_REMEMBERED;
     g_remembered[g_remembered_count++] = object;
+    npl_heap_unlock();
 }
 
 static NplHeader *g_verify_holder = NULL;
@@ -748,14 +751,15 @@ void npl_gc_sweep_internal(void)
 
 uintptr_t npl_gc_swap_stack_bottom(uintptr_t stack_bottom)
 {
-    uintptr_t previous = g_stack_bottom;
-    g_stack_bottom = stack_bottom;
+    NplThreadContext *context = CTX;
+    uintptr_t previous = context->stack_bottom;
+    context->stack_bottom = stack_bottom;
     return previous;
 }
 
 uintptr_t npl_gc_stack_bottom_internal(void)
 {
-    return g_stack_bottom;
+    return CTX->stack_bottom;
 }
 
 size_t npl_gc_allocated(void) { return g_allocated; }

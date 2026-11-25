@@ -7,6 +7,7 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/clock.c
   ${RUNTIME_SRC_DIR}/complex.c
   ${RUNTIME_SRC_DIR}/control.c
+  ${RUNTIME_SRC_DIR}/coordinator.c
   ${RUNTIME_SRC_DIR}/error.c
   ${RUNTIME_SRC_DIR}/ffi.c
   ${RUNTIME_SRC_DIR}/ffi-memory.c
@@ -24,6 +25,7 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/stack.c
   ${RUNTIME_SRC_DIR}/string.c
   ${RUNTIME_SRC_DIR}/symbol.c
+  ${RUNTIME_SRC_DIR}/thread.c
   ${RUNTIME_SRC_DIR}/trampoline.c
   ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c
@@ -53,6 +55,7 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/clock.c
   ${RUNTIME_SRC_DIR}/complex.c
   ${RUNTIME_SRC_DIR}/control.c
+  ${RUNTIME_SRC_DIR}/coordinator.c
   ${RUNTIME_SRC_DIR}/error.c
   ${RUNTIME_SRC_DIR}/ffi.c
   ${RUNTIME_SRC_DIR}/ffi-memory.c
@@ -70,6 +73,7 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/stack.c
   ${RUNTIME_SRC_DIR}/string.c
   ${RUNTIME_SRC_DIR}/symbol.c
+  ${RUNTIME_SRC_DIR}/thread.c
   ${RUNTIME_SRC_DIR}/trampoline.c
   ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c
@@ -80,15 +84,19 @@ target_compile_options(npl_runtime_shared_objects PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic
   -Wno-unused-parameter
 )
-target_compile_definitions(npl_runtime_shared_objects PRIVATE NPL_RUNTIME_SHARED)
+# The old NPL_RUNTIME_SHARED C macro selected who defined npl_stack_limit /
+# npl_opaque_zero.  The executable now owns both slots in every link mode
+# (program.npl), so the runtime needs no C-side link-mode split.
 set_target_properties(npl_runtime_shared_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(npl_runtime_shared SHARED $<TARGET_OBJECTS:npl_runtime_shared_objects>)
 target_include_directories(npl_runtime_shared PUBLIC ${RUNTIME_SRC_DIR})
 target_link_libraries(npl_runtime_shared PUBLIC m)
 if(APPLE)
-  # npl_stack_limit is defined by the dynamic executable so the generated
-  # code can use a direct data reference; the shared runtime resolves it.
+  # The generated executable owns the npl_stack_limit TLS slot and the
+  # npl_opaque_zero data slot (program.npl emits them).  The shared runtime
+  # declares both extern and resolves them through the loader; every native
+  # package reaches the same slots, never independent copies.
   target_link_options(npl_runtime_shared PRIVATE -undefined dynamic_lookup)
 endif()
 set_target_properties(npl_runtime_shared PROPERTIES
@@ -105,8 +113,12 @@ else()
 endif()
 install(TARGETS npl_runtime_shared LIBRARY DESTINATION lib/npl)
 
+# C-only harnesses have no generated IL, so they must supply the two data
+# slots the generated executable normally defines.  Do NOT link this into
+# npl_runtime itself: generated programs define the same symbols.
 add_executable(gc_stress
   ${RUNTIME_SRC_DIR}/gc_stress.c
+  ${RUNTIME_SRC_DIR}/standalone-slots.c
 )
 target_include_directories(gc_stress PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(gc_stress PRIVATE npl_runtime)
@@ -117,10 +129,37 @@ set_target_properties(gc_stress PROPERTIES
 
 add_executable(numeric_stress
   ${RUNTIME_SRC_DIR}/numeric_stress.c
+  ${RUNTIME_SRC_DIR}/standalone-slots.c
 )
 target_include_directories(numeric_stress PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(numeric_stress PRIVATE npl_runtime)
 target_compile_options(numeric_stress PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
 set_target_properties(numeric_stress PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
+
+# T1 acceptance: native TLS current context, per-thread stack limits and
+# dynamic state, explicit attach/detach, and GC visibility of all roots.
+add_executable(thread_test
+  ${RUNTIME_SRC_DIR}/thread_test.c
+  ${RUNTIME_SRC_DIR}/standalone-slots.c
+)
+target_include_directories(thread_test PRIVATE ${RUNTIME_SRC_DIR})
+target_link_libraries(thread_test PRIVATE npl_runtime)
+target_compile_options(thread_test PRIVATE
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+set_target_properties(thread_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
+
+# T1.3 acceptance: multiple mutators, world-stop park/resume, scanning of
+# parked threads' C stacks and register snapshots, cancellation, blocking.
+add_executable(safepoint_test
+  ${RUNTIME_SRC_DIR}/safepoint_test.c
+  ${RUNTIME_SRC_DIR}/standalone-slots.c
+)
+target_include_directories(safepoint_test PRIVATE ${RUNTIME_SRC_DIR})
+target_link_libraries(safepoint_test PRIVATE npl_runtime)
+target_compile_options(safepoint_test PRIVATE
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+set_target_properties(safepoint_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)

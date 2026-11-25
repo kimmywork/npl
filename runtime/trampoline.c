@@ -1,33 +1,20 @@
 /* Proper tail calls (trampoline), CPS application, and escape-only
- * continuations. Split from control.c, which owns dynamic state. */
+ * continuations. Split from control.c, which owns dynamic state.
+ *
+ * T1: the tail/escape/sync contexts point at C stack frames, so they are
+ * per-thread fields of NplThreadContext (thread.h).  Their frame types moved
+ * there too; the collector walks every registered context's chain. */
 
 #include "npl.h"
+#include "thread.h"
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#define CTX npl_ctx()
+
 /* ---- Proper tail-call trampoline ---- */
-
-typedef struct NplTailContext {
-    struct NplTailContext *previous;
-    NplGenericFunction function;
-    NplVal environment;
-    int64_t argc;
-    NplVal *arguments;
-    size_t argument_capacity;
-    int pending;
-    /* Primitive-error unwind target (error.c): state restored on longjmp. */
-    jmp_buf unwind;
-    int root_count;
-    uintptr_t stack_bottom;
-    int escape_depth;
-    /* npl_stack_limit (stack.c) when the trampoline started. */
-    uintptr_t stack_limit;
-} NplTailContext;
-
-static NplTailContext *g_tail_context = NULL;
-static int g_escape_depth = 0;
 
 /* Raise a primitive's error object from inside a C primitive: discard the
  * primitive's C frames up to the innermost trampoline, which then calls the
@@ -35,19 +22,21 @@ static int g_escape_depth = 0;
  * non-continuable). Returns 0 when there is no handler or trampoline. */
 int npl_raise_from_primitive(NplVal object)
 {
-    NplTailContext *context = g_tail_context;
+    NplTailContext *context = CTX->tail_context;
     if (!context || npl_is_nil(npl_current_handler())) return 0;
     npl_gc_restore_root_count_internal(context->root_count);
     (void)npl_gc_swap_stack_bottom(context->stack_bottom);
-    g_escape_depth = context->escape_depth;
-    g_tail_context = context;
+    CTX->escape_depth = context->escape_depth;
+    CTX->tail_context = context;
     npl_raise(object, npl_nil(), 0);
     longjmp(context->unwind, 1);
 }
 
-void npl_control_mark_roots(void)
+static void mark_context_tails(NplThreadContext *owner, void *data)
 {
-    for (NplTailContext *context = g_tail_context; context;
+    (void)data;
+    if (!owner->attached) return;
+    for (NplTailContext *context = owner->tail_context; context;
          context = context->previous) {
         npl_gc_mark_candidate_internal(context->environment);
         for (int64_t i = 0; i < context->argc; i++)
@@ -55,10 +44,17 @@ void npl_control_mark_roots(void)
     }
 }
 
+void npl_control_mark_roots(void)
+{
+    /* Every thread's active trampoline frames are roots; a collection on one
+     * thread must keep another thread's in-flight arguments alive. */
+    npl_thread_foreach(mark_context_tails, NULL);
+}
+
 void npl_tail_request(NplGenericFunction function, NplVal environment,
                       int64_t argc, NplVal *argv)
 {
-    if (!g_tail_context) {
+    if (!CTX->tail_context) {
         fprintf(stderr, "npl_tail_request: no active trampoline\n");
         exit(1);
     }
@@ -68,25 +64,25 @@ void npl_tail_request(NplGenericFunction function, NplVal environment,
         exit(1);
     }
 
-    if ((uint64_t)argc > g_tail_context->argument_capacity) {
-        size_t capacity = g_tail_context->argument_capacity;
+    if ((uint64_t)argc > CTX->tail_context->argument_capacity) {
+        size_t capacity = CTX->tail_context->argument_capacity;
         if (capacity == 0) capacity = 8;
         while (capacity < (uint64_t)argc) {
             if (capacity > SIZE_MAX / 2) npl_runtime_oom_internal();
             capacity *= 2;
         }
         NplVal *arguments = (NplVal *)realloc(
-            g_tail_context->arguments, capacity * sizeof(NplVal));
+            CTX->tail_context->arguments, capacity * sizeof(NplVal));
         if (!arguments) npl_runtime_oom_internal();
-        g_tail_context->arguments = arguments;
-        g_tail_context->argument_capacity = capacity;
+        CTX->tail_context->arguments = arguments;
+        CTX->tail_context->argument_capacity = capacity;
     }
     for (int64_t i = 0; i < argc; i++)
-        g_tail_context->arguments[i] = argv[i];
-    g_tail_context->function = function;
-    g_tail_context->environment = environment;
-    g_tail_context->argc = argc;
-    g_tail_context->pending = 1;
+        CTX->tail_context->arguments[i] = argv[i];
+    CTX->tail_context->function = function;
+    CTX->tail_context->environment = environment;
+    CTX->tail_context->argc = argc;
+    CTX->tail_context->pending = 1;
 }
 
 /* apply in CPS: argv = procedure, fixed arguments..., list, continuation.
@@ -182,7 +178,7 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
         saved_stack_bottom > here ? saved_stack_bottom : here;
     (void)npl_gc_swap_stack_bottom(stack_bottom);
     NplTailContext context;
-    context.previous = g_tail_context;
+    context.previous = CTX->tail_context;
     context.function = function;
     context.environment = environment;
     context.argc = argc;
@@ -199,10 +195,10 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
         context.argument_capacity = (size_t)argc;
         for (int64_t i = 0; i < argc; i++) context.arguments[i] = argv[i];
     }
-    g_tail_context = &context;
+    CTX->tail_context = &context;
     context.root_count = npl_gc_root_count_internal();
     context.stack_bottom = stack_bottom;
-    context.escape_depth = g_escape_depth;
+    context.escape_depth = CTX->escape_depth;
     context.stack_limit = npl_stack_limit;
 
     NplVal result = npl_nil();
@@ -216,6 +212,9 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
         argv = context.arguments;
     }
     for (;;) {
+        /* Safepoint at every CPS dispatch step: a collection may be waiting,
+         * and cancellation is observed at the same poll. */
+        npl_safepoint_poll();
         context.pending = 0;
         result = function(environment, argc, argv);
         if (!context.pending) break;
@@ -227,7 +226,7 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
 
     (void)npl_gc_swap_stack_bottom(saved_stack_bottom);
     free(context.arguments);
-    g_tail_context = context.previous;
+    CTX->tail_context = context.previous;
     return result;
 }
 
@@ -257,20 +256,8 @@ NplVal npl_apply_sync(NplVal value, int64_t argc, NplVal *argv)
     return npl_call_sync(closure->function, closure->environment, argc, argv);
 }
 
-/* ---- Escape-only continuations ---- */
-
-#define NPL_MAX_ESCAPE_DEPTH 64
-
-typedef struct {
-    jmp_buf jump;
-    uint64_t id;
-    NplVal value;
-    NplTailContext *saved_tail_context;
-    uintptr_t saved_stack_limit;
-} NplEscapeFrame;
-
-static NplEscapeFrame g_escape_frames[NPL_MAX_ESCAPE_DEPTH];
-static uint64_t g_next_escape_id = 1;
+/* ---- Escape-only continuations ----
+ * NplEscapeFrame and NPL_MAX_ESCAPE_DEPTH are in thread.h. */
 
 static NplVal escape_continuation(NplVal environment, int64_t argc,
                                   NplVal *argv)
@@ -280,12 +267,12 @@ static NplVal escape_continuation(NplVal environment, int64_t argc,
         exit(1);
     }
     uint64_t id = (uint64_t)npl_fixnum_value(environment);
-    for (int i = g_escape_depth - 1; i >= 0; i--) {
-        NplEscapeFrame *frame = &g_escape_frames[i];
+    for (int i = CTX->escape_depth - 1; i >= 0; i--) {
+        NplEscapeFrame *frame = &CTX->escape_frames[i];
         if (frame->id == id) {
             frame->value = argv[0];
-            g_tail_context = frame->saved_tail_context;
-            g_escape_depth = i + 1;
+            CTX->tail_context = frame->saved_tail_context;
+            CTX->escape_depth = i + 1;
             longjmp(frame->jump, 1);
         }
     }
@@ -298,15 +285,15 @@ static NplVal escape_continuation(NplVal environment, int64_t argc,
  * keep it for C extensions that link the runtime directly. */
 NplVal npl_call_cc(NplVal procedure)
 {
-    if (g_escape_depth >= NPL_MAX_ESCAPE_DEPTH) {
+    if (CTX->escape_depth >= NPL_MAX_ESCAPE_DEPTH) {
         fprintf(stderr, "call/cc: escape nesting limit exceeded\n");
         exit(1);
     }
 
-    int index = g_escape_depth++;
-    NplEscapeFrame *frame = &g_escape_frames[index];
-    frame->id = g_next_escape_id++;
-    frame->saved_tail_context = g_tail_context;
+    int index = CTX->escape_depth++;
+    NplEscapeFrame *frame = &CTX->escape_frames[index];
+    frame->id = CTX->next_escape_id++;
+    frame->saved_tail_context = CTX->tail_context;
     frame->saved_stack_limit = npl_stack_limit;
 
     NplVal result;
@@ -320,7 +307,7 @@ NplVal npl_call_cc(NplVal procedure)
         npl_stack_limit = frame->saved_stack_limit;
     }
 
-    g_escape_depth = index;
+    CTX->escape_depth = index;
     return result;
 }
 
@@ -340,19 +327,8 @@ NplVal npl_call_cc(NplVal procedure)
  * handler call is unchanged. As with escape continuations, the nested
  * trampoline's argument buffer is not freed on that path. */
 
-typedef struct NplSyncFrame {
-    struct NplSyncFrame *previous;
-    jmp_buf jump;
-    uint64_t id;
-    NplVal raised;
-    NplTailContext *saved_tail_context;
-    int saved_escape_depth;
-    int saved_root_count;
-    uintptr_t saved_stack_bottom;
-} NplSyncFrame;
-
-static NplSyncFrame *g_sync_frame = NULL;
-static uint64_t g_next_sync_id = 1;
+/* NplSyncFrame is in thread.h; CTX->sync_frame / CTX->next_sync_id are now fields
+ * of the current thread's context (see CTX below). */
 
 static NplVal sync_return(NplVal environment, int64_t argc, NplVal *argv)
 {
@@ -368,7 +344,7 @@ static NplVal sync_return(NplVal environment, int64_t argc, NplVal *argv)
 static NplVal sync_raise_forward(NplVal environment, int64_t argc,
                                  NplVal *argv)
 {
-    NplSyncFrame *frame = g_sync_frame;
+    NplSyncFrame *frame = CTX->sync_frame;
     if (argc != 2 || !frame || !npl_is_fixnum(environment) ||
         (uint64_t)npl_fixnum_value(environment) != frame->id) {
         fprintf(stderr, "npl_call_sync: invalid raise forward\n");
@@ -387,11 +363,11 @@ NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
         exit(1);
     }
     NplSyncFrame frame;
-    frame.previous = g_sync_frame;
-    frame.id = g_next_sync_id++;
+    frame.previous = CTX->sync_frame;
+    frame.id = CTX->next_sync_id++;
     frame.raised = npl_nil();
-    frame.saved_tail_context = g_tail_context;
-    frame.saved_escape_depth = g_escape_depth;
+    frame.saved_tail_context = CTX->tail_context;
+    frame.saved_escape_depth = CTX->escape_depth;
     frame.saved_root_count = npl_gc_root_count_internal();
     frame.saved_stack_bottom = npl_gc_stack_bottom_internal();
 
@@ -406,22 +382,22 @@ NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
     if (!arguments) npl_runtime_oom_internal();
     for (int64_t i = 0; i < argc; i++) arguments[i] = argv[i];
     arguments[argc] = continuation;
-    g_sync_frame = &frame;
+    CTX->sync_frame = &frame;
 
     if (setjmp(frame.jump) == 0) {
         NplVal result = npl_trampoline(function, environment, argc + 1,
                                        arguments);
-        g_sync_frame = frame.previous;
+        CTX->sync_frame = frame.previous;
         free(arguments);
         npl_handler_pop(handler);
         return result;
     }
 
     /* npl_raise already made the sentinel's parent the current handler. */
-    g_sync_frame = frame.previous;
+    CTX->sync_frame = frame.previous;
     free(arguments);
-    g_tail_context = frame.saved_tail_context;
-    g_escape_depth = frame.saved_escape_depth;
+    CTX->tail_context = frame.saved_tail_context;
+    CTX->escape_depth = frame.saved_escape_depth;
     npl_gc_restore_root_count_internal(frame.saved_root_count);
     (void)npl_gc_swap_stack_bottom(frame.saved_stack_bottom);
     NplVal raised = frame.raised;

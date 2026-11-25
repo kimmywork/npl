@@ -154,12 +154,19 @@
 
 ; The caller evaluated every argument. Copy them first so an argument that
 ; reads a parameter (a swap) sees its old value, then assign and jump. This
-; jmp is the only back edge a self call creates: a safepoint poll for a
-; later preemptive scheduler or stop-the-world collector belongs here.
+; jmp is the only back edge a self call creates: T1.3 puts a safepoint poll
+; here, so an unbounded fixnum loop still reaches a world-stop poll. The
+; common path is one global load plus a branch, emitted at the back edge.
 (define (emit-self-jump ops)
   (let ((self (cell-get SELF-FUNCTION)))
     (assign-params (self-params self) (map-cons copy-op ops))
-    (func-line (string-append "jmp " (self-loop-label self)))))
+    (let ((stop (new-tmp)) (poll (new-label)) (resume (new-label)))
+      (func-line (string-append stop " =l loadl $npl_gc_stop_requested"))
+      (func-line (string-append "jnz " stop ", " poll ", " resume))
+      (func-line poll)
+      (func-line "call $npl_safepoint_poll()")
+      (func-line resume)
+      (func-line (string-append "jmp " (self-loop-label self))))))
 
 (define (emit-tail-if e env)
   (let ((true-label (new-label)))

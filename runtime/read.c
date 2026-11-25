@@ -2,10 +2,15 @@
  * module split. */
 
 #include "port.h"
+#include "thread.h"
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* T1: reader recovery is per-thread (one active read_result per native
+ * thread), held in the current NplThreadContext. */
+#define CTX npl_ctx()
 
 /* Datum labels (R7RS 2.4): labels is a list of (n placeholder . value)
  * entries for this read (rooted by npl_read_datum); value is the
@@ -18,15 +23,12 @@ typedef struct {
     int fold_case;      /* #!fold-case in effect (R7RS 2.1) */
 } NplDatumReader;
 
-static jmp_buf *g_read_recovery = NULL;
-static char g_read_error_message[128];
-
 static void read_error(const char *message)
 {
-    if (g_read_recovery) {
-        (void)snprintf(g_read_error_message, sizeof(g_read_error_message),
-                       "%s", message);
-        longjmp(*g_read_recovery, 1);
+    if (CTX->read_recovery) {
+        (void)snprintf(CTX->read_error_message,
+                       sizeof(CTX->read_error_message), "%s", message);
+        longjmp(*CTX->read_recovery, 1);
     }
     /* Outside read-result (for example the raw read primitive), a syntax
      * error is the same read error object (scheme read) raises. */
@@ -754,8 +756,8 @@ NplVal npl_read_datum(NplVal port_value_arg)
 NplVal npl_read_result(NplVal port_value)
 {
     jmp_buf recovery;
-    jmp_buf *previous = g_read_recovery;
-    g_read_recovery = &recovery;
+    jmp_buf *previous = CTX->read_recovery;
+    CTX->read_recovery = &recovery;
     /* read_error longjmps past the reader's roots; drop them on recovery. */
     int roots = npl_gc_root_count_internal();
     NplVal items[2];
@@ -765,9 +767,9 @@ NplVal npl_read_result(NplVal port_value)
     } else {
         npl_gc_restore_root_count_internal(roots);
         items[0] = npl_false();
-        items[1] = npl_string(g_read_error_message,
-                              (uint32_t)strlen(g_read_error_message));
+        items[1] = npl_string(CTX->read_error_message,
+                              (uint32_t)strlen(CTX->read_error_message));
     }
-    g_read_recovery = previous;
+    CTX->read_recovery = previous;
     return npl_make_vector(2, items);
 }
