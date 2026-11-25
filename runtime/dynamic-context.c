@@ -95,6 +95,14 @@ static NplVal clone_parameter_bindings(NplVal source)
     return boxed(copy);
 }
 
+/* T2b: a new virtual thread inherits its creator's parameter chain under
+ * its own (the carrier's) ownership. Unlike the SRFI 18 thread-start clone,
+ * this preserves chain direction (head = innermost binding). */
+NplVal npl_clone_parameter_bindings(NplVal chain)
+{
+    return clone_parameter_bindings(chain);
+}
+
 static NplVal localize_parameters(NplVal source, uint32_t binding_count,
                                   NplVal *baseline_out)
 {

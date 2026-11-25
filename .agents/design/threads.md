@@ -538,6 +538,55 @@ saved register context with the conservative collector. Precise stack maps
 are a separate optimization or a requirement of a future moving collector,
 not a prerequisite for scanning the current non-moving heap.
 
+### T2b implementation status (2026-11-25): increment A — substrate
+
+`runtime/virtual-thread.c` adds the scheduler substrate behind the C API in
+`runtime/thread-sched.h`; no public library or frontend change yet, so no
+seed relay was needed.
+
+- `BOX_VIRTUAL_THREAD` (tag 33) holds the thunk, a private CPS root, the
+  one-shot suspended continuation, the saved dynamic environment (wind,
+  handler, parameters, `parameter_extents`, `pending_extent_key`,
+  `initial_handler`, wind id) and the end result/exception. `gc.c` visits
+  every `NplVal` field; all virtual-thread records are marked from
+  `npl_virtual_thread_mark_roots()` (called from the collector's root pass),
+  so a suspended token and its dynamic state stay alive across collections.
+- A carrier loop mounts one virtual thread at a time. `npl_vthread_park`
+  stores the **raw CPS continuation** (`argv[argc-1]`) and returns *without*
+  a tail request, so the trampoline breaks and the carrier regains control;
+  no C stack frame is retained for a suspended thread. The token is cleared
+  on mount (one-shot). `npl_gc_block_begin/end` parks an **idle** carrier,
+  never a suspended virtual thread.
+- The private root `vthread_done` and the virtual thread's own initial
+  uncaught handler are C closures bound to the record. They record the
+  end result/exception and break the trampoline without terminating the
+  carrier, so a user `call/cc` continuation ends at the virtual thread's own
+  boundary instead of escaping into the carrier loop. `logical_thread` (the
+  T2b placeholder) now points at the mounted record.
+- **Why the eventual `virtual-thread-yield!` cannot be a library `call/cc`:**
+  a `define-c-primitive` C function never receives a continuation (primitive
+  calls are synchronous; generated code applies the continuation itself), and
+  a `call/cc`-based wrapper would run `dynamic-wind` before/after thunks on
+  resume, which a scheduler yield must not do. Increment B therefore adds a
+  control-transfer form (`_npl_vthread_park`) that emits
+  `call $npl_vthread_park(l K)` + `ret 2`; that is a `src/compiler/**` change
+  and needs a relay.
+- First validation is **one carrier, N virtual threads**, as required before
+  work stealing. `runtime/virtual_thread_test.c` runs three virtual threads
+  that each yield three times, checks round-robin interleaving,
+  per-virtual-thread parameter isolation across suspension, one-shot
+  park/resume counts, and forces full collections both from inside a step
+  and from a **concurrent collector pthread** (also under
+  `NPL_GC_VERIFY=100` with a 64 KiB nursery) while other tokens have no live
+  C frame. An A/B that removes the `gc.c` `BOX_VIRTUAL_THREAD` case fails
+  with `parameter: invalid binding chain`, confirming the child traversal is
+  essential. Blocking `pthread_join` waits in the harness and in shutdown
+  use `npl_gc_exclude/include` (the `safepoint_test.c` pattern) so a world
+  stop cannot wait forever on a thread with no poll site. M carriers and
+  cross-carrier migration need parameter-ownership re-localization and are
+  increment 3; `npl_virtual_thread_set_carriers` exists so the substrate can
+  grow.
+
 ## T3 SRFI 230
 
 Atomics need runtime support regardless of scheduler. [SRFI 230](../../docs/reference/srfi-230.html)

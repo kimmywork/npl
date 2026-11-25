@@ -119,6 +119,22 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(context->source_initial_handler);
             break;
         }
+        case BOX_VIRTUAL_THREAD: {
+            NplVirtualThread *vt = (NplVirtualThread *)header;
+            visit(vt->name);
+            visit(vt->end_result);
+            visit(vt->end_exception);
+            visit(vt->thunk);
+            visit(vt->root);
+            visit(vt->continuation);
+            visit(vt->wind);
+            visit(vt->handler);
+            visit(vt->parameters);
+            visit(vt->parameter_extents);
+            visit(vt->pending_extent_key);
+            visit(vt->initial_handler);
+            break;
+        }
         case BOX_WIND_TRANSITION: {
             NplWindTransition *transition = (NplWindTransition *)header;
             visit(transition->target);

@@ -33,6 +33,13 @@
 #define NPL_EXC_TERMINATED_THREAD 2
 #define NPL_EXC_UNCAUGHT 3
 
+/* T2b virtual-thread states. */
+#define NPL_VTHREAD_NEW 0
+#define NPL_VTHREAD_RUNNABLE 1
+#define NPL_VTHREAD_RUNNING 2
+#define NPL_VTHREAD_SUSPENDED 3
+#define NPL_VTHREAD_TERMINATED 4
+
 /* What a thread is waiting on, for the single global scheduler condvar. */
 #define NPL_WAIT_NONE 0
 #define NPL_WAIT_JOIN 1
@@ -62,6 +69,36 @@ typedef struct {
     int registered;            /* thread_entry published its context root */
     NplThreadContext *context; /* owner context, for cancellation wakeups */
 } NplThread;
+
+/* T2b: a virtual thread is a one-shot scheduler continuation mounted on a
+ * carrier pthread. All NplVal fields are GC-visited (gc.c case
+ * BOX_VIRTUAL_THREAD); the suspended computation keeps no C stack frame.
+ * The private CPS root (vthread_done) is a C closure bound to this record,
+ * so a user call/cc continuation ends here instead of escaping into the
+ * carrier loop. */
+typedef struct NplVirtualThread {
+    NplHeader header;
+    NplVal name;
+    NplVal end_result;
+    NplVal end_exception;
+    NplVal thunk;              /* initial CPS thunk (arity 1: trailing root) */
+    NplVal root;               /* private CPS root closure, env = this vt */
+    NplVal continuation;       /* one-shot suspended CPS continuation, or nil */
+    /* Saved dynamic environment, owned by the virtual thread, not the carrier. */
+    NplVal wind;
+    NplVal handler;
+    NplVal parameters;
+    NplVal parameter_extents;
+    NplVal pending_extent_key;
+    NplVal initial_handler;
+    uint64_t next_wind_id;
+    /* Native state (not GC-scanned). */
+    int state;
+    int park_count;
+    int resume_count;
+    void *carrier_context;     /* NplThreadContext * that owns the bindings */
+    struct NplVirtualThread *queue_next;
+} NplVirtualThread;
 
 typedef struct {
     NplHeader header;
@@ -164,5 +201,21 @@ NplVal npl_condvar_broadcast(NplVal value);
 void npl_sched_wake_all(void);
 void npl_sched_abandon_mutexes(NplThread *thread);
 void npl_sched_finish(NplThread *thread, int terminated);
+
+/* T2b virtual-thread substrate (virtual-thread.c). The public library
+ * (npl thread virtual) wraps these; C harnesses call them directly. */
+NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters);
+NplVal npl_vthread_p(NplVal value);
+NplVal npl_vthread_name(NplVal value);
+NplVal npl_vthread_start(NplVal value);
+NplVal npl_vthread_join(NplVal value);
+NplVal npl_vthread_current(void);
+NplVal npl_vthread_root(void);
+NplVal npl_vthread_end_exception(NplVal value);
+int npl_vthread_park_count(NplVal value);
+int npl_vthread_resume_count(NplVal value);
+void npl_virtual_thread_set_carriers(int count);
+void npl_virtual_thread_run(void);
+void npl_virtual_thread_shutdown(void);
 
 #endif /* NPL_THREAD_SCHED_H */

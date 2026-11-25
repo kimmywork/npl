@@ -498,6 +498,7 @@ void npl_gc_mark_roots_internal(void)
 {
     npl_thread_foreach(mark_thread_roots, NULL);
     npl_control_mark_roots();
+    npl_virtual_thread_mark_roots();
     npl_symbol_mark_roots();
     if (g_minor)
         for (size_t i = 0; i < g_remembered_count; i++)

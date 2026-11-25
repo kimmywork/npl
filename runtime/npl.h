@@ -80,6 +80,8 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_THREAD_EXCEPTION 31
 /* SRFI 18: a call/cc continuation's saved dynamic environment. */
 #define BOX_DYNAMIC_CONTEXT 32
+/* T2b: a virtual thread's one-shot scheduler continuation and state. */
+#define BOX_VIRTUAL_THREAD 33
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -873,6 +875,14 @@ void npl_control_init(void);
 /* Shared dynamic-state helpers (control.c, dynamic-context.c). */
 NplWindFrame *require_wind_frame(NplVal value, const char *who);
 NplParameter *require_parameter(NplVal value, const char *who);
+/* T2b: order-preserving parameter-chain clone for a new virtual thread. */
+NplVal npl_clone_parameter_bindings(NplVal chain);
+/* T2b: heap-rooted suspended scheduler tokens (virtual-thread.c). */
+void npl_virtual_thread_mark_roots(void);
+/* T2b: control-transfer intrinsic emitted by the backend in tail position.
+ * Stores the raw CPS continuation and returns WITHOUT a tail request, so the
+ * trampoline breaks and the carrier loop regains control. */
+void npl_vthread_park(NplVal continuation);
 /* Parameter object application in CPS (control.c, trampoline.c). */
 void npl_parameter_dispatch(NplVal parameter, int64_t argc, NplVal *argv);
 void npl_control_mark_roots(void);

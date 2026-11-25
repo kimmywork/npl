@@ -33,6 +33,7 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/trampoline.c
   ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c
+  ${RUNTIME_SRC_DIR}/virtual-thread.c
   ${RUNTIME_SRC_DIR}/write.c
 )
 
@@ -85,6 +86,7 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/trampoline.c
   ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c
+  ${RUNTIME_SRC_DIR}/virtual-thread.c
   ${RUNTIME_SRC_DIR}/write.c
 )
 target_include_directories(npl_runtime_shared_objects PUBLIC ${RUNTIME_SRC_DIR})
@@ -220,4 +222,17 @@ target_link_libraries(safepoint_test PRIVATE npl_runtime)
 target_compile_options(safepoint_test PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
 set_target_properties(safepoint_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
+
+# T2b acceptance: one-shot scheduler continuation, N virtual threads on one
+# carrier, dynamic-state isolation and GC survival of suspended tokens.
+add_executable(virtual_thread_test
+  ${RUNTIME_SRC_DIR}/virtual_thread_test.c
+  ${RUNTIME_SRC_DIR}/standalone-slots.c
+)
+target_include_directories(virtual_thread_test PRIVATE ${RUNTIME_SRC_DIR})
+target_link_libraries(virtual_thread_test PRIVATE npl_runtime)
+target_compile_options(virtual_thread_test PRIVATE
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+set_target_properties(virtual_thread_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
