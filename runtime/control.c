@@ -1,24 +1,43 @@
-/* Runtime control, dynamic state, and tail-call machinery. */
+/* Runtime control, dynamic state, and tail-call machinery.
+ *
+ * T1: the wind/handler/parameter chains are per-thread, held in the current
+ * NplThreadContext.  The three chains are registered as GC roots once, at
+ * thread attach (thread.c), so every thread's dynamic state is visible to a
+ * collection.  Parameter *objects* stay process-wide; their bindings below
+ * are not. */
 
 #include "npl.h"
+#include "thread.h"
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static NplVal g_current_wind = 2;
-static NplVal g_current_handler = 2;
-static NplVal g_current_parameters = 2;
-static uint64_t g_next_wind_id = 1;
+#define CTX npl_ctx()
+
+/* SRFI 18: the primordial thread also has an initial exception handler.
+ * It reports the uncaught object and exits (the same fallback npl_raise used
+ * when no handler chain exists). Installing it as a marked initial frame
+ * means current-exception-handler returns a procedure on every thread, and a
+ * foreign continuation's INITIAL_HANDLER frame is resolved against this
+ * thread's own handler instead of running the source thread's termination. */
+static NplVal primordial_uncaught(NplVal environment, int64_t argc,
+                                  NplVal *argv)
+{
+    (void)environment;
+    (void)argc;
+    npl_report_error_object(argv[0]);
+    exit(1);
+}
 
 void npl_control_init(void)
 {
-    g_current_wind = npl_nil();
-    g_current_handler = npl_nil();
-    g_current_parameters = npl_nil();
-    npl_gc_root(&g_current_wind);
-    npl_gc_root(&g_current_handler);
-    npl_gc_root(&g_current_parameters);
+    /* Roots are registered by npl_thread_attach / npl_thread_init_internal. */
+    CTX->current_wind = npl_nil();
+    CTX->current_handler = npl_nil();
+    CTX->current_parameters = npl_nil();
+    NplVal handler = npl_make_closure(primordial_uncaught, npl_nil(), 2);
+    CTX->initial_handler = npl_handler_push_initial(handler);
 }
 
 NplVal npl_make_values(int64_t argc, NplVal *argv)
@@ -102,7 +121,7 @@ void npl_values_dispatch(NplVal consumer_value, NplVal continuation,
     free(arguments);
 }
 
-static NplWindFrame *require_wind_frame(NplVal value, const char *who)
+NplWindFrame *require_wind_frame(NplVal value, const char *who)
 {
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_WIND_FRAME) {
         fprintf(stderr, "%s: invalid wind frame\n", who);
@@ -113,15 +132,15 @@ static NplWindFrame *require_wind_frame(NplVal value, const char *who)
 
 NplVal npl_current_wind(void)
 {
-    return g_current_wind;
+    return CTX->current_wind;
 }
 
 NplVal npl_current_handler(void)
 {
-    return g_current_handler;
+    return CTX->current_handler;
 }
 
-static NplParameter *require_parameter(NplVal value, const char *who)
+NplParameter *require_parameter(NplVal value, const char *who)
 {
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PARAMETER)
         npl_primitive_error(who, "not a parameter", value);
@@ -146,7 +165,7 @@ NplVal npl_make_parameter(NplVal converter, NplVal value)
 NplVal npl_parameter_ref(NplVal parameter_value)
 {
     (void)require_parameter(parameter_value, "parameter");
-    for (NplVal binding_value = g_current_parameters;
+    for (NplVal binding_value = CTX->current_parameters;
          !npl_is_nil(binding_value);) {
         if (!npl_is_ptr(binding_value) ||
             npl_header(binding_value)->tag != BOX_PARAMETER_BINDING) {
@@ -161,22 +180,55 @@ NplVal npl_parameter_ref(NplVal parameter_value)
     return require_parameter(parameter_value, "parameter")->value;
 }
 
+/* T1.3 parameter copy-on-write.  A binding created by this thread's
+ * parameterize (owner == this context) is mutated in place, preserving the
+ * continuation-reentry behavior the frames vector exists for.  A binding
+ * owned by another thread (inherited chain or a shared continuation) is
+ * shadowed with a fresh thread-owned copy instead of being written, and the
+ * parameter object's shared default is never mutated. */
+static NplVal new_parameter_binding(NplVal parameter, NplVal value)
+{
+    NplParameterBinding *binding = (NplParameterBinding *)
+        npl_alloc_object(sizeof(NplParameterBinding));
+    binding->header.tag = BOX_PARAMETER_BINDING;
+    binding->header.flags = 0;
+    binding->parent = CTX->current_parameters;
+    binding->parameter = parameter;
+    binding->value = value;
+    /* Owner is the stable monotonic context id, not the context address: a
+     * freed context's address can be reused by a new thread, which would let
+     * it mutate bindings retained by a captured continuation. */
+    binding->owner = npl_binding_owner();
+    NplVal boxed = (NplVal)(uintptr_t)binding | TAG_PTR;
+    CTX->current_parameters = boxed;
+    return boxed;
+}
+
 NplVal npl_parameter_set(NplVal parameter_value, NplVal value)
 {
-    NplParameter *parameter = require_parameter(parameter_value, "parameter");
-    for (NplVal binding_value = g_current_parameters;
+    (void)require_parameter(parameter_value, "parameter");
+    for (NplVal binding_value = CTX->current_parameters;
          !npl_is_nil(binding_value);) {
+        if (!npl_is_ptr(binding_value) ||
+            npl_header(binding_value)->tag != BOX_PARAMETER_BINDING)
+            npl_primitive_error("parameter", "invalid binding chain",
+                                binding_value);
         NplParameterBinding *binding =
             (NplParameterBinding *)npl_header(binding_value);
         if (binding->parameter == parameter_value) {
-            binding->value = value;
-            npl_gc_write_barrier(binding, value);
+            if (binding->owner == npl_binding_owner()) {
+                binding->value = value;
+                npl_gc_write_barrier(binding, value);
+                return npl_nil();
+            }
+            /* Shared node: copy on write instead of mutating it. */
+            (void)new_parameter_binding(parameter_value, value);
             return npl_nil();
         }
         binding_value = binding->parent;
     }
-    parameter->value = value;
-    npl_gc_write_barrier(parameter, value);
+    /* No active binding: shadow the shared default with a thread-owned one. */
+    (void)new_parameter_binding(parameter_value, value);
     return npl_nil();
 }
 
@@ -187,74 +239,9 @@ NplVal npl_parameter_converter(NplVal parameter_value)
     return npl_is_nil(converter) ? npl_false() : converter;
 }
 
-static NplVector *require_parameter_vector(NplVal value)
-{
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_VECTOR) {
-        fprintf(stderr, "parameterize: invalid binding vectors\n");
-        exit(1);
-    }
-    return (NplVector *)npl_header(value);
-}
-
-NplVal npl_parameters_enter(NplVal parameters_value, NplVal values_value,
-                            NplVal frames_value)
-{
-    NplVector *parameters = require_parameter_vector(parameters_value);
-    NplVector *values = require_parameter_vector(values_value);
-    NplVector *frames = require_parameter_vector(frames_value);
-    if (parameters->length != values->length ||
-        parameters->length != frames->length) {
-        fprintf(stderr, "parameterize: inconsistent binding vectors\n");
-        exit(1);
-    }
-    for (uint32_t i = 0; i < parameters->length; i++) {
-        (void)require_parameter(parameters->data[i], "parameterize");
-        NplVal frame_value = frames->data[i];
-        if (frame_value == npl_false()) {
-            NplParameterBinding *created =
-                (NplParameterBinding *)npl_alloc_object(sizeof(NplParameterBinding));
-            created->header.tag = BOX_PARAMETER_BINDING;
-            created->header.flags = 0;
-            created->parent = g_current_parameters;
-            created->parameter = parameters->data[i];
-            created->value = values->data[i];
-            frame_value = (NplVal)(uintptr_t)created | TAG_PTR;
-            frames->data[i] = frame_value;
-            npl_gc_write_barrier(frames, frame_value);
-        } else if (!npl_is_ptr(frame_value) ||
-                   npl_header(frame_value)->tag != BOX_PARAMETER_BINDING) {
-            fprintf(stderr, "parameterize: invalid binding reentry\n");
-            exit(1);
-        }
-        NplParameterBinding *binding =
-            (NplParameterBinding *)npl_header(frame_value);
-        if (binding->parameter != parameters->data[i] ||
-            binding->parent != g_current_parameters) {
-            fprintf(stderr, "parameterize: invalid binding reentry\n");
-            exit(1);
-        }
-        g_current_parameters = frame_value;
-    }
-    return npl_nil();
-}
-
-NplVal npl_parameters_leave(NplVal frames_value)
-{
-    NplVector *frames = require_parameter_vector(frames_value);
-    for (uint32_t i = frames->length; i > 0; i--) {
-        NplVal frame_value = frames->data[i - 1];
-        if (!npl_is_ptr(frame_value) ||
-            npl_header(frame_value)->tag != BOX_PARAMETER_BINDING ||
-            g_current_parameters != frame_value) {
-            fprintf(stderr, "parameterize: non-current binding exit\n");
-            exit(1);
-        }
-        NplParameterBinding *binding =
-            (NplParameterBinding *)npl_header(frame_value);
-        g_current_parameters = binding->parent;
-    }
-    return npl_nil();
-}
+/* npl_parameters_enter / npl_parameters_leave and the wind transfer live in
+ * dynamic-context.c, which owns the SRFI 18 dynamic-environment machinery.
+ * This file keeps the parameter object, COW set!, and primitive machinery. */
 
 static NplVal parameter_converted(NplVal environment, int64_t argc,
                                   NplVal *argv)
@@ -463,21 +450,32 @@ NplVal npl_handler_push(NplVal procedure)
         (NplHandlerFrame *)npl_alloc_object(sizeof(NplHandlerFrame));
     frame->header.tag = BOX_HANDLER_FRAME;
     frame->header.flags = 0;
-    frame->parent = g_current_handler;
+    frame->parent = CTX->current_handler;
     frame->procedure = procedure;
-    g_current_handler = (NplVal)(uintptr_t)frame | TAG_PTR;
-    return g_current_handler;
+    CTX->current_handler = (NplVal)(uintptr_t)frame | TAG_PTR;
+    return CTX->current_handler;
+}
+
+/* Mark a handler frame as the thread's initial uncaught handler. A captured
+ * handler chain keeps its user frames but this bottom frame is resolved
+ * against the invoking thread (SRFI 18). The flag lives in header.flags, so
+ * no GC traversal changes are needed. */
+NplVal npl_handler_push_initial(NplVal procedure)
+{
+    NplVal frame = npl_handler_push(procedure);
+    npl_header(frame)->flags |= NPL_FLAG_INITIAL_HANDLER;
+    return frame;
 }
 
 NplVal npl_handler_pop(NplVal value)
 {
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_HANDLER_FRAME ||
-        g_current_handler != value) {
+        CTX->current_handler != value) {
         fprintf(stderr, "with-exception-handler: non-current handler exit\n");
         exit(1);
     }
     NplHandlerFrame *frame = (NplHandlerFrame *)npl_header(value);
-    g_current_handler = frame->parent;
+    CTX->current_handler = frame->parent;
     return npl_nil();
 }
 
@@ -486,18 +484,38 @@ static NplVal raise_handler_returned(NplVal environment, int64_t argc,
 
 void npl_raise(NplVal value, NplVal continuation, int64_t continuable)
 {
-    if (npl_is_nil(g_current_handler)) {
-        npl_report_error_object(value);
-        exit(1);
+    if (npl_is_nil(CTX->current_handler)) {
+        /* A continuation captured on the primordial thread has an empty
+         * handler chain. Invoked on a worker, its uncaught raise must reach
+         * the INVOKING worker's initial handler (which terminates that
+         * thread with an uncaught-exception), not exit the whole process.
+         * The primordial fallback stays when no initial handler exists. */
+        if (!npl_is_nil(CTX->initial_handler)) {
+            CTX->current_handler = CTX->initial_handler;
+        } else {
+            npl_report_error_object(value);
+            exit(1);
+        }
     }
-    if (!npl_is_ptr(g_current_handler) ||
-        npl_header(g_current_handler)->tag != BOX_HANDLER_FRAME) {
+    if (!npl_is_ptr(CTX->current_handler) ||
+        npl_header(CTX->current_handler)->tag != BOX_HANDLER_FRAME) {
         fprintf(stderr, "raise: invalid handler chain\n");
         exit(1);
     }
 
-    NplVal frame_value = g_current_handler;
+    NplVal frame_value = CTX->current_handler;
     NplHandlerFrame *frame = (NplHandlerFrame *)npl_header(frame_value);
+    /* SRFI 18: the bottom frame of a captured handler chain is the source
+     * thread's initial uncaught handler. Resolve it against the invoking
+     * thread's own initial handler instead of carrying the source thread's
+     * termination path. User frames are kept by identity, so a later
+     * npl_handler_pop still validates. */
+    if ((frame->header.flags & NPL_FLAG_INITIAL_HANDLER) &&
+        frame_value != CTX->initial_handler &&
+        !npl_is_nil(CTX->initial_handler)) {
+        frame_value = CTX->initial_handler;
+        frame = (NplHandlerFrame *)npl_header(frame_value);
+    }
     NplRaiseContext *context =
         (NplRaiseContext *)npl_alloc_object(sizeof(NplRaiseContext));
     context->header.tag = BOX_RAISE_CONTEXT;
@@ -509,7 +527,7 @@ void npl_raise(NplVal value, NplVal continuation, int64_t continuable)
     context->reserved = 0;
     NplVal context_value = (NplVal)(uintptr_t)context | TAG_PTR;
 
-    g_current_handler = frame->parent;
+    CTX->current_handler = frame->parent;
     NplVal callback = npl_make_closure(
         raise_handler_returned, context_value, 1);
     NplVal arguments[2] = { value, callback };
@@ -526,7 +544,7 @@ static NplVal raise_handler_returned(NplVal environment, int64_t argc,
     }
     NplRaiseContext *context = (NplRaiseContext *)npl_header(environment);
     if (context->continuable) {
-        g_current_handler = context->frame;
+        CTX->current_handler = context->frame;
         npl_tail_request_closure(context->continuation, 1, argv);
     } else {
         npl_raise(context->value, npl_nil(), 0);
@@ -543,22 +561,29 @@ NplVal npl_wind_push(NplVal before, NplVal after)
     NplWindFrame *frame = (NplWindFrame *)npl_alloc_object(sizeof(NplWindFrame));
     frame->header.tag = BOX_WIND_FRAME;
     frame->header.flags = 0;
-    frame->parent = g_current_wind;
+    frame->parent = CTX->current_wind;
     frame->before = before;
     frame->after = after;
-    frame->id = g_next_wind_id++;
-    g_current_wind = (NplVal)(uintptr_t)frame | TAG_PTR;
-    return g_current_wind;
+    /* SRFI 18: record the environment in effect in this extent, so a wind
+     * transfer can reinstall it for each before/after thunk. pending_extent_key
+     * was published by npl_parameters_enter in the before thunk. */
+    frame->handler = CTX->current_handler;
+    frame->parameters = CTX->current_parameters;
+    frame->extent_key = CTX->pending_extent_key;
+    CTX->pending_extent_key = npl_nil();
+    frame->id = CTX->next_wind_id++;
+    CTX->current_wind = (NplVal)(uintptr_t)frame | TAG_PTR;
+    return CTX->current_wind;
 }
 
 NplVal npl_wind_pop(NplVal value)
 {
     NplWindFrame *frame = require_wind_frame(value, "dynamic-wind");
-    if (g_current_wind != value) {
+    if (CTX->current_wind != value) {
         fprintf(stderr, "dynamic-wind: non-current frame exit\n");
         exit(1);
     }
-    g_current_wind = frame->parent;
+    CTX->current_wind = frame->parent;
     return npl_nil();
 }
 
@@ -567,150 +592,14 @@ NplVal npl_wind_pop(NplVal value)
  * outside that extent; #f when none is in effect. */
 NplVal npl_wind_exit_step(void)
 {
-    if (npl_is_nil(g_current_wind)) return npl_false();
-    NplWindFrame *frame = require_wind_frame(g_current_wind, "exit");
-    g_current_wind = frame->parent;
+    if (npl_is_nil(CTX->current_wind)) return npl_false();
+    NplWindFrame *frame = require_wind_frame(CTX->current_wind, "exit");
+    CTX->current_wind = frame->parent;
     return frame->after;
 }
 
-static uint32_t wind_depth(NplVal value)
-{
-    uint32_t depth = 0;
-    while (!npl_is_nil(value)) {
-        value = require_wind_frame(value, "continuation")->parent;
-        if (depth == UINT32_MAX) npl_runtime_oom_internal();
-        depth++;
-    }
-    return depth;
-}
 
-static NplVal wind_parent(NplVal value)
-{
-    return require_wind_frame(value, "continuation")->parent;
-}
-
-static NplVal wind_common_ancestor(NplVal source, NplVal target)
-{
-    uint32_t source_depth = wind_depth(source);
-    uint32_t target_depth = wind_depth(target);
-    while (source_depth > target_depth) {
-        source = wind_parent(source);
-        source_depth--;
-    }
-    while (target_depth > source_depth) {
-        target = wind_parent(target);
-        target_depth--;
-    }
-    while (source != target) {
-        source = wind_parent(source);
-        target = wind_parent(target);
-    }
-    return source;
-}
-
-static NplVal wind_transition_resume(NplVal environment, int64_t argc,
-                                     NplVal *argv);
-
-static void schedule_wind_transition(NplVal transition_value)
-{
-    NplWindTransition *transition =
-        (NplWindTransition *)npl_header(transition_value);
-    if (!npl_is_nil(transition->entering)) {
-        g_current_wind = transition->entering;
-        transition->entering = npl_nil();
-    }
-
-    NplVal thunk = npl_nil();
-    if (transition->exit_index < transition->exit_count) {
-        NplVal frame_value = transition->frames[transition->exit_index++];
-        NplWindFrame *frame = require_wind_frame(frame_value, "continuation");
-        g_current_wind = frame->parent;
-        thunk = frame->after;
-    } else if (transition->entry_index < transition->entry_count) {
-        g_current_handler = transition->target_handler;
-        uint32_t reverse = transition->entry_count -
-                           transition->entry_index - 1;
-        NplVal frame_value = transition->frames[transition->exit_count + reverse];
-        NplWindFrame *frame = require_wind_frame(frame_value, "continuation");
-        transition->entry_index++;
-        transition->entering = frame_value;
-        npl_gc_write_barrier(transition, frame_value);
-        thunk = frame->before;
-    } else {
-        g_current_wind = transition->target;
-        g_current_handler = transition->target_handler;
-        NplVal argument = transition->value;
-        npl_tail_request_closure(transition->continuation, 1, &argument);
-        return;
-    }
-
-    NplVal resume = npl_make_closure(
-        wind_transition_resume, transition_value, 1);
-    npl_tail_request_closure(thunk, 1, &resume);
-}
-
-static NplVal wind_transition_resume(NplVal environment, int64_t argc,
-                                     NplVal *argv)
-{
-    (void)argv;
-    if (argc != 1 || !npl_is_ptr(environment) ||
-        npl_header(environment)->tag != BOX_WIND_TRANSITION) {
-        fprintf(stderr, "dynamic-wind: invalid transition callback\n");
-        exit(1);
-    }
-    schedule_wind_transition(environment);
-    return npl_nil();
-}
-
-void npl_wind_transfer(NplVal target, NplVal target_handler,
-                       NplVal continuation, NplVal value)
-{
-    if (!npl_is_nil(target))
-        (void)require_wind_frame(target, "continuation");
-    if (!npl_is_nil(target_handler) &&
-        (!npl_is_ptr(target_handler) ||
-         npl_header(target_handler)->tag != BOX_HANDLER_FRAME)) {
-        fprintf(stderr, "continuation: invalid handler state\n");
-        exit(1);
-    }
-    if (g_current_wind == target) {
-        g_current_handler = target_handler;
-        npl_tail_request_closure(continuation, 1, &value);
-        return;
-    }
-
-    NplVal common = wind_common_ancestor(g_current_wind, target);
-    uint32_t exit_count = 0;
-    for (NplVal frame = g_current_wind; frame != common;
-         frame = wind_parent(frame))
-        exit_count++;
-    uint32_t entry_count = 0;
-    for (NplVal frame = target; frame != common;
-         frame = wind_parent(frame))
-        entry_count++;
-
-    size_t total = (size_t)exit_count + entry_count;
-    NplWindTransition *transition = (NplWindTransition *)npl_alloc_object(
-        sizeof(NplWindTransition) + total * sizeof(NplVal));
-    transition->header.tag = BOX_WIND_TRANSITION;
-    transition->header.flags = 0;
-    transition->exit_count = exit_count;
-    transition->exit_index = 0;
-    transition->entry_count = entry_count;
-    transition->entry_index = 0;
-    transition->target = target;
-    transition->target_handler = target_handler;
-    transition->continuation = continuation;
-    transition->value = value;
-    transition->entering = npl_nil();
-
-    size_t index = 0;
-    for (NplVal frame = g_current_wind; frame != common;
-         frame = wind_parent(frame))
-        transition->frames[index++] = frame;
-    for (NplVal frame = target; frame != common;
-         frame = wind_parent(frame))
-        transition->frames[index++] = frame;
-
-    schedule_wind_transition((NplVal)(uintptr_t)transition | TAG_PTR);
-}
+/* The SRFI 18 wind transfer, wind-transition scheduling and captured
+ * dynamic-context machinery live in dynamic-context.c. control.c keeps
+ * the dynamic-state primitives (wind/handler push-pop, raise, parameter
+ * objects and copy-on-write parameter-set!). */

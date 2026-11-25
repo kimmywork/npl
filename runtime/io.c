@@ -182,7 +182,15 @@ NplVal npl_process_run(NplVal arguments, NplVal output_path)
     if (spawn_status != 0) return npl_fixnum(127);
 
     int status = 0;
-    if (waitpid(child, &status, 0) < 0)
+    /* waitpid blocks with no poll site. Publish the safe context and park so
+     * a concurrent collection scans this thread's stack (including the
+     * argument list) instead of waiting forever. The raise happens after
+     * block_end so a longjmp cannot leave the blocked state set. */
+    int wait_result;
+    npl_gc_block_begin();
+    wait_result = waitpid(child, &status, 0);
+    npl_gc_block_end();
+    if (wait_result < 0)
         npl_primitive_error("run-process", "wait failed", arguments);
     if (WIFEXITED(status)) return npl_fixnum(WEXITSTATUS(status));
     if (WIFSIGNALED(status)) return npl_fixnum(128 + WTERMSIG(status));
@@ -244,7 +252,13 @@ NplVal npl_process_run_full(NplVal arguments, NplVal input_path,
     for (size_t index = 0; index < count; index++) free(argv[index]);
     free(argv);
     if (spawn_status != 0) return npl_fixnum(127);
-    if (waitpid(child, &status, 0) < 0)
+    /* waitpid is a blocking call with no poll site; publish the safe context
+     * and park (see npl_process_run). */
+    int wait_result;
+    npl_gc_block_begin();
+    wait_result = waitpid(child, &status, 0);
+    npl_gc_block_end();
+    if (wait_result < 0)
         npl_primitive_error("run-process*", "wait failed", arguments);
     if (WIFEXITED(status)) return npl_fixnum(WEXITSTATUS(status));
     if (WIFSIGNALED(status)) return npl_fixnum(128 + WTERMSIG(status));

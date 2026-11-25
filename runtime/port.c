@@ -204,6 +204,7 @@ static NplVal open_file_port(NplVal path, const char *mode,
  * the port layout. */
 NplVal npl_port_fileno(NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port;
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_PORT)
         return npl_false();
@@ -336,12 +337,21 @@ NplVal npl_get_output_string(NplVal value)
 static NplVal close_port_direction(NplVal value, uint32_t access,
                                    const char *who)
 {
+    NPL_SHARED_GUARD();
     NplPort *port = port_value(value, who);
     if ((port->mode & access) == 0)
         npl_primitive_error(who, "wrong port direction", value);
     if ((port->mode & NPL_PORT_CLOSED) != 0) return npl_unspecified();
     if ((port->mode & NPL_PORT_OWNED) != 0 && port->stream) {
-        if (fclose(port->stream) != 0) {
+        /* fclose can block (e.g. flushing a pipe with no reader). Publish the
+         * safe context and park so a concurrent collection neither waits on
+         * this thread nor loses its C-stack roots. The raise happens after
+         * block_end so a longjmp cannot leave the blocked state set. */
+        int failed;
+        npl_gc_block_begin();
+        failed = fclose(port->stream) != 0;
+        npl_gc_block_end();
+        if (failed) {
             port->stream = NULL;
             port->mode |= NPL_PORT_CLOSED;
             npl_primitive_file_error(who, "close failed", value);
@@ -371,9 +381,18 @@ NplVal npl_close_port(NplVal value)
 
 NplVal npl_flush_output_port(NplVal value)
 {
+    NPL_SHARED_GUARD();
     NplPort *port = require_port(value, NPL_PORT_OUTPUT, "flush-output-port");
-    if ((port->mode & NPL_PORT_MEMORY) == 0 && fflush(port->stream) != 0)
-        npl_primitive_file_error("flush-output-port", "flush failed", value);
+    int failed = 0;
+    if ((port->mode & NPL_PORT_MEMORY) == 0) {
+        int status;
+        npl_gc_block_begin();
+        status = fflush(port->stream);
+        npl_gc_block_end();
+        failed = status != 0;
+        if (failed) npl_primitive_file_error("flush-output-port", "flush failed",
+                                             value);
+    }
     return npl_unspecified();
 }
 
@@ -394,6 +413,7 @@ static uint8_t *memory_output_data(NplPort *port, const char *who)
 
 static size_t port_read_bytes(NplPort *port, uint8_t *output, size_t count)
 {
+    NPL_SHARED_GUARD();
     if ((port->mode & NPL_PORT_MEMORY) == 0) {
         size_t taken = 0;
         while (port->pushed && taken < count) {
@@ -401,7 +421,15 @@ static size_t port_read_bytes(NplPort *port, uint8_t *output, size_t count)
             memmove(port->pushback, port->pushback + 1, --port->pushed);
         }
         if (taken == count) return taken;
-        return taken + fread(output + taken, 1, count - taken, port->stream);
+        /* fread may block indefinitely on a pipe with no writer. Publish the
+         * safe context and park; the collector scans this thread's stack
+         * instead of waiting for it. The output buffer is a caller-owned
+         * bytevector, kept alive by the caller's stack and roots. */
+        size_t got;
+        npl_gc_block_begin();
+        got = fread(output + taken, 1, count - taken, port->stream);
+        npl_gc_block_end();
+        return taken + got;
     }
     const uint8_t *data = memory_input_data(port, "read");
     uint32_t available = port->position < port->length
@@ -416,6 +444,7 @@ static size_t port_read_bytes(NplPort *port, uint8_t *output, size_t count)
 
 static void ensure_memory_output(NplPort *port, uint32_t needed)
 {
+    NPL_SHARED_GUARD();
     uint32_t current_capacity = memory_output_capacity(port, "write");
     if (needed <= current_capacity) return;
     uint32_t capacity = current_capacity ? current_capacity : 64;
@@ -435,8 +464,18 @@ static void ensure_memory_output(NplPort *port, uint32_t needed)
 static void port_write_bytes(NplPort *port, const uint8_t *bytes, size_t count,
                              const char *who)
 {
+    NPL_SHARED_GUARD();
     if ((port->mode & NPL_PORT_MEMORY) == 0) {
-        if (count && fwrite(bytes, 1, count, port->stream) != count)
+        size_t written = count;
+        if (count) {
+            /* fwrite can block on a pipe with no reader. Publish the safe
+             * context and park; raise only after block_end so a longjmp
+             * cannot leave the blocked state set. */
+            npl_gc_block_begin();
+            written = fwrite(bytes, 1, count, port->stream);
+            npl_gc_block_end();
+        }
+        if (written != count)
             npl_primitive_file_error(who, "write failed",
                                      (NplVal)(uintptr_t)port | TAG_PTR);
         return;
@@ -460,6 +499,7 @@ static int port_read_byte_raw(NplPort *port)
 static void port_unread_bytes(NplPort *port, const uint8_t *bytes,
                               size_t count)
 {
+    NPL_SHARED_GUARD();
     if ((port->mode & NPL_PORT_MEMORY) != 0) {
         port->position -= (uint32_t)count;
         return;
@@ -537,6 +577,7 @@ static int peek_utf8_char(NplPort *port)
 
 NplVal npl_read_char(NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_INPUT,
                                      NPL_PORT_TEXTUAL, "read-char");
     int code = read_utf8_char(port);
@@ -545,6 +586,7 @@ NplVal npl_read_char(NplVal value)
 
 NplVal npl_peek_char(NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_INPUT,
                                      NPL_PORT_TEXTUAL, "peek-char");
     int code = peek_utf8_char(port);
@@ -553,6 +595,7 @@ NplVal npl_peek_char(NplVal value)
 
 NplVal npl_write_char(NplVal character, NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_OUTPUT,
                                      NPL_PORT_TEXTUAL, "write-char");
     if (!npl_is_char(character))
@@ -563,6 +606,7 @@ NplVal npl_write_char(NplVal character, NplVal value)
 
 NplVal npl_read_byte(NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_INPUT,
                                      NPL_PORT_BINARY, "read-u8");
     int byte = port_read_byte_raw(port);
@@ -571,6 +615,7 @@ NplVal npl_read_byte(NplVal value)
 
 NplVal npl_peek_byte(NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_INPUT,
                                      NPL_PORT_BINARY, "peek-u8");
     int byte = port_peek_byte_raw(port, "peek-u8");
@@ -579,6 +624,7 @@ NplVal npl_peek_byte(NplVal value)
 
 NplVal npl_write_byte(NplVal byte, NplVal value)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     NplPort *port = require_port_mode(value, NPL_PORT_OUTPUT,
                                      NPL_PORT_BINARY, "write-u8");
     if (!npl_is_fixnum(byte) || npl_fixnum_value(byte) < 0 ||
@@ -612,6 +658,7 @@ static void require_bytevector_range(NplBytevector *bytes, NplVal start_value,
 
 NplVal npl_read_bytevector(int64_t argc, NplVal *argv)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     if (argc != 2) {
         fprintf(stderr, "read-bytevector: internal arity mismatch\n");
         exit(1);
@@ -630,6 +677,7 @@ NplVal npl_read_bytevector(int64_t argc, NplVal *argv)
 
 NplVal npl_read_bytevector_into(int64_t argc, NplVal *argv)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     if (argc != 4) {
         fprintf(stderr, "read-bytevector!: internal arity mismatch\n");
         exit(1);
@@ -651,6 +699,7 @@ NplVal npl_read_bytevector_into(int64_t argc, NplVal *argv)
 
 NplVal npl_write_bytevector(int64_t argc, NplVal *argv)
 {
+    NPL_SHARED_GUARD();  /* validate and use port->stream under one lock */
     if (argc != 4) {
         fprintf(stderr, "write-bytevector: internal arity mismatch\n");
         exit(1);

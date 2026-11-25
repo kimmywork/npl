@@ -228,6 +228,7 @@ NplVal npl_unix_directory_files(NplVal path_value, NplVal dotfiles_value)
 
 NplVal npl_unix_open_directory(NplVal path_value)
 {
+    NPL_SHARED_GUARD();
     char *path = unix_path(path_value, "open-directory");
     DIR *directory = opendir(path);
     NplDirHandle *handle;
@@ -241,6 +242,7 @@ NplVal npl_unix_open_directory(NplVal path_value)
 
 NplVal npl_unix_read_directory(NplVal handle, NplVal dotfiles_value)
 {
+    NPL_SHARED_GUARD();
     NplDirHandle *entry = find_directory(handle, "read-directory");
     struct dirent *item;
     int include_dotfiles = npl_is_true(dotfiles_value);
@@ -257,6 +259,7 @@ NplVal npl_unix_read_directory(NplVal handle, NplVal dotfiles_value)
 
 NplVal npl_unix_close_directory(NplVal handle)
 {
+    NPL_SHARED_GUARD();
     NplDirHandle *entry = find_directory(handle, "close-directory");
     closedir(entry->directory);
     free(entry);

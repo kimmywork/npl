@@ -136,6 +136,7 @@ NplVal npl_ffi_alloc(NplVal size_value, NplVal alignment_value)
 
 NplVal npl_ffi_foreign_free(NplVal value)
 {
+    NPL_SHARED_GUARD();
     NplPointer *pointer = ffi_pointer_object(value, "foreign-free");
     if (pointer->address == NULL && !pointer->owned)
         return npl_unspecified();
@@ -165,6 +166,7 @@ NplVal npl_ffi_foreign_size(NplVal value)
 NplVal npl_ffi_foreign_copy(NplVal value, NplVal size_value,
                             NplVal alignment_value)
 {
+    NPL_SHARED_GUARD();
     NplPointer *source = ffi_pointer_object(value, "foreign-copy");
     size_t size = ffi_size_value(size_value, "foreign-copy");
     size_t alignment = ffi_alignment_value(alignment_value, "foreign-copy");
@@ -187,6 +189,7 @@ NplVal npl_ffi_foreign_copy(NplVal value, NplVal size_value,
 
 NplVal npl_ffi_pointer_add(NplVal value, NplVal offset_value)
 {
+    NPL_SHARED_GUARD();
     NplPointer *pointer = ffi_pointer_object(value, "pointer+offset");
     size_t offset = ffi_size_value(offset_value, "pointer+offset");
     if (pointer->sized && !ffi_block_live(pointer))
@@ -246,6 +249,7 @@ static unsigned char *ffi_access_address(NplVal value, int code,
 NplVal npl_ffi_pointer_ref(NplVal value, NplVal code_value,
                            NplVal offset_value)
 {
+    NPL_SHARED_GUARD();
     int code = ffi_type_code(code_value, "pointer-ref");
     size_t offset = ffi_size_value(offset_value, "pointer-ref");
     unsigned char *address = ffi_access_address(value, code, offset,
@@ -320,6 +324,7 @@ NplVal npl_ffi_pointer_ref(NplVal value, NplVal code_value,
 NplVal npl_ffi_pointer_set(NplVal value, NplVal code_value,
                            NplVal offset_value, NplVal item)
 {
+    NPL_SHARED_GUARD();
     int code = ffi_type_code(code_value, "pointer-set!");
     size_t offset = ffi_size_value(offset_value, "pointer-set!");
     unsigned char *address = ffi_access_address(value, code, offset,

@@ -5,6 +5,19 @@
 #include <stddef.h>
 #include <stdio.h>
 
+/* Native thread-local storage.  Runtime C is C99, so use the checked
+ * __thread compiler extension (Clang/GCC) rather than requiring C11
+ * _Thread_local; the compiler is verified at build time.  pthread keys back
+ * an alternative accessor only when a target lacks a proven direct TLS path.
+ * The QBE-generated executable defines the npl_stack_limit TLS slot; the
+ * runtime and every native package reach that one slot through this
+ * declaration, never through an independent copy. */
+#if defined(__clang__) || defined(__GNUC__)
+#define NPL_TLS __thread
+#else
+#error "NPL requires a C99 thread-local storage extension (__thread)"
+#endif
+
 /*
  * NPL Runtime — Value representation and core types.
  *
@@ -59,6 +72,16 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_POINTER 24  /* C address (ffi.c); references an ffi block */
 #define BOX_HASHTABLE 25  /* NplHashTable (hashtable.c) */
 #define BOX_FFI_BLOCK 26 /* FfiBlock shared by an allocation and its views */
+/* T2 (SRFI 18) objects; layouts live in runtime/thread-sched.h. */
+#define BOX_THREAD 27
+#define BOX_MUTEX 28
+#define BOX_CONDVAR 29
+#define BOX_TIME 30
+#define BOX_THREAD_EXCEPTION 31
+/* SRFI 18: a call/cc continuation's saved dynamic environment. */
+#define BOX_DYNAMIC_CONTEXT 32
+/* T2b: a virtual thread's one-shot scheduler continuation and state. */
+#define BOX_VIRTUAL_THREAD 33
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -70,6 +93,10 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
  * (data-segment) objects never carry these bits. */
 #define NPL_FLAG_OLD 8
 #define NPL_FLAG_REMEMBERED 16
+/* Handler frames (control.c): the thread's initial uncaught handler. A
+ * captured handler chain keeps its user frames but this bottom frame is
+ * resolved against the invoking thread (SRFI 18). */
+#define NPL_FLAG_INITIAL_HANDLER 32
 #define IMM_CHAR_TAG 14
 
 /* ---- Immediate values ---- */
@@ -134,8 +161,26 @@ typedef struct {
     NplVal parent;
     NplVal before;
     NplVal after;
+    /* SRFI 18: the dynamic environment in effect in this extent, captured at
+     * push time. A transfer reinstalls it before each before/after thunk.
+     * extent_key is this parameterize's frames vector, or nil for a plain
+     * dynamic-wind; it is the key into the per-thread extent mapping. */
+    NplVal handler;
+    NplVal parameters;
+    NplVal extent_key;
     uint64_t id;
 } NplWindFrame;
+
+/* Saved dynamic environment of a captured continuation (SRFI 18). The
+ * source thread's initial handler frame is recorded so a transfer can
+ * resolve it against the invoking thread instead of reusing a jmp_buf. */
+typedef struct {
+    NplHeader header;
+    NplVal wind;
+    NplVal handler;
+    NplVal parameters;
+    NplVal source_initial_handler;
+} NplDynamicContext;
 
 typedef struct {
     NplHeader header;
@@ -148,6 +193,14 @@ typedef struct {
     NplVal continuation;
     NplVal value;
     NplVal entering;
+    /* SRFI 18: nil for a legacy (pre-relay) transfer; otherwise the captured
+     * context driving per-thunk environment restoration. */
+    NplVal context;
+    NplVal target_parameters;
+    /* (src-binding . localized-copy) map for this transfer. A binding shared
+     * by a destination chain and a wind frame must resolve to ONE node, so a
+     * parameter-set! in a before thunk is visible to the continuation body. */
+    NplVal cache;
     NplVal frames[];
 } NplWindTransition;
 
@@ -177,6 +230,11 @@ typedef struct {
     NplVal parent;
     NplVal parameter;
     NplVal value;
+    /* Native context that created this binding.  A thread may mutate a
+     * binding it owns in place (continuation re-entry semantics); a binding
+     * owned by another thread must be shadowed by a fresh copy instead of
+     * written, so parameter-set! cannot leak across threads (T1.3). */
+    uintptr_t owner;
 } NplParameterBinding;
 
 typedef struct {
@@ -528,7 +586,10 @@ NplVal npl_wind_push(NplVal before, NplVal after);
 NplVal npl_wind_pop(NplVal frame);
 NplVal npl_wind_exit_step(void);
 NplVal npl_current_handler(void);
+/* Capture the invoking thread's full dynamic environment for call/cc. */
+NplVal npl_capture_dynamic_context(void);
 NplVal npl_handler_push(NplVal procedure);
+NplVal npl_handler_push_initial(NplVal procedure);
 NplVal npl_handler_pop(NplVal frame);
 NplVal npl_make_parameter(NplVal converter, NplVal value);
 NplVal npl_parameter_ref(NplVal parameter);
@@ -567,6 +628,8 @@ NplVal npl_box_bool(int32_t value);
 NplVal npl_box_float(double value);
 NplVal npl_box_identity(NplVal value);
 NplVal npl_apply(NplVal closure, int64_t argc, NplVal *argv);
+/* Release argument buffers of trampoline frames skipped by a longjmp. */
+void npl_trampoline_release_abandoned(void);
 void npl_wrong_argument_count(int64_t argc);
 void npl_apply_tail(int64_t argc, NplVal *argv);
 void npl_tail_request_closure(NplVal closure, int64_t argc, NplVal *argv);
@@ -580,8 +643,10 @@ void npl_tail_request(NplGenericFunction function, NplVal environment,
 NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
                      int64_t argc, NplVal *argv);
 /* Direct entries of compiled functions run their CPS entry through
- * npl_direct_fallback below this stack address (stack.c). */
-extern uintptr_t npl_stack_limit;
+ * npl_direct_fallback below this stack address (stack.c).  This is a native
+ * TLS slot: generated code loads it with QBE `thread $npl_stack_limit`, so
+ * each OS thread has its own C-stack window.  The executable owns the slot. */
+extern NPL_TLS uintptr_t npl_stack_limit;
 void npl_stack_init_internal(uintptr_t base);
 /* An exact integer from base-10^9 limbs, least significant first; a
  * fixnum when it fits (numeric.c; number_read.c builds integers with it). */
@@ -604,10 +669,63 @@ NplVal npl_raise_direct(NplVal object);
  * with it, so QBE does not keep the loop variables in the argument
  * registers (backend/program.npl emit-direct-function). */
 extern uintptr_t npl_opaque_zero;
+/* World-stop flag read by generated safepoint polls (program.npl). The
+ * executable owns the slot; the coordinator sets it when a collection asks
+ * every mutator to publish its context and park. */
+/* C accesses use __atomic_load_n/__atomic_store_n. Generated QBE polls read
+ * this naturally aligned word directly; target word loads/stores are
+ * single-copy atomic, preserving the one-load common poll path. */
+extern uintptr_t npl_gc_stop_requested;
 
 /* Garbage collection */
 void npl_gc_collect(void);
 void npl_gc_maybe_collect(void);
+
+/* ---- T1.3 stop-the-world coordinator (runtime/coordinator.c) ----
+ * The coordinator lock is separate from the heap mutex: a collector never
+ * waits for mutators to park while holding a mutex a mutator needs to reach
+ * a safepoint. Generated polls call npl_safepoint_poll(); the collector
+ * brackets mark/sweep with npl_gc_stop_world / npl_gc_start_world. */
+void npl_safepoint_poll(void);
+void npl_gc_stop_world(void);
+void npl_gc_start_world(void);
+void npl_gc_mark_parked_stacks(void);
+void npl_heap_lock(void);
+void npl_heap_unlock(void);
+/* An unwrapped C call keeps GC excluded; a wrapped blocking call publishes
+ * its snapshot and parks before it releases exclusion. */
+void npl_gc_exclude(void);
+void npl_gc_include(void);
+void npl_gc_block_begin(void);
+void npl_gc_block_end(void);
+int npl_try_collect_lock(void);
+void npl_collect_unlock(void);
+void npl_gc_mark_words_internal(uintptr_t begin, uintptr_t end);
+/* Shared-object lock (runtime/shared-lock.c). Ports, FFI blocks, directory
+ * handles and the symbol table serialize through it; a longjmp landing must
+ * call npl_shared_release_all so a primitive error cannot leave it held. */
+void npl_shared_lock(void);
+void npl_shared_unlock(void);
+int npl_shared_depth(void);
+void npl_shared_release_to(int depth);
+void npl_shared_release_all(void);
+
+/* Shared-object critical section: one guard per function scope. A cleanup
+ * attribute unlocks on every normal return; a primitive error's longjmp is
+ * covered by npl_shared_release_all at the trampoline landing. */
+static inline void npl_shared_unlock_guard(int *unused)
+{
+    (void)unused;
+    npl_shared_unlock();
+}
+#define NPL_SHARED_GUARD()                                                    \
+    npl_shared_lock();                                                        \
+    __attribute__((cleanup(npl_shared_unlock_guard))) int npl_shared_guard_ = 0
+
+/* Cooperative cancellation, observed at the same polls. */
+void npl_thread_request_cancel(void *context);
+void npl_cancel_consumed(void);
+int npl_thread_cancel_pending(void);
 
 /* Register a GC root (global variable, stack slot, etc.) */
 void npl_gc_root(NplVal *root);
@@ -765,6 +883,36 @@ NplVal npl_platform_triple(void);
 NplVal npl_symbol_fold_internal(NplVal symbol);
 NplVal npl_utf8_to_string(NplVal bytevector, NplVal start, NplVal end);
 void npl_control_init(void);
+/* Longjmp-safe C scratch buffers (thread.c): push a free callback that runs
+ * if a cancellation / primitive error unwinds past the frame. Pop on normal
+ * completion; npl_shared_release_all runs any remaining frames. */
+void npl_cleanup_push(void (*function)(void *), void *argument);
+void npl_cleanup_pop(void);
+int npl_cleanup_depth(void);
+void npl_cleanup_release_to(int depth);
+void npl_cleanup_release_all(void);
+/* Shared dynamic-state helpers (control.c, dynamic-context.c). */
+NplWindFrame *require_wind_frame(NplVal value, const char *who);
+NplParameter *require_parameter(NplVal value, const char *who);
+/* T2b: order-preserving parameter-chain clone for a new virtual thread, and
+ * ownership re-stamping when it migrates to a different carrier. The owner
+ * identity must be per-LOGICAL-thread, not the carrier's context id: two
+ * virtual threads on one carrier otherwise share an owner and break COW. */
+NplVal npl_clone_parameter_bindings(NplVal chain);
+uintptr_t npl_binding_owner(void);
+void npl_relocalize_parameter_bindings(NplVal chain, uintptr_t owner);
+/* T2b: heap-rooted suspended scheduler tokens (virtual-thread.c). */
+void npl_virtual_thread_mark_roots(void);
+/* Startup rooting handshake (thread-start-root.c). */
+void npl_pending_thread_mark_roots(void);
+void npl_pending_thread_add(NplVal value);
+void npl_pending_thread_remove(NplVal value);
+/* T2b: control-transfer intrinsics emitted by the backend in tail position.
+ * They store the raw CPS continuation and return WITHOUT a tail request, so
+ * the trampoline breaks and the carrier loop regains control. Await also
+ * submits the work thunk to the helper-worker pool. */
+void npl_vthread_park(NplVal continuation);
+void npl_vthread_await(NplVal work, NplVal continuation);
 /* Parameter object application in CPS (control.c, trampoline.c). */
 void npl_parameter_dispatch(NplVal parameter, int64_t argc, NplVal *argv);
 void npl_control_mark_roots(void);

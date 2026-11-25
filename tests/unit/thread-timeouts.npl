@@ -1,0 +1,78 @@
+; Regression tests for PR #8 review findings:
+; - thread-sleep! / mutex-lock! timed waits must use the same clock as their
+;   deadlines (a CLOCK_MONOTONIC deadline passed to a default CLOCK_REALTIME
+;   condition variable returned ETIMEDOUT immediately).
+; - a child thread must inherit nested parameterize bindings in order.
+; - make-thread must reject a non-procedure thunk.
+;
+; Native-only: these exercise the native pthread scheduler. Timing thresholds
+; are deliberately lenient; the differential fixtures keep the deterministic
+; surface checks.
+(import (scheme base) (scheme write) (scheme process-context) (npl thread))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+(define (now) (time->seconds (current-time)))
+
+; A timed sleep must actually wait. With the clock mismatch this returned in
+; a few microseconds.
+(define t0 (now))
+(thread-sleep! 0.2)
+(define elapsed (- (now) t0))
+(check "thread-sleep! elapsed" #t (>= elapsed 0.15))
+
+; A timed mutex-lock! on a busy mutex must also actually wait, then return #f.
+(define m (make-mutex 'busy))
+(mutex-lock! m)
+(define t1 (now))
+(define timed (mutex-lock! m 0.2 #f))
+(define lock-elapsed (- (now) t1))
+(check "mutex-lock! timeout result" #f timed)
+(check "mutex-lock! timeout elapsed" #t (>= lock-elapsed 0.15))
+(mutex-unlock! m)
+
+; Nested parameterize: the child thread must see the innermost binding (2),
+; not the outer one (1). The old head-to-tail clone reversed the chain.
+(define p (make-parameter 0))
+(check "nested parameter inheritance"
+       2
+       (parameterize ((p 1))
+         (parameterize ((p 2))
+           (thread-join!
+             (thread-start! (make-thread (lambda () (p))))))))
+
+; A negative relative timeout must not produce an invalid timespec.
+(thread-sleep! -1)
+(check "negative relative timeout" #t #t)
+
+; SRFI 18 timeouts accept any real number, including exact rationals.
+(define t2 (now))
+(thread-sleep! (/ 1 5))
+(check "exact rational timeout" #t (>= (- (now) t2) 0.15))
+
+; An explicitly supplied #f name is a valid Scheme object; an omitted name
+; is unspecified (not #f).
+(check "explicit #f thread name"
+       #f
+       (thread-name (make-thread (lambda () 1) #f)))
+(check "explicit #f mutex name"
+       #f
+       (mutex-name (make-mutex #f)))
+(check "omitted name is not #f"
+       #f
+       (eq? #f (thread-name (make-thread (lambda () 1)))))
+
+; make-thread rejects a non-procedure thunk with a catchable error.
+(check "make-thread validates thunk"
+       #t
+       (guard (e (else #t)) (make-thread 42) #f))
+
+(if (= failures 0)
+    (begin (display "thread-timeouts: PASS") (newline) (exit 0))
+    (begin (display "thread-timeouts: FAIL") (newline) (exit 1)))

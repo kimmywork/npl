@@ -1,0 +1,71 @@
+; Regression tests for the SECOND PR #8 review round (verified against
+; `da0fdf3`). Native-only: these exercise native thread/virtual-thread
+; semantics that the differential fixture runner cannot compare with npli.
+(import (scheme base) (scheme write) (scheme process-context)
+        (only (npl thread) make-thread thread-start! thread-join!
+              make-mutex mutex-lock! current-exception-handler)
+        (npl thread virtual))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+; D8: SRFI 18 says current-exception-handler returns a procedure on EVERY
+; thread, including the primordial thread (which had no handler frame before).
+(check "primordial current-exception-handler is a procedure"
+       #t
+       (procedure? (current-exception-handler)))
+
+; V7: a parameter object is a procedure (npl_procedure_p / npl_apply accept
+; BOX_PARAMETER), so make-thread must accept it as a thunk.
+(define parameter-thunk (make-thread (make-parameter 42)))
+(thread-start! parameter-thunk)
+(check "make-thread accepts a parameter thunk"
+       42
+       (thread-join! parameter-thunk))
+
+; D5: SRFI 18 "the thread inherits the dynamic environment from the current
+; thread" at MAKE-THREAD time. A parent mutation before thread-start! must
+; not leak into the child's initial environment.
+(define p (make-parameter 0))
+(define snapshot-thread (make-thread (lambda () (p))))
+(p 99)
+(thread-start! snapshot-thread)
+(check "make-thread snapshots the parent environment"
+       0
+       (thread-join! snapshot-thread))
+
+; V6: SRFI 18 "an abandoned mutex exception is raised if the mutex was
+; unlocked/abandoned BEFORE the state change, otherwise mutex-lock! returns
+; #t". A terminated explicit owner on a fresh (not-abandoned) mutex must
+; therefore return #t, not raise.
+(define dead (make-thread (lambda () 'done)))
+(thread-start! dead)
+(thread-join! dead)
+(define fresh-mutex (make-mutex))
+(check "terminated owner on a fresh mutex returns #t"
+       #t
+       (guard (e (else #f)) (mutex-lock! fresh-mutex 1 dead)))
+
+; V4/registry + helper pool: unstarted virtual threads are collectable, and
+; a burst of blocking thunks must not starve the last one (the helper pool
+; grows from unclaimed queued work).
+(define fast-count 0)
+(define (fast n)
+  (virtual-thread-block! (lambda () (+ n 1))))
+(define vts
+  (list (make-virtual-thread (lambda () (fast 0)))
+        (make-virtual-thread (lambda () (fast 1)))
+        (make-virtual-thread (lambda () (fast 2)))))
+(for-each virtual-thread-start! vts)
+(check "burst of blocking thunks all complete"
+       '(1 2 3)
+       (map virtual-thread-join! vts))
+
+(if (= failures 0)
+    (begin (display "review-fixes: PASS") (newline) (exit 0))
+    (begin (display "review-fixes: FAIL") (newline) (exit 1)))

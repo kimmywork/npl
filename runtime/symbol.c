@@ -88,6 +88,8 @@ static NplVal intern_characters(NplVal key)
  * allocates nothing. */
 NplVal npl_symbol(const char *bytes, uint32_t length)
 {
+    npl_shared_lock();
+    NplVal result = npl_nil();
     int ascii = 1;
     for (uint32_t i = 0; i < length; i++)
         if ((unsigned char)bytes[i] >= 0x80) { ascii = 0; break; }
@@ -101,11 +103,15 @@ NplVal npl_symbol(const char *bytes, uint32_t length)
         probe->capacity = length;
         memcpy(probe->data, bytes, length);
         NplVal *slot = symbol_find_slot(probe);
-        if (*slot != 0) return *slot;
+        if (*slot != 0) result = *slot;
     }
-    NplVal key = npl_string_from_utf8((const uint8_t *)bytes, length,
-                                      BOX_STRING);
-    return intern_characters(key);
+    if (npl_is_nil(result)) {
+        NplVal key = npl_string_from_utf8((const uint8_t *)bytes, length,
+                                          BOX_STRING);
+        result = intern_characters(key);
+    }
+    npl_shared_unlock();
+    return result;
 }
 
 /* Register a compiler-emitted static symbol. If a symbol with the same name
@@ -113,18 +119,26 @@ NplVal npl_symbol(const char *bytes, uint32_t length)
  * stable; the caller's slot is redirected to the canonical symbol. */
 NplVal npl_intern_static_symbol(NplVal symbol)
 {
+    npl_shared_lock();
     NplVal *slot = symbol_find_slot(symbol_box(symbol));
-    if (*slot != 0) return *slot;
-    *slot = symbol;
-    g_symbol_count++;
-    return symbol;
+    NplVal result = *slot;
+    if (result == 0) {   /* empty slot */
+        *slot = symbol;
+        g_symbol_count++;
+        result = symbol;
+    }
+    npl_shared_unlock();
+    return result;
 }
 
 NplVal npl_string_to_symbol(NplVal string)
 {
     if (!npl_is_ptr(string) || npl_header(string)->tag != BOX_STRING)
         npl_primitive_error("string->symbol", "expected a string", string);
-    return intern_characters(string);
+    npl_shared_lock();
+    NplVal result = intern_characters(string);
+    npl_shared_unlock();
+    return result;
 }
 
 void npl_symbol_mark_roots(void)

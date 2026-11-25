@@ -7,7 +7,9 @@
  */
 
 #include "npl.h"
+#include "thread-sched.h"
 #include <setjmp.h>
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -41,6 +43,13 @@ static void mark_words(uintptr_t begin, uintptr_t end)
         memcpy(&candidate, (const void *)address, sizeof(candidate));
         npl_gc_mark_candidate_internal((NplVal)candidate);
     }
+}
+
+/* The T1.3 coordinator uses this to scan a parked mutator's C stack and
+ * register snapshot with the collector's own conservative word scan. */
+void npl_gc_mark_words_internal(uintptr_t begin, uintptr_t end)
+{
+    mark_words(begin, end);
 }
 
 /* Every NplVal field of an object, for marking and barrier verification. */
@@ -97,6 +106,35 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(frame->parent);
             visit(frame->before);
             visit(frame->after);
+            visit(frame->handler);
+            visit(frame->parameters);
+            visit(frame->extent_key);
+            break;
+        }
+        case BOX_DYNAMIC_CONTEXT: {
+            NplDynamicContext *context = (NplDynamicContext *)header;
+            visit(context->wind);
+            visit(context->handler);
+            visit(context->parameters);
+            visit(context->source_initial_handler);
+            break;
+        }
+        case BOX_VIRTUAL_THREAD: {
+            NplVirtualThread *vt = (NplVirtualThread *)header;
+            visit(vt->name);
+            visit(vt->end_result);
+            visit(vt->end_exception);
+            visit(vt->thunk);
+            visit(vt->root);
+            visit(vt->continuation);
+            visit(vt->work);
+            visit(vt->resume_value);
+            visit(vt->wind);
+            visit(vt->handler);
+            visit(vt->parameters);
+            visit(vt->parameter_extents);
+            visit(vt->pending_extent_key);
+            visit(vt->initial_handler);
             break;
         }
         case BOX_WIND_TRANSITION: {
@@ -106,6 +144,9 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(transition->continuation);
             visit(transition->value);
             visit(transition->entering);
+            visit(transition->context);
+            visit(transition->target_parameters);
+            visit(transition->cache);
             uint32_t count = transition->exit_count + transition->entry_count;
             for (uint32_t i = 0; i < count; i++)
                 visit(transition->frames[i]);
@@ -172,6 +213,39 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(port->buffer);
             break;
         }
+        case BOX_THREAD: {
+            NplThread *thread = (NplThread *)header;
+            visit(thread->name);
+            visit(thread->specific);
+            visit(thread->end_result);
+            visit(thread->end_exception);
+            visit(thread->owned_mutexes);
+            visit(thread->thunk);
+            visit(thread->parameters);
+            break;
+        }
+        case BOX_MUTEX: {
+            NplMutex *mutex = (NplMutex *)header;
+            visit(mutex->name);
+            visit(mutex->specific);
+            visit(mutex->owner);
+            visit(mutex->waiters);
+            break;
+        }
+        case BOX_CONDVAR: {
+            NplCondvar *cv = (NplCondvar *)header;
+            visit(cv->name);
+            visit(cv->specific);
+            visit(cv->waiters);
+            break;
+        }
+        case BOX_THREAD_EXCEPTION: {
+            NplThreadException *exc = (NplThreadException *)header;
+            visit(exc->reason);
+            break;
+        }
+        case BOX_TIME:
+            break;
         default:
             break;
         }
@@ -208,16 +282,32 @@ static void collect(int minor)
     uintptr_t stack_marker = 0;
     uintptr_t stack_bottom = npl_gc_stack_bottom_internal();
     jmp_buf registers;
-    int verify = verify_due();
+    int verify;
 
+    /* Only one collector at a time.  A losing collector retries at a
+     * safepoint, so it parks instead of blocking unparked on the mutex while
+     * the winner waits for all mutators to park.  Request the world stop
+     * BEFORE the heap lock: a mutator polls before it ever needs the heap
+     * lock, so that wait can never deadlock on the heap mutex. */
+    while (!npl_try_collect_lock()) {
+        npl_safepoint_poll();
+        sched_yield();
+    }
+    npl_gc_stop_world();
+    npl_heap_lock();
+
+    verify = verify_due();
     if (verify) {
         size_t missed = npl_gc_verify_barriers(1);
         if (missed != 0) verify_failed(missed, "missed write barriers");
     }
     npl_gc_begin_internal(minor);
     npl_gc_mark_roots_internal();
+    /* Every other mutator is parked with a published stack pointer and
+     * callee-saved register snapshot; scan those before draining. */
+    npl_gc_mark_parked_stacks();
 
-    /* setjmp materializes callee-saved registers into addressable memory. */
+    /* The collector's own callee-saved registers and C stack. */
     if (setjmp(registers) == 0) {
         uintptr_t reg_begin = (uintptr_t)(const void *)&registers;
         uintptr_t reg_end = reg_begin + sizeof(registers);
@@ -233,6 +323,10 @@ static void collect(int minor)
         size_t dangling = npl_gc_verify_heap_internal();
         if (dangling != 0) verify_failed(dangling, "references to freed objects");
     }
+
+    npl_heap_unlock();
+    npl_gc_start_world();
+    npl_collect_unlock();
 }
 
 void npl_gc_collect(void) { collect(0); }

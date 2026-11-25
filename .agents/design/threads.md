@@ -1,6 +1,13 @@
 # Threads and the Runtime
 
-Status: proposal, revised 2026-11-24. T1/T2 direction; no threading code yet.
+Status: T1.1 (runtime context), T1.2 (TLS stack limit and backend emission),
+T1.3 increment A (parallel stop-the-world GC, safepoint polls,
+coordinator/heap locks, cancellation, blocking transitions, parameter COW),
+and T2 `(npl thread)` / `(srfi 18)` on 1:1 pthreads implemented 2026-11-25.
+The remaining T1.3 synchronization items, cross-thread user continuations
+and T3/T4 are ahead. See "T1 implementation status", "T1.3 implementation
+status" and "T2 implementation status" below for exactly what is and is not
+present.
 
 ## Question
 
@@ -161,6 +168,232 @@ another carrier. Keep C stack limits and active C unwind frames carrier-owned.
 TLS does not supply thread creation, safepoints, synchronization, or a
 scheduler.
 
+### T1 implementation status (2026-11-25)
+
+T1.1 (per-thread runtime context) and T1.2 (TLS stack limit and compiler
+backend) are implemented. T1.3 (safepoints, stop-the-world coordination,
+blocking, termination) and the whole SRFI 18 surface remain ahead. The split
+moves the collector-visible context and the compiler/runtime ABI together, as
+required above. No NPL thread object, scheduler, or pthread-backed thread
+creation exists yet; `npl_thread_attach` is a runtime C registration API, not
+`thread-start!`.
+
+**Implemented**
+
+- `runtime/thread.h` / `runtime/thread.c`: one `NplThreadContext` per native
+  thread, a native TLS pointer (`NPL_TLS`, the checked C99 `__thread`
+  extension), a process-wide registry, `npl_current_context()`,
+  `npl_thread_attach()` / `npl_thread_detach()`, `npl_thread_foreach()` and
+  `npl_thread_count()`. The primordial thread registers during one-time
+  `npl_runtime_init`, which is now safe against concurrent entry.
+- Per-thread state moved into the context: GC stack bound and root stack,
+  direct-frame window bounds, the wind/handler/parameter chains and wind id,
+  trampoline/escape/synchronous-call frames, reader recovery, and reserved
+  safepoint/cancellation/T2b fields.
+- `npl_gc_mark_roots_internal` walks every registered context's roots and
+  `npl_control_mark_roots` walks every context's trampoline chain, so a
+  collection on one thread keeps every other thread's roots alive.
+  `runtime/thread_test.c` covers this with two live pthreads, plus per-thread
+  stack-limit/dynamic-state isolation, attach/detach, and GC root enumeration.
+- `npl_stack_limit` is a native TLS slot the generated executable defines as
+  `export thread data $npl_stack_limit = { l 0 }`; `npl_opaque_zero` stays a
+  process-wide immutable `export data` slot. Both are declared `extern`
+  through `npl.h` in every link mode; `runtime/standalone-slots.c` defines
+  them for C-only harnesses (`gc_stress`, `numeric_stress`, `thread_test`).
+  The backend guard reads the slot with `loadl thread $npl_stack_limit` (one
+  IL instruction, no accessor call at each direct entry), and `emit-program`
+  emits both definitions unconditionally, removing the static/shared special
+  case. This keeps the emitted IL no larger than before and avoids the
+  per-entry call an accessor path would add.
+
+**Mutable-global audit (T1 "Per-thread state audit")**
+
+| Class | State | Decision |
+|---|---|---|
+| Thread-local (moved into `NplThreadContext`) | `g_stack_bottom`, `g_stack_floor`, `g_window_bytes`, `g_roots`/`g_root_count`/`g_root_capacity`, `g_current_wind`/`g_current_handler`/`g_current_parameters`/`g_next_wind_id`, `g_tail_context`, `g_escape_depth`, `g_escape_frames`, `g_next_escape_id`, `g_sync_frame`, `g_next_sync_id`, `g_read_recovery`, `g_read_error_message` | one chain, root stack, and C stack per thread |
+| Process-wide immutable | `npl_opaque_zero`, `g_eof_object`, const tables | shared, never written |
+| Process-wide, to synchronize in T1.3 | heap metadata (`alloc.c`: chunks, free bins, mark stack, young/remembered logs, bump cursor, thresholds), symbol intern table (`symbol.c`), current-port parameter objects (`port.c`), command line (`io.c`), `g_record_type_tag` (`value.c`), GC verification counters | keep one copy; add the heap/coordinator mutex and port/FFI synchronization before T2 |
+
+**Target / link-mode decision (direct TLS)**
+
+Plain QBE `thread data` (local-exec on ELF, TLV on Apple) is emitted and the
+symbol is always defined in the executable, so generated code never needs
+`extern thread` (initial-exec, rejected by arm64 ELF / rv64 and unsafe for
+late `dlopen`). `qbe -t` probes accept `export thread data` plus
+`loadl thread $sym` on `amd64_sysv`, `amd64_apple`, `arm64`, `arm64_apple`,
+and `rv64` — every target the vendored QBE builds by default; only
+`amd64_win` rejects it and nplc never selects it. The shared runtime declares
+`extern __thread` and resolves the executable's TLV through
+`-undefined dynamic_lookup` (Darwin) or the dynamic linker (ELF). Static,
+`--native=shared`, and `npli` were all exercised (including deep recursion
+under a 64 KiB nursery with `NPL_GC_VERIFY`), and the shared runtime and
+native packages never define an independent copy. Late `dlopen` of a package
+that itself emitted a *direct* TLS access is still unproven and excluded:
+external packages do not emit direct entries. Add a runtime accessor path
+before enabling that case, per the rule above.
+
+## T1.3 implementation status (2026-11-25)
+
+The parallel stop-the-world foundation (increment A) is implemented. T2's
+SRFI 18 surface is **not** part of this increment; the remaining T1.3 items
+that depend on it are listed at the end.
+
+**Implemented**
+
+- `runtime/coordinator.c`: a coordinator mutex + condvars, an epoch-based
+  world stop, active / parked-for-epoch / blocked counts, `npl_safepoint_poll`,
+  `npl_gc_stop_world` / `npl_gc_start_world`, `npl_gc_mark_parked_stacks`, a
+  heap mutex (`npl_heap_lock`), a collect lock, `npl_gc_exclude` /
+  `npl_gc_include`, `npl_gc_block_begin` / `npl_gc_block_end`, and
+  `npl_thread_request_cancel` / `npl_thread_cancel_pending`. A monotonically
+  increasing epoch means a long blocking wait is "already parked" and never
+  delays a resume.
+- `NplThreadContext` gained `jmp_buf registers`, `saved_stack_pointer`,
+  `snapshot_valid`, `parked`, `parked_epoch`, `gc_excluded`, `blocked`,
+  `cancellation_requested`, `cancel_observed`. At a poll a mutator publishes a
+  callee-saved register snapshot and the low end of its scanable C stack, then
+  parks. `collect()` scans every parked context's stack range and `jmp_buf`
+  **before** draining, in addition to the collecting thread's own stack and
+  registers.
+- Lock order: collectors serialize with `npl_try_collect_lock` (a losing
+  collector retries at a safepoint instead of blocking unparked on a mutex);
+  `npl_gc_stop_world` waits for mutators **before** taking the heap lock, so a
+  mutator never needs a mutex to reach its poll. Allocation and sweep hold the
+  heap lock; `npl_gc_remember_internal` (write barriers) takes it on the slow
+  path. Root registration stays per-thread. `npl_runtime_init` now uses
+  `pthread_once`.
+- Safepoint polls at: `npl_alloc_object` (before the heap lock), every
+  `npl_trampoline` dispatch step, every **direct procedure entry** (backend
+  `emit-stack-guard` → `emit-safepoint-poll`), every **generated self-jump
+  backedge** (backend `emit-self-jump`), and long runtime loops in `write.c`
+  (`print_datum`, `find_labels`). `equal_bounded` is budget-bounded, so it has
+  a documented progress bound without a poll. The executable owns a third
+  `export data $npl_gc_stop_requested = { l 0 }` slot; each poll is one global
+  load and a branch on the common path (no C call), and QBE was verified not to
+  hoist that load out of a loop.
+- Parameter copy-on-write: `NplParameterBinding` carries an `owner` context.
+  A binding created by this thread's `parameterize` is still mutated in place
+  (continuation re-entry semantics); a binding owned by another thread, or the
+  shared `NplParameter.value` default, is shadowed by a fresh thread-owned
+  binding. `npl_parameters_leave` pops back to the extent's baseline instead
+  of comparing a single frame pointer. `safepoint_test` asserts that a shared
+  parameter's default is unchanged in the primordial thread after three
+  workers call `parameter-set!`.
+- Acceptance: `runtime/safepoint_test.c` runs three concurrent mutators with
+  200 full collections, checks a value reachable **only from a parked thread's
+  C stack** survives, checks a rooted value, cancellation at a poll, and
+  exclusion / blocking roundtrips; it passes repeatedly and under
+  `NPL_GC_NURSERY_BYTES=65536 NPL_GC_VERIFY=100`. `runtime/thread_test.c`
+  now uses `npl_gc_block_begin/end` for its spin, demonstrating the safe
+  blocked-state transition.
+
+**Compile-efficiency note:** the seed grew 341,849 → 350,624 lines (+2.6%)
+for 1671 poll sites. Each adds one global load and one branch to the fast
+path; no accessor call per entry. Self-emission cost is unchanged in kind
+(one load per poll), and QBE does not lift the load out of loops.
+
+**Remaining T1.3 work (deferred to T2 / follow-up)**
+
+The items in this list are **resolved by T2 and the follow-up increment**
+(2026-11-25); see "T1.3 remaining implementation status" below.
+
+- Cross-thread invocation of a user `call/cc` continuation is implemented;
+  see "Cross-thread continuation invocation" below.
+- Cross-target execution evidence (only host macOS arm64 is executed; other
+  targets have emission evidence). Linux execution and late `dlopen` are
+  untested.
+
+## T1.3 remaining implementation status (2026-11-25)
+
+The remaining T1.3 items are implemented. `runtime/shared-lock.c` adds one
+recursive shared-object lock with a **trylock + safepoint poll** acquisition
+(a blocking `pthread_mutex_lock` waiter is not at a poll site and would
+deadlock a world stop), a per-thread depth counter, and
+`npl_shared_release_all`, called at every `longjmp` landing (`npl_trampoline`,
+`npl_call_cc`, `npl_call_sync`, `npl_read_result`, `thread_entry`) so a
+`npl_primitive_error` cannot leave the lock held. `NPL_SHARED_GUARD()` uses a
+cleanup attribute for every normal return.
+
+- Ports (`port.c`, `port-ready.c`), FFI blocks (`ffi-memory.c`), directory
+  handles (`lib/npl/unix/native/unix.c`) and the symbol intern table
+  (`symbol.c`) serialize through it; `npl_symbol_mark_roots` takes no lock
+  because all mutators are parked during collection.
+- Safepoint polls added to the long runtime loops in `read.c` (4 dispatch
+  loops), `lexer.c`, `numeric.c` and `string.c`.
+- Exact stack bounds at thread registration, runtime mutex/condition
+  primitives, cancellation raise, the not-started → terminated transition,
+  abandoned mutexes and the four join outcomes are covered by T2's substrate.
+- `npl_gc_stop_world` now recomputes the expected parked count on every
+  wake: a mutator that detaches while the collector waits no longer leaves
+  the collector waiting for a thread that has left. Found by
+  `runtime/shared_lock_test.c`, which runs three concurrent interning
+  mutators with forced collections (8x and under `NPL_GC_VERIFY=100`).
+- Blocking libc calls now use the safe blocked-state transition:
+  `fread` / `fwrite` / `fclose` / `fflush` (`port.c`) and the two `waitpid`
+  calls in `run-process` / `run-process*` (`io.c`) are bracketed by
+  `npl_gc_block_begin` / `npl_gc_block_end`, so the thread publishes its
+  stack/register snapshot and parks instead of stalling a world stop with
+  no poll site. Error raises moved after `block_end` so a `longjmp` cannot
+  leave the blocked state set. `runtime/blocking_io_test.c` blocks a reader
+  on a pipe while the main thread forces 30 collections; an A/B check with
+  the boundary removed hangs, and with it restored the test passes (5x and
+  under `NPL_GC_VERIFY=100`), including a value reachable only from the
+  parked thread's C stack.
+
+## Cross-thread continuation invocation (2026-11-25)
+
+SRFI 18 (`docs/reference/srfi-18.html`, "Dynamic environments, continuations
+and dynamic-wind" and `make-thread`) defines invoking a continuation created
+by another thread, including after the source thread ended: the saved dynamic
+environment and dynamic-wind stack are reinstated on the current thread, each
+before/after thunk runs in the environment in effect when its dynamic-wind
+was executed, and the initial continuation / initial exception handler act
+on the "(then) current thread".
+
+Implementation:
+
+- `thread_done` / `thread_uncaught` resolve the thread at call time from
+  `npl_ctx()` via `npl_thread_current_object()`; both closures are
+  thread-agnostic. `npl_thread_finish_current()` abandons the current
+  thread's mutexes, marks it terminated, wakes joiners, and longjmps only to
+  that thread's own valid jmp_buf. Initial handler frames are marked with
+  `NPL_FLAG_INITIAL_HANDLER`; `npl_raise` resolves a captured chain's bottom
+  frame against the invoking thread's own `initial_handler`, so a dead
+  jmp_buf is never used.
+- `call/cc` captures a heap `BOX_DYNAMIC_CONTEXT` (wind, handler, parameters,
+  source initial handler) via `npl_capture_dynamic_context`. The transfer call
+  keeps its 4-argument shape; the runtime dispatches on the first argument's
+  tag, so a pre-relay seed and npli keep working.
+- `NplWindFrame` records the handler and parameter chain in effect at push
+  time, plus the extent's `frames` vector as `extent_key`.
+  `schedule_wind_transition` installs that environment before every
+  before/after thunk and the target context at completion.
+- `npl_parameters_enter/leave` no longer write the shared `frames` vector.
+  A per-thread extent mapping (`parameter_extents`) maps each extent to a
+  thread-owned binding chain plus its baseline. Re-entry reuses the same
+  nodes (so in-place `parameter-set!` mutations survive, as required by
+  `src/compiler/tests/parameters.npl`); a cross-thread first entry clones the
+  source chain under the invoking thread's ownership, preserving the existing
+  owner/COW rules.
+- User handler frames are kept by identity (`npl_handler_pop` validates
+  `current_handler == frame`); only the initial frame is resolved dynamically.
+
+`runtime/dynamic-context.c` owns the captured context, extent mapping and
+transfer (extracted from `control.c`, which stays under the 800-line soft
+limit). `runtime/gc.c` visits the new `NplVal` fields; `runtime/thread.c`
+registers the three new per-thread roots. Frontend changes are one primitive
+row, one internal name, and one changed let RHS in `control-cps-call-cc`;
+`bootstrap/current.ssa` was re-seeded with `tools/update_current_ssa.sh`.
+
+Acceptance: `tests/unit/cross-thread-terminal.npl` (initial continuation and
+uncaught handler terminate the invoking thread) and
+`tests/unit/cross-thread-continuation.npl` (nested parameterize/dynamic-wind/
+handler observations, correct parameter values, restored handler by identity,
+`current-thread` is the invoker, uncaught path does not touch the source
+thread). Single-thread semantics stay in the compiler tests and evaluator
+fixtures; cross-thread scenarios are native-only because the differential
+fixture runner compares nplc and npli output.
+
 ## T2 SRFI 18
 
 - `(npl thread)` / `(srfi 18)` exports `thread?`, `make-thread`,
@@ -174,12 +407,61 @@ scheduler.
 - Follow the [SRFI 18 dynamic environment and termination contract](../../docs/reference/srfi-18.html).
   New threads inherit the creator's dynamic environment with a fresh initial
   exception handler and an empty initial wind stack. User continuations may
-  be invoked by another thread: restore their dynamic state on the invoking
-  thread, without transferring native stack/unwind frames. This needs explicit
-  runtime support and cross-thread continuation tests before claiming SRFI 18.
+  be invoked by another thread (including after the source thread ended): the
+  saved dynamic environment is reinstated on the invoking thread, each
+  dynamic-wind thunk runs in its own extent's environment, and reaching the
+  initial continuation / initial exception handler terminates the invoking
+  thread. Implemented in `runtime/dynamic-context.c`; see the section above.
 - Blocking primitives (`thread-sleep!`, mutex/condition waits) park the
   native thread through the T1 safe blocked-state transition; GC continues
   while it is parked only after its saved context and roots are published.
+
+### T2 implementation status (2026-11-25)
+
+`(npl thread)` (`lib/npl/thread.sld`) and the re-export-only alias
+`(srfi 18)` (`lib/srfi/18.sld`) are implemented, with `srfi-18` in
+`cond-expand` / `(features)` and the [user guide](../../docs/thread.md).
+Runtime substrate: `runtime/thread-sched.{c,h}` and
+`runtime/thread-lifecycle.c`.
+
+**Implemented**
+
+- All 38 SRFI 18 final exports (no `condition-variable-wait!`, no SRFI-21
+  priority/quantum procedures, no three-argument `make-thread`). The four
+  exception kinds are opaque `BOX_THREAD_EXCEPTION` objects;
+  `uncaught-exception-reason` is the only accessor.
+- 1:1 pthread creation with an exact C-stack bound, a startup GC-root
+  handshake, fresh per-thread parameter bindings (copy-on-write), a fresh
+  initial exception handler, an empty wind stack, and one termination path
+  for normal return, uncaught raise and cooperative cancellation.
+  Owned mutexes are abandoned; the terminated state is published before
+  `thread-terminate!` returns, including the not-started -> terminated
+  transition that has no poll site.
+- Four join outcomes: normal result, `timeout-val`, join-timeout-exception,
+  and re-raised end-exception (uncaught or terminated). Timeouts accept a
+  `time` object, a real number, or `#f` (rejected by `thread-sleep!`).
+- Mutex four-state model (non-recursive, abandoned-mutex-exception),
+  `mutex-unlock!` with a condition variable (atomic unlock + wait, no
+  auto-relock), `signal!` / `broadcast!`. All waits park through
+  `npl_gc_block_begin/end`.
+- A cancellation also raises the exported world-stop flag via a pending
+  counter, so generated safepoint polls reach `npl_safepoint_poll` and
+  observe cooperative termination. The counter is consumed exactly once by
+  the target thread.
+- Acceptance: `runtime/thread_object_test.c`,
+  `runtime/thread_lifecycle_test.c` (both in `check_full_compiler.sh`),
+  `src/compiler/tests/thread.npl` (26 assertions), and the
+  `tests/fixtures/thread` nplc/npli differential fixture.
+
+**Remaining evidence**
+
+- Linux execution and late `dlopen` evidence (host is macOS arm64).
+- `with-exception-handler` / `raise` are re-exported R7RS control
+  operators, not first-class procedures in NPL.
+
+Port, FFI block, directory handle and symbol-table synchronization, the
+remaining long-loop safepoint polls, blocking libc I/O GC boundaries and
+cross-thread user continuations are implemented.
 
 ## T2b: Virtual Threads (JVM-Style)
 
@@ -255,6 +537,290 @@ substrate preserves or copies C stack chunks, register each chunk and its
 saved register context with the conservative collector. Precise stack maps
 are a separate optimization or a requirement of a future moving collector,
 not a prerequisite for scanning the current non-moving heap.
+
+### T2b implementation status (2026-11-25): increment A — substrate
+
+`runtime/virtual-thread.c` adds the scheduler substrate behind the C API in
+`runtime/thread-sched.h`; no public library or frontend change yet, so no
+seed relay was needed.
+
+- `BOX_VIRTUAL_THREAD` (tag 33) holds the thunk, a private CPS root, the
+  one-shot suspended continuation, the saved dynamic environment (wind,
+  handler, parameters, `parameter_extents`, `pending_extent_key`,
+  `initial_handler`, wind id) and the end result/exception. `gc.c` visits
+  every `NplVal` field; all virtual-thread records are marked from
+  `npl_virtual_thread_mark_roots()` (called from the collector's root pass),
+  so a suspended token and its dynamic state stay alive across collections.
+- A carrier loop mounts one virtual thread at a time. `npl_vthread_park`
+  stores the **raw CPS continuation** (`argv[argc-1]`) and returns *without*
+  a tail request, so the trampoline breaks and the carrier regains control;
+  no C stack frame is retained for a suspended thread. The token is cleared
+  on mount (one-shot). `npl_gc_block_begin/end` parks an **idle** carrier,
+  never a suspended virtual thread.
+- The private root `vthread_done` and the virtual thread's own initial
+  uncaught handler are C closures bound to the record. They record the
+  end result/exception and break the trampoline without terminating the
+  carrier, so a user `call/cc` continuation ends at the virtual thread's own
+  boundary instead of escaping into the carrier loop. `logical_thread` (the
+  T2b placeholder) now points at the mounted record.
+- **Why the eventual `virtual-thread-yield!` cannot be a library `call/cc`:**
+  a `define-c-primitive` C function never receives a continuation (primitive
+  calls are synchronous; generated code applies the continuation itself), and
+  a `call/cc`-based wrapper would run `dynamic-wind` before/after thunks on
+  resume, which a scheduler yield must not do. Increment B therefore adds a
+  control-transfer form (`_npl_vthread_park`) that emits
+  `call $npl_vthread_park(l K)` + `ret 2`; that is a `src/compiler/**` change
+  and needs a relay.
+- First validation is **one carrier, N virtual threads**, as required before
+  work stealing. `runtime/virtual_thread_test.c` runs three virtual threads
+  that each yield three times, checks round-robin interleaving,
+  per-virtual-thread parameter isolation across suspension, one-shot
+  park/resume counts, and forces full collections both from inside a step
+  and from a **concurrent collector pthread** (also under
+  `NPL_GC_VERIFY=100` with a 64 KiB nursery) while other tokens have no live
+  C frame. An A/B that removes the `gc.c` `BOX_VIRTUAL_THREAD` case fails
+  with `parameter: invalid binding chain`, confirming the child traversal is
+  essential. Blocking `pthread_join` waits in the harness and in shutdown
+  use `npl_gc_exclude/include` (the `safepoint_test.c` pattern) so a world
+  stop cannot wait forever on a thread with no poll site. M carriers and
+  cross-carrier migration need parameter-ownership re-localization and are
+  increment 3; `npl_virtual_thread_set_carriers` exists so the substrate can
+  grow.
+
+### Increment B — public API
+
+`lib/npl/thread/virtual.sld` exports `virtual-thread?`,
+`make-virtual-thread`, `virtual-thread-start!`, `virtual-thread-yield!`,
+`virtual-thread-join!`, `current-virtual-thread`. Optional arguments stay NPL
+policy (fixed-arity `define-c-primitive` wrappers), consistent with
+`(npl thread)`.
+
+`virtual-thread-yield!` is a **control-transfer operator**, not a primitive:
+`control.npl` lowers an application to `(_npl_vthread_park <current-k>)`, and
+`tail.npl` emits `call $npl_vthread_park(l K)` followed by `ret 2` with no
+tail request. This is why the yield cannot be a library `call/cc` (see
+increment A). `PRIMITIVE-CONTROL-SOURCE` supplies its value binding via
+`(only (npl internal primitive) virtual-thread-yield!)`. The
+`src/compiler/**` change was re-seeded with `tools/update_current_ssa.sh`
+(351,300 lines, SHA `0fa6d339…`), fixed point PASS; the frozen bootstrap
+chain is untouched.
+
+`virtual-threads` is exposed as a runtime feature (`npl_platform_feature`,
+`(features)`) with no compiler-side name hardcoding, so `cond-expand`
+accepts it through the existing bootstrap hook. Acceptance is
+`tests/unit/virtual-threads.npl` — **native-only**, because the differential
+fixture runner requires identical nplc/npli output and there is no evaluator
+surface for a carrier scheduler. It asserts all six exports (so the coverage
+ratchet needs no baseline entry), round-robin interleaving of three virtual
+threads on one carrier, `current-virtual-thread` inside a virtual thread,
+and a first-class `virtual-thread-yield!` reference.
+
+### Increment C — M carriers and cross-carrier migration
+
+The single shared run queue became **one queue per carrier**. A newly started
+virtual thread is assigned to a queue round-robin; every `npl_vthread_park`
+hands it to the *next* carrier's queue, so with M > 1 each yield is a
+deterministic cross-carrier migration (M = 1 preserves the original
+round-robin validation). The default is 2 carriers;
+`npl_virtual_thread_set_carriers` overrides it before the first enqueue, and
+`npl_vthread_migration_count` exposes the observed migrations.
+
+On a cross-carrier mount, `restore_state` calls
+`npl_relocalize_parameter_bindings` (in `dynamic-context.c`) to re-stamp the
+saved binding chain's `owner` for the new carrier. The chain is private to
+the virtual thread (cloned at its first mount) and the saved
+`parameter_extents` mapping points into the same chain, so one walk covers
+both. Without it, a post-migration `parameter-set!` would COW-clone a node
+instead of mutating in place, growing the chain on every step and changing
+continuation re-entry behaviour. The C harness asserts the chain stays
+length 1; removing the re-localization produces 9 failures on 4 carriers.
+
+`runtime/virtual_thread_test.c` now takes the carrier count as `argv[1]` and
+is run with **1 and 4** carriers from `check_full_compiler.sh`, each with a
+concurrent collector thread and a 64 KiB nursery. It asserts the exact
+migration count (0 for one carrier, one per resume for M > 1), one-shot
+park/resume counts, per-virtual-thread parameter isolation, and GC survival
+of suspended tokens. The NPL unit test was made race-free (workers return
+their own observations; no shared mutable log or global ordering assertion)
+so M carriers cannot make it flaky.
+
+### Increment D — yielding blocking primitives (async completion)
+
+A synchronous C primitive cannot suspend a virtual thread (it never receives
+a continuation) and must not block a carrier while retaining a C frame.
+T2b therefore uses a **helper-worker pool**: `npl_vthread_await(work,
+continuation)` stores the raw CPS continuation, saves the dynamic state and
+submits the work thunk to a helper queue instead of a carrier queue. A helper
+pthread runs `npl_apply(work, 1, [helper_done])` on its own trampoline/C
+stack; `helper_done` stores the result and re-enqueues the virtual thread to
+the next carrier queue, where it resumes with that result. No carrier is
+blocked, and the suspended virtual thread retains no C frame.
+
+`virtual-thread-block!` is a control-transfer form alongside
+`virtual-thread-yield!`: `control.npl` lowers it to
+`(_npl_vthread_await <thunk> <current-k>)` and `tail.npl` emits
+`call $npl_vthread_await(l work, l K); ret 2` with no tail request.
+Outside a virtual thread the runtime runs the thunk synchronously.
+`(npl thread virtual)` re-exports the operator (via `(npl internal
+primitive)`) and adds `virtual-thread-sleep!`, which wraps the SRFI 18
+`thread-sleep!` in a thunk. Mutex/condition waits and blocking I/O can be
+wrapped the same way. Native SRFI 18 exports are deliberately untouched: a
+change to `(npl thread)` would be visible to npli and break the
+differential fixture, which has no carrier scheduler surface.
+
+Work thunks run on helpers with their own dynamic state, so a thunk should
+receive what it needs as arguments rather than rely on the virtual thread's
+parameters; SRFI 18 mutex ownership inside a helper is a known limitation.
+The helper's stack is published via `npl_thread_attach_exact` plus
+`npl_gc_swap_stack_bottom`; idle helpers park with
+`npl_gc_block_begin/end`, and the completion closure is explicitly rooted
+for the whole trampoline run.
+
+Acceptance: `runtime/virtual_thread_test.c` gained an async phase run under
+1 and 4 carriers with a concurrent collector and a 64 KiB nursery. It
+asserts that the work thunk ran with no virtual thread mounted (i.e. on a
+helper), that the result was delivered, and the exact park/resume/migration
+counts. `tests/unit/virtual-threads.npl` asserts `virtual-thread-block!`
+and `virtual-thread-sleep!`, with `await` intrinsics visible in the emitted
+SSA. The `src/compiler/**` change was re-seeded (352,219 lines, SHA
+`1674d349…`), fixed point PASS.
+
+Work stealing between the per-carrier queues and a CPU-derived carrier count
+remain later tuning.
+
+## PR #8 review fixes (2026-11-25)
+
+The CodeRabbit and Gemini reviews on PR #8 were triaged against the code; all
+confirmed functional defects were fixed, with regression tests. The branch
+was also **rebased onto `origin/master`** (`b6f52fa`, PR #7) and the PR #7
+deletions (`.agents/workstate.md`, the plan/skills files) were dropped;
+`docs/thread.md` is linked from `docs/README.md`.
+
+Confirmed and fixed (highest impact first):
+
+- **Clock mismatch**: deadlines were `CLOCK_MONOTONIC` but `npl_sched_cond`
+  used the default `CLOCK_REALTIME`, so every timed `thread-sleep!` /
+  `thread-join!` / `mutex-lock!` returned immediately. `wait_loop` now
+  converts the remaining monotonic delay to a realtime deadline, rechecks the
+  monotonic deadline on `ETIMEDOUT`, and negative/NaN relative timeouts are
+  normalized (`runtime/thread-lifecycle.c`, `runtime/thread-sched.c`).
+  Regression: `tests/unit/thread-timeouts.npl` measures elapsed time.
+- **Reversed parameter inheritance**: `clone_parameter_chain` prepended while
+  walking head→tail, so a child thread saw the OUTER binding of nested
+  `parameterize`. It now uses the order-preserving
+  `npl_clone_parameter_bindings` (also made iterative). Regression included
+  in `thread-timeouts.npl`.
+- **Double-clone on cross-thread transfer**: the destination chain and the
+  wind frames were cloned separately, so a `parameter-set!` in a before thunk
+  was lost. `NplWindTransition` now carries a `(src . copy)` cache; shared
+  bindings resolve to one localized node. Regression:
+  `tests/unit/cross-thread-wind-parameters.npl` (A/B confirmed it fails
+  without the cache).
+- **STW deadlock under `npl_sched_lock`**: allocations (`list_cons`,
+  `list_remove`, `npl_thread_exception`) and missing write barriers happened
+  while holding the scheduler lock. `npl_sched_lock_enter()` is now
+  trylock + safepoint poll; waiter/owned lists use pre-allocated cells and
+  allocation-free `list_link`/`list_unlink` with write barriers; exceptions
+  are allocated outside the lock.
+- **SRFI 18 edge cases**: mutex waiters retired on timeout and cancellation,
+  foreign `mutex-unlock!` removes the mutex from the ACTUAL owner's list (and
+  abandonment verifies the current owner), `condition-variable-signal!`
+  dequeues the woken waiter, `mutex-state` snapshots under the lock,
+  `thread-terminate!` on the primordial thread ends the process instead of
+  hanging, pre-registration cancellation is replayed after `setjmp`,
+  `thread_entry` detaches its pthread, `make-thread` validates its thunk,
+  explicit `#f` names are preserved, and exact rationals are valid timeouts.
+- **Cancellation bookkeeping**: `cancel_owed` replaces the zero-initialized
+  `cancel_consumed` so an uncaught raise in a fresh thread cannot consume
+  another thread's pending sweep; detach releases the contribution; attach
+  waits for an active world stop before admitting a mutator.
+- **Virtual threads**: `g_all` no longer retains terminated records (pruned
+  in `finish_vt` under `g_lock` — an earlier mark-time compaction proved
+  racy and was replaced); `npl_vthread_start` claims `NEW` under the lock and
+  starts carriers immediately (the C harness uses an explicit defer flag);
+  `virtual-thread-join!` from inside a virtual thread parks via
+  `virtual-thread-block!` so it cannot block a carrier; join re-raises the
+  target's uncaught exception; helper workers install an initial uncaught
+  handler and the pool grows when all helpers are busy; the arbitrary
+  `+4096` helper stack bound was removed. Regression:
+  `tests/unit/virtual-thread-edge.npl`.
+- **GC / reader / ports**: `npl_byte_ready_p` and the port entry points now
+  validate under `NPL_SHARED_GUARD()`; `npl_utf8_to_string` roots the source
+  bytevector and registers a longjmp-safe cleanup; reader and numeric scratch
+  buffers are freed on cancellation via a new `npl_cleanup_push/pop` stack
+  released at every longjmp landing; parameter-owner identity is the
+  monotonic `NplThreadContext.id` (no ABA after a context is freed);
+  `npl_raise` resolves an empty captured handler chain to the invoking
+  worker's initial handler; allocator trigger counters use relaxed atomics
+  and one-time init publishes `g_runtime_initialized` only when complete
+  (other threads wait in `pthread_once`).
+
+Deferred with reasons (documented in the PR response): a global shared lock
+still held across blocking `fread`/`fwrite` (needs per-port lifetime
+management), `parameter_extents` weak pruning (needs GC integration to keep
+continuation re-entry state), the narrow `src->value` snapshot race (needs a
+parameter-write synchronization protocol), platform stack-window sizing for
+native workers, `npl_gc_stop_requested` atomics (C99 + frozen QBE SSA
+constraint), and Linux/late-`dlopen` execution evidence.
+
+## PR #8 review round 2 (2026-11-25)
+
+The second Gemini review was verified STALE (`head_sha=7ab3205`, the pre-rebase
+head); nearly all of its items restate round-1 findings already handled above.
+The second CodeRabbit review (13:44) was against `da0fdf3` and found real
+issues, including regressions introduced by round 1. All valid items fixed:
+
+- **Coordinator / GC**: `npl_safepoint_poll` now skips parking and snapshot
+  state when `context->blocked` (the new trylock poll had let a blocked waiter
+  satisfy the stop quorum and then lose its published stack); a `blocked_counted`
+  flag enforces `g_blocked_mutators ⊆ g_active_mutators` so an excluded mutator
+  cannot reduce the expected parked count twice; `cancellation_requested` is
+  exchanged atomically with its writer; an `armed` flag prevents forwarding a
+  cancellation before `thread_entry`'s `setjmp` (a poll in that window could
+  longjmp through a zeroed `jmp_buf`); skipped trampoline argument buffers are
+  freed on abnormal worker exit; the remembered set re-checks
+  `NPL_FLAG_REMEMBERED` under the heap lock.
+- **Reader recovery**: `npl_read_result` now saves shared-lock/cleanup depth
+  on entry and releases only to that depth on recovery, so a caught read error
+  cannot free an outer caller's scratch buffer or drop its shared lock.
+- **Handlers**: the primordial thread now has an initial exception handler
+  (`primordial_uncaught`), so `current-exception-handler` returns a procedure
+  on every thread and a foreign continuation's `INITIAL_HANDLER` frame is
+  resolved against the invoker's own handler rather than running the source
+  virtual thread's `finish_vt`.
+- **Parameter ownership**: binding owner is now the LOGICAL virtual thread
+  (`CTX->logical_thread`) rather than the carrier's context id, restoring COW
+  isolation between virtual threads sharing one carrier; the two malloc'd
+  `nodes` arrays are registered with the cleanup stack; `make-thread` snapshots
+  the parent's bindings at creation time (SRFI 18 inheritance point).
+- **SRFI 18 / lifecycle**: a terminated explicit `mutex-lock!` owner on a
+  not-abandoned mutex returns `#t` (SRFI 18 raises only if it was already
+  abandoned); `make-thread` accepts parameter-object thunks and boots them
+  through a real trampoline; wait descriptors are published only during an
+  active wait and cleared afterwards; thread finalization resolves a pending
+  cancellation under the scheduler lock; an independent process-wide root
+  (`runtime/thread-start-root.c`) covers the pthread-start handshake.
+- **Virtual threads**: `registry_add` moved from creation to start so
+  unstarted discarded records are collectable; helper-pool growth compares
+  unclaimed queued work against available helpers (a broadcast does not
+  decrement the idle count until helpers resume).
+- **Tests / docs**: `tests/unit/review-fixes.npl` covers the observable items;
+  `virtual-thread-edge.npl` adds a grandchild so both carriers are occupied by
+  joiners; `safepoint_test.c` publishes its stack bound before the first
+  allocation; `virtual_thread_test.c` drops the `+4096` slack;
+  `thread_object_test.c` stores heap objects to exercise GC field tracing; the
+  condition-variable example in `docs/thread.md` re-locks after each wake.
+
+Skipped with reasons (verified against current code and SRFI 18): repeated
+foreign re-entry correctly REINSTATES the saved environment (a previous
+invocation's mutation is not part of the capture — SRFI 18 6.4), the legacy
+4-argument `npl_wind_transfer` shim is deliberate ABI tolerance, the scoped
+one-argument parameter update is implementation-dependent (writing a shared
+default would break thread isolation), and `npl_gc_stop_requested` atomicity
+plus the `npl_gc_block_begin` register-snapshot refactor remain deferred.
+
+`runtime/thread-start-root.c` was extracted to keep `thread-lifecycle.c` under
+the 800-line soft limit. No frontend change, so the seed is unchanged.
 
 ## T3 SRFI 230
 

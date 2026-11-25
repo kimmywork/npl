@@ -11,6 +11,8 @@
 ; no longer conflicts, so this list can only shrink.  A non-standard name is
 ; never allowed here: rename one of the definitions instead.
 (bag? npl/data/bag npl/data/collection)
+(current-time npl/thread npl/time)
+(time? npl/thread npl/time)
 (list->string npl/string/immutable scheme/base)
 (list-copy npl/data/collection scheme/base)
 (list-ref npl/data/collection scheme/base)

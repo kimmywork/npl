@@ -330,6 +330,8 @@ static void find_labels(NplLabels *labels, NplVal value, int shared)
     }
     NplVal pair = value;
     for (;;) {
+        /* Long runtime loop: label discovery walks an arbitrarily long list. */
+        npl_safepoint_poll();
         find_labels(labels, npl_pair_ptr(pair)->car, shared);
         NplVal next = npl_pair_ptr(pair)->cdr;
         if (!labelled_kind(next)) break;
@@ -426,6 +428,9 @@ static void print_record(NplPrinter *printer, NplVal value)
 
 static void print_datum(NplPrinter *printer, NplVal value)
 {
+    /* Long runtime loop: writing a large datum recurses through here once
+     * per element, so a collection is never starved by a huge write. */
+    npl_safepoint_poll();
     NplPort *port = printer->port;
     NplLabelSlot *slot = marked_slot(printer, value);
     if (slot) {

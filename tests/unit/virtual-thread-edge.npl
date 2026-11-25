@@ -1,0 +1,79 @@
+; Regression tests for PR #8 review findings on (npl thread virtual):
+; - a started virtual thread must run without someone calling join first
+; - a virtual thread joining a child must park its carrier, not block it
+; - virtual-thread-join! must re-raise the target's uncaught exception
+; - a raise inside virtual-thread-block! must terminate the virtual thread,
+;   not the whole process
+; - starting a virtual thread twice must be rejected
+;
+; Native-only: the differential fixture runner compares nplc and npli output
+; and these scenarios depend on the native carrier scheduler timing.
+(import (scheme base) (scheme write) (scheme process-context)
+        (only (npl thread) thread-sleep!) (npl thread virtual))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+; A started virtual thread runs even before any join. The main thread waits
+; with a NATIVE sleep so no carrier is needed for the wait.
+(define flag (vector 0))
+(define runner (make-virtual-thread
+                 (lambda () (vector-set! flag 0 1) 42)))
+(virtual-thread-start! runner)
+(thread-sleep! 0.3)
+(check "start runs without join" 1 (vector-ref flag 0))
+(check "start result after wait" 42 (virtual-thread-join! runner))
+
+; A virtual thread joining a child must not block its carrier. Add a
+; grandchild so BOTH carriers are occupied by joiners: a blocking join
+; regression leaves the grandchild queued forever (this test then hangs).
+(define (child n)
+  (let ((grandchild (virtual-thread-start!
+                      (make-virtual-thread (lambda () (* n 2))))))
+    (virtual-thread-join! grandchild)))
+(define parent-result
+  (virtual-thread-join!
+    (virtual-thread-start!
+      (make-virtual-thread
+        (lambda ()
+          (let ((kid (virtual-thread-start!
+                       (make-virtual-thread (lambda () (child 21))))))
+            (virtual-thread-join! kid)))))))
+(check "join from inside a virtual thread" 42 parent-result)
+
+; An uncaught raise in a virtual thread is re-raised by join. Like native
+; thread-join!, the object raised is an SRFI 18 uncaught-exception wrapper,
+; not the raw value; the important part is that join does not silently return.
+(define raised
+  (virtual-thread-start! (make-virtual-thread (lambda () (raise 'boom)))))
+(check "join re-raises uncaught exception"
+       'caught
+       (guard (e (else 'caught)) (virtual-thread-join! raised) 'returned))
+
+; A raise inside a blocking thunk terminates the virtual thread, not the
+; process, and is observable through join.
+(define blocked
+  (virtual-thread-start!
+    (make-virtual-thread
+      (lambda () (virtual-thread-block! (lambda () (raise 'blocked)))))))
+(check "raise in blocking thunk"
+       'caught
+       (guard (e (else 'caught))
+         (virtual-thread-join! blocked) 'returned))
+
+; Starting the same virtual thread twice is rejected.
+(define once (make-virtual-thread (lambda () 'ok)))
+(virtual-thread-start! once)
+(check "duplicate start rejected"
+       #t
+       (guard (e (else #t)) (virtual-thread-start! once) #f))
+(check "duplicate start leaves result" 'ok (virtual-thread-join! once))
+
+(if (= failures 0)
+    (begin (display "virtual-thread-edge: PASS") (newline) (exit 0))
+    (begin (display "virtual-thread-edge: FAIL") (newline) (exit 1)))

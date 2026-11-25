@@ -13,9 +13,28 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts >/dev/null
+ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts thread_test safepoint_test thread_object_test thread_lifecycle_test shared_lock_test blocking_io_test virtual_thread_test >/dev/null
 # zlib is optional; the target exists only when CMake found the library.
 ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
+
+# T1 acceptance: native TLS current context, per-thread stack limits and
+# dynamic state, explicit attach/detach, and GC visibility of every context.
+"$BUILD/runtime/thread_test"
+# T1.3 acceptance: concurrent mutators, world-stop park/resume, parked
+# thread stack/register scanning, cancellation, blocking/exclusion.
+"$BUILD/runtime/safepoint_test"
+# T2 acceptance: SRFI 18 object layer and GC visibility.
+"$BUILD/runtime/thread_object_test"
+# T2 acceptance: thread lifecycle, join, termination, mutex and CV.
+"$BUILD/runtime/thread_lifecycle_test"
+# T1.3 acceptance: shared-object lock under concurrent mutation + GC.
+"$BUILD/runtime/shared_lock_test"
+# T1.3 acceptance: blocking libc call publishes context for GC.
+"$BUILD/runtime/blocking_io_test"
+# T2b acceptance: one-shot scheduler tokens, N virtual threads on one
+# carrier, then cross-carrier migration with M carriers.
+"$BUILD/runtime/virtual_thread_test" 1
+"$BUILD/runtime/virtual_thread_test" 4
 
 EXTRA_NATIVE=()
 EXTRA_LIBS=()
@@ -42,6 +61,19 @@ emit() {
 }
 
 build_ssa "$ROOT/bootstrap/current.ssa" "$WORK/compiler"
+
+# T2 acceptance: SRFI 18 cross-thread continuation invocation. Native-only:
+# the differential fixture runner compares nplc and npli output, but a
+# cross-thread scenario has no evaluator surface. Each harness asserts
+# internally and exits non-zero on failure.
+for name in cross-thread-terminal cross-thread-continuation \
+            cross-thread-wind-parameters virtual-threads virtual-thread-edge \
+            thread-timeouts review-fixes sync-nested-recovery; do
+    emit "$WORK/compiler" "$ROOT/tests/unit/$name.npl" "$WORK/$name.ssa"
+    build_ssa "$WORK/$name.ssa" "$WORK/$name"
+    "$WORK/$name" > "$WORK/$name.out" 2>&1
+    printf 'PASS: %s (native-only thread increment)\n' "$name"
+done
 
 run_suite() {
     name=$1
@@ -156,6 +188,7 @@ NPL_C_STRUCT_LAYOUTS="$WORK/package-layouts.meta:$NATIVE/c-struct-layouts.meta" 
     "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
     "$WORK/cache-import.npl" > "$WORK/cache-import-package.ssa"
 run_suite srfi-19 "PASS srfi-19 52"
+run_suite thread "PASS thread 26"
 run_suite srfi-170 "PASS srfi-170 132"
 run_suite platform "PASS platform 5"
 run_suite native-crc32 "PASS native-crc32 4"
@@ -340,7 +373,14 @@ direct_function() {
         "$WORK/direct-calls.ssa"
 }
 direct_function _npl_dfn_fib | grep -qF 'call $_npl_dfn_fib(l '
-direct_function _npl_dfn_fib | grep -qF 'loadl $npl_stack_limit'
+# T1: the guard reads the executable-owned TLS slot directly (one IL line),
+# not a global or a runtime accessor call.
+direct_function _npl_dfn_fib | grep -qF 'loadl thread $npl_stack_limit'
+grep -qF 'export thread data $npl_stack_limit = { l 0 }' "$WORK/direct-calls.ssa"
+grep -qF 'export data $npl_opaque_zero = { l 0 }' "$WORK/direct-calls.ssa"
+# T1.3: the world-stop slot and a poll at every direct entry.
+grep -qF 'export data $npl_gc_stop_requested = { l 0 }' "$WORK/direct-calls.ssa"
+direct_function _npl_dfn_fib | grep -qF 'call $npl_safepoint_poll()'
 # The CPS entry is the stack-limit fallback: it must not re-enter fib's
 # direct entry. Other direct entries (library procedures in numeric slow
 # paths) check the stack themselves.

@@ -6,24 +6,28 @@
  * frame with npl_stack_limit. Below it, the call runs the function's CPS
  * entry through npl_direct_fallback, whose continuations live on the heap,
  * so deep non-tail recursion does not overflow the C stack.
+ *
+ * T1: npl_stack_limit is a native TLS slot owned by the generated executable
+ * (QBE `export thread data`), declared extern here through npl.h.  The
+ * window bounds moved into the current thread's NplThreadContext, so each OS
+ * thread has its own direct-frame window.  The generated guard reads the
+ * slot directly with `thread $npl_stack_limit` — one IL instruction, no C
+ * accessor call per entry.
  */
 
 #define _POSIX_C_SOURCE 200809L
 
 #include "npl.h"
+#include "thread.h"
 #include <stdlib.h>
 #include <sys/resource.h>
 
-/* 0 before npl_runtime_init: no entry falls back. */
-#ifdef NPL_RUNTIME_SHARED
-/* The dynamic executable defines the authoritative slot; generated code
- * loads it directly, and the shared runtime reaches it through the loader. */
-extern uintptr_t npl_stack_limit;
-extern uintptr_t npl_opaque_zero;
-#else
-uintptr_t npl_stack_limit = 0;
-uintptr_t npl_opaque_zero = 0;
-#endif
+#define CTX npl_ctx()
+
+/* 0 before npl_runtime_init: no entry falls back.  The definition lives in
+ * the generated executable (program.npl) or, for C-only harnesses, in
+ * standalone-slots.c.  Every link mode and native package reaches the same
+ * TLS slot through the extern declaration in npl.h. */
 
 #define NPL_STACK_FALLBACK_BYTES ((uintptr_t)8 << 20)
 #define NPL_STACK_MAX_BYTES ((uintptr_t)1 << 30)
@@ -38,13 +42,11 @@ uintptr_t npl_opaque_zero = 0;
 /* npl_stack_limit is the end of the current window: direct frames may use
  * the stack down to it. The first window ends NPL_DIRECT_STACK_BYTES below
  * the top; npl_direct_fallback opens the next one. No window ends below
- * g_stack_floor, which leaves at least a quarter of the stack free for C
+ * ctx->stack_floor, which leaves at least a quarter of the stack free for C
  * code below the direct frames: primitives that recurse on the C stack
  * (write, equal?, bignum printing) and the fallbacks' nested trampolines. */
-static uintptr_t g_stack_floor = 0;
-static uintptr_t g_window_bytes = 0;
 
-/* opaque zero (npl.h): never written. */
+/* opaque zero (npl.h): never written, process-wide immutable. */
 
 /* base is an address near the top (oldest end) of the stack. */
 void npl_stack_init_internal(uintptr_t base)
@@ -56,10 +58,15 @@ void npl_stack_init_internal(uintptr_t base)
         size = (uintptr_t)limit.rlim_cur;
     if (size > NPL_STACK_MAX_BYTES) size = NPL_STACK_MAX_BYTES;
     uintptr_t usable = size - size / 4;
-    g_window_bytes = usable < NPL_DIRECT_STACK_BYTES ? usable
-                                                     : NPL_DIRECT_STACK_BYTES;
-    g_stack_floor = base > usable ? base - usable : 0;
-    npl_stack_limit = base > g_window_bytes ? base - g_window_bytes : 0;
+    CTX->window_bytes = usable < NPL_DIRECT_STACK_BYTES ? usable
+                                                       : NPL_DIRECT_STACK_BYTES;
+    CTX->stack_floor = base > usable ? base - usable : 0;
+    /* Approximate native stack bounds for the safepoint/GC record.  T1.3
+     * replaces this with the platform's exact stack query at registration. */
+    CTX->stack_high = base;
+    CTX->stack_low = base > size ? base - size : 0;
+    npl_stack_limit = base > CTX->window_bytes
+                          ? base - CTX->window_bytes : 0;
 }
 
 /* A direct entry below the limit: run the CPS entry on a nested trampoline,
@@ -76,8 +83,9 @@ NplVal npl_direct_fallback(NplGenericFunction function, NplVal environment,
     uintptr_t marker = 0;
     uintptr_t here = (uintptr_t)(void *)&marker;
     uintptr_t saved = npl_stack_limit;
-    uintptr_t window = here > g_window_bytes ? here - g_window_bytes : 0;
-    npl_stack_limit = window > g_stack_floor ? window : g_stack_floor;
+    uintptr_t window = here > CTX->window_bytes
+                           ? here - CTX->window_bytes : 0;
+    npl_stack_limit = window > CTX->stack_floor ? window : CTX->stack_floor;
     NplVal result = npl_call_sync(function, environment, argc, argv);
     npl_stack_limit = saved;
     return result;

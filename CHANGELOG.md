@@ -250,7 +250,8 @@ evidence: [docs/r7rs-conformance.md](docs/r7rs-conformance.md).
   [extending](docs/extending.md), [ffi](docs/ffi.md),
   [r7rs-conformance](docs/r7rs-conformance.md).
 - Completed designs and plans are archived under `.agents/archive/`; the
-  per-day history is `.agents/worklog/`.
+  change record is git history, and `.agents/workstate.md` holds the current
+  focus.
 
 ### Known limitations
 

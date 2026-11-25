@@ -99,7 +99,9 @@
                   (if (string=? name "dynamic-wind") #t
                       (if (string=? name "with-exception-handler") #t
                           (if (string=? name "raise") #t
-                              (string=? name "raise-continuable")))))))))
+                              (if (string=? name "raise-continuable") #t
+                                  (if (string=? name "virtual-thread-yield!") #t
+                                      (string=? name "virtual-thread-block!")))))))))))
 
 (define (control-transfer-procedure name)
   (let ((arguments (control-symbol (control-fresh-name "_npl_arguments_"))))
@@ -121,7 +123,8 @@
 (define (control-transfer-arity name)
   (if (string=? name "dynamic-wind") 3
       (if (string=? name "call-with-values") 2
-          (if (string=? name "with-exception-handler") 2 1))))
+          (if (string=? name "with-exception-handler") 2
+              (if (string=? name "virtual-thread-yield!") 0 1)))))
 
 (define (control-transfer-operands arguments count acc)
   (if (= count 0)
@@ -335,8 +338,11 @@
             (car (cdr procedures)) continuation)
           ())))))
 
+; The first capture is a runtime NplDynamicContext (wind, handler,
+; parameters and the source thread's initial handler). npl_wind_transfer
+; reinstates it on the invoking thread, which may be a different thread.
 (define (control-captured-continuation
-          continuation target-wind target-handler)
+          continuation dynamic-context target-handler)
   (let ((values-name (control-fresh-name "_npl_jump_values_")))
     (let ((ignored-name (control-fresh-name "_npl_abandoned_")))
       (cons 212
@@ -348,7 +354,7 @@
           (cons
             (cons
               (cons (control-symbol "_npl_wind_transfer")
-                (cons target-wind
+                (cons dynamic-context
                   (cons target-handler
                     (cons continuation
                       (cons
@@ -364,12 +370,12 @@
   (control-evaluate-list
     (cdr application) ()
     (lambda (procedures)
-      (let ((target-name (control-fresh-name "_npl_target_wind_")))
+      (let ((target-name (control-fresh-name "_npl_dynamic_context_")))
         (let ((handler-name
                 (control-fresh-name "_npl_target_handler_")))
           (core-single-let
             (cons (control-symbol target-name)
-                  (cons (control-symbol "npl_current_wind") ()))
+                  (cons (control-symbol "npl_capture_dynamic_context") ()))
             (core-single-let
               (cons (control-symbol handler-name)
                     (cons (control-symbol "npl_current_handler") ()))
@@ -387,6 +393,42 @@
       (if (string=? (cdr head) "call/cc")
           #t
           (string=? (cdr head) "call-with-current-continuation"))))
+
+; T2b: virtual-thread-yield! is a scheduler safepoint, not a call/cc. It
+; hands the RAW current CPS continuation to the runtime and stops the current
+; trampoline; the backend emits `call $npl_vthread_park(l K); ret 2` with no
+; tail request. A call/cc wrapper would be wrong here: resuming it would run
+; dynamic-wind before/after thunks, which a scheduler yield must not do.
+(define (control-vthread-yield-name? head)
+  (if (sym-atom? head)
+      (string=? (cdr head) "virtual-thread-yield!")
+      #f))
+
+(define (control-cps-vthread-yield application continuation)
+  (if (not (= (count-up (cdr application) 0) 0))
+      (fatal "virtual-thread-yield! needs no arguments"))
+  (cons (control-symbol "_npl_vthread_park")
+        (cons continuation ())))
+
+; T2b: virtual-thread-block! parks the virtual thread until a synchronous
+; blocking thunk has run on a helper worker. Like yield it hands over the RAW
+; CPS continuation; unlike yield it does not immediately re-enqueue, the helper
+; re-enqueues with the work result. Outside a virtual thread the runtime runs
+; the thunk synchronously.
+(define (control-vthread-block-name? head)
+  (if (sym-atom? head)
+      (string=? (cdr head) "virtual-thread-block!")
+      #f))
+
+(define (control-cps-vthread-block application continuation)
+  (if (not (= (count-up (cdr application) 0) 1))
+      (fatal "virtual-thread-block! needs one thunk"))
+  (control-evaluate-list
+    (cdr application) ()
+    (lambda (works)
+      (cons (control-symbol "_npl_vthread_await")
+        (cons (car works)
+          (cons continuation ()))))))
 
 (define (control-cps-dynamic-wind application continuation)
   (if (not (= (count-up (cdr application) 0) 3))
@@ -502,6 +544,12 @@
                         (control-cps-dynamic-wind application continuation)
                         (if (control-call-cc-name? head)
                             (control-cps-call-cc application continuation)
+                            (if (control-vthread-yield-name? head)
+                                (control-cps-vthread-yield
+                                  application continuation)
+                            (if (control-vthread-block-name? head)
+                                (control-cps-vthread-block
+                                  application continuation)
                             (if (if (sym-atom? head)
                                     (string=? (cdr head) "call-with-values")
                                     #f)
@@ -529,7 +577,7 @@
                                                     (control-symbol
                                                       callee-name)
                                                     (cdr application)
-                                                    continuation)))))))))))))))))
+                                                    continuation)))))))))))))))))))
 
 (define (control-cps-if-branches test expression continuation)
   (cons 213
