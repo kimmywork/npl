@@ -7,6 +7,7 @@
  */
 
 #include "npl.h"
+#include "thread-sched.h"
 #include <setjmp.h>
 #include <sched.h>
 #include <stdio.h>
@@ -180,6 +181,39 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(port->buffer);
             break;
         }
+        case BOX_THREAD: {
+            NplThread *thread = (NplThread *)header;
+            visit(thread->name);
+            visit(thread->specific);
+            visit(thread->end_result);
+            visit(thread->end_exception);
+            visit(thread->owned_mutexes);
+            visit(thread->thunk);
+            visit(thread->parameters);
+            break;
+        }
+        case BOX_MUTEX: {
+            NplMutex *mutex = (NplMutex *)header;
+            visit(mutex->name);
+            visit(mutex->specific);
+            visit(mutex->owner);
+            visit(mutex->waiters);
+            break;
+        }
+        case BOX_CONDVAR: {
+            NplCondvar *cv = (NplCondvar *)header;
+            visit(cv->name);
+            visit(cv->specific);
+            visit(cv->waiters);
+            break;
+        }
+        case BOX_THREAD_EXCEPTION: {
+            NplThreadException *exc = (NplThreadException *)header;
+            visit(exc->reason);
+            break;
+        }
+        case BOX_TIME:
+            break;
         default:
             break;
         }

@@ -26,6 +26,7 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/string.c
   ${RUNTIME_SRC_DIR}/symbol.c
   ${RUNTIME_SRC_DIR}/thread.c
+  ${RUNTIME_SRC_DIR}/thread-sched.c
   ${RUNTIME_SRC_DIR}/trampoline.c
   ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c
@@ -74,6 +75,7 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/string.c
   ${RUNTIME_SRC_DIR}/symbol.c
   ${RUNTIME_SRC_DIR}/thread.c
+  ${RUNTIME_SRC_DIR}/thread-sched.c
   ${RUNTIME_SRC_DIR}/trampoline.c
   ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c
@@ -149,6 +151,19 @@ target_link_libraries(thread_test PRIVATE npl_runtime)
 target_compile_options(thread_test PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
 set_target_properties(thread_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
+
+# T2 acceptance: SRFI 18 heap objects, predicates, time, exceptions, and
+# GC visibility of the rooted current-thread object.
+add_executable(thread_object_test
+  ${RUNTIME_SRC_DIR}/thread_object_test.c
+  ${RUNTIME_SRC_DIR}/standalone-slots.c
+)
+target_include_directories(thread_object_test PRIVATE ${RUNTIME_SRC_DIR})
+target_link_libraries(thread_object_test PRIVATE npl_runtime)
+target_compile_options(thread_object_test PRIVATE
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+set_target_properties(thread_object_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
 # T1.3 acceptance: multiple mutators, world-stop park/resume, scanning of

@@ -122,6 +122,8 @@ typedef struct NplThreadContext {
     int cancel_observed;            /* latched at a safepoint; T2 raises */
     uint64_t parked_epoch;          /* world-stop generation this park is for */
 
+    /* T2: the current thread object, registered as a GC root at attach. */
+    NplVal current_thread_object;
     /* T2b: logical thread currently mounted on this carrier. */
     void *logical_thread;
 } NplThreadContext;
@@ -147,8 +149,11 @@ void npl_thread_foreach(NplThreadVisitor visit, void *data);
 int npl_thread_count(void);
 
 /* Register the primordial thread during one-time runtime initialization.
- * Registers the three dynamic-state roots and publishes the GC stack bound. */
+ * Registers the dynamic-state roots and publishes the GC stack bound. */
 NplThreadContext *npl_thread_init_internal(uintptr_t stack_bottom);
+
+/* Attach a thread whose C stack top is known (T2 thread_entry). */
+NplThreadContext *npl_thread_attach_exact(uintptr_t stack_bottom);
 
 /* coordinator.c hooks, called by thread.c on attach/detach. */
 void npl_coordinator_attach_internal(NplThreadContext *context);

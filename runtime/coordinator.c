@@ -31,6 +31,7 @@
 
 #include "npl.h"
 #include "thread.h"
+#include "thread-sched.h"
 #include <pthread.h>
 #include <setjmp.h>
 
@@ -115,6 +116,9 @@ void npl_safepoint_poll(void)
     if (context->cancellation_requested) {
         context->cancellation_requested = 0;
         context->cancel_observed = 1;
+        /* T2 wires the cooperative termination here; it may longjmp out of
+         * the thread (and excludes this thread from the mutator count first). */
+        npl_safepoint_cancelled();
     }
     if (!npl_gc_stop_requested)
         return;

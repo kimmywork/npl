@@ -55,6 +55,7 @@ static void init_context(NplThreadContext *context, uintptr_t stack_bottom)
     context->current_wind = npl_nil();
     context->current_handler = npl_nil();
     context->current_parameters = npl_nil();
+    context->current_thread_object = npl_nil();
     context->next_wind_id = 1;
     context->next_escape_id = 1;
     context->next_sync_id = 1;
@@ -74,6 +75,7 @@ static NplThreadContext *attach_context(uintptr_t stack_bottom)
     npl_gc_root(&context->current_wind);
     npl_gc_root(&context->current_handler);
     npl_gc_root(&context->current_parameters);
+    npl_gc_root(&context->current_thread_object);
 
     lock_registry();
     context->next = g_registry;
@@ -107,6 +109,17 @@ NplThreadContext *npl_thread_init_internal(uintptr_t stack_bottom)
 {
     /* A lazy attach may already have created the primordial thread's context;
      * reuse it, but publish the authoritative stack bound from main. */
+    if (npl_tls_current_context) {
+        npl_tls_current_context->stack_bottom = stack_bottom;
+        return npl_tls_current_context;
+    }
+    return attach_context(stack_bottom);
+}
+
+/* T2: a created thread knows the top of its own C stack (thread_entry's
+ * frame), which is the correct conservative-scan bound for that pthread. */
+NplThreadContext *npl_thread_attach_exact(uintptr_t stack_bottom)
+{
     if (npl_tls_current_context) {
         npl_tls_current_context->stack_bottom = stack_bottom;
         return npl_tls_current_context;

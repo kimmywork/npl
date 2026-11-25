@@ -72,6 +72,12 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_POINTER 24  /* C address (ffi.c); references an ffi block */
 #define BOX_HASHTABLE 25  /* NplHashTable (hashtable.c) */
 #define BOX_FFI_BLOCK 26 /* FfiBlock shared by an allocation and its views */
+/* T2 (SRFI 18) objects; layouts live in runtime/thread-sched.h. */
+#define BOX_THREAD 27
+#define BOX_MUTEX 28
+#define BOX_CONDVAR 29
+#define BOX_TIME 30
+#define BOX_THREAD_EXCEPTION 31
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
