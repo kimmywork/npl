@@ -22,6 +22,7 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/port.c
   ${RUNTIME_SRC_DIR}/port-ready.c
   ${RUNTIME_SRC_DIR}/read.c
+  ${RUNTIME_SRC_DIR}/shared-lock.c
   ${RUNTIME_SRC_DIR}/stack.c
   ${RUNTIME_SRC_DIR}/string.c
   ${RUNTIME_SRC_DIR}/symbol.c
@@ -72,6 +73,7 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/port.c
   ${RUNTIME_SRC_DIR}/port-ready.c
   ${RUNTIME_SRC_DIR}/read.c
+  ${RUNTIME_SRC_DIR}/shared-lock.c
   ${RUNTIME_SRC_DIR}/stack.c
   ${RUNTIME_SRC_DIR}/string.c
   ${RUNTIME_SRC_DIR}/symbol.c
@@ -179,6 +181,18 @@ target_link_libraries(thread_lifecycle_test PRIVATE npl_runtime)
 target_compile_options(thread_lifecycle_test PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
 set_target_properties(thread_lifecycle_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
+
+# T1.3 acceptance: shared-object lock under concurrent mutation + GC.
+add_executable(shared_lock_test
+  ${RUNTIME_SRC_DIR}/shared_lock_test.c
+  ${RUNTIME_SRC_DIR}/standalone-slots.c
+)
+target_include_directories(shared_lock_test PRIVATE ${RUNTIME_SRC_DIR})
+target_link_libraries(shared_lock_test PRIVATE npl_runtime)
+target_compile_options(shared_lock_test PRIVATE
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+set_target_properties(shared_lock_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
 # T1.3 acceptance: multiple mutators, world-stop park/resume, scanning of

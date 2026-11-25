@@ -172,8 +172,9 @@ static void *thread_entry(void *argument)
     }
 
     /* Unified termination: normal return, uncaught raise (longjmp), or
-     * cooperative cancellation (longjmp). Abandon owned mutexes and publish
-     * the terminated state before join/terminate! can observe it. */
+     * cooperative cancellation (longjmp). A longjmp may have skipped frames
+     * holding the shared-object lock. */
+    npl_shared_release_all();
     pthread_mutex_lock(&npl_sched_lock);
     npl_sched_abandon_mutexes(thread);
     npl_sched_finish(thread, 1);
@@ -359,7 +360,9 @@ NplVal npl_thread_terminate(NplVal value)
     NplVal current = npl_thread_current_object();
     NplThread *self = (NplThread *)npl_header(current);
     if (target == self) {
-        /* Self-termination does not return. */
+        /* Self-termination does not return. The primordial thread has no
+         * thread_entry setjmp target, so end the process: SRFI 18 terminates
+         * all threads when the primordial thread terminates. */
         self->end_exception =
             npl_thread_exception(NPL_EXC_TERMINATED_THREAD, npl_unspecified());
         npl_gc_exclude();
@@ -367,6 +370,7 @@ NplVal npl_thread_terminate(NplVal value)
         npl_sched_abandon_mutexes(self);
         npl_sched_finish(self, 1);
         pthread_mutex_unlock(&npl_sched_lock);
+        if (!self->has_native) exit(0);
         longjmp(self->terminate_jump, 1);
     }
     pthread_mutex_lock(&npl_sched_lock);

@@ -47,6 +47,7 @@ NplVal npl_byte_ready_p(NplVal value)
  * sequence go to the port's pushback, so nothing is lost. */
 NplVal npl_port_ready_p(NplVal value)
 {
+    NPL_SHARED_GUARD();
     NplPort *port = npl_port_require_mode_internal(value, NPL_PORT_INPUT,
                                    NPL_PORT_INPUT, "char-ready?");
     if ((port->mode & NPL_PORT_MEMORY) != 0) return npl_true();

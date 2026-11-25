@@ -204,7 +204,10 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
     NplVal result = npl_nil();
     argv = context.arguments;
     if (setjmp(context.unwind) != 0) {
-        /* A primitive error unwound to here: its handler call is pending. */
+        /* A primitive error unwound to here: its handler call is pending.
+         * Any shared-object lock held by the discarded frames must be
+         * released before the handler can run (shared-lock.c). */
+        npl_shared_release_all();
         npl_stack_limit = context.stack_limit;
         function = context.function;
         environment = context.environment;
@@ -303,6 +306,7 @@ NplVal npl_call_cc(NplVal procedure)
         NplVal argv[1] = { continuation };
         result = npl_apply(procedure, 1, argv);
     } else {
+        npl_shared_release_all();
         result = frame->value;
         npl_stack_limit = frame->saved_stack_limit;
     }
@@ -394,6 +398,7 @@ NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
     }
 
     /* npl_raise already made the sentinel's parent the current handler. */
+    npl_shared_release_all();
     CTX->sync_frame = frame.previous;
     free(arguments);
     CTX->tail_context = frame.saved_tail_context;

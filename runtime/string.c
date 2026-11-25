@@ -373,6 +373,7 @@ NplVal npl_utf8_to_string(NplVal value, NplVal start, NplVal end)
     size_t index = 0;
     const uint8_t *data = bytes->data + from;
     while (index < to - from) {
+        npl_safepoint_poll();   /* long runtime loop: UTF-8 decoding */
         size_t before = index;
         uint32_t code = npl_utf8_decode_internal(data, to - from, &index);
         if (code == 0xFFFD &&

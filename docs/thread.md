@@ -106,8 +106,11 @@ the exception: the runtime serializes access to the same port.
   operators, not first-class procedures.
 - Cross-thread invocation of a user continuation captured with `call/cc`
   is not yet supported.
-- Port, FFI block, directory handle and symbol-table synchronization are
-  still being integrated with the trampoline unwind path.
+- Ports, FFI blocks, directory handles and the symbol table are serialized
+  by one shared lock with a trylock+poll acquisition and a `longjmp` release
+  hook. A blocking libc port call still holds that lock without a GC
+  exclusion boundary; file, string and bytevector ports do not block.
 - SRFI 21 priority/quantum procedures and the three-argument `make-thread`
   are not part of SRFI 18 and are not exported.
 - SRFI 226 prompts/continuation marks are a separate, later increment (T4).
+- Linux execution and late `dlopen` are untested (host is macOS arm64).

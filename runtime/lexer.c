@@ -57,6 +57,7 @@ NplVal npl_lex_scan_sym_end(NplVal sT, NplVal jT) {
     uint32_t len = npl_string_char_count_internal(s);
     uint32_t j = (uint32_t)(jT >> 2);
     while (j < len) {
+        npl_safepoint_poll();   /* long runtime loop: long source token */
         uint32_t c = npl_string_char_at_internal(s, j);
         /* Non-ASCII characters are symbol constituents (UTF-8 source). */
         int is_sym = ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||

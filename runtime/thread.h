@@ -121,6 +121,7 @@ typedef struct NplThreadContext {
     int cancellation_requested;
     int cancel_observed;            /* latched at a safepoint; T2 raises */
     int cancel_consumed;            /* the pending poll sweep was consumed */
+    int shared_depth;               /* recursive shared-object lock depth */
     uint64_t parked_epoch;          /* world-stop generation this park is for */
 
     /* T2: the current thread object, registered as a GC root at attach. */

@@ -294,31 +294,45 @@ path; no accessor call per entry. Self-emission cost is unchanged in kind
 
 **Remaining T1.3 work (deferred to T2 / follow-up)**
 
-- Runtime mutex and condition-variable primitives over pthreads with timeout
-  and error mapping (T1.3 "Synchronization"). They are consumed by T2's SRFI
-  18 mutex/CV objects, so they are added together with that surface.
-- Port serialization, FFI block check-use-free, and directory read/close
-  synchronization. These need integration with the trampoline's `longjmp`
-  unwind path: `npl_primitive_error` can leave a plain mutex held, so a
-  release hook must be installed at every unwind target first.
-- Symbol interning (`symbol.c`) and the process-wide global roots are still
-  unsynchronized. A symbol-table mutex needs the same treatment as the collect
-  lock (trylock + poll instead of a blocking wait), because a thread waiting
-  on it is not at a safepoint; adding it is part of the T2 thread-start work
-  that actually interns symbols from several threads.
-- Exact native stack bounds at thread registration (currently published via
-  `npl_gc_swap_stack_bottom`; T2's `thread-start!` must publish the real
-  pthread stack range).
-- Polls in the remaining long runtime C loops (`read.c` / `lexer.c` /
-  `numeric.c` / `string.c`): safe today because only the primordial thread
-  runs NPL code, but a T2 thread parked in one of these loops would delay a
-  collection. Add them together with T2's thread tests.
-- Cancellation currently latches an observation at polls; T2 wires the raise,
-  the not-started → terminated transition, abandoned mutexes, and the four
-  join outcomes.
+The items in this list are **resolved by T2 and the follow-up increment**
+(2026-11-25); see "T1.3 remaining implementation status" below.
+
+- Cross-thread invocation of a user `call/cc` continuation (restore its
+  dynamic state on the invoking thread without transferring native stack /
+  unwind frames) still needs explicit runtime support and tests.
 - Cross-target execution evidence (only host macOS arm64 is executed; other
   targets have emission evidence). Linux execution and late `dlopen` are
   untested.
+- A blocking libc port call (`fread` / `fwrite` on a pipe) still holds the
+  shared lock without a GC-exclusion boundary; file, string and bytevector
+  ports do not block. Wrapping that path needs `npl_gc_exclude` around the
+  call and is a separate refinement.
+
+## T1.3 remaining implementation status (2026-11-25)
+
+The remaining T1.3 items are implemented. `runtime/shared-lock.c` adds one
+recursive shared-object lock with a **trylock + safepoint poll** acquisition
+(a blocking `pthread_mutex_lock` waiter is not at a poll site and would
+deadlock a world stop), a per-thread depth counter, and
+`npl_shared_release_all`, called at every `longjmp` landing (`npl_trampoline`,
+`npl_call_cc`, `npl_call_sync`, `npl_read_result`, `thread_entry`) so a
+`npl_primitive_error` cannot leave the lock held. `NPL_SHARED_GUARD()` uses a
+cleanup attribute for every normal return.
+
+- Ports (`port.c`, `port-ready.c`), FFI blocks (`ffi-memory.c`), directory
+  handles (`lib/npl/unix/native/unix.c`) and the symbol intern table
+  (`symbol.c`) serialize through it; `npl_symbol_mark_roots` takes no lock
+  because all mutators are parked during collection.
+- Safepoint polls added to the long runtime loops in `read.c` (4 dispatch
+  loops), `lexer.c`, `numeric.c` and `string.c`.
+- Exact stack bounds at thread registration, runtime mutex/condition
+  primitives, cancellation raise, the not-started → terminated transition,
+  abandoned mutexes and the four join outcomes are covered by T2's substrate.
+- `npl_gc_stop_world` now recomputes the expected parked count on every
+  wake: a mutator that detaches while the collector waits no longer leaves
+  the collector waiting for a thread that has left. Found by
+  `runtime/shared_lock_test.c`, which runs three concurrent interning
+  mutators with forced collections (8x and under `NPL_GC_VERIFY=100`).
 
 ## T2 SRFI 18
 

@@ -659,6 +659,25 @@ void npl_gc_block_end(void);
 int npl_try_collect_lock(void);
 void npl_collect_unlock(void);
 void npl_gc_mark_words_internal(uintptr_t begin, uintptr_t end);
+/* Shared-object lock (runtime/shared-lock.c). Ports, FFI blocks, directory
+ * handles and the symbol table serialize through it; a longjmp landing must
+ * call npl_shared_release_all so a primitive error cannot leave it held. */
+void npl_shared_lock(void);
+void npl_shared_unlock(void);
+void npl_shared_release_all(void);
+
+/* Shared-object critical section: one guard per function scope. A cleanup
+ * attribute unlocks on every normal return; a primitive error's longjmp is
+ * covered by npl_shared_release_all at the trampoline landing. */
+static inline void npl_shared_unlock_guard(int *unused)
+{
+    (void)unused;
+    npl_shared_unlock();
+}
+#define NPL_SHARED_GUARD()                                                    \
+    npl_shared_lock();                                                        \
+    __attribute__((cleanup(npl_shared_unlock_guard))) int npl_shared_guard_ = 0
+
 /* Cooperative cancellation, observed at the same polls. */
 void npl_thread_request_cancel(void *context);
 void npl_cancel_consumed(void);

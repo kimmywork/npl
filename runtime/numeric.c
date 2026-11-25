@@ -664,6 +664,7 @@ static NplVal integer_to_string_radix(NplVal value, int radix)
         if (!work) npl_runtime_oom_internal();
         memcpy(work, view.limbs, (size_t)count * sizeof(uint32_t));
         while (count) {
+            npl_safepoint_poll();   /* long runtime loop: bignum printing */
             uint32_t chunk = limbs_divide_small(work, &count, (uint32_t)power);
             for (uint32_t k = 0; k < chunk_digits; k++) {
                 if (count == 0 && chunk == 0) break;

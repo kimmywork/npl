@@ -207,6 +207,7 @@ static NplVal read_string_datum(NplDatumReader *reader)
     size_t length = 0;
     size_t capacity = 0;
     for (;;) {
+        npl_safepoint_poll();   /* long runtime loop: large string */
         int code = reader_get(reader);
         if (code == EOF)
             read_buffer_error(buffer, "unexpected EOF in string");
@@ -261,6 +262,7 @@ static void read_bar_symbol_part(NplDatumReader *reader, char **buffer,
                                  size_t *length, size_t *capacity)
 {
     for (;;) {
+        npl_safepoint_poll();   /* long runtime loop: barred symbol */
         int code = reader_get(reader);
         if (code == EOF) read_buffer_error(*buffer, "unterminated |symbol|");
         if (code == '|') return;
@@ -306,6 +308,7 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
     }
     /* A |...| part may continue the token, and vice versa (abc|d e|f). */
     for (;;) {
+        npl_safepoint_poll();   /* long runtime loop: long symbol */
         int code = reader_peek(reader);
         if (code == '|') {
             (void)reader_get(reader);
@@ -357,6 +360,7 @@ static NplVal read_list_datum(NplDatumReader *reader, int open)
     NplVal reversed = npl_nil();
     int close_code = open == '[' ? ']' : ')';
     for (;;) {
+        npl_safepoint_poll();   /* long runtime loop: long list */
         reader_skip_space(reader);
         int code = reader_peek(reader);
         if (code == EOF) read_error("unexpected EOF in list");
@@ -765,6 +769,7 @@ NplVal npl_read_result(NplVal port_value)
         items[0] = npl_true();
         items[1] = npl_read_datum(port_value);
     } else {
+        npl_shared_release_all();
         npl_gc_restore_root_count_internal(roots);
         items[0] = npl_false();
         items[1] = npl_string(CTX->read_error_message,

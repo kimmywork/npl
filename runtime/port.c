@@ -336,6 +336,7 @@ NplVal npl_get_output_string(NplVal value)
 static NplVal close_port_direction(NplVal value, uint32_t access,
                                    const char *who)
 {
+    NPL_SHARED_GUARD();
     NplPort *port = port_value(value, who);
     if ((port->mode & access) == 0)
         npl_primitive_error(who, "wrong port direction", value);
@@ -371,6 +372,7 @@ NplVal npl_close_port(NplVal value)
 
 NplVal npl_flush_output_port(NplVal value)
 {
+    NPL_SHARED_GUARD();
     NplPort *port = require_port(value, NPL_PORT_OUTPUT, "flush-output-port");
     if ((port->mode & NPL_PORT_MEMORY) == 0 && fflush(port->stream) != 0)
         npl_primitive_file_error("flush-output-port", "flush failed", value);
@@ -394,6 +396,7 @@ static uint8_t *memory_output_data(NplPort *port, const char *who)
 
 static size_t port_read_bytes(NplPort *port, uint8_t *output, size_t count)
 {
+    NPL_SHARED_GUARD();
     if ((port->mode & NPL_PORT_MEMORY) == 0) {
         size_t taken = 0;
         while (port->pushed && taken < count) {
@@ -416,6 +419,7 @@ static size_t port_read_bytes(NplPort *port, uint8_t *output, size_t count)
 
 static void ensure_memory_output(NplPort *port, uint32_t needed)
 {
+    NPL_SHARED_GUARD();
     uint32_t current_capacity = memory_output_capacity(port, "write");
     if (needed <= current_capacity) return;
     uint32_t capacity = current_capacity ? current_capacity : 64;
@@ -435,6 +439,7 @@ static void ensure_memory_output(NplPort *port, uint32_t needed)
 static void port_write_bytes(NplPort *port, const uint8_t *bytes, size_t count,
                              const char *who)
 {
+    NPL_SHARED_GUARD();
     if ((port->mode & NPL_PORT_MEMORY) == 0) {
         if (count && fwrite(bytes, 1, count, port->stream) != count)
             npl_primitive_file_error(who, "write failed",
@@ -460,6 +465,7 @@ static int port_read_byte_raw(NplPort *port)
 static void port_unread_bytes(NplPort *port, const uint8_t *bytes,
                               size_t count)
 {
+    NPL_SHARED_GUARD();
     if ((port->mode & NPL_PORT_MEMORY) != 0) {
         port->position -= (uint32_t)count;
         return;

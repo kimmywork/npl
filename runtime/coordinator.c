@@ -163,11 +163,16 @@ void npl_gc_stop_world(void)
     refresh_stop_flag();
     __sync_synchronize();
     /* The collector is active but does not park.  Blocked mutators are
-     * already published and count as parked for every epoch. */
-    int expected = g_active_mutators - 1 - g_blocked_mutators;
-    if (expected < 0) expected = 0;
-    while (g_parked_for_epoch < expected)
+     * already published and count as parked for every epoch.  Recompute the
+     * expectation on every wake: a mutator may detach (or become blocked)
+     * while we wait, and npl_coordinator_detach_internal broadcasts this
+     * condvar so the collector observes the smaller set. */
+    for (;;) {
+        int expected = g_active_mutators - 1 - g_blocked_mutators;
+        if (expected < 0) expected = 0;
+        if (g_parked_for_epoch >= expected) break;
         pthread_cond_wait(&g_parked_cond, &g_coord_lock);
+    }
     pthread_mutex_unlock(&g_coord_lock);
 }
 
