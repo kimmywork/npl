@@ -16,5 +16,8 @@ project overview, quick start, platform support, and license, see the
 - [Extending NPL](extending.md)
 - [C functions and FFI](ffi.md)
 - [Packages and native packages](native-packages.md)
+- [Time and SRFI 19](time.md)
+- [POSIX and SRFI 170](posix.md)
+- [Reference index (R7RS & SRFIs)](reference/README.md)
 - [R7RS-small reference](reference/r7rs.html)
 - [SRFI 125 reference](reference/srfi-125.html)

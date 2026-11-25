@@ -4,7 +4,7 @@ The repository stores compiler source and canonical QBE SSA, not a compiler bina
 
 ## Verify The Relay
 
-The permanent chain (`bootstrap/stage0/nplc0`, `bootstrap/compiler/`, `bootstrap/bootstrap.ssa`) is frozen together with its runtime, `bootstrap/runtime/`: a verbatim copy of `runtime/` at commit `43d2a14`, built as `npl_runtime_frozen`. `tools/check_bootstrap.sh`, `bootstrap/stage0/`, and `bootstrap/stage0/tools/` link only against it, so the current runtime may change object layouts and entry points freely.
+The permanent chain (`bootstrap/stage0/nplc0`, `bootstrap/compiler/`, `bootstrap/bootstrap.ssa`) is frozen together with its runtime, `bootstrap/runtime/`: a verbatim copy of `runtime/` at commit `43d2a14`, built as `npl_runtime_frozen`. `bootstrap/tools/check_bootstrap.sh`, `bootstrap/stage0/`, and `bootstrap/stage0/tools/` link only against it, so the current runtime may change object layouts and entry points freely.
 
 `bootstrap/current.ssa` is the current full-compiler recovery artifact. Verify the historical relay with:
 
@@ -18,7 +18,7 @@ The command builds a compiler from `bootstrap/current.ssa`, emits `gen1.ssa`, re
 ./tools/check_current_fixed_point.sh --keep --work-dir /tmp/npl-fixed-point
 ```
 
-`bootstrap/current.ssa` is the unified `nplc` (compiler and driver in one program). The tracked artifact's current line count and SHA-256 are recorded in `.agents/workstate.md` (Accepted Seed); a strict relay regenerates that hash. Regeneration reports the authoritative hash for its source tree.
+`bootstrap/current.ssa` is the unified `nplc` (compiler and driver in one program). Running `./tools/check_current_fixed_point.sh` verifies that a strict relay reproduces its canonical line count and SHA-256.
 
 Since 2026-10-21 the runtime collects a 1 MiB nursery and runs full collections from 128 MiB, so a self-compilation emission peaks near 0.27 GB RSS and no threshold override is needed on a loaded host. (With the earlier 1 GiB threshold an emission stalled for hours in paging on 2026-09-30 and needed `NPL_GC_THRESHOLD_BYTES=268435456`.)
 
@@ -69,7 +69,7 @@ PREFIX/share/npl/src/compiler/   frontend sources included by (npl internal fron
 PREFIX/include/npl/npl.h         runtime ABI for C functions (docs/ffi.md)
 ```
 
-`nplc` resolves each tool and library at run time: an explicit option first, then an environment variable, then this layout relative to its own executable. Nothing host-specific is compiled into the canonical SSA; emitting from a different working directory or from an installed `nplc` gives byte-identical output (`tools/check_install.sh`).
+`nplc` resolves each tool and library at run time: an explicit option first, then an environment variable, then this layout relative to its own executable. Nothing host-specific is compiled into the canonical SSA; emitting from a different working directory or from an installed `nplc` gives byte-identical output (checked by `(tools toolchain)` in `tools/run-tests.npl`).
 
 | Setting | Option | Environment | Fallback |
 |---|---|---|---|
@@ -156,7 +156,7 @@ Cell allocation is limited to `set!` targets (`collect-assigned`), and closures 
 
 The collector is generational and non-moving (`runtime/alloc.c`, `runtime/gc.c`): young objects are collected when `NPL_GC_NURSERY_BYTES` (default 1 MiB; 0 disables the nursery) have been allocated, and the whole heap when it reaches `NPL_GC_THRESHOLD_BYTES` (default 128 MiB, doubling with live data). Runtime stores into existing objects go through `npl_gc_write_barrier`; `NPL_GC_VERIFY=N` checks barriers and dangling references at every Nth collection. Measured 2026-10-21 (host load ~8): self-compilation 13.3-13.6 s CPU and 0.27 GB peak RSS, against 16.6-16.7 s and 2.65 GB without the nursery at the former 1 GiB threshold; all nine bench workloads take equal or less CPU, with identical output.
 
-npli compiles each expanded form to native closures (`lib/scheme/internal/evaluator-compile.scm`, .agents/archive/design/design-evaluator.md): lexical addresses, hashed global cells, native control and error objects. Measured 2026-10-23 (host load ~8-11): a 2M-iteration import-free loop 3.9 s user (about 20x the former CPS interpreter); with `(import (scheme base))` the same loop took 48.8 s while the standard library was evaluated from source, and 3.95 s since E2b binds it to npli's compiled procedures (`(%library-definitions ...)` with a source checksum; an edited library falls back to evaluation from source). Two-operand calls to `(scheme base)`'s numeric operators take the compiled fixnum fast path while their binding is unchanged (E3); all nine bench workloads then finish under npli in 0.5-18.4 s user. Most of the remaining time is allocation for native non-tail calls. Mapped chunks are never returned, and allocator metadata adds 64 bytes per object.
+npli compiles each expanded form to native closures (`lib/scheme/internal/evaluator-compile.scm`): lexical addresses, hashed global cells, native control and error objects. Standard libraries are bound to npli's compiled procedures (`(%library-definitions ...)` with a source checksum; an edited library falls back to evaluation from source), and two-operand calls to `(scheme base)`'s numeric operators take the compiled fixnum fast path while their binding is unchanged. Mapped chunks are never returned, and allocator metadata adds 64 bytes per object.
 
 ## Deferred: Libraries And Binary Interop
 

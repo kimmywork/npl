@@ -10,6 +10,7 @@ build-*/
 build/qbe/qbe
 
 # Local agent/session state
+.agents/focus.md
 .reasonix/
 .claude/
 

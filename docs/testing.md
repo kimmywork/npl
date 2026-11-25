@@ -266,8 +266,8 @@ tools/check_current_fixed_point.sh   # verify only
 tools/update_current_ssa.sh          # verify, then install gen3
 ```
 
-The installed seed line count and SHA-256 are recorded in
-`.agents/workstate.md` (Accepted Seed).
+The relay prints the canonical seed line count and SHA-256; seed updates are
+tracked in git history.
 
 ## What to run for a change
 
@@ -277,7 +277,7 @@ The installed seed line count and SHA-256 are recorded in
 | `src/compiler/**` | as above plus `tools/update_current_ssa.sh` (two-step if codegen changed) |
 | `runtime/**` | as above plus the `runtime GC` suite in `(tools toolchain)`; ABI changes need a relay |
 | `tools/**` | the affected check plus `tools/check_relay_scripts.sh` |
-| documentation only | every `](…)` target under `docs/` and `.agents/` exists |
+| documentation only | every `](…)` target under `docs/` and `.agents/design/` exists |
 
 Before a milestone, run the gate on macOS and Linux
 (`tools/check_linux.sh --skip-current-fixed-point`), plus

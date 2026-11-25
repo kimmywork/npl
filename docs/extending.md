@@ -1,8 +1,8 @@
 # Extending NPL
 
-Status: frozen at the language milestone, 2026-11-12. The four ways to extend
-the language and its libraries, in increasing order of cost. "Relay needed"
-means `tools/update_current_ssa.sh` (see [testing](testing.md#the-seed-and-the-relay)).
+The four ways to extend the language and its libraries, in increasing order
+of cost. "Relay needed" means `tools/update_current_ssa.sh` (see
+[testing](testing.md#the-seed-and-relay)).
 
 | You want to add | Touch | Relay |
 |---|---|---|
@@ -61,7 +61,7 @@ Rules:
 - **Import libraries individually.** R7RS import sets do not support
   grouping inside a library name, so `(npl data (set range))` is not valid.
   Use `(import (npl data set) (npl data range))`; there are no aggregate
-  libraries in 0.1.2.
+  libraries.
 
 ### Library layers and dependency direction
 
@@ -72,7 +72,7 @@ Use the library graph, not directory labels, to keep dependencies acyclic:
 | L0 runtime | `(npl internal primitive)` | nothing |
 | L1 core | `(npl internal frontend)`, `(npl internal repl-io)` | L0 |
 | L2 standard | `(scheme *)` and `(scheme internal *)` | L0, L1, lower `(scheme *)` |
-| L3 extensions | `(npl list)`, `(npl string)`, `(npl string cursor)`, `(npl string immutable)`, `(npl vector)`, `(npl hashtable)`, `(npl data ...)`, `(npl ffi)`, `(npl match)`, `(npl record)`, `(npl process)` | L0-L2, lower L3 |
+| L3 extensions | `(npl list)`, `(npl string)`, `(npl string cursor)`, `(npl string immutable)`, `(npl vector)`, `(npl hashtable)`, `(npl comparator)`, `(npl sort)`, `(npl data ...)`, `(npl time)`, `(npl unix)`, `(npl ffi)`, `(npl native)`, `(npl platform)`, `(npl lambda)`, `(npl match)`, `(npl record)`, `(npl process)`, `(npl test)` | L0-L2, lower L3 |
 | L4 SRFI aliases | `(srfi *)` | L3 only |
 
 - `(npl internal *)` must not import `(scheme *)`. `(npl internal primitive)`,

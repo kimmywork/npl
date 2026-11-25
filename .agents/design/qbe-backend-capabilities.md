@@ -149,7 +149,7 @@ of aggregate storage and lowers the platform ABI.
 
 ## Recommended order
 
-1. Use the proven TLS/accessor path within [T1](../design/threads.md), with
+1. Use the proven TLS/accessor path within [T1](threads.md), with
    explicit roots, thread registration, and target/link-mode validation.
 2. Measure record accessor and C field lookup costs before specialization;
    aggregate annotations alone have no demonstrated performance benefit.
