@@ -96,6 +96,8 @@ typedef struct NplVirtualThread {
     int state;
     int park_count;
     int resume_count;
+    int migration_count;       /* resumes on a different carrier */
+    int carrier_index;         /* run queue that last mounted this vt */
     void *carrier_context;     /* NplThreadContext * that owns the bindings */
     struct NplVirtualThread *queue_next;
 } NplVirtualThread;
@@ -215,6 +217,7 @@ NplVal npl_vthread_root(void);
 NplVal npl_vthread_end_exception(NplVal value);
 int npl_vthread_park_count(NplVal value);
 int npl_vthread_resume_count(NplVal value);
+int npl_vthread_migration_count(NplVal value);
 void npl_virtual_thread_set_carriers(int count);
 void npl_virtual_thread_run(void);
 void npl_virtual_thread_shutdown(void);

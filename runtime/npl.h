@@ -875,8 +875,10 @@ void npl_control_init(void);
 /* Shared dynamic-state helpers (control.c, dynamic-context.c). */
 NplWindFrame *require_wind_frame(NplVal value, const char *who);
 NplParameter *require_parameter(NplVal value, const char *who);
-/* T2b: order-preserving parameter-chain clone for a new virtual thread. */
+/* T2b: order-preserving parameter-chain clone for a new virtual thread, and
+ * ownership re-stamping when it migrates to a different carrier. */
 NplVal npl_clone_parameter_bindings(NplVal chain);
+void npl_relocalize_parameter_bindings(NplVal chain);
 /* T2b: heap-rooted suspended scheduler tokens (virtual-thread.c). */
 void npl_virtual_thread_mark_roots(void);
 /* T2b: control-transfer intrinsic emitted by the backend in tail position.

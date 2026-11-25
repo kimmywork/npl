@@ -615,6 +615,38 @@ ratchet needs no baseline entry), round-robin interleaving of three virtual
 threads on one carrier, `current-virtual-thread` inside a virtual thread,
 and a first-class `virtual-thread-yield!` reference.
 
+### Increment C — M carriers and cross-carrier migration
+
+The single shared run queue became **one queue per carrier**. A newly started
+virtual thread is assigned to a queue round-robin; every `npl_vthread_park`
+hands it to the *next* carrier's queue, so with M > 1 each yield is a
+deterministic cross-carrier migration (M = 1 preserves the original
+round-robin validation). The default is 2 carriers;
+`npl_virtual_thread_set_carriers` overrides it before the first enqueue, and
+`npl_vthread_migration_count` exposes the observed migrations.
+
+On a cross-carrier mount, `restore_state` calls
+`npl_relocalize_parameter_bindings` (in `dynamic-context.c`) to re-stamp the
+saved binding chain's `owner` for the new carrier. The chain is private to
+the virtual thread (cloned at its first mount) and the saved
+`parameter_extents` mapping points into the same chain, so one walk covers
+both. Without it, a post-migration `parameter-set!` would COW-clone a node
+instead of mutating in place, growing the chain on every step and changing
+continuation re-entry behaviour. The C harness asserts the chain stays
+length 1; removing the re-localization produces 9 failures on 4 carriers.
+
+`runtime/virtual_thread_test.c` now takes the carrier count as `argv[1]` and
+is run with **1 and 4** carriers from `check_full_compiler.sh`, each with a
+concurrent collector thread and a 64 KiB nursery. It asserts the exact
+migration count (0 for one carrier, one per resume for M > 1), one-shot
+park/resume counts, per-virtual-thread parameter isolation, and GC survival
+of suspended tokens. The NPL unit test was made race-free (workers return
+their own observations; no shared mutable log or global ordering assertion)
+so M carriers cannot make it flaky.
+
+Work stealing between the per-carrier queues, a CPU-derived carrier count,
+and yielding variants of blocking primitives remain later tuning.
+
 ## T3 SRFI 230
 
 Atomics need runtime support regardless of scheduler. [SRFI 230](../../docs/reference/srfi-230.html)

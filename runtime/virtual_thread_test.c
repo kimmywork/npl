@@ -16,12 +16,13 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #define NTHREADS 3
 #define NSTEPS 4
 
-static int failures;
+static volatile int failures;
 static NplVal g_vts[NTHREADS];
 static NplVal g_param;
 static int g_progress[NTHREADS];
@@ -54,7 +55,7 @@ static void *gc_worker(void *argument)
 static void fail(const char *what)
 {
     fprintf(stderr, "FAIL: %s\n", what);
-    failures++;
+    __sync_fetch_and_add(&failures, 1);
 }
 
 static void record(int index)
@@ -64,6 +65,20 @@ static void record(int index)
         g_order[g_order_count] = index;
     g_order_count++;
     pthread_mutex_unlock(&g_order_lock);
+}
+
+/* A binding chain stays length 1 when its owner is re-stamped on migration;
+ * without re-localization every post-migration parameter-set! COW-clones a
+ * node and the chain grows. */
+static int parameter_chain_length(void)
+{
+    int length = 0;
+    for (NplVal rest = npl_ctx()->current_parameters;
+         npl_is_ptr(rest) &&
+         npl_header(rest)->tag == BOX_PARAMETER_BINDING;
+         rest = ((NplParameterBinding *)npl_header(rest))->parent)
+        length++;
+    return length;
 }
 
 /* One step of a virtual thread. The trailing argument is the resume value
@@ -84,6 +99,9 @@ static NplVal step(NplVal environment, int64_t argc, NplVal *argv)
         fail("dynamic parameter isolation across virtual threads");
     if (npl_is_false(npl_vthread_current()))
         fail("current virtual thread not mounted");
+    (void)npl_parameter_set(g_param, npl_fixnum(100 + index));
+    if (parameter_chain_length() != 1)
+        fail("parameter binding chain grew across carrier migration");
 
     /* Churn the heap so a missing GC edge is not masked by a still-clean
      * allocation region, then force a collection while the other virtual
@@ -113,8 +131,10 @@ static NplVal thunk(NplVal environment, int64_t argc, NplVal *argv)
     return step(environment, 0, NULL);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    int carriers = (argc > 1) ? atoi(argv[1]) : 1;
+    if (carriers < 1) carriers = 1;
     alarm(120);
     npl_runtime_init();
 
@@ -130,9 +150,10 @@ int main(void)
             fail("virtual-thread? predicate");
     }
 
-    npl_virtual_thread_set_carriers(1);
-    /* Enqueue the whole batch before any carrier starts, so the first
-     * validation observes deterministic round-robin interleaving. */
+    npl_virtual_thread_set_carriers(carriers);
+    /* Enqueue the whole batch before any carrier starts: with one carrier
+     * this gives deterministic round-robin; with M carriers it spreads the
+     * initial batch across the per-carrier queues. */
     for (int i = 0; i < NTHREADS; i++) npl_vthread_start(g_vts[i]);
 
     pthread_t collector;
@@ -150,22 +171,33 @@ int main(void)
             fail("park count");
         if (npl_vthread_resume_count(g_vts[i]) != NSTEPS - 1)
             fail("one-shot resume count");
+        /* With M > 1 every park hands the virtual thread to the next
+         * carrier, so every resume is a migration. With one carrier there
+         * is no migration at all. Both are deterministic. */
+        int expected_migrations = carriers > 1 ? NSTEPS - 1 : 0;
+        if (npl_vthread_migration_count(g_vts[i]) != expected_migrations)
+            fail("cross-carrier migration count");
     }
 
     if (g_order_count != NTHREADS * NSTEPS)
         fail("total step count");
-    /* Round-robin: the first pass must visit every virtual thread before any
-     * of them runs a second step. One virtual thread per carrier would not
-     * produce this ordering. */
     int seen[NTHREADS] = { 0, 0, 0 };
-    for (int i = 0; i < NTHREADS; i++) {
+    for (int i = 0; i < g_order_count && i < NTHREADS * NSTEPS; i++) {
         int index = g_order[i];
-        if (index < 0 || index >= NTHREADS || seen[index])
-            fail("virtual threads did not interleave on one carrier");
-        seen[index] = 1;
+        if (index < 0 || index >= NTHREADS)
+            fail("invalid virtual thread index in step log");
+        else
+            seen[index] = 1;
     }
     for (int i = 0; i < NTHREADS; i++)
         if (!seen[i]) fail("a virtual thread never ran");
+    /* Ordering is only deterministic with a single carrier: with M carriers
+     * each queue progresses independently. */
+    if (carriers == 1) {
+        for (int i = 0; i < NTHREADS; i++)
+            if (g_order[i] != i)
+                fail("virtual threads did not round-robin on one carrier");
+    }
 
     g_gc_done = 1;
     /* pthread_join is an unwrapped C wait: keep GC excluded while blocked,
@@ -180,7 +212,7 @@ int main(void)
         fprintf(stderr, "virtual threads: %d failure(s)\n", failures);
         return 1;
     }
-    puts("PASS: one-shot scheduler tokens, N virtual threads on one carrier, "
-         "dynamic-state isolation, GC-surviving suspended tokens");
+    printf("PASS: %d carrier(s), one-shot tokens, dynamic-state isolation "
+           "across migration, GC-surviving suspended tokens\n", carriers);
     return 0;
 }

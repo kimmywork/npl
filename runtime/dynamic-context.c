@@ -103,6 +103,26 @@ NplVal npl_clone_parameter_bindings(NplVal chain)
     return clone_parameter_bindings(chain);
 }
 
+/* T2b: when a virtual thread is remounted on a different carrier, its saved
+ * binding chain still carries the previous carrier's ownership stamp. Re-stamp
+ * it so in-place parameter-set! keeps working (otherwise every write would
+ * COW-clone and a continuation re-entry would see the pre-write value). The
+ * chain is private to the virtual thread (cloned at its first mount), and the
+ * per-thread parameter_extents mapping points into this same chain, so a
+ * single walk covers both. */
+void npl_relocalize_parameter_bindings(NplVal chain)
+{
+    uintptr_t owner = (uintptr_t)npl_ctx();
+    for (NplVal rest = chain;
+         npl_is_ptr(rest) &&
+         npl_header(rest)->tag == BOX_PARAMETER_BINDING;
+         rest = ((NplParameterBinding *)npl_header(rest))->parent) {
+        NplParameterBinding *binding =
+            (NplParameterBinding *)npl_header(rest);
+        binding->owner = owner;
+    }
+}
+
 static NplVal localize_parameters(NplVal source, uint32_t binding_count,
                                   NplVal *baseline_out)
 {

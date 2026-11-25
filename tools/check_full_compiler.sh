@@ -31,8 +31,10 @@ ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
 "$BUILD/runtime/shared_lock_test"
 # T1.3 acceptance: blocking libc call publishes context for GC.
 "$BUILD/runtime/blocking_io_test"
-# T2b acceptance: one-shot scheduler tokens, N virtual threads on one carrier.
-"$BUILD/runtime/virtual_thread_test"
+# T2b acceptance: one-shot scheduler tokens, N virtual threads on one
+# carrier, then cross-carrier migration with M carriers.
+"$BUILD/runtime/virtual_thread_test" 1
+"$BUILD/runtime/virtual_thread_test" 4
 
 EXTRA_NATIVE=()
 EXTRA_LIBS=()

@@ -1,22 +1,24 @@
 /*
  * virtual-thread.c — T2b (JVM-style) virtual-thread substrate.
  *
- * M carrier pthreads run an N-way run queue of virtual threads. A virtual
- * thread suspends only at a CPS boundary: npl_vthread_park stores the raw
- * CPS continuation (argv[argc-1]) in the virtual-thread record and returns
- * WITHOUT a tail request, so the trampoline breaks and the carrier loop
- * regains control. No C stack frame is retained for a suspended thread;
- * the continuation and its dynamic state are heap objects reached from the
- * virtual-thread record (marked by npl_virtual_thread_mark_roots).
+ * M carrier pthreads each own a run queue; a virtual thread is handed to the
+ * next carrier in round-robin order on every park, so cross-carrier migration
+ * is deterministic. A virtual thread suspends only at a CPS boundary:
+ * npl_vthread_park stores the raw CPS continuation (argv[argc-1]) in the
+ * virtual-thread record and returns WITHOUT a tail request, so the trampoline
+ * breaks and the carrier loop regains control. No C stack frame is retained
+ * for a suspended thread; the continuation and its dynamic state are heap
+ * objects reached from the virtual-thread record (marked by
+ * npl_virtual_thread_mark_roots).
  *
  * The private CPS root (vthread_done) is a C closure bound to the record, so
  * a user call/cc continuation ends at the virtual thread's own boundary
  * instead of escaping into the carrier loop. The scheduler token is one-shot
- * and is cleared as soon as a carrier mounts it.
+ * and is cleared as soon as a carrier mounts it. On a cross-carrier mount the
+ * saved parameter bindings are re-stamped for the new carrier's ownership.
  *
- * First validation (design/threads.md): multiple virtual threads on ONE
- * carrier. Cross-carrier migration needs parameter-ownership re-localization
- * and is a later increment; set_carriers() exists so the substrate can grow.
+ * Work stealing (moving work between the per-carrier queues) and a
+ * CPU-derived carrier count are later tuning; set_carriers() selects M.
  */
 #define _POSIX_C_SOURCE 200809L
 
@@ -24,6 +26,7 @@
 #include "thread.h"
 #include "thread-sched.h"
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -39,24 +42,30 @@ static int tagged(NplVal value, uint32_t tag)
     return npl_is_ptr(value) && npl_header(value)->tag == tag;
 }
 
-/* ---- process-wide registry and run queue ----
+/* ---- process-wide registry and per-carrier run queues ----
  *
  * Every virtual-thread object is registered in a malloc'd C array and marked
  * explicitly by npl_virtual_thread_mark_roots (called from the collector's
- * root pass, with all mutators parked). The run queue is a C-side linked
- * list into that same set, so it needs no separate GC root.
+ * root pass, with all mutators parked). The run queues are C-side linked
+ * lists into that same set, so they need no separate GC root.
  *
  * All critical sections are short and perform no NPL allocation or safepoint
  * polls, so a plain mutex cannot hold up a world stop. */
+typedef struct {
+    NplVirtualThread *head;
+    NplVirtualThread *tail;
+} VThreadQueue;
+
 static NplVal *g_all;
 static int g_all_count;
 static int g_all_capacity;
-static NplVirtualThread *g_queue_head;
-static NplVirtualThread *g_queue_tail;
+static VThreadQueue *g_queues;
+static int g_queues_count;      /* fixed once the first item is enqueued */
+static int g_next_carrier;      /* round-robin for newly started threads */
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
 static int g_shutdown;
-static int g_carrier_count = 1;
+static int g_carrier_count = 2;
 static pthread_t *g_carrier_handles;
 static pthread_once_t g_carrier_once = PTHREAD_ONCE_INIT;
 
@@ -79,20 +88,34 @@ static void registry_add(NplVal value)
     g_all[g_all_count++] = value;
 }
 
-static void enqueue(NplVirtualThread *vt)
+/* Called under g_lock. The queue count is frozen at the first enqueue so a
+ * late set_carriers() cannot invalidate indices already handed to carriers. */
+static void ensure_queues(void)
 {
-    vt->queue_next = NULL;
-    if (g_queue_tail) g_queue_tail->queue_next = vt;
-    else g_queue_head = vt;
-    g_queue_tail = vt;
+    if (g_queues) return;
+    g_queues_count = g_carrier_count;
+    g_queues = (VThreadQueue *)calloc(
+        (size_t)g_queues_count, sizeof(VThreadQueue));
+    if (!g_queues) npl_runtime_oom_internal();
 }
 
-static NplVirtualThread *dequeue(void)
+static void enqueue_to(NplVirtualThread *vt, int index)
 {
-    NplVirtualThread *vt = g_queue_head;
+    VThreadQueue *queue = &g_queues[index];
+    vt->queue_next = NULL;
+    vt->carrier_index = index;
+    if (queue->tail) queue->tail->queue_next = vt;
+    else queue->head = vt;
+    queue->tail = vt;
+}
+
+static NplVirtualThread *dequeue_from(int index)
+{
+    VThreadQueue *queue = &g_queues[index];
+    NplVirtualThread *vt = queue->head;
     if (!vt) return NULL;
-    g_queue_head = vt->queue_next;
-    if (!g_queue_head) g_queue_tail = NULL;
+    queue->head = vt->queue_next;
+    if (!queue->head) queue->tail = NULL;
     vt->queue_next = NULL;
     return vt;
 }
@@ -127,6 +150,10 @@ static void save_state(NplVirtualThread *vt)
 
 static void restore_state(NplVirtualThread *vt)
 {
+    /* A different carrier now owns the saved bindings; re-stamp ownership so
+     * in-place parameter-set! and continuation re-entry keep working. */
+    if (vt->carrier_context != (void *)npl_ctx())
+        npl_relocalize_parameter_bindings(vt->parameters);
     CTX->current_wind = vt->wind;
     CTX->current_handler = vt->handler;
     CTX->current_parameters = vt->parameters;
@@ -210,6 +237,8 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
     vt->state = NPL_VTHREAD_NEW;
     vt->park_count = 0;
     vt->resume_count = 0;
+    vt->migration_count = 0;
+    vt->carrier_index = 0;
     vt->carrier_context = NULL;
     vt->queue_next = NULL;
 
@@ -270,6 +299,12 @@ int npl_vthread_resume_count(NplVal value)
     return require_vthread(value, "virtual-thread-resume-count")->resume_count;
 }
 
+int npl_vthread_migration_count(NplVal value)
+{
+    return require_vthread(value,
+                           "virtual-thread-migration-count")->migration_count;
+}
+
 /* Capture the raw CPS continuation. The emitted control-transfer form does
  * `call $npl_vthread_park(l K)` followed by `ret 2` and no tail request, so
  * returning here ends the current trampoline. */
@@ -292,7 +327,9 @@ void npl_vthread_park(NplVal continuation)
     pthread_mutex_lock(&g_lock);
     vt->state = NPL_VTHREAD_SUSPENDED;
     vt->park_count++;
-    enqueue(vt);                 /* round-robin: immediately runnable again */
+    /* Hand off to the next carrier: with M > 1 every yield migrates, so
+     * cross-carrier dynamic-state restoration is exercised on each resume. */
+    enqueue_to(vt, (vt->carrier_index + 1) % g_queues_count);
     pthread_cond_broadcast(&g_cond);
     pthread_mutex_unlock(&g_lock);
     CTX->logical_thread = NULL;
@@ -303,12 +340,16 @@ static void *carrier_entry(void *argument);
 
 static void start_carriers(void)
 {
+    pthread_mutex_lock(&g_lock);
+    ensure_queues();
+    int count = g_queues_count;
+    pthread_mutex_unlock(&g_lock);
     g_carrier_handles = (pthread_t *)calloc(
-        (size_t)g_carrier_count, sizeof(pthread_t));
+        (size_t)count, sizeof(pthread_t));
     if (!g_carrier_handles) npl_runtime_oom_internal();
-    for (int i = 0; i < g_carrier_count; i++) {
+    for (int i = 0; i < count; i++) {
         if (pthread_create(&g_carrier_handles[i], NULL,
-                           carrier_entry, NULL) != 0) {
+                           carrier_entry, (void *)(intptr_t)i) != 0) {
             fprintf(stderr, "virtual thread: cannot start carrier\n");
             exit(1);
         }
@@ -322,8 +363,10 @@ NplVal npl_vthread_start(NplVal value)
         npl_primitive_error("virtual-thread-start!",
                             "virtual thread already started", value);
     pthread_mutex_lock(&g_lock);
+    ensure_queues();
     vt->state = NPL_VTHREAD_RUNNABLE;
-    enqueue(vt);
+    enqueue_to(vt, g_next_carrier % g_queues_count);
+    g_next_carrier++;
     pthread_cond_broadcast(&g_cond);
     pthread_mutex_unlock(&g_lock);
     return value;
@@ -354,7 +397,10 @@ NplVal npl_vthread_join(NplVal value)
 
 void npl_virtual_thread_set_carriers(int count)
 {
-    if (count > 0) g_carrier_count = count;
+    /* Only effective before any thread has been enqueued and before carriers
+     * start; otherwise queue indices already in flight would be invalid. */
+    if (count > 0 && !g_queues && !g_carrier_handles)
+        g_carrier_count = count;
 }
 
 void npl_virtual_thread_shutdown(void)
@@ -366,12 +412,15 @@ void npl_virtual_thread_shutdown(void)
     if (g_carrier_handles) {
         /* pthread_join is an unwrapped C wait with no poll site. */
         npl_gc_exclude();
-        for (int i = 0; i < g_carrier_count; i++)
+        for (int i = 0; i < g_queues_count; i++)
             (void)pthread_join(g_carrier_handles[i], NULL);
         npl_gc_include();
         free(g_carrier_handles);
         g_carrier_handles = NULL;
     }
+    free(g_queues);
+    g_queues = NULL;
+    g_queues_count = 0;
 }
 
 /* ---- the carrier loop ---- */
@@ -389,7 +438,7 @@ static void mount_new(NplVirtualThread *vt)
 
 static void *carrier_entry(void *argument)
 {
-    (void)argument;
+    int index = (int)(intptr_t)argument;
     uintptr_t marker = 0;
     (void)npl_thread_attach_exact(
         (uintptr_t)(void *)&marker + sizeof(marker));
@@ -400,9 +449,9 @@ static void *carrier_entry(void *argument)
          * GC is safe: its stack holds no suspended computation. */
         npl_gc_block_begin();
         pthread_mutex_lock(&g_lock);
-        while (!g_queue_head && !g_shutdown)
+        while (!g_queues[index].head && !g_shutdown)
             pthread_cond_wait(&g_cond, &g_lock);
-        NplVirtualThread *vt = g_shutdown ? NULL : dequeue();
+        NplVirtualThread *vt = g_shutdown ? NULL : dequeue_from(index);
         pthread_mutex_unlock(&g_lock);
         npl_gc_block_end();
         if (!vt) break;
@@ -416,6 +465,8 @@ static void *carrier_entry(void *argument)
                     "resumed twice\n");
             exit(1);
         }
+        if (!first && vt->carrier_context != (void *)npl_ctx())
+            vt->migration_count++;
 
         NplVal argv[1];
         if (first) {
