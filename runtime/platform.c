@@ -75,6 +75,11 @@ NplVal npl_platform_feature(NplVal name_value)
         return npl_false();
 #endif
     }
+    /* Implemented SRFI feature identifiers. Keep this and (features) in
+     * lib/scheme/text-io.scm in sync; adding one here needs no seed relay
+     * because cond-expand consults this bootstrap hook at compile time. */
+    if (platform_name_is(bytes, length, "srfi-18"))
+        return npl_true();
     return npl_false();
 }
 

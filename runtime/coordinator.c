@@ -43,6 +43,15 @@ static int g_active_mutators = 0;      /* attached and not GC-excluded */
 static int g_blocked_mutators = 0;     /* published, parked for every epoch */
 static int g_parked_for_epoch = 0;     /* safepoint-parked for g_epoch */
 static uint64_t g_epoch = 0;
+/* Generated polls only call npl_safepoint_poll when the exported stop flag
+ * is set. A cooperative cancellation must also raise that flag so the target
+ * reaches a poll; a counter keeps it set while cancellations are pending. */
+static int g_cancel_pending = 0;
+
+static void refresh_stop_flag(void)
+{
+    npl_gc_stop_requested = (g_stop_requested || g_cancel_pending > 0) ? 1 : 0;
+}
 
 static pthread_mutex_t g_heap_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_collect_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -116,6 +125,9 @@ void npl_safepoint_poll(void)
     if (context->cancellation_requested) {
         context->cancellation_requested = 0;
         context->cancel_observed = 1;
+        /* Consume the poll sweep before terminating; only the target thread
+         * has this flag, so the counter returns to zero exactly once. */
+        npl_cancel_consumed();
         /* T2 wires the cooperative termination here; it may longjmp out of
          * the thread (and excludes this thread from the mutator count first). */
         npl_safepoint_cancelled();
@@ -148,7 +160,7 @@ void npl_gc_stop_world(void)
     g_epoch++;
     g_parked_for_epoch = 0;
     g_stop_requested = 1;
-    npl_gc_stop_requested = 1;
+    refresh_stop_flag();
     __sync_synchronize();
     /* The collector is active but does not park.  Blocked mutators are
      * already published and count as parked for every epoch. */
@@ -163,7 +175,7 @@ void npl_gc_start_world(void)
 {
     pthread_mutex_lock(&g_coord_lock);
     g_stop_requested = 0;
-    npl_gc_stop_requested = 0;
+    refresh_stop_flag();
     __sync_synchronize();
     /* No wait: a long blocking wait must not delay the resume.  The next
      * stop uses a fresh epoch, so a mutator that has not yet acknowledged
@@ -256,8 +268,25 @@ void npl_thread_request_cancel(void *target)
     if (!context) return;
     pthread_mutex_lock(&g_coord_lock);
     context->cancellation_requested = 1;
+    context->cancel_consumed = 0;
+    g_cancel_pending++;
+    refresh_stop_flag();
     /* Wake runtime-managed blocking waits so they can observe the request. */
     pthread_cond_broadcast(&g_resume_cond);
+    pthread_mutex_unlock(&g_coord_lock);
+}
+
+/* Idempotent: a cancelled thread may reach this from a generated poll or
+ * from a blocking wait that woke up. */
+void npl_cancel_consumed(void)
+{
+    NplThreadContext *context = npl_ctx();
+    pthread_mutex_lock(&g_coord_lock);
+    if (!context->cancel_consumed) {
+        context->cancel_consumed = 1;
+        if (g_cancel_pending > 0) g_cancel_pending--;
+        refresh_stop_flag();
+    }
     pthread_mutex_unlock(&g_coord_lock);
 }
 

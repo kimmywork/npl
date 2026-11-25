@@ -128,6 +128,7 @@ NplVal npl_condvar_specific(NplVal value);
 NplVal npl_condvar_specific_set(NplVal value, NplVal object);
 NplVal npl_mutex_state(NplVal value);
 NplVal npl_current_time(void);
+NplVal npl_current_exception_handler(void);
 NplVal npl_time_seconds(NplVal value);
 NplVal npl_seconds_time(NplVal value);
 NplVal npl_join_timeout_exception_p(NplVal value);

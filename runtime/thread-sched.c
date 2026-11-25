@@ -284,6 +284,17 @@ NplVal npl_mutex_state(NplVal value)
 
 NplVal npl_current_time(void) { return npl_thread_time(monotonic_seconds()); }
 
+/* SRFI 18 current-exception-handler. The runtime stores handler frames, so
+ * return the procedure of the innermost one; with no frame the primordial
+ * thread's handler is unspecified. */
+NplVal npl_current_exception_handler(void)
+{
+    NplVal chain = npl_current_handler();
+    if (!npl_is_ptr(chain) || npl_header(chain)->tag != BOX_HANDLER_FRAME)
+        return npl_unspecified();
+    return ((NplHandlerFrame *)npl_header(chain))->procedure;
+}
+
 NplVal npl_time_seconds(NplVal value)
 {
     require(value, BOX_TIME, "time->seconds");
@@ -392,6 +403,9 @@ void npl_safepoint_cancelled(void)
     if (!tagged(object, BOX_THREAD)) return;   /* primordial: latch only */
     NplThread *thread = (NplThread *)npl_header(object);
     if (!thread->has_native || thread->state == NPL_THREAD_TERMINATED) return;
+    /* A blocking wait can reach here without a generated poll; consume the
+     * pending sweep too (idempotent). */
+    npl_cancel_consumed();
     /* This thread is leaving NPL execution: stop counting it as an active
      * mutator so a concurrent world stop does not wait forever for it. */
     npl_gc_exclude();

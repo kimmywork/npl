@@ -23,6 +23,7 @@
 |---:|---|---|---|
 | **1** | ✅ [List Library](srfi-1.html) | `(npl list)`（`lib/npl/list.sld`） | 列表库 |
 | **13** | ✅ [String Libraries](srfi-13.html) | `(npl string)`（`lib/npl/string.sld`） | 字符串库 |
+| **18** | ✅ [Multithreading support](srfi-18.html) | `(npl thread)`（`lib/npl/thread.sld`） | 1:1 pthread 线程、互斥量、条件变量 |
 | **19** | ✅ [Time Data Types and Procedures](srfi-19.html) | `(npl time)`（`lib/npl/time.sld`） | 时间与日期 |
 | **41** | ✅ [Streams](srfi-41.html) | `(npl data stream)`（`lib/npl/data/stream.sld`） | 惰性流 |
 | **44** | ✅ [Collections](srfi-44.html) | `(npl data collection)`（`lib/npl/data/collection.sld`） | 集合协议 |
@@ -130,7 +131,6 @@ SRFI 149 的模板扩展同样在语言核心中实现，并提供 `srfi-149`、
 
 | SRFI | 规范 | 现状 |
 |---:|---|---|
-| **18** | [Multithreading support](srfi-18.html) | 未提供；线程方向见 `.agents/design/threads.md` |
 | **23** | [Error reporting mechanism](srfi-23.html) | 未提供 `(srfi 23)`；`error`、`error-object?` 等已在 `(scheme base)` 中 |
 | **27** | [Sources of Random Bits](srfi-27.html) | 未提供；`(npl test property)` 内部的随机源不是 SRFI 27 公共 API |
 | **42** | [Eager Comprehensions](srfi-42.html) | 未提供 |

@@ -661,6 +661,7 @@ void npl_collect_unlock(void);
 void npl_gc_mark_words_internal(uintptr_t begin, uintptr_t end);
 /* Cooperative cancellation, observed at the same polls. */
 void npl_thread_request_cancel(void *context);
+void npl_cancel_consumed(void);
 int npl_thread_cancel_pending(void);
 
 /* Register a GC root (global variable, stack slot, etc.) */

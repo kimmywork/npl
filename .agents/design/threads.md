@@ -1,11 +1,13 @@
 # Threads and the Runtime
 
 Status: T1.1 (runtime context), T1.2 (TLS stack limit and backend emission),
-and increment A of T1.3 (parallel stop-the-world GC, safepoint polls,
-coordinator/heap locks, cancellation, blocking transitions, parameter COW)
-implemented 2026-11-25. The remaining T1.3 items that depend on T2 and the
-whole SRFI 18 surface are ahead. See "T1 implementation status" and
-"T1.3 implementation status" below for exactly what is and is not present.
+T1.3 increment A (parallel stop-the-world GC, safepoint polls,
+coordinator/heap locks, cancellation, blocking transitions, parameter COW),
+and T2 `(npl thread)` / `(srfi 18)` on 1:1 pthreads implemented 2026-11-25.
+The remaining T1.3 synchronization items, cross-thread user continuations
+and T3/T4 are ahead. See "T1 implementation status", "T1.3 implementation
+status" and "T2 implementation status" below for exactly what is and is not
+present.
 
 ## Question
 
@@ -337,6 +339,54 @@ path; no accessor call per entry. Self-emission cost is unchanged in kind
 - Blocking primitives (`thread-sleep!`, mutex/condition waits) park the
   native thread through the T1 safe blocked-state transition; GC continues
   while it is parked only after its saved context and roots are published.
+
+### T2 implementation status (2026-11-25)
+
+`(npl thread)` (`lib/npl/thread.sld`) and the re-export-only alias
+`(srfi 18)` (`lib/srfi/18.sld`) are implemented, with `srfi-18` in
+`cond-expand` / `(features)` and the [user guide](../../docs/thread.md).
+Runtime substrate: `runtime/thread-sched.{c,h}` and
+`runtime/thread-lifecycle.c`.
+
+**Implemented**
+
+- All 38 SRFI 18 final exports (no `condition-variable-wait!`, no SRFI-21
+  priority/quantum procedures, no three-argument `make-thread`). The four
+  exception kinds are opaque `BOX_THREAD_EXCEPTION` objects;
+  `uncaught-exception-reason` is the only accessor.
+- 1:1 pthread creation with an exact C-stack bound, a startup GC-root
+  handshake, fresh per-thread parameter bindings (copy-on-write), a fresh
+  initial exception handler, an empty wind stack, and one termination path
+  for normal return, uncaught raise and cooperative cancellation.
+  Owned mutexes are abandoned; the terminated state is published before
+  `thread-terminate!` returns, including the not-started -> terminated
+  transition that has no poll site.
+- Four join outcomes: normal result, `timeout-val`, join-timeout-exception,
+  and re-raised end-exception (uncaught or terminated). Timeouts accept a
+  `time` object, a real number, or `#f` (rejected by `thread-sleep!`).
+- Mutex four-state model (non-recursive, abandoned-mutex-exception),
+  `mutex-unlock!` with a condition variable (atomic unlock + wait, no
+  auto-relock), `signal!` / `broadcast!`. All waits park through
+  `npl_gc_block_begin/end`.
+- A cancellation also raises the exported world-stop flag via a pending
+  counter, so generated safepoint polls reach `npl_safepoint_poll` and
+  observe cooperative termination. The counter is consumed exactly once by
+  the target thread.
+- Acceptance: `runtime/thread_object_test.c`,
+  `runtime/thread_lifecycle_test.c` (both in `check_full_compiler.sh`),
+  `src/compiler/tests/thread.npl` (26 assertions), and the
+  `tests/fixtures/thread` nplc/npli differential fixture.
+
+**Remaining before claiming full SRFI 18**
+
+- Cross-thread invocation of a user `call/cc` continuation (restore its
+  dynamic state on the invoking thread without transferring native stack /
+  unwind frames) needs explicit runtime support and tests.
+- Port, FFI block, directory handle and symbol-table synchronization;
+  polls in the remaining long runtime C loops.
+- `with-exception-handler` / `raise` are re-exported R7RS control
+  operators, not first-class procedures in NPL.
+- Linux execution and late `dlopen` evidence.
 
 ## T2b: Virtual Threads (JVM-Style)
 

@@ -1,0 +1,150 @@
+;; (npl thread) / SRFI 18 compiler suite. Exercises every export on nplc;
+;; the tests/fixtures/thread fixture covers the same surface on npli.
+;;
+;; NOTE: test-assert takes an EXPRESSION (the framework wraps it in a thunk),
+;; not a thunk of its own; passing a lambda here would only test that a
+;; procedure is truthy.
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl thread))
+
+(include "framework.npl")
+
+(define (caught thunk)
+  (guard (condition (#t condition))
+    (thunk)
+    #f))
+
+(define (spin-forever)
+  (let loop () (loop)))
+
+(define (main)
+  ;; ---- threads ----
+  (test-assert "current-thread and thread?"
+               (thread? (current-thread)))
+  (test-assert "make-thread / thread-name / thread-start! / thread-join!"
+               (let ((t (make-thread (lambda () 42) 'worker)))
+                 (and (eq? (thread-name t) 'worker)
+                      (eq? (thread-start! t) t)
+                      (= (thread-join! t) 42))))
+  (test-assert "thread? rejects a non-thread"
+               (not (thread? 1)))
+  (test-assert "thread-specific and thread-specific-set!"
+               (let ((t (current-thread)))
+                 (thread-specific-set! t 9)
+                 (= (thread-specific t) 9)))
+  (test-assert "thread-yield!"
+               (begin (thread-yield!) #t))
+  (test-assert "thread-sleep! with an elapsed timeout"
+               (begin (thread-sleep! 0) #t))
+  (test-error "thread-sleep! rejects #f" (thread-sleep! #f))
+  (test-assert "thread-join! timeout-val"
+               (let ((t (make-thread spin-forever)))
+                 (thread-start! t)
+                 (let ((result (thread-join! t 0 'timed-out)))
+                   (thread-terminate! t)
+                   (eq? result 'timed-out))))
+  (test-assert "join-timeout-exception?"
+               (let ((t (make-thread spin-forever)))
+                 (thread-start! t)
+                 (let ((object (caught (lambda () (thread-join! t 0)))))
+                   (thread-terminate! t)
+                   (join-timeout-exception? object))))
+  (test-assert "thread-terminate! and terminated-thread-exception?"
+               (let ((t (make-thread spin-forever)))
+                 (thread-start! t)
+                 (thread-terminate! t)
+                 (terminated-thread-exception?
+                   (caught (lambda () (thread-join! t))))))
+  (test-assert "uncaught-exception? and uncaught-exception-reason"
+               (let ((t (make-thread (lambda () (raise 'boom)))))
+                 (thread-start! t)
+                 (let ((object (caught (lambda () (thread-join! t)))))
+                   (and (uncaught-exception? object)
+                        (eq? (uncaught-exception-reason object) 'boom)))))
+
+  ;; ---- mutexes ----
+  (test-assert "make-mutex / mutex? / mutex-state"
+               (let ((m (make-mutex 'gate)))
+                 (and (mutex? m)
+                      (eq? (mutex-name m) 'gate)
+                      (eq? (mutex-state m) 'not-abandoned))))
+  (test-assert "mutex-specific and mutex-specific-set!"
+               (let ((m (make-mutex)))
+                 (mutex-specific-set! m 5)
+                 (= (mutex-specific m) 5)))
+  (test-assert "mutex-lock! / mutex-unlock!"
+               (let ((m (make-mutex)))
+                 (and (mutex-lock! m)
+                      (eq? (mutex-state m) (current-thread))
+                      (mutex-unlock! m)
+                      (eq? (mutex-state m) 'not-abandoned))))
+  (test-assert "mutex-lock! with an elapsed timeout"
+               (let ((m (make-mutex)))
+                 (and (mutex-lock! m 0) (mutex-unlock! m))))
+  (test-assert "abandoned-mutex-exception?"
+               (let* ((m (make-mutex))
+                      (t (make-thread
+                           (lambda () (mutex-lock! m) (spin-forever)))))
+                 (thread-start! t)
+                 ;; Wait until the worker owns the mutex, then terminate it.
+                 (let wait ()
+                   (if (eq? (mutex-state m) 'not-abandoned)
+                       (begin (thread-yield!) (wait))
+                       #f))
+                 (thread-terminate! t)
+                 (abandoned-mutex-exception?
+                   (caught (lambda () (mutex-lock! m))))))
+
+  ;; ---- condition variables ----
+  (test-assert "make-condition-variable / condition-variable?"
+               (let ((cv (make-condition-variable 'cv)))
+                 (and (condition-variable? cv)
+                      (eq? (condition-variable-name cv) 'cv))))
+  (test-assert "condition-variable-specific and -set!"
+               (let ((cv (make-condition-variable)))
+                 (condition-variable-specific-set! cv 7)
+                 (= (condition-variable-specific cv) 7)))
+  (test-assert "condition-variable-signal! and -broadcast!"
+               (let ((cv (make-condition-variable)))
+                 (condition-variable-signal! cv)
+                 (condition-variable-broadcast! cv)
+                 #t))
+  ;; An elapsed timeout ends the wait without needing another signaller;
+  ;; SRFI 18 allows a thread to unblock at any time and no later than timeout.
+  (test-assert "mutex-unlock! with a condition variable"
+               (let ((m (make-mutex))
+                     (cv (make-condition-variable)))
+                 (mutex-lock! m)
+                 (let ((result (mutex-unlock! m cv 0)))
+                   (and (not result)
+                        (eq? (mutex-state m) 'not-abandoned)))))
+
+  ;; ---- time ----
+  (test-assert "current-time / time?"
+               (time? (current-time)))
+  (test-assert "time->seconds / seconds->time"
+               (let* ((t (current-time))
+                      (s (time->seconds t)))
+                 (and (real? s) (time? (seconds->time s)))))
+  (test-assert "time? rejects a non-time"
+               (not (time? 1)))
+
+  ;; ---- exception mechanism ----
+  ;; SRFI 18 re-exports R7RS's with-exception-handler / raise (control
+  ;; operators in NPL, not first-class values). guard exercises both; the
+  ;; uncaught-exception thread above exercises raise directly.
+  (test-assert "with-exception-handler / raise"
+               (eq? (guard (e (#t e)) (raise 'raised) #f) 'raised))
+  (test-assert "current-exception-handler"
+               (begin (current-exception-handler) #t))
+  (test-assert "exception predicates reject other objects"
+               (and (not (join-timeout-exception? 1))
+                    (not (abandoned-mutex-exception? 1))
+                    (not (terminated-thread-exception? 1))
+                    (not (uncaught-exception? 1))))
+
+  (finish-tests "thread"))
+
+(main)

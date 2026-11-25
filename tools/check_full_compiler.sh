@@ -167,6 +167,7 @@ NPL_C_STRUCT_LAYOUTS="$WORK/package-layouts.meta:$NATIVE/c-struct-layouts.meta" 
     "$WORK/compiler" --emit-qbe --stdlib-root "$ROOT/lib" \
     "$WORK/cache-import.npl" > "$WORK/cache-import-package.ssa"
 run_suite srfi-19 "PASS srfi-19 52"
+run_suite thread "PASS thread 26"
 run_suite srfi-170 "PASS srfi-170 132"
 run_suite platform "PASS platform 5"
 run_suite native-crc32 "PASS native-crc32 4"
