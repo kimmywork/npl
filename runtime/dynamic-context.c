@@ -1,0 +1,438 @@
+/*
+ * dynamic-context.c — SRFI 18 captured dynamic environments and the wind
+ * transfer. Split from control.c (which keeps the dynamic-state primitives)
+ * so the per-extent environment machinery has one clear home.
+ *
+ * A call/cc continuation captures a heap NplDynamicContext (wind, handler,
+ * parameters, and the source thread's initial handler frame). On invocation,
+ * possibly on another thread, npl_wind_transfer reinstates that environment
+ * on the *invoking* thread: every dynamic-wind before/after thunk runs with
+ * the handler and parameter chain of its own extent, and the target context
+ * is installed at completion. Parameter bindings are always thread-owned:
+ * a per-thread extent mapping lets the same continuation be re-entered while
+ * preserving in-place parameter mutations, and lets a cross-thread first
+ * entry clone the source chain under the invoking thread's ownership.
+ */
+#define _POSIX_C_SOURCE 200809L
+
+#include "npl.h"
+#include "thread.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+#define CTX npl_ctx()
+
+static NplVal boxed(void *header)
+{
+    return (NplVal)(uintptr_t)header | TAG_PTR;
+}
+
+static NplVector *require_parameter_vector(NplVal value)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_VECTOR) {
+        fprintf(stderr, "parameterize: invalid binding vectors\n");
+        exit(1);
+    }
+    return (NplVector *)npl_header(value);
+}
+
+/* ---- per-thread extent -> local binding mapping ----
+ *
+ * One entry is (key . (local . baseline)); the list head holds the most
+ * recent entry, so a transfer that re-localizes an extent supersedes the
+ * normal entry without mutating existing pairs. The frames vector itself is
+ * never written: it is shared by the before/after closures of a captured
+ * parameterize extent and may still be in use on the source thread. */
+
+static NplVal extent_lookup(NplVal key)
+{
+    for (NplVal rest = CTX->parameter_extents; !npl_is_nil(rest);
+         rest = npl_cdr(rest)) {
+        NplVal entry = npl_car(rest);
+        if (npl_car(entry) == key) return entry;
+    }
+    return npl_nil();
+}
+
+static NplVal extent_local(NplVal entry)
+{
+    return npl_car(npl_cdr(entry));
+}
+
+static NplVal extent_baseline(NplVal entry)
+{
+    return npl_cdr(npl_cdr(entry));
+}
+
+static void extent_register(NplVal key, NplVal local, NplVal baseline)
+{
+    NplVal entry = npl_cons(key, npl_cons(local, baseline));
+    CTX->parameter_extents = npl_cons(entry, CTX->parameter_extents);
+}
+
+/* ---- parameter chain localization ---- */
+
+/* Clone a source binding chain into fresh nodes owned by the invoking
+ * thread, preserving chain direction (head = innermost binding). A owned
+ * chain is reused as-is so in-place parameter-set! mutations remain visible
+ * on continuation re-entry. baseline_out receives the chain with the
+ * extent's leading binding_count nodes removed. */
+static NplVal clone_parameter_bindings(NplVal source)
+{
+    if (!npl_is_ptr(source) ||
+        npl_header(source)->tag != BOX_PARAMETER_BINDING)
+        return npl_nil();
+    NplParameterBinding *src = (NplParameterBinding *)npl_header(source);
+    NplVal parent = clone_parameter_bindings(src->parent);
+    NplParameterBinding *copy = (NplParameterBinding *)
+        npl_alloc_object(sizeof(NplParameterBinding));
+    copy->header.tag = BOX_PARAMETER_BINDING;
+    copy->header.flags = 0;
+    copy->parent = parent;
+    copy->parameter = src->parameter;
+    copy->value = src->value;
+    copy->owner = (uintptr_t)npl_ctx();
+    return boxed(copy);
+}
+
+static NplVal localize_parameters(NplVal source, uint32_t binding_count,
+                                  NplVal *baseline_out)
+{
+    int owned = 1;
+    for (NplVal rest = source;
+         npl_is_ptr(rest) &&
+         npl_header(rest)->tag == BOX_PARAMETER_BINDING;
+         rest = ((NplParameterBinding *)npl_header(rest))->parent) {
+        if (((NplParameterBinding *)npl_header(rest))->owner !=
+            (uintptr_t)npl_ctx()) {
+            owned = 0;
+            break;
+        }
+    }
+    NplVal local = owned ? source
+                         : clone_parameter_bindings(source);
+    NplVal baseline = local;
+    for (uint32_t i = 0; i < binding_count &&
+         npl_is_ptr(baseline) &&
+         npl_header(baseline)->tag == BOX_PARAMETER_BINDING; i++)
+        baseline = ((NplParameterBinding *)npl_header(baseline))->parent;
+    *baseline_out = baseline;
+    return local;
+}
+
+/* User handler frames are kept by identity: npl_handler_pop validates
+ * current_handler == frame, so rebuilding frames would break re-entry. The
+ * source thread's initial handler frame is resolved at raise time against
+ * the invoking thread's own initial handler (see npl_raise in control.c). */
+static NplVal localize_handler(NplVal source)
+{
+    return source;
+}
+
+static NplVal find_initial_handler(NplVal chain)
+{
+    for (NplVal rest = chain;
+         npl_is_ptr(rest) &&
+         npl_header(rest)->tag == BOX_HANDLER_FRAME;
+         rest = ((NplHandlerFrame *)npl_header(rest))->parent) {
+        if (npl_header(rest)->flags & NPL_FLAG_INITIAL_HANDLER)
+            return rest;
+    }
+    return npl_nil();
+}
+
+NplVal npl_capture_dynamic_context(void)
+{
+    NplDynamicContext *context = (NplDynamicContext *)
+        npl_alloc_object(sizeof(NplDynamicContext));
+    context->header.tag = BOX_DYNAMIC_CONTEXT;
+    context->header.flags = 0;
+    context->wind = CTX->current_wind;
+    context->handler = CTX->current_handler;
+    context->parameters = CTX->current_parameters;
+    context->source_initial_handler =
+        find_initial_handler(CTX->current_handler);
+    return boxed(context);
+}
+
+/* ---- parameterize primitives (moved from control.c) ---- */
+
+NplVal npl_parameters_enter(NplVal parameters_value, NplVal values_value,
+                            NplVal frames_value)
+{
+    NplVector *parameters = require_parameter_vector(parameters_value);
+    NplVector *values = require_parameter_vector(values_value);
+    NplVector *frames = require_parameter_vector(frames_value);
+    if (parameters->length != values->length ||
+        parameters->length != frames->length) {
+        fprintf(stderr, "parameterize: inconsistent binding vectors\n");
+        exit(1);
+    }
+    /* npl_wind_push runs in the before thunk's continuation (control.npl);
+     * publish the extent key for it. A transfer never pushes a frame and
+     * discards this at the start of its next step. */
+    CTX->pending_extent_key = frames_value;
+
+    NplVal entry = extent_lookup(frames_value);
+    if (!npl_is_nil(entry)) {
+        /* Re-entry, or a transfer that already localized this extent: reuse
+         * the thread-owned chain so in-place mutations survive. */
+        CTX->current_parameters = extent_local(entry);
+        return npl_nil();
+    }
+
+    NplVal baseline = CTX->current_parameters;
+    NplVal local = baseline;
+    for (uint32_t i = 0; i < parameters->length; i++) {
+        (void)require_parameter(parameters->data[i], "parameterize");
+        NplParameterBinding *binding = (NplParameterBinding *)
+            npl_alloc_object(sizeof(NplParameterBinding));
+        binding->header.tag = BOX_PARAMETER_BINDING;
+        binding->header.flags = 0;
+        binding->parent = local;
+        binding->parameter = parameters->data[i];
+        binding->value = values->data[i];
+        binding->owner = (uintptr_t)npl_ctx();
+        local = boxed(binding);
+    }
+    CTX->current_parameters = local;
+    extent_register(frames_value, local, baseline);
+    return npl_nil();
+}
+
+NplVal npl_parameters_leave(NplVal frames_value)
+{
+    (void)require_parameter_vector(frames_value);
+    NplVal entry = extent_lookup(frames_value);
+    if (!npl_is_nil(entry))
+        CTX->current_parameters = extent_baseline(entry);
+    /* No mapping means the environment was installed by a wind transfer,
+     * which already restored the enclosing environment for this step. */
+    return npl_nil();
+}
+
+/* ---- wind transfer (moved from control.c, extended for SRFI 18) ---- */
+
+static uint32_t wind_depth(NplVal value)
+{
+    uint32_t depth = 0;
+    while (!npl_is_nil(value)) {
+        value = require_wind_frame(value, "continuation")->parent;
+        if (depth == UINT32_MAX) npl_runtime_oom_internal();
+        depth++;
+    }
+    return depth;
+}
+
+static NplVal wind_parent(NplVal value)
+{
+    return require_wind_frame(value, "continuation")->parent;
+}
+
+static NplVal wind_common_ancestor(NplVal source, NplVal target)
+{
+    uint32_t source_depth = wind_depth(source);
+    uint32_t target_depth = wind_depth(target);
+    while (source_depth > target_depth) {
+        source = wind_parent(source);
+        source_depth--;
+    }
+    while (target_depth > source_depth) {
+        target = wind_parent(target);
+        target_depth--;
+    }
+    while (source != target) {
+        source = wind_parent(source);
+        target = wind_parent(target);
+    }
+    return source;
+}
+
+static NplVal wind_transition_resume(NplVal environment, int64_t argc,
+                                     NplVal *argv);
+
+/* Install the dynamic environment of one extent before running its thunk
+ * (SRFI 18: each before/after thunk runs in the environment in effect when
+ * the corresponding dynamic-wind was executed). Legacy transfers have no
+ * captured context and keep the old behaviour. */
+static void install_frame_environment(NplWindTransition *transition,
+                                      NplWindFrame *frame)
+{
+    if (npl_is_nil(transition->context)) return;
+    CTX->current_handler = frame->handler;
+    NplVal key = frame->extent_key;
+    uint32_t count = 0;
+    if (npl_is_ptr(key) && npl_header(key)->tag == BOX_VECTOR)
+        count = ((NplVector *)npl_header(key))->length;
+    NplVal baseline;
+    NplVal local = localize_parameters(frame->parameters, count, &baseline);
+    CTX->current_parameters = local;
+    if (!npl_is_nil(key))
+        extent_register(key, local, baseline);
+}
+
+static void schedule_wind_transition(NplVal transition_value)
+{
+    NplWindTransition *transition =
+        (NplWindTransition *)npl_header(transition_value);
+    /* A before thunk may publish a pending extent key; a transfer never
+     * pushes a wind frame, so discard anything left from the last step. */
+    CTX->pending_extent_key = npl_nil();
+
+    if (!npl_is_nil(transition->entering)) {
+        CTX->current_wind = transition->entering;
+        transition->entering = npl_nil();
+    }
+
+    NplVal thunk = npl_nil();
+    if (transition->exit_index < transition->exit_count) {
+        NplVal frame_value = transition->frames[transition->exit_index++];
+        NplWindFrame *frame = require_wind_frame(frame_value, "continuation");
+        install_frame_environment(transition, frame);
+        CTX->current_wind = frame->parent;
+        thunk = frame->after;
+    } else if (transition->entry_index < transition->entry_count) {
+        CTX->current_handler = transition->target_handler;
+        uint32_t reverse = transition->entry_count -
+                           transition->entry_index - 1;
+        NplVal frame_value =
+            transition->frames[transition->exit_count + reverse];
+        NplWindFrame *frame = require_wind_frame(frame_value, "continuation");
+        transition->entry_index++;
+        transition->entering = frame_value;
+        npl_gc_write_barrier(transition, frame_value);
+        install_frame_environment(transition, frame);
+        thunk = frame->before;
+    } else {
+        CTX->current_wind = transition->target;
+        CTX->current_handler = transition->target_handler;
+        if (!npl_is_nil(transition->context))
+            CTX->current_parameters = transition->target_parameters;
+        NplVal argument = transition->value;
+        npl_tail_request_closure(transition->continuation, 1, &argument);
+        return;
+    }
+
+    NplVal resume = npl_make_closure(
+        wind_transition_resume, transition_value, 1);
+    npl_tail_request_closure(thunk, 1, &resume);
+}
+
+static NplVal wind_transition_resume(NplVal environment, int64_t argc,
+                                     NplVal *argv)
+{
+    (void)argv;
+    if (argc != 1 || !npl_is_ptr(environment) ||
+        npl_header(environment)->tag != BOX_WIND_TRANSITION) {
+        fprintf(stderr, "dynamic-wind: invalid transition callback\n");
+        exit(1);
+    }
+    schedule_wind_transition(environment);
+    return npl_nil();
+}
+
+static NplVal make_transition(NplVal target, NplVal target_handler,
+                              NplVal continuation, NplVal value,
+                              NplVal context, NplVal target_parameters)
+{
+    NplVal common = wind_common_ancestor(CTX->current_wind, target);
+    uint32_t exit_count = 0;
+    for (NplVal frame = CTX->current_wind; frame != common;
+         frame = wind_parent(frame))
+        exit_count++;
+    uint32_t entry_count = 0;
+    for (NplVal frame = target; frame != common;
+         frame = wind_parent(frame))
+        entry_count++;
+
+    size_t total = (size_t)exit_count + entry_count;
+    NplWindTransition *transition = (NplWindTransition *)npl_alloc_object(
+        sizeof(NplWindTransition) + total * sizeof(NplVal));
+    transition->header.tag = BOX_WIND_TRANSITION;
+    transition->header.flags = 0;
+    transition->exit_count = exit_count;
+    transition->exit_index = 0;
+    transition->entry_count = entry_count;
+    transition->entry_index = 0;
+    transition->target = target;
+    transition->target_handler = target_handler;
+    transition->continuation = continuation;
+    transition->value = value;
+    transition->entering = npl_nil();
+    transition->context = context;
+    transition->target_parameters = target_parameters;
+
+    size_t index = 0;
+    for (NplVal frame = CTX->current_wind; frame != common;
+         frame = wind_parent(frame))
+        transition->frames[index++] = frame;
+    for (NplVal frame = target; frame != common;
+         frame = wind_parent(frame))
+        transition->frames[index++] = frame;
+    return boxed(transition);
+}
+
+static void transfer_legacy(NplVal target, NplVal target_handler,
+                            NplVal continuation, NplVal value)
+{
+    if (!npl_is_nil(target))
+        (void)require_wind_frame(target, "continuation");
+    if (!npl_is_nil(target_handler) &&
+        (!npl_is_ptr(target_handler) ||
+         npl_header(target_handler)->tag != BOX_HANDLER_FRAME)) {
+        fprintf(stderr, "continuation: invalid handler state\n");
+        exit(1);
+    }
+    if (CTX->current_wind == target) {
+        CTX->current_handler = target_handler;
+        npl_tail_request_closure(continuation, 1, &value);
+        return;
+    }
+    schedule_wind_transition(make_transition(
+        target, target_handler, continuation, value,
+        npl_nil(), npl_nil()));
+}
+
+static void transfer_with_context(NplVal context_value,
+                                  NplVal continuation, NplVal value)
+{
+    if (!npl_is_ptr(context_value) ||
+        npl_header(context_value)->tag != BOX_DYNAMIC_CONTEXT) {
+        fprintf(stderr, "continuation: invalid dynamic context\n");
+        exit(1);
+    }
+    NplDynamicContext *context =
+        (NplDynamicContext *)npl_header(context_value);
+    NplVal target = context->wind;
+    if (!npl_is_nil(target))
+        (void)require_wind_frame(target, "continuation");
+    NplVal ignored_baseline;
+    NplVal target_parameters = localize_parameters(
+        context->parameters, 0, &ignored_baseline);
+    NplVal target_handler = localize_handler(context->handler);
+
+    if (CTX->current_wind == target) {
+        CTX->current_handler = target_handler;
+        CTX->current_parameters = target_parameters;
+        npl_tail_request_closure(continuation, 1, &value);
+        return;
+    }
+    schedule_wind_transition(make_transition(
+        target, target_handler, continuation, value,
+        context_value, target_parameters));
+}
+
+/* The first argument is a BOX_DYNAMIC_CONTEXT for a compiler emitted after
+ * the relay, and the old target-wind value for a legacy seed. Keeping the
+ * 4-argument shape lets a pre-relay compiler (and npli) link against this
+ * runtime without an ABI break. */
+void npl_wind_transfer(NplVal first, NplVal second,
+                       NplVal continuation, NplVal value)
+{
+    if (npl_is_ptr(first) &&
+        npl_header(first)->tag == BOX_DYNAMIC_CONTEXT) {
+        transfer_with_context(first, continuation, value);
+        return;
+    }
+    transfer_legacy(first, second, continuation, value);
+}

@@ -104,8 +104,6 @@ the exception: the runtime serializes access to the same port.
 
 - `with-exception-handler` and `raise` are re-exported R7RS control
   operators, not first-class procedures.
-- Cross-thread invocation of a user continuation captured with `call/cc`
-  is not yet supported.
 - Ports, FFI blocks, directory handles and the symbol table are serialized
   by one shared lock with a trylock+poll acquisition and a `longjmp` release
   hook. Blocking libc I/O (`fread` / `fwrite` / `fclose` / `fflush` and
@@ -116,3 +114,21 @@ the exception: the runtime serializes access to the same port.
   are not part of SRFI 18 and are not exported.
 - SRFI 226 prompts/continuation marks are a separate, later increment (T4).
 - Linux execution and late `dlopen` are untested (host is macOS arm64).
+
+## Cross-thread continuations
+
+A continuation captured with `call/cc` on one thread can be invoked on
+another, including after the source thread has ended. Invocation reinstates
+the saved dynamic environment (parameters such as `current-output-port`, the
+`dynamic-wind` stack, and user exception handlers) on the invoking thread:
+an invocation inside `(parameterize ((p 7)) ...)` still sees the values that
+were in effect where the continuation was captured, and every `dynamic-wind`
+before/after thunk runs in the environment of its own extent. No native stack
+or unwind frames are transferred; `current-thread` remains the invoking
+thread, and reaching the initial continuation or the initial exception
+handler terminates the invoking thread (not the source thread). The source
+thread's record and `jmp_buf` are never touched by the invocation.
+
+This is native-runtime behaviour; the evaluator (`npli`) shares the
+single-thread continuation semantics but is not used to exercise
+cross-thread scenarios.

@@ -91,6 +91,14 @@ typedef struct NplThreadContext {
     NplVal current_wind;
     NplVal current_handler;
     NplVal current_parameters;
+    /* SRFI 18 cross-thread continuation support: a per-thread mapping from a
+     * parameterize extent (frames vector) to its thread-owned binding chain
+     * plus the baseline to restore on exit; the frames vector published by
+     * npl_parameters_enter for the following npl_wind_push; and this thread's
+     * initial uncaught handler frame. All three are GC roots (thread.c). */
+    NplVal parameter_extents;
+    NplVal pending_extent_key;
+    NplVal initial_handler;
     uint64_t next_wind_id;
 
     /* Trampoline / escape / synchronous-call context. */

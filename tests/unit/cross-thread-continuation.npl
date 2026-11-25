@@ -1,0 +1,97 @@
+; SRFI 18 cross-thread continuation invocation: full dynamic-environment
+; reinstatement. A worker captures a continuation inside nested parameterize /
+; dynamic-wind / with-exception-handler extents; a second, still-running
+; worker invokes it inside its own (parameterize ((p 7)) ...). The captured
+; continuation must run on the invoking thread with the *saved* environment
+; (p = 5, not the invoker's 7), each dynamic-wind thunk in the environment of
+; its own extent, the user exception handler restored, and (current-thread)
+; equal to the invoking thread. Reaching the initial continuation terminates
+; the invoking thread; the main thread joins it and checks the observations.
+;
+; Native-only: the differential fixture runner compares nplc and npli output,
+; but a cross-thread scenario has no evaluator surface. Single-thread
+; continuation/parameter/wind/handler semantics stay in the compiler tests
+; and the evaluator fixtures.
+(import (scheme base) (scheme write) (scheme process-context) (npl thread))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+(define p (make-parameter 0))
+(define k #f)
+(define log '())
+(define observed-handlers '())
+(define observed-thread #f)
+(define (note x) (set! log (cons x log)))
+(define (user-handler exc) (list 'user-handler exc))
+
+; A: p = 3 outside the wind, p = 5 inside the captured extent. The wind
+; before/after thunks observe p = 3 (the environment in effect when that
+; dynamic-wind was executed).
+(define (worker)
+  (parameterize ((p 3))
+    (dynamic-wind
+      (lambda () (note (list 'outer-before (p))))
+      (lambda ()
+        (with-exception-handler user-handler
+          (lambda ()
+            (parameterize ((p 5))
+              (let ((v (call/cc (lambda (c) (set! k c) 0))))
+                (set! observed-handlers
+                      (cons (current-exception-handler) observed-handlers))
+                (set! observed-thread (current-thread))
+                (note (list 'resumed v (p)))
+                'done)))))
+      (lambda () (note (list 'outer-after (p)))))))
+
+(define a (make-thread worker))
+(thread-start! a)
+(check "source-join" 'done (thread-join! a))
+(check "captured" #t (procedure? k))
+
+; B: invoke k inside its own p = 7 extent. (k 42) never returns to B's own
+; continuation; it runs A's saved continuation up to B's initial continuation.
+(define b (make-thread
+            (lambda ()
+              (parameterize ((p 7))
+                (k 42)))))
+(thread-start! b)
+(check "invoker-end-result" 'done (thread-join! b))
+
+(check "observations"
+       '((outer-before 3) (resumed 0 5) (outer-after 3)
+         (outer-before 3) (resumed 42 5) (outer-after 3))
+       (reverse log))
+; The invoking thread must see the same user handler frame object that the
+; source thread installed (user frames are kept by identity); it must not
+; fall back to a different/initial handler.
+(check "restored-handler" #t
+       (and (= (length observed-handlers) 2)
+            (eq? (car observed-handlers) (cadr observed-handlers))))
+(check "invoking-thread" #t (eq? observed-thread b))
+
+; Uncaught exception on a cross-thread invocation must terminate the invoking
+; thread, without touching the (already ended) source thread's record.
+(define k2 #f)
+(define (worker2)
+  (let ((v (call/cc (lambda (c) (set! k2 c) 0))))
+    (if (= v 42) (raise 'boom) 'first))
+  'done)
+(define a2 (make-thread worker2))
+(thread-start! a2)
+(thread-join! a2)
+(define b2 (make-thread (lambda () (k2 42))))
+(thread-start! b2)
+(check "uncaught-on-invoker"
+        #t
+        (guard (e (else (uncaught-exception? e))) (thread-join! b2)))
+(check "source-record-untouched" 'done (thread-join! a2))
+
+(if (= failures 0)
+    (begin (display "cross-thread-continuation: PASS") (newline) (exit 0))
+    (begin (display "cross-thread-continuation: FAIL") (newline) (exit 1)))

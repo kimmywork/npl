@@ -11,6 +11,7 @@
     "npl_expect_one"
     "npl_make_values"
     "npl_current_wind"
+    "npl_capture_dynamic_context"
     "npl_wind_push"
     "npl_wind_pop"
     "npl_current_handler"

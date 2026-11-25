@@ -78,6 +78,8 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_CONDVAR 29
 #define BOX_TIME 30
 #define BOX_THREAD_EXCEPTION 31
+/* SRFI 18: a call/cc continuation's saved dynamic environment. */
+#define BOX_DYNAMIC_CONTEXT 32
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -157,8 +159,26 @@ typedef struct {
     NplVal parent;
     NplVal before;
     NplVal after;
+    /* SRFI 18: the dynamic environment in effect in this extent, captured at
+     * push time. A transfer reinstalls it before each before/after thunk.
+     * extent_key is this parameterize's frames vector, or nil for a plain
+     * dynamic-wind; it is the key into the per-thread extent mapping. */
+    NplVal handler;
+    NplVal parameters;
+    NplVal extent_key;
     uint64_t id;
 } NplWindFrame;
+
+/* Saved dynamic environment of a captured continuation (SRFI 18). The
+ * source thread's initial handler frame is recorded so a transfer can
+ * resolve it against the invoking thread instead of reusing a jmp_buf. */
+typedef struct {
+    NplHeader header;
+    NplVal wind;
+    NplVal handler;
+    NplVal parameters;
+    NplVal source_initial_handler;
+} NplDynamicContext;
 
 typedef struct {
     NplHeader header;
@@ -171,6 +191,10 @@ typedef struct {
     NplVal continuation;
     NplVal value;
     NplVal entering;
+    /* SRFI 18: nil for a legacy (pre-relay) transfer; otherwise the captured
+     * context driving per-thunk environment restoration. */
+    NplVal context;
+    NplVal target_parameters;
     NplVal frames[];
 } NplWindTransition;
 
@@ -556,6 +580,8 @@ NplVal npl_wind_push(NplVal before, NplVal after);
 NplVal npl_wind_pop(NplVal frame);
 NplVal npl_wind_exit_step(void);
 NplVal npl_current_handler(void);
+/* Capture the invoking thread's full dynamic environment for call/cc. */
+NplVal npl_capture_dynamic_context(void);
 NplVal npl_handler_push(NplVal procedure);
 NplVal npl_handler_push_initial(NplVal procedure);
 NplVal npl_handler_pop(NplVal frame);
@@ -844,6 +870,9 @@ NplVal npl_platform_triple(void);
 NplVal npl_symbol_fold_internal(NplVal symbol);
 NplVal npl_utf8_to_string(NplVal bytevector, NplVal start, NplVal end);
 void npl_control_init(void);
+/* Shared dynamic-state helpers (control.c, dynamic-context.c). */
+NplWindFrame *require_wind_frame(NplVal value, const char *who);
+NplParameter *require_parameter(NplVal value, const char *who);
 /* Parameter object application in CPS (control.c, trampoline.c). */
 void npl_parameter_dispatch(NplVal parameter, int64_t argc, NplVal *argv);
 void npl_control_mark_roots(void);

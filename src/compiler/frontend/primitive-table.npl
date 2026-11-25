@@ -225,6 +225,8 @@
     ("npl_make_values" count 0 -1)
     ("npl_list_to_values" fixed 1 0)
     ("npl_current_wind" fixed 0 0)
+    ; SRFI 18: call/cc captures the full dynamic environment in one record.
+    ("npl_capture_dynamic_context" fixed 0 0)
     ("npl_wind_push" fixed 2 0)
     ("npl_wind_pop" fixed 1 0)
     ("npl_wind_exit_step" fixed 0 0)

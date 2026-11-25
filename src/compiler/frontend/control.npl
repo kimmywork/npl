@@ -335,8 +335,11 @@
             (car (cdr procedures)) continuation)
           ())))))
 
+; The first capture is a runtime NplDynamicContext (wind, handler,
+; parameters and the source thread's initial handler). npl_wind_transfer
+; reinstates it on the invoking thread, which may be a different thread.
 (define (control-captured-continuation
-          continuation target-wind target-handler)
+          continuation dynamic-context target-handler)
   (let ((values-name (control-fresh-name "_npl_jump_values_")))
     (let ((ignored-name (control-fresh-name "_npl_abandoned_")))
       (cons 212
@@ -348,7 +351,7 @@
           (cons
             (cons
               (cons (control-symbol "_npl_wind_transfer")
-                (cons target-wind
+                (cons dynamic-context
                   (cons target-handler
                     (cons continuation
                       (cons
@@ -364,12 +367,12 @@
   (control-evaluate-list
     (cdr application) ()
     (lambda (procedures)
-      (let ((target-name (control-fresh-name "_npl_target_wind_")))
+      (let ((target-name (control-fresh-name "_npl_dynamic_context_")))
         (let ((handler-name
                 (control-fresh-name "_npl_target_handler_")))
           (core-single-let
             (cons (control-symbol target-name)
-                  (cons (control-symbol "npl_current_wind") ()))
+                  (cons (control-symbol "npl_capture_dynamic_context") ()))
             (core-single-let
               (cons (control-symbol handler-name)
                     (cons (control-symbol "npl_current_handler") ()))

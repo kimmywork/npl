@@ -181,7 +181,7 @@ static void *thread_entry(void *argument)
     context->current_wind = npl_nil();
     context->current_handler = npl_nil();
     NplVal handler = npl_make_closure(thread_uncaught, npl_nil(), 2);
-    (void)npl_handler_push_initial(handler);
+    context->initial_handler = npl_handler_push_initial(handler);
 
     if (setjmp(thread->terminate_jump) == 0) {
         NplVal continuation = npl_make_closure(thread_done, npl_nil(), 1);

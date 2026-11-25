@@ -7,6 +7,7 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/clock.c
   ${RUNTIME_SRC_DIR}/complex.c
   ${RUNTIME_SRC_DIR}/control.c
+  ${RUNTIME_SRC_DIR}/dynamic-context.c
   ${RUNTIME_SRC_DIR}/coordinator.c
   ${RUNTIME_SRC_DIR}/error.c
   ${RUNTIME_SRC_DIR}/ffi.c
@@ -58,6 +59,7 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/clock.c
   ${RUNTIME_SRC_DIR}/complex.c
   ${RUNTIME_SRC_DIR}/control.c
+  ${RUNTIME_SRC_DIR}/dynamic-context.c
   ${RUNTIME_SRC_DIR}/coordinator.c
   ${RUNTIME_SRC_DIR}/error.c
   ${RUNTIME_SRC_DIR}/ffi.c

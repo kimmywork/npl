@@ -106,6 +106,17 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(frame->parent);
             visit(frame->before);
             visit(frame->after);
+            visit(frame->handler);
+            visit(frame->parameters);
+            visit(frame->extent_key);
+            break;
+        }
+        case BOX_DYNAMIC_CONTEXT: {
+            NplDynamicContext *context = (NplDynamicContext *)header;
+            visit(context->wind);
+            visit(context->handler);
+            visit(context->parameters);
+            visit(context->source_initial_handler);
             break;
         }
         case BOX_WIND_TRANSITION: {
@@ -115,6 +126,8 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(transition->continuation);
             visit(transition->value);
             visit(transition->entering);
+            visit(transition->context);
+            visit(transition->target_parameters);
             uint32_t count = transition->exit_count + transition->entry_count;
             for (uint32_t i = 0; i < count; i++)
                 visit(transition->frames[i]);

@@ -297,9 +297,8 @@ path; no accessor call per entry. Self-emission cost is unchanged in kind
 The items in this list are **resolved by T2 and the follow-up increment**
 (2026-11-25); see "T1.3 remaining implementation status" below.
 
-- Cross-thread invocation of a user `call/cc` continuation (restore its
-  dynamic state on the invoking thread without transferring native stack /
-  unwind frames) still needs explicit runtime support and tests.
+- Cross-thread invocation of a user `call/cc` continuation is implemented;
+  see "Cross-thread continuation invocation" below.
 - Cross-target execution evidence (only host macOS arm64 is executed; other
   targets have emission evidence). Linux execution and late `dlopen` are
   untested.
@@ -341,6 +340,60 @@ cleanup attribute for every normal return.
   under `NPL_GC_VERIFY=100`), including a value reachable only from the
   parked thread's C stack.
 
+## Cross-thread continuation invocation (2026-11-25)
+
+SRFI 18 (`docs/reference/srfi-18.html`, "Dynamic environments, continuations
+and dynamic-wind" and `make-thread`) defines invoking a continuation created
+by another thread, including after the source thread ended: the saved dynamic
+environment and dynamic-wind stack are reinstated on the current thread, each
+before/after thunk runs in the environment in effect when its dynamic-wind
+was executed, and the initial continuation / initial exception handler act
+on the "(then) current thread".
+
+Implementation:
+
+- `thread_done` / `thread_uncaught` resolve the thread at call time from
+  `npl_ctx()` via `npl_thread_current_object()`; both closures are
+  thread-agnostic. `npl_thread_finish_current()` abandons the current
+  thread's mutexes, marks it terminated, wakes joiners, and longjmps only to
+  that thread's own valid jmp_buf. Initial handler frames are marked with
+  `NPL_FLAG_INITIAL_HANDLER`; `npl_raise` resolves a captured chain's bottom
+  frame against the invoking thread's own `initial_handler`, so a dead
+  jmp_buf is never used.
+- `call/cc` captures a heap `BOX_DYNAMIC_CONTEXT` (wind, handler, parameters,
+  source initial handler) via `npl_capture_dynamic_context`. The transfer call
+  keeps its 4-argument shape; the runtime dispatches on the first argument's
+  tag, so a pre-relay seed and npli keep working.
+- `NplWindFrame` records the handler and parameter chain in effect at push
+  time, plus the extent's `frames` vector as `extent_key`.
+  `schedule_wind_transition` installs that environment before every
+  before/after thunk and the target context at completion.
+- `npl_parameters_enter/leave` no longer write the shared `frames` vector.
+  A per-thread extent mapping (`parameter_extents`) maps each extent to a
+  thread-owned binding chain plus its baseline. Re-entry reuses the same
+  nodes (so in-place `parameter-set!` mutations survive, as required by
+  `src/compiler/tests/parameters.npl`); a cross-thread first entry clones the
+  source chain under the invoking thread's ownership, preserving the existing
+  owner/COW rules.
+- User handler frames are kept by identity (`npl_handler_pop` validates
+  `current_handler == frame`); only the initial frame is resolved dynamically.
+
+`runtime/dynamic-context.c` owns the captured context, extent mapping and
+transfer (extracted from `control.c`, which stays under the 800-line soft
+limit). `runtime/gc.c` visits the new `NplVal` fields; `runtime/thread.c`
+registers the three new per-thread roots. Frontend changes are one primitive
+row, one internal name, and one changed let RHS in `control-cps-call-cc`;
+`bootstrap/current.ssa` was re-seeded with `tools/update_current_ssa.sh`.
+
+Acceptance: `tests/unit/cross-thread-terminal.npl` (initial continuation and
+uncaught handler terminate the invoking thread) and
+`tests/unit/cross-thread-continuation.npl` (nested parameterize/dynamic-wind/
+handler observations, correct parameter values, restored handler by identity,
+`current-thread` is the invoker, uncaught path does not touch the source
+thread). Single-thread semantics stay in the compiler tests and evaluator
+fixtures; cross-thread scenarios are native-only because the differential
+fixture runner compares nplc and npli output.
+
 ## T2 SRFI 18
 
 - `(npl thread)` / `(srfi 18)` exports `thread?`, `make-thread`,
@@ -354,9 +407,11 @@ cleanup attribute for every normal return.
 - Follow the [SRFI 18 dynamic environment and termination contract](../../docs/reference/srfi-18.html).
   New threads inherit the creator's dynamic environment with a fresh initial
   exception handler and an empty initial wind stack. User continuations may
-  be invoked by another thread: restore their dynamic state on the invoking
-  thread, without transferring native stack/unwind frames. This needs explicit
-  runtime support and cross-thread continuation tests before claiming SRFI 18.
+  be invoked by another thread (including after the source thread ended): the
+  saved dynamic environment is reinstated on the invoking thread, each
+  dynamic-wind thunk runs in its own extent's environment, and reaching the
+  initial continuation / initial exception handler terminates the invoking
+  thread. Implemented in `runtime/dynamic-context.c`; see the section above.
 - Blocking primitives (`thread-sleep!`, mutex/condition waits) park the
   native thread through the T1 safe blocked-state transition; GC continues
   while it is parked only after its saved context and roots are published.
@@ -398,16 +453,15 @@ Runtime substrate: `runtime/thread-sched.{c,h}` and
   `src/compiler/tests/thread.npl` (26 assertions), and the
   `tests/fixtures/thread` nplc/npli differential fixture.
 
-**Remaining before claiming full SRFI 18**
+**Remaining evidence**
 
-- Cross-thread invocation of a user `call/cc` continuation (restore its
-  dynamic state on the invoking thread without transferring native stack /
-  unwind frames) needs explicit runtime support and tests.
-- Port, FFI block, directory handle and symbol-table synchronization;
-  polls in the remaining long runtime C loops.
+- Linux execution and late `dlopen` evidence (host is macOS arm64).
 - `with-exception-handler` / `raise` are re-exported R7RS control
   operators, not first-class procedures in NPL.
-- Linux execution and late `dlopen` evidence.
+
+Port, FFI block, directory handle and symbol-table synchronization, the
+remaining long-loop safepoint polls, blocking libc I/O GC boundaries and
+cross-thread user continuations are implemented.
 
 ## T2b: Virtual Threads (JVM-Style)
 

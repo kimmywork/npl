@@ -55,6 +55,9 @@ static void init_context(NplThreadContext *context, uintptr_t stack_bottom)
     context->current_wind = npl_nil();
     context->current_handler = npl_nil();
     context->current_parameters = npl_nil();
+    context->parameter_extents = npl_nil();
+    context->pending_extent_key = npl_nil();
+    context->initial_handler = npl_nil();
     context->current_thread_object = npl_nil();
     context->next_wind_id = 1;
     context->next_escape_id = 1;
@@ -75,6 +78,9 @@ static NplThreadContext *attach_context(uintptr_t stack_bottom)
     npl_gc_root(&context->current_wind);
     npl_gc_root(&context->current_handler);
     npl_gc_root(&context->current_parameters);
+    npl_gc_root(&context->parameter_extents);
+    npl_gc_root(&context->pending_extent_key);
+    npl_gc_root(&context->initial_handler);
     npl_gc_root(&context->current_thread_object);
 
     lock_registry();
@@ -148,6 +154,9 @@ void npl_thread_detach(void)
     context->current_wind = npl_nil();
     context->current_handler = npl_nil();
     context->current_parameters = npl_nil();
+    context->parameter_extents = npl_nil();
+    context->pending_extent_key = npl_nil();
+    context->initial_handler = npl_nil();
     context->tail_context = NULL;
     context->sync_frame = NULL;
     context->read_recovery = NULL;
