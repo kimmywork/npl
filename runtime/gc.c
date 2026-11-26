@@ -184,6 +184,12 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(context->continuation);
             break;
         }
+        case BOX_PARAMETERIZATION: {
+            NplParameterization *parameterization =
+                (NplParameterization *)header;
+            visit(parameterization->bindings);
+            break;
+        }
         case BOX_PROMISE: {
             NplPromise *promise = (NplPromise *)header;
             visit(promise->value);

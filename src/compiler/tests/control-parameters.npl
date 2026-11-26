@@ -1,0 +1,95 @@
+;; SRFI 226 parameterization/temporarily prototype suite (T4-D subset).
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl control parameters))
+
+(include "framework.npl")
+
+(define (caught thunk)
+  (guard (condition (#t condition))
+    (thunk)
+    #f))
+
+(define (main)
+  (test-assert "parameter?"
+               (let ((p (make-parameter 1)))
+                 (and (parameter? p) (not (parameter? 1)))))
+  (test-assert "parameterization snapshot example"
+               (let ((p (make-parameter 10 (lambda (x) (* x x))))
+                     (saved #f))
+                 (and (= (p) 100)
+                      (begin (p 12) (= (p) 144))
+                      (= (parameterize ((p (p)))
+                           (set! saved (current-parameterization))
+                           (p))
+                         20736)
+                      (parameterization? saved)
+                      (equal? (call-with-parameterization
+                                saved
+                                (lambda ()
+                                  (let ((x (p)))
+                                    (p 0)
+                                    (list x (p)))))
+                              '(20736 0))
+                      (= (p) 144))))
+  (test-assert "snapshot is frozen against later mutation"
+               (let ((p (make-parameter 1))
+                     (saved #f))
+                 (parameterize ((p 2))
+                   (set! saved (current-parameterization)))
+                 (parameterize ((p 3))
+                   (p 4))
+                 (call-with-parameterization
+                   saved
+                   (lambda () (= (p) 2)))))
+  (test-assert "call-with-parameterization restores after a raise"
+               (let ((p (make-parameter 1)))
+                 (call-with-parameterization
+                   (parameterize ((p 2)) (current-parameterization))
+                   (lambda ()
+                     (caught (lambda () (raise 'boom)))))
+                 (= (p) 1)))
+  (test-assert "temporarily converter and restoration"
+               (let ((p (make-parameter 1 (lambda (x) (+ x 1)))))
+                 (temporarily ((p 4))
+                   (values))
+                 (= (p) 3)))
+  (test-assert "temporarily with multiple parameters"
+               (let ((a (make-parameter 1))
+                     (b (make-parameter 2)))
+                 (and (equal? (temporarily ((a 10) (b 20))
+                                  (list (a) (b)))
+                              '(10 20))
+                      (= (a) 1)
+                      (= (b) 2))))
+  (test-assert "temporarily restores on a continuation exit"
+               (let ((p (make-parameter 1)))
+                 (call/cc
+                   (lambda (escape)
+                     (temporarily ((p 2))
+                       (escape (p)))))
+                 (= (p) 1)))
+  (test-assert "nested parameterizations retain distinct values"
+               (let ((p (make-parameter 1)))
+                 (equal? (parameterize ((p 2))
+                           (list (p)
+                                 (parameterize ((p 3)) (p))
+                                 (p)))
+                         '(2 3 2))))
+  (test-assert "snapshot bindings survive allocation"
+               (let ((p (make-parameter 1))
+                     (saved #f))
+                 (parameterize ((p 2))
+                   (set! saved (current-parameterization)))
+                 (let loop ((left 2000))
+                   (if (= left 0)
+                       (call-with-parameterization
+                         saved
+                         (lambda () (= (p) 2)))
+                       (begin
+                         (make-vector 1000)
+                         (loop (- left 1)))))))
+  (finish-tests "control-parameters"))
+
+(main)

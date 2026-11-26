@@ -239,6 +239,74 @@ NplVal npl_parameter_converter(NplVal parameter_value)
     return npl_is_nil(converter) ? npl_false() : converter;
 }
 
+NplVal npl_parameter_p(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_PARAMETER
+               ? npl_true()
+               : npl_false();
+}
+
+static NplParameterization *require_parameterization(NplVal value,
+                                                     const char *who)
+{
+    if (!npl_is_ptr(value) ||
+        npl_header(value)->tag != BOX_PARAMETERIZATION)
+        npl_primitive_error(who, "not a parameterization", value);
+    return (NplParameterization *)npl_header(value);
+}
+
+/* Freeze the current binding chain.  A later parameter-set! on this thread
+ * mutates its own nodes in place, so the snapshot must own a clone. */
+NplVal npl_parameterization_capture(void)
+{
+    NplParameterization *parameterization = (NplParameterization *)
+        npl_alloc_object(sizeof(NplParameterization));
+    parameterization->header.tag = BOX_PARAMETERIZATION;
+    parameterization->header.flags = 0;
+    NplVal boxed = (NplVal)(uintptr_t)parameterization | TAG_PTR;
+    npl_gc_root(&boxed);
+    parameterization->bindings =
+        npl_clone_parameter_bindings(CTX->current_parameters);
+    npl_gc_unroot(&boxed);
+    return boxed;
+}
+
+NplVal npl_parameterization_p(NplVal value)
+{
+    return npl_is_ptr(value) &&
+                   npl_header(value)->tag == BOX_PARAMETERIZATION
+               ? npl_true()
+               : npl_false();
+}
+
+/* Install a snapshot and return the previous parameterization.  The caller
+ * restores the previous one on exit (call-with-parameterization). */
+NplVal npl_parameterization_enter(NplVal value)
+{
+    (void)require_parameterization(value, "call-with-parameterization");
+    npl_gc_root(&value);
+    NplVal old = npl_parameterization_capture();
+    npl_gc_root(&old);
+    NplParameterization *parameterization =
+        (NplParameterization *)npl_header(value);
+    CTX->current_parameters =
+        npl_clone_parameter_bindings(parameterization->bindings);
+    npl_gc_unroot(&old);
+    npl_gc_unroot(&value);
+    return old;
+}
+
+NplVal npl_parameterization_leave(NplVal value)
+{
+    NplParameterization *parameterization =
+        require_parameterization(value, "call-with-parameterization");
+    npl_gc_root(&value);
+    CTX->current_parameters =
+        npl_clone_parameter_bindings(parameterization->bindings);
+    npl_gc_unroot(&value);
+    return npl_unspecified();
+}
+
 /* npl_parameters_enter / npl_parameters_leave and the wind transfer live in
  * dynamic-context.c, which owns the SRFI 18 dynamic-environment machinery.
  * This file keeps the parameter object, COW set!, and primitive machinery. */

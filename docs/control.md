@@ -13,6 +13,7 @@ continuations, continuation predicates, `unwind-protect`, and derived
 (import (srfi 226 continuation))  ; continuation kinds
 (import (srfi 226 shift-reset))   ; reset / shift
 (import (srfi 226 inspection))    ; continuation predicates
+(import (srfi 226 parameter))     ; parameterizations and temporarily
 ```
 
 The component export is a **T4-A/T4-B prototype**, not a complete SRFI 226
@@ -72,6 +73,37 @@ inspected, non-composable continuations. `continuation?` and
 `non-composable-continuation?` are backed by an explicit registry, so ordinary
 procedures do not satisfy them.
 
+## Parameterizations and `temporarily`
+
+`(npl control parameters)` / `(srfi 226 parameter)` adds first-class ordinary
+parameterization snapshots:
+
+```scheme
+(define p (make-parameter 10 (lambda (x) (* x x))))
+
+(define saved
+  (parameterize ((p (p)))
+    (current-parameterization)))
+
+(call-with-parameterization
+  saved
+  (lambda ()
+    (let ((before (p)))
+      (p 0)
+      (list before (p)))))                ; => (20736 0)
+```
+
+`parameter?` recognizes existing parameter objects. Snapshots clone the
+binding chain, so later `parameter-set!` calls do not mutate a captured
+snapshot; installing one clones again, so mutations inside the thunk do not
+leak back. `temporarily` accepts any parameter-like procedure, installs new
+values on entry, and restores old values on every exit through `dynamic-wind`.
+
+NPL's existing parameters already use thread-owned copy-on-write bindings, so
+this prototype does not yet expose SRFI 226's separate ordinary shared-cell
+and inheritable-thread-local parameter kinds, `make-thread-parameter`, or the
+fluid syntax. Those remain T4-D work.
+
 ## Implementation boundary
 
 The current CPS continuation is an opaque closure. Cutting or splicing it
@@ -106,9 +138,10 @@ the current tests, but it is not the final architecture. In particular:
 - the continuation registry uses strong references, so repeatedly creating and
   discarding continuations retains their wrappers until a GC-aware weak
   registry is added;
-- continuation marks, parameterization objects, fluids, promises, the
+- thread parameters, fluids, continuation marks, promises, the
   exception-handler-stack condition, and the SRFI 226 thread/interrupt
-  adapters remain future increments;
+  adapters remain future increments (ordinary parameterization snapshots and
+  `temporarily` are implemented);
 - helper-thread invocation costs a native thread creation per composition.
 
 No changes were made to `bootstrap/current.ssa`; the prototype is a library over
@@ -120,6 +153,9 @@ the existing compiler and evaluator.
   custom/default handlers, missing tags, `reset`/`shift`, multi-shot
   composition, 990/6930, predicates, multiple values, `dynamic-wind` and
   `unwind-protect`.
-- `tests/fixtures/control` — deterministic nplc/npli surface through all
-  component aliases.
+- `src/compiler/tests/control-parameters.npl` — parameter snapshots,
+  `call-with-parameterization`, `temporarily`, restoration on raise and
+  continuation exit.
+- `tests/fixtures/control` and `tests/fixtures/control-parameters` —
+  deterministic nplc/npli surface through all component aliases.
 - `runtime`/thread gates are unchanged and run in the normal full gate.

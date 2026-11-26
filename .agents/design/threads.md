@@ -5,8 +5,10 @@ T2 `(npl thread)` / `(srfi 18)`, cross-thread user continuations, T2b
 virtual threads through increment D, T3-A/B/C (SRFI 230), and the T3-D
 weak-order scalar fast paths/benchmark probe are implemented. T4-A and a
 partial T4-B prototype are implemented as `(npl control)` (prompts,
-non-composable/composable continuations, inspection, `reset`/`shift`); the
-remaining T4 components, optional pair specialization, and the
+non-composable/composable continuations, inspection, `reset`/`shift`), and a
+T4-D subset (parameterization snapshots and `temporarily`) is in
+`(npl control parameters)`; the remaining T4 components, optional pair
+specialization, and the
 optimization/benchmark milestones below remain **designs, not implemented
 features**. Earlier increment reports are historical; the two PR review
 sections supersede their intermediate implementation details.
@@ -1295,8 +1297,16 @@ singular aliases `(srfi 226 prompt)`, `(srfi 226 continuation)`,
   prototype boundary, not the final segment representation. Composable
   invocation from a virtual thread blocks its carrier; concurrent invocation
   of one continuation is unsupported.
+- T4-D subset: `(npl control parameters)` and `(srfi 226 parameter)` add
+  `parameter?`, first-class parameterization snapshots (`current-
+  parameterization`, `parameterization?`, `call-with-parameterization`) and
+  `temporarily` over the existing parameter machinery. Snapshots clone the
+  binding chain and installation clones again, so mutations cannot leak into
+  a snapshot or back out of a thunk. Thread parameters and the fluid syntax
+  remain ahead because NPL's current parameters are already thread-owned COW
+  bindings rather than the SRFI 226 shared-cell model.
 - Not implemented: `call-in-continuation`/`call-in`/`return-to`, continuation
-  barriers, continuation marks, parameterization objects/fluids, promises,
+  barriers, continuation marks, thread parameters/fluids, promises,
   exception/condition payloads, thread/interrupt adapters, and the composite
   `(srfi 226)` / `srfi-226` feature. The component aliases are partial
   releases.

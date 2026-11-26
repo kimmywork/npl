@@ -92,6 +92,8 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_ATOMIC_BOX 35
 #define BOX_ATOMIC_FXBOX 36
 #define BOX_ATOMIC_PAIR 37
+/* T4-D: a first-class parameterization snapshot (current binding chain). */
+#define BOX_PARAMETERIZATION 38
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -278,6 +280,14 @@ typedef struct {
     uint32_t update;
     uint32_t reserved;
 } NplParameterContext;
+
+/* A T4-D parameterization snapshot.  The binding chain is cloned when
+ * installed so a snapshot shared by a continuation or another thread is never
+ * mutated in place. */
+typedef struct {
+    NplHeader header;
+    NplVal bindings;
+} NplParameterization;
 
 typedef struct {
     NplHeader header;
@@ -634,6 +644,12 @@ NplVal npl_make_parameter(NplVal converter, NplVal value);
 NplVal npl_parameter_ref(NplVal parameter);
 NplVal npl_parameter_set(NplVal parameter, NplVal value);
 NplVal npl_parameter_converter(NplVal parameter);
+/* T4-D parameterization objects (control.c). */
+NplVal npl_parameter_p(NplVal value);
+NplVal npl_parameterization_capture(void);
+NplVal npl_parameterization_p(NplVal value);
+NplVal npl_parameterization_enter(NplVal value);
+NplVal npl_parameterization_leave(NplVal value);
 NplVal npl_parameters_enter(NplVal parameters, NplVal values, NplVal frames);
 NplVal npl_parameters_leave(NplVal frames);
 NplVal npl_promise_op(int64_t argc, NplVal *argv);
