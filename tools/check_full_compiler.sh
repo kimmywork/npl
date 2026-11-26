@@ -13,7 +13,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts thread_test safepoint_test thread_object_test thread_lifecycle_test shared_lock_test blocking_io_test virtual_thread_test atomic_test >/dev/null
+ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts thread_test safepoint_test thread_object_test thread_lifecycle_test shared_lock_test blocking_io_test virtual_thread_test atomic_test atomic_bench >/dev/null
 # zlib is optional; the target exists only when CMake found the library.
 ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
 
@@ -39,6 +39,9 @@ ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
 # barriers and concurrent collector races.
 "$BUILD/runtime/atomic_test"
 NPL_GC_NURSERY_BYTES=65536 NPL_GC_VERIFY=100 \
+    "$BUILD/runtime/atomic_test"
+NPL_ATOMIC_FORCE_LOCKED=1 "$BUILD/runtime/atomic_test"
+NPL_ATOMIC_FORCE_LOCKED=1 NPL_GC_NURSERY_BYTES=65536 NPL_GC_VERIFY=100 \
     "$BUILD/runtime/atomic_test"
 
 EXTRA_NATIVE=()
@@ -201,6 +204,7 @@ NPL_C_STRUCT_LAYOUTS="$WORK/package-layouts.meta:$NATIVE/c-struct-layouts.meta" 
 run_suite srfi-19 "PASS srfi-19 52"
 run_suite thread "PASS thread 26"
 run_suite srfi-230 "PASS srfi-230 19"
+run_suite control "PASS control 19"
 run_suite srfi-170 "PASS srfi-170 132"
 run_suite platform "PASS platform 5"
 run_suite native-crc32 "PASS native-crc32 4"

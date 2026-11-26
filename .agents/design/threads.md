@@ -2,8 +2,11 @@
 
 Status (2026-11-26): merged baseline `bf6d497`, PR #8. T1.1–T1.3,
 T2 `(npl thread)` / `(srfi 18)`, cross-thread user continuations, T2b
-virtual threads through increment D, and T3-A/B/C (SRFI 230) are implemented.
-T3-D (specialized fast paths and benchmarks), T4 (SRFI 226), and the
+virtual threads through increment D, T3-A/B/C (SRFI 230), and the T3-D
+weak-order scalar fast paths/benchmark probe are implemented. T4-A and a
+partial T4-B prototype are implemented as `(npl control)` (prompts,
+non-composable/composable continuations, inspection, `reset`/`shift`); the
+remaining T4 components, optional pair specialization, and the
 optimization/benchmark milestones below remain **designs, not implemented
 features**. Earlier increment reports are historical; the two PR review
 sections supersede their intermediate implementation details.
@@ -964,7 +967,9 @@ No new backend atomic instruction is necessary for T3-A–C.
 
 ### T3-A/B/C implementation status (2026-11-26)
 
-T3-A, T3-B and T3-C are implemented; T3-D remains a design.
+T3-A, T3-B and T3-C are implemented. T3-D has a first measured scalar fast
+path; optional pair specialization and the full B6/B7 benchmark matrix remain
+ahead.
 
 - `lib/npl/atomic.sld` and the re-export-only `lib/srfi/230.sld` expose the
   complete SRFI 230 surface. `memory-order` is a procedural library macro: it
@@ -1000,8 +1005,18 @@ T3-A, T3-B and T3-C are implemented; T3-D remains a design.
 - Static/shared identity is exercised by the existing link-mode gate; the
   atomic code has no independent TLS or per-executable state. Host execution
   is macOS arm64; the repository CI Linux gate also passed for this revision.
-  T3-D fast paths, mixed-domain ordering proofs, and the B6/B7 benchmarks are
-  not implemented.
+- T3-D: scalar operations with `relaxed`, `acquire`, `release` and
+  `acquire-release` orders use per-location `__atomic_*` operations with the
+  design's load/store/RMW/CAS mapping. Sequentially consistent operations,
+  pair operations and fences stay in the common locked domain, so the default
+  order still has one total order across every object kind. Weaker orders are
+  not promised that cross-object total order, which matches the C11/SRFI
+  ordering contract. `NPL_ATOMIC_FORCE_LOCKED=1` restores the all-locked
+  reference path. `runtime/atomic_bench.c` is a small measurement probe, not
+  the repository benchmark harness; optional pair specialization and the full
+  B6/B7 matrix remain ahead.
+- `docs/atomic.md` records the mixed-domain argument and the measured
+  fast-path boundary.
 
 Concurrent tests use start gates and bounded joins, not sleep-based ordering:
 
@@ -1253,6 +1268,41 @@ stable; T4-E needs both; T4-F needs T4-D/E and the interrupt CPS handoff. Each
 increment ports applicable executable examples from the reference into common
 fixtures. Native-only stress supplements differential tests; it does not
 replace them. Compare normalized observable results, not interleaving traces.
+
+### T4-A/partial T4-B implementation status (2026-11-26)
+
+`lib/npl/control.sld` implements a prompt/abort prototype and partial T4-B
+surface on top of the existing full `call/cc`; component libraries
+`(npl control prompts)`, `(npl control continuations)`,
+`(npl control shift-reset)` and `(npl control inspection)` re-export it, with
+singular aliases `(srfi 226 prompt)`, `(srfi 226 continuation)`,
+`(srfi 226 shift-reset)` and `(srfi 226 inspection)`.
+
+- Prompt tags, a dynamic prompt stack, default/custom abort handlers,
+  `call-with-continuation-prompt`, `abort-current-continuation`, and the
+  `continuation-violation` record are implemented. The default handler
+  reinstalls the prompt before invoking its thunk.
+- Non-composable invocation cuts back to the nearest matching prompt and
+  reinstates the captured prefix there; composable invocation appends the
+  prefix and returns its values to the caller. The reference 990/6930
+  examples, nested prompts, multi-shot `(k (k ...))`, and multiple values
+  pass. `continuation?`, `non-composable-continuation?`,
+  `continuation-prompt-available?`, `unwind-protect`, `reset`, `reset-at`,
+  `shift` and `shift-at` are implemented.
+- Because the current CPS continuation is opaque, re-entry uses a helper
+  native thread with the runtime's cross-thread `call/cc`; the origin prompt's
+  terminal is temporarily redirected to a result thunk. This is a T4-A
+  prototype boundary, not the final segment representation. Composable
+  invocation from a virtual thread blocks its carrier; concurrent invocation
+  of one continuation is unsupported.
+- Not implemented: `call-in-continuation`/`call-in`/`return-to`, continuation
+  barriers, continuation marks, parameterization objects/fluids, promises,
+  exception/condition payloads, thread/interrupt adapters, and the composite
+  `(srfi 226)` / `srfi-226` feature. The component aliases are partial
+  releases.
+- Acceptance: `src/compiler/tests/control.npl` (18 assertions) and the
+  `tests/fixtures/control` nplc/npli differential fixture, plus the existing
+  call/cc, parameter, wind and exception suites. No frontend or seed change.
 
 No changes to permanent `bootstrap/bootstrap.ssa`, stage0, or
 `bootstrap/runtime/`. Frontend changes relay only `bootstrap/current.ssa`

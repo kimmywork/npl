@@ -20,6 +20,7 @@ project overview, quick start, platform support, and license, see the
 - [POSIX and SRFI 170](posix.md)
 - [Threads: SRFI 18 and virtual threads](thread.md)
 - [Atomic operations: SRFI 230](atomic.md)
+- [Control features: SRFI 226 prototype](control.md)
 - [Reference index (R7RS & SRFIs)](reference/README.md)
 - [R7RS-small reference](reference/r7rs.html)
 - [SRFI 125 reference](reference/srfi-125.html)

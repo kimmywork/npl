@@ -16,6 +16,12 @@ behavior).
   `(npl atomic)` / `(srfi 230)`. The T3 baseline uses one atomic-domain mutex
   for every order and every object kind; fixnum arithmetic rejects a result
   outside the 62-bit fixnum range before changing the box.
+- SRFI 226 control prototype as `(npl control)` with component aliases
+  `(srfi 226 prompt)`, `(srfi 226 continuation)`, `(srfi 226 shift-reset)`,
+  and `(srfi 226 inspection)`. Prompts, abort, non-composable and composable
+  continuations, predicates, `unwind-protect`, and `reset`/`shift` are
+  implemented over the existing CPS continuation and a helper-thread
+  re-entry boundary; the composite `(srfi 226)` feature remains unadvertised.
 - SRFI 1 lists as `(npl list)` / `(srfi 1)`.
 - SRFI 13 strings as `(npl string)` / `(srfi 13)`, with a shared string
   kernel; character-set criteria are not supported because NPL has no

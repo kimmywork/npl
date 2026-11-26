@@ -6,7 +6,7 @@
   "mixed-numeric-utilities" "mutable-bindings" "named-let" "char-basics"
   "symbols" "procedure-values" "apply" "lists" "vectors" "strings"
   "definition-macros" "syntax-case" "syntax-case-npl" "ffi-memory"
-  "native-packages" "native-zlib" "unix" "time" "thread" "atomic"
+  "native-packages" "native-zlib" "unix" "time" "thread" "atomic" "control"
   "records-errors"
   "primitive-errors" "port-parameters" "text-io-time" "r5rs"
   "unicode-strings" "unicode-char" "dynamic-extent" "datum-labels" "reader-brackets"
