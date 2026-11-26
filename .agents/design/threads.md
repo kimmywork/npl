@@ -1273,6 +1273,28 @@ increment ports applicable executable examples from the reference into common
 fixtures. Native-only stress supplements differential tests; it does not
 replace them. Compare normalized observable results, not interleaving traces.
 
+### T4-A next acceptance order (2026-11-27)
+
+The library-level prototype below is not permission to skip the T4-A
+representation. The next stage is ordered and gated as follows:
+
+1. Add the compiler/evaluator shared semantic-frame representation for
+   prompts and semantic continuation frames, then a local CPS continuation
+   plus persistent meta-continuation. The representation must retain
+   non-tail-call frame boundaries and the active wind/handler/parameter
+   context through the existing transition machinery.
+2. Replace the current same-thread `thread-specific` override with segment
+   capture/composition primitives. Verify logical thread identity, composition
+   return, multi-shot invocation, default prompt behavior and wind transitions
+   before adding barriers, `call-in-continuation`, `call-in` and `return-to`.
+3. Separate ordinary shared parameter cells from inheritable thread-local
+   cells and rework parameterization installation so repeated reinstallation
+   preserves the same cells. Then add marks, fluids and the later
+   promises/interrupts components.
+4. Port the standard semantic examples to common fixtures for every increment.
+   Only after the full inventory and target evidence pass may `(srfi 226)` and
+   the `srfi-226` feature be published.
+
 ### T4 library-level prototype (2026-11-26; T4-A not complete)
 
 `lib/npl/control.sld` implements a prompt/abort prototype and partial T4-B

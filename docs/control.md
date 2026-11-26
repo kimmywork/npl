@@ -158,7 +158,12 @@ required by T4-A. In particular:
   `temporarily` are implemented).
 
 No changes were made to `bootstrap/current.ssa`; the prototype is a library over
-the existing compiler and evaluator.
+the existing compiler and evaluator. The next accepted stage is the
+compiler/evaluator shared semantic-frame and segmented-continuation
+representation; only then should the same-thread override be replaced, followed
+by barriers/`call-in`, shared-vs-thread-local parameter cells, marks, fluids,
+promises and interrupts. The composite `(srfi 226)` feature is not published
+until that inventory is complete.
 
 ## Verification
 
