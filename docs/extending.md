@@ -72,7 +72,7 @@ Use the library graph, not directory labels, to keep dependencies acyclic:
 | L0 runtime | `(npl internal primitive)` | nothing |
 | L1 core | `(npl internal frontend)`, `(npl internal repl-io)` | L0 |
 | L2 standard | `(scheme *)` and `(scheme internal *)` | L0, L1, lower `(scheme *)` |
-| L3 extensions | `(npl list)`, `(npl string)`, `(npl string cursor)`, `(npl string immutable)`, `(npl vector)`, `(npl hashtable)`, `(npl comparator)`, `(npl sort)`, `(npl data ...)`, `(npl time)`, `(npl unix)`, `(npl ffi)`, `(npl native)`, `(npl platform)`, `(npl lambda)`, `(npl match)`, `(npl record)`, `(npl process)`, `(npl test)` | L0-L2, lower L3 |
+| L3 extensions | `(npl list)`, `(npl string)`, `(npl string cursor)`, `(npl string immutable)`, `(npl vector)`, `(npl hashtable)`, `(npl comparator)`, `(npl sort)`, `(npl data ...)`, `(npl time)`, `(npl unix)`, `(npl ffi)`, `(npl native)`, `(npl platform)`, `(npl lambda)`, `(npl keyword)`, `(npl format)`, `(npl infix)`, `(npl match)`, `(npl record)`, `(npl process)`, `(npl test)` | L0-L2, lower L3 |
 | L4 SRFI aliases | `(srfi *)` | L3 only |
 
 - `(npl internal *)` must not import `(scheme *)`. `(npl internal primitive)`,

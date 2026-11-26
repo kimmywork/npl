@@ -26,6 +26,7 @@
   (cond
     ((datum-symbol? expression)
      (resolve-identifier expression value-env))
+    ((datum-keyword? expression) expression)
     ((datum-string? expression) expression)
     ((datum-char? expression) expression)
     ((datum-bytevector? expression) expression)
@@ -198,7 +199,9 @@
     ((string=? name "quasiquote")
      (expand-quasiquote-form form value-env macro-env))
     ((string=? name "lambda") (expand-lambda form value-env macro-env))
+    ((string=? name "lambda*") (expand-lambda-star form value-env macro-env))
     ((string=? name "define") (expand-define form value-env macro-env))
+    ((string=? name "define*") (expand-define-star form value-env macro-env))
     ((string=? name "if") (expand-if form value-env macro-env))
     ((string=? name "begin")
      (cons (car form)
@@ -730,6 +733,7 @@
        (expand-quasiquote-list (datum-vector-items value) depth
                                value-env macro-env)))
     ((datum-symbol? value) value)
+    ((datum-keyword? value) value)
     ((datum-string? value) value)
     ((datum-char? value) value)
     ((datum-bytevector? value) value)
@@ -743,9 +747,16 @@
   (if (null? values)
       ()
       (if (pair? values)
-          (cons (expand-quasiquote (car values) depth value-env macro-env)
-                (expand-quasiquote-list (cdr values) depth
-                                        value-env macro-env))
+          ; `(a . ,b) reads as the proper list (a unquote b).  The cdr that
+          ; starts with unquote is the dotted-tail case, not two elements.
+          (if (raw-form? values "unquote")
+              (expand-quasiquote values depth value-env macro-env)
+              (if (raw-form? values "unquote-splicing")
+                  (fatal "unquote-splicing in dotted tail")
+                  (cons (expand-quasiquote (car values) depth
+                                           value-env macro-env)
+                        (expand-quasiquote-list (cdr values) depth
+                                                value-env macro-env))))
           (expand-quasiquote values depth value-env macro-env))))
 
 (define (expand-syntax-error form)

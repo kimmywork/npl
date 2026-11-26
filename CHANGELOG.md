@@ -54,6 +54,14 @@ behavior).
   `(npl platform)` exposes the target triple and feature list.
 - SRFI 19 completion: `string->date`, the full `date->string` directive
   set, Julian-day conversions, and TAI/monotonic aliases.
+- SRFI 48 intermediate format strings as `(npl format)` / `(srfi 48)`.
+- SRFI 88 keyword objects and SRFI 89 `define*`/`lambda*`, including the
+  Guile-compatible `#:optional`/`#:key` spelling.
+- SRFI 105 curly-infix expressions in both the compiler and runtime
+  readers, with `(npl infix)` handlers for `$nfx$` and `$bracket-apply$`.
+- Procedure values print names when known, for example
+  `#<procedure scheme/base:map>`.
+- Quasiquote handles unquote in dotted tails.
 - SRFI 170 POSIX as the core `(npl unix)` / `(srfi 170)` package: file
   metadata and directories, links, process state, users/groups, environment,
   time, terminals, and file-descriptor ports.

@@ -121,17 +121,19 @@
       (let ((head (car value)))
         (if (eq? head DATUM-SYMBOL-TAG)
             #t
-            (if (eq? head DATUM-STRING-TAG)
+            (if (eq? head DATUM-KEYWORD-TAG)
                 #t
-                (if (eq? head DATUM-CHAR-TAG)
-                    #t
-                    (if (eq? head DATUM-VECTOR-TAG)
+                    (if (eq? head DATUM-STRING-TAG)
                         #t
-                        (if (eq? head DATUM-BYTEVECTOR-TAG)
+                        (if (eq? head DATUM-CHAR-TAG)
                             #t
-                            (if (eq? head DATUM-TRUE-TAG)
+                            (if (eq? head DATUM-VECTOR-TAG)
                                 #t
-                                (eq? head DATUM-FALSE-TAG))))))))))
+                                (if (eq? head DATUM-BYTEVECTOR-TAG)
+                                    #t
+                                    (if (eq? head DATUM-TRUE-TAG)
+                                        #t
+                                        (eq? head DATUM-FALSE-TAG)))))))))))
 
 (define (array-zero-shape rank)
   (if (= rank 0) () (cons 0 (array-zero-shape (- rank 1)))))
@@ -180,6 +182,70 @@
                        (cons (datum-vector shape)
                              (cons (datum-vector flat) ())))))))))
 
+(define (curly-length items n)
+  (if (null? items) n (curly-length (cdr items) (+ n 1))))
+
+(define (curly-equal? left right)
+  (cond
+    ((if (number? left) (number? right) #f) (= left right))
+    ((if (datum-symbol? left) (datum-symbol? right) #f)
+     (string=? (datum-symbol-name left) (datum-symbol-name right)))
+    ((if (datum-keyword? left) (datum-keyword? right) #f)
+     (string=? (datum-keyword-name left) (datum-keyword-name right)))
+    ((if (datum-string? left) (datum-string? right) #f)
+     (string=? (datum-string-text left) (datum-string-text right)))
+    ((if (datum-char? left) (datum-char? right) #f)
+     (= (datum-char-code left) (datum-char-code right)))
+    ((if (datum-true? left) (datum-true? right) #f) #t)
+    ((if (datum-false? left) (datum-false? right) #f) #t)
+    ((if (pair? left) (pair? right) #f)
+     (if (curly-equal? (car left) (car right))
+         (curly-equal? (cdr left) (cdr right))
+         #f))
+    ((if (datum-vector? left) (datum-vector? right) #f)
+     (curly-equal? (datum-vector-items left) (datum-vector-items right)))
+    (else #f)))
+
+(define (curly-operands items out)
+  (if (null? items)
+      (rev out)
+      (let ((rest (cdr items)))
+        (if (null? rest)
+            (rev (cons (car items) out))
+            (curly-operands (cdr rest) (cons (car items) out))))))
+
+(define (curly-map items)
+  (let ((count (curly-length items 0)))
+    (cond
+      ((= count 0) ())
+      ((= count 1) (car items))
+      ((= count 2) (cons (car items) (cons (car (cdr items)) ())))
+      ((= 0 (npl_number_remainder count 2))
+       (cons (datum-symbol "$nfx$") items))
+      (else
+       (let ((operator (car (cdr items)))
+             (rest (cdr (cdr items))))
+         (let loop ((rest rest))
+           (if (null? rest)
+               (cons operator (curly-operands items ()))
+               (let ((next (cdr rest)))
+                 (if (null? next)
+                     (cons operator (curly-operands items ()))
+                     (if (curly-equal? operator (car next))
+                         (loop (cdr next))
+                         (cons (datum-symbol "$nfx$") items)))))))))))
+
+(define (curly-items cur acc)
+  (if (= (peek-kind cur) 25)
+      (begin (advance! cur) (rev acc))
+      (if (= (peek-kind cur) 7)
+          (fatal "unexpected end of input in curly-infix list")
+          (curly-items cur (cons (parse-quote-datum cur) acc)))))
+
+(define (parse-curly-datum cur)
+  (advance! cur)
+  (curly-map (curly-items cur ())))
+
 (define (parse-quote-datum cur)
   (let ((k (peek-kind cur)))
     (case k
@@ -190,6 +256,9 @@
       ((4 19) (let ((nm (peek-payload cur)))
                 (advance! cur)
                 (datum-symbol nm)))
+      ((23) (let ((nm (peek-payload cur)))
+              (advance! cur)
+              (datum-keyword nm)))
       ((6) (let ((tx (peek-payload cur)))
              (advance! cur)
              (datum-string tx)))
@@ -217,6 +286,8 @@
               (datum-label-ref label)))
       ((1) (begin (advance! cur) (datum-items cur 1)))
       ((21) (begin (advance! cur) (datum-items cur 21)))
+      ((24) (parse-curly-datum cur))
+      ((25) (fatal "unexpected }"))
       (else (fatal "bad quoted datum")))))
 
 (define (parse-quasiquote-abbreviation cur)

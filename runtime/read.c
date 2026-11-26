@@ -22,6 +22,7 @@ typedef struct {
     int has_lookahead;
     NplVal labels;
     int fold_case;      /* #!fold-case in effect (R7RS 2.1) */
+    int keyword_colon;  /* #!srfi-88: foo: reads as a keyword */
 } NplDatumReader;
 
 static void read_error(const char *message)
@@ -65,10 +66,10 @@ static int reader_peek(NplDatumReader *reader)
 static int datum_delimiter(int code)
 {
     return code == EOF || code == '(' || code == ')' ||
-           code == '[' || code == ']' || code == '"' ||
-           code == ';' || code == '\'' || code == '`' || code == ',' ||
-           code == '|' || code == ' ' || code == '\t' || code == '\n' ||
-           code == '\r' || code == '\f';
+           code == '[' || code == ']' || code == '{' || code == '}' ||
+           code == '"' || code == ';' || code == '\'' || code == '`' ||
+           code == ',' || code == '|' || code == ' ' || code == '\t' ||
+           code == '\n' || code == '\r' || code == '\f';
 }
 
 static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof);
@@ -101,6 +102,9 @@ static void read_directive(NplDatumReader *reader)
     name[length] = '\0';
     if (strcmp(name, "fold-case") == 0) reader->fold_case = 1;
     else if (strcmp(name, "no-fold-case") == 0) reader->fold_case = 0;
+    else if (strcmp(name, "curly-infix") == 0) { /* braces are always on */ }
+    else if (strcmp(name, "srfi-88") == 0) reader->keyword_colon = 1;
+    else if (strcmp(name, "no-srfi-88") == 0) reader->keyword_colon = 0;
     else read_error("unknown directive");
 }
 
@@ -309,6 +313,15 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
                                    (uint32_t)(buffer->length - 1));
         npl_read_buffer_finish(buffer);
         return symbol;
+    }
+
+    /* SRFI 88 trailing-colon keywords are opt-in; #:foo is always on. */
+    if (reader->keyword_colon && buffer->length > 2 &&
+        buffer->data[buffer->length - 2] == ':') {
+        NplVal keyword = npl_keyword(
+            buffer->data, (uint32_t)(buffer->length - 2));
+        npl_read_buffer_finish(buffer);
+        return keyword;
     }
 
     NplVal token = npl_string_from_utf8(
@@ -647,6 +660,19 @@ static NplVal read_label_after_digits(NplDatumReader *reader, int64_t label,
     return datum;
 }
 
+/* #:name is the Guile-compatible spelling of the same SRFI 88 keyword. */
+static NplVal read_hash_keyword_datum(NplDatumReader *reader)
+{
+    NplReadBuffer *buffer = npl_read_buffer_new();
+    while (!datum_delimiter(reader_peek(reader)))
+        npl_read_buffer_push(buffer, reader_get(reader));
+    if (buffer->length == 0)
+        read_buffer_error(buffer, "keyword name is empty");
+    NplVal keyword = npl_keyword(buffer->data, (uint32_t)buffer->length);
+    npl_read_buffer_finish(buffer);
+    return keyword;
+}
+
 static NplVal read_hash_datum(NplDatumReader *reader)
 {
     int code = reader_get(reader);
@@ -685,6 +711,7 @@ static NplVal read_hash_datum(NplDatumReader *reader)
         code == 'e' || code == 'E' || code == 'i' || code == 'I')
         return read_hash_radix_datum(reader, code);
     if (code == '\\') return read_character_datum(reader);
+    if (code == ':') return read_hash_keyword_datum(reader);
     if (code == '(') return npl_list_to_vector(read_list_datum(reader, '('));
     if (code == 'u') {
         if (reader_get(reader) != '8' || reader_get(reader) != '(')
@@ -693,6 +720,87 @@ static NplVal read_hash_datum(NplDatumReader *reader)
     }
     read_error("unknown # syntax");
     return npl_nil();
+}
+
+static int curly_equal(NplVal left, NplVal right)
+{
+    if (left == right) return 1;
+    if (!npl_is_ptr(left) || !npl_is_ptr(right))
+        return npl_eqv(left, right) == npl_true();
+    NplHeader *a = npl_header(left);
+    NplHeader *b = npl_header(right);
+    if (a->tag != b->tag) return 0;
+    switch (a->tag) {
+    case BOX_PAIR:
+        return curly_equal(npl_car(left), npl_car(right)) &&
+               curly_equal(npl_cdr(left), npl_cdr(right));
+    case BOX_VECTOR: {
+        NplVector *va = (NplVector *)a;
+        NplVector *vb = (NplVector *)b;
+        if (va->length != vb->length) return 0;
+        for (uint32_t i = 0; i < va->length; i++)
+            if (!curly_equal(va->data[i], vb->data[i])) return 0;
+        return 1;
+    }
+    case BOX_STRING:
+    case BOX_SYMBOL:
+    case BOX_KEYWORD:
+        return npl_string_same_chars_internal(
+            (const NplString *)a, (const NplString *)b);
+    default:
+        return npl_eqv(left, right) == npl_true();
+    }
+}
+
+static NplVal curly_operands(NplVal items, NplVal reversed)
+{
+    if (npl_is_nil(items)) return reverse_onto(reversed, npl_nil());
+    NplVal rest = npl_cdr(items);
+    if (npl_is_nil(rest))
+        return reverse_onto(npl_cons(npl_car(items), reversed), npl_nil());
+    return curly_operands(npl_cdr(rest),
+                          npl_cons(npl_car(items), reversed));
+}
+
+static NplVal read_curly_infix(NplDatumReader *reader)
+{
+    NplVal reversed = npl_nil();
+    int64_t count = 0;
+    npl_gc_root(&reversed);
+    for (;;) {
+        npl_safepoint_poll();
+        reader_skip_space(reader);
+        int code = reader_peek(reader);
+        if (code == EOF) read_error("unexpected EOF in curly-infix list");
+        if (code == '}') {
+            (void)reader_get(reader);
+            break;
+        }
+        NplVal item = read_datum_inner(reader, 0);
+        reversed = npl_cons(item, reversed);
+        count++;
+    }
+    NplVal items = reverse_onto(reversed, npl_nil());
+    npl_gc_unroot(&reversed);
+    if (count == 0) return npl_nil();
+    if (count == 1) return npl_car(items);
+    if (count == 2)
+        return npl_cons(npl_car(items),
+                        npl_cons(npl_car(npl_cdr(items)), npl_nil()));
+    if ((count % 2) == 0)
+        return npl_cons(npl_symbol("$nfx$", 5), items);
+
+    NplVal operator = npl_car(npl_cdr(items));
+    NplVal rest = npl_cdr(npl_cdr(items));
+    while (!npl_is_nil(rest)) {
+        rest = npl_cdr(rest);        /* skip the operand */
+        if (!npl_is_nil(rest)) {
+            if (!curly_equal(operator, npl_car(rest)))
+                return npl_cons(npl_symbol("$nfx$", 5), items);
+            rest = npl_cdr(rest);    /* skip the next operator */
+        }
+    }
+    return npl_cons(operator, curly_operands(items, npl_nil()));
 }
 
 static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof)
@@ -704,8 +812,10 @@ static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof)
         read_error("unexpected EOF");
     }
     if (code == '(' || code == '[') return read_list_datum(reader, code);
+    if (code == '{') return read_curly_infix(reader);
     if (code == ')') read_error("unexpected )");
     if (code == ']') read_error("unexpected ]");
+    if (code == '}') read_error("unexpected }");
     if (code == '"') return read_string_datum(reader);
     if (code == '\'') return quoted_datum(read_datum_inner(reader, 0));
     if (code == '`')
@@ -726,7 +836,7 @@ NplVal npl_read_datum(NplVal port_value_arg)
 {
     NplPort *port = npl_port_require_mode_internal(port_value_arg, NPL_PORT_INPUT,
                                      NPL_PORT_TEXTUAL, "read");
-    NplDatumReader reader = { port, 0, 0, npl_nil(), 0 };
+    NplDatumReader reader = { port, 0, 0, npl_nil(), 0, 0 };
     npl_gc_root(&reader.labels);
     NplVal value = read_datum_inner(&reader, 1);
     npl_gc_unroot(&reader.labels);

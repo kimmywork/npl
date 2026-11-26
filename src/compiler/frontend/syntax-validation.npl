@@ -5,6 +5,8 @@
     ((if (number? left) (number? right) #f) (= left right))
     ((if (datum-symbol? left) (datum-symbol? right) #f)
      (string=? (datum-symbol-name left) (datum-symbol-name right)))
+    ((if (datum-keyword? left) (datum-keyword? right) #f)
+     (string=? (datum-keyword-name left) (datum-keyword-name right)))
     ((if (datum-string? left) (datum-string? right) #f)
      (string=? (datum-string-text left) (datum-string-text right)))
     ((if (datum-char? left) (datum-char? right) #f)

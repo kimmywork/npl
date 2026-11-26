@@ -470,6 +470,10 @@ static void print_datum(NplPrinter *printer, NplVal value)
             if (printer->write) write_symbol(port, (const NplString *)header);
             else output_string(port, (const NplString *)header);
             break;
+        case BOX_KEYWORD:
+            output_text(port, "#:");
+            output_string(port, (const NplString *)header);
+            break;
         case BOX_FLOAT:
         case BOX_BIGNUM:
         case BOX_RATIONAL:
@@ -499,6 +503,18 @@ static void print_datum(NplPrinter *printer, NplVal value)
             output_char(port, ')');
             break;
         }
+        case BOX_CLOSURE: {
+            NplClosure *closure = (NplClosure *)header;
+            NplVal name = closure->captures[closure->capture_count];
+            output_text(port, "#<procedure");
+            if (npl_is_ptr(name) && npl_header(name)->tag == BOX_SYMBOL) {
+                output_char(port, ' ');
+                write_symbol(port, (const NplString *)npl_header(name));
+            }
+            output_char(port, '>');
+            break;
+        }
+        case BOX_PARAMETER: output_text(port, "#<parameter>"); break;
         case BOX_VALUES: output_text(port, "#<multiple-values>"); break;
         case BOX_PROMISE: output_text(port, "#<promise>"); break;
         case BOX_PORT: output_text(port, "#<port>"); break;

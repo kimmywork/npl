@@ -53,6 +53,7 @@
     ((number? value) value)
     ((null? value) ())
     ((datum-symbol? value) (core-symbol value))
+    ((datum-keyword? value) (cons 205 (datum-keyword-name value)))
     ((datum-string? value) (cons 101 (datum-string-text value)))
     ((datum-char? value) (cons 102 (datum-char-code value)))
     ((datum-vector? value)
@@ -140,6 +141,7 @@
      (call-node "list->vector"
        (cons (lower-quasiquote-list (datum-vector-items value) depth) ())))
     ((datum-symbol? value) (quote-node value))
+    ((datum-keyword? value) (cons 205 (datum-keyword-name value)))
     ((datum-string? value) (quote-node value))
     ((datum-char? value) (quote-node value))
     ((datum-bytevector? value) (quote-node value))
@@ -152,12 +154,18 @@
   (if (null? values)
       (quote-node ())
       (if (pair-shape? values)
-          (let ((item (lower-quasiquote (car values) depth)))
-            (let ((rest (lower-quasiquote-list (cdr values) depth)))
-              (if (splice-node? item)
-                  (call-node "append"
-                    (cons (car (cdr item)) (cons rest ())))
-                  (call-node "cons" (cons item (cons rest ()))))))
+          ; `(a . ,b) reads as the proper list (a unquote b), so an unquote
+          ; form in the cdr is the dotted-tail case, not two list elements.
+          (if (raw-form? values "unquote")
+              (lower-quasiquote values depth)
+              (if (raw-form? values "unquote-splicing")
+                  (fatal "unquote-splicing in dotted tail")
+                  (let ((item (lower-quasiquote (car values) depth)))
+                    (let ((rest (lower-quasiquote-list (cdr values) depth)))
+                      (if (splice-node? item)
+                          (call-node "append"
+                            (cons (car (cdr item)) (cons rest ())))
+                          (call-node "cons" (cons item (cons rest ()))))))))
           (let ((tail (lower-quasiquote values depth)))
             (if (splice-node? tail)
                 (fatal "unquote-splicing in dotted tail")

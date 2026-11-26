@@ -70,6 +70,7 @@
       (if (number? (car x)) (= (car x) 101) #f)
       #f))
 
+(define DATUM-KEYWORD-TAG '(_datum_keyword_tag_))
 (define DATUM-STRING-TAG '(_datum_string_tag_))
 (define DATUM-CHAR-TAG '(_datum_char_tag_))
 (define DATUM-VECTOR-TAG '(_datum_vector_tag_))
@@ -81,6 +82,7 @@
   (if (pair-shape? value) (eq? (car value) tag) #f))
 
 (define (datum-symbol name) (cons DATUM-SYMBOL-TAG name))
+(define (datum-keyword name) (cons DATUM-KEYWORD-TAG name))
 (define (datum-string text) (cons DATUM-STRING-TAG text))
 (define (datum-char code) (cons DATUM-CHAR-TAG code))
 (define (datum-vector items) (cons DATUM-VECTOR-TAG items))
@@ -89,6 +91,7 @@
 (define (datum-false) (cons DATUM-FALSE-TAG ()))
 
 (define (datum-symbol? value) (datum-tagged? value DATUM-SYMBOL-TAG))
+(define (datum-keyword? value) (datum-tagged? value DATUM-KEYWORD-TAG))
 (define (datum-string? value) (datum-tagged? value DATUM-STRING-TAG))
 (define (datum-char? value) (datum-tagged? value DATUM-CHAR-TAG))
 (define (datum-vector? value) (datum-tagged? value DATUM-VECTOR-TAG))
@@ -98,6 +101,7 @@
 (define (datum-false? value) (datum-tagged? value DATUM-FALSE-TAG))
 
 (define (datum-symbol-name value) (cdr value))
+(define (datum-keyword-name value) (cdr value))
 (define (datum-string-text value) (cdr value))
 (define (datum-char-code value) (cdr value))
 (define (datum-vector-items value) (cdr value))

@@ -1,0 +1,26 @@
+#!srfi-88
+
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl format)
+        (npl keyword))
+
+(include "framework.npl")
+
+(define (main)
+  (test-identity "keyword predicate" (lambda () (keyword? 'foo:)) #t)
+  (test-identity "keyword is not a symbol" (lambda () (symbol? 'foo:)) #f)
+  (test-identity "hash syntax is the same keyword"
+                 (lambda () (eq? #:foo 'foo:)) #t)
+  (test-identity "barred spelling is a symbol"
+                 (lambda () (symbol? '|foo:|)) #t)
+  (test-identity "barred spelling is not a keyword"
+                 (lambda () (keyword? '|foo:|)) #f)
+  (test-equal "keyword->string" (lambda () (keyword->string 'foo:)) "foo")
+  (test-equal "string->keyword writes keyword syntax"
+              (lambda () (format #f "~s" (string->keyword "bar")))
+              "#:bar")
+  (test-equal "write keyword" (lambda () (format #f "~s" #:baz)) "#:baz")
+  (finish-tests "srfi-88"))
+(main)

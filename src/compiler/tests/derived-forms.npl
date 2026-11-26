@@ -99,5 +99,13 @@
                       (loop 1))
                   (+ (+ (or #f value) loop) 2)))
               42)
+  (test-equal "quasiquote dotted-tail unquote"
+              (lambda ()
+                (let ((b 42)) (cdr `(a . ,b))))
+              42)
+  (test-equal "quasiquote dotted-tail expression"
+              (lambda ()
+                (let ((b 40)) (cdr `(a . ,(+ b 2)))))
+              42)
   (finish-tests "derived-forms"))
 (main)

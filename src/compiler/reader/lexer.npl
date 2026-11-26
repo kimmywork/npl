@@ -48,6 +48,20 @@
       (if (eq? value #f) (fatal "invalid radix number"))
       (lex-loop s j (cons (cons 5 value) acc)))))
 
+(define LEX-SRFI-88 (cell #f))
+
+(define (symbol-token nm)
+  ; SRFI 88 trailing-colon keywords are opt-in; #:foo is always a keyword.
+  ; |foo:| is handled by the bar-symbol token path.
+  (let ((length (string-length nm)))
+    (if (if (cell-get LEX-SRFI-88)
+            (if (> length 1)
+                (= (string-byte-ref nm (- length 1)) 58)
+                #f)
+            #f)
+        (cons 23 (substring nm 0 (- length 1)))
+        (cons 4 nm))))
+
 (define (push-symbol s i acc)
   (let ((j (sym-run-end s i)))
     (let ((nm (substring s i j)))
@@ -57,13 +71,17 @@
                     (if (< (+ i 1) j) (lex-cls? (string-byte-ref s (+ i 1)) 6) #f)
                     #f)
                 (fatal "invalid exact number")
-                (lex-loop s j (cons (cons 4 nm) acc)))
+                (lex-loop s j (cons (symbol-token nm) acc)))
             (lex-loop s j (cons (cons 5 value) acc)))))))
 
 (define (step-token s i acc)
   (cond
     ((lex-cls? (string-byte-ref s i) 0) (lex-loop s (+ i 1) acc))
     ((lex-cls? (string-byte-ref s i) 1) (lex-comment s i acc))
+    ((= (string-byte-ref s i) 123)
+     (lex-loop s (+ i 1) (cons (cons 24 ()) acc)))
+    ((= (string-byte-ref s i) 125)
+     (lex-loop s (+ i 1) (cons (cons 25 ()) acc)))
     ((lex-cls? (string-byte-ref s i) 2)
      (lex-loop s (+ i 1)
        (cons (cons (if (= (string-byte-ref s i) 91) 21 1) ()) acc)))
@@ -90,6 +108,34 @@
          (push-number s i acc)))
     (else (do-bad-char s i))))
 
+; #!curly-infix and the other reader directives are markers, not data.
+(define (lex-directive-end s i)
+  (if (< i (string-length s))
+      (let ((code (string-byte-ref s i)))
+        (if (if (= code 10)
+                #t
+                (if (= code 13)
+                    #t
+                    (if (= code 32) #t (= code 9))))
+            i
+            (lex-directive-end s (+ i 1))))
+      i))
+
+(define (lex-hash-directive s i acc)
+  (if (if (< i (string-length s))
+          (let ((code (string-byte-ref s i)))
+            (if (= code 32) #t (if (= code 47) #t (= code 46))))
+          #f)
+      (do-bad-char s (- i 1))
+      (let ((end (lex-directive-end s i)))
+        (let ((name (substring s i end)))
+          (if (string=? name "srfi-88")
+              (cell-set! LEX-SRFI-88 #t)
+              (if (string=? name "no-srfi-88")
+                  (cell-set! LEX-SRFI-88 #f)
+                  #f)))
+        (lex-loop s end acc))))
+
 (define (lex-hash s j acc)
   (if (not (< j (string-length s))) (fatal "bad # syntax"))
   (case (string-byte-ref s j)
@@ -102,6 +148,11 @@
     ((59) (lex-loop s (+ j 1) (cons (cons 18 ()) acc)))
     ((40) (lex-loop s (+ j 1) (cons (cons 14 ()) acc)))
     ((117) (lex-bytevector-open s j acc))
+    ((58)
+     (let ((end (sym-run-end s (+ j 1))))
+       (if (= end (+ j 1)) (fatal "keyword name is empty"))
+       (lex-loop s end (cons (cons 23 (substring s (+ j 1) end)) acc))))
+    ((33) (lex-hash-directive s (+ j 1) acc))
     (else
       (if (lex-cls? (string-byte-ref s j) 6)
           (lex-array-or-label s j acc)

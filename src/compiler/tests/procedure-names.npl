@@ -1,0 +1,27 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl format))
+
+(include "framework.npl")
+
+(define (top-level-procedure x) x)
+
+(define (main)
+  (test-equal "top-level procedure name"
+              (lambda () (format #f "~s" top-level-procedure))
+              "#<procedure top-level-procedure>")
+  (test-equal "primitive procedure name"
+              (lambda () (format #f "~s" car))
+              "#<procedure car>")
+  (test-equal "library procedure name"
+              (lambda () (format #f "~s" map))
+              "#<procedure scheme/base:map>")
+  (test-equal "anonymous procedure"
+              (lambda () (format #f "~s" (lambda (x) x)))
+              "#<procedure>")
+  (test-equal "parameter"
+              (lambda () (format #f "~s" (make-parameter 1)))
+              "#<parameter>")
+  (finish-tests "procedure-names"))
+(main)

@@ -104,6 +104,9 @@ SRFI 149 的模板扩展同样在语言核心中实现，并提供 `srfi-149`、
 
 - [SRFI 2: AND-LET*](srfi-2.html)
 - [SRFI 26: Notation for Specializing Parameters without Currying](srfi-26.html)
+- [SRFI 88: Keyword objects](srfi-88.html)
+- [SRFI 89: Optional positional and named parameters](srfi-89.html)
+- [SRFI 105: Curly-infix-expressions](srfi-105.html)
 
 ### Runtime / I/O
 

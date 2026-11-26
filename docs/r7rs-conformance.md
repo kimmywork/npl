@@ -123,8 +123,9 @@ status:
 | Area | Status | Route, if wanted |
 |---|---|---|
 | Object system, classes, generic methods | absent | no mainstream SRFI; SRFI 20 is dormant; NPL route is records + dispatch (see [extending](extending.md)) |
-| Keyword arguments (`#:key`) | absent | SRFI 88 (keyword objects), SRFI 89 (named/optional parameters), SRFI 177 (portable keyword arguments) |
-| Default-valued optional parameters | absent (rest args and `case-lambda` exist) | SRFI 89, or `case-lambda` |
+| Keyword arguments | **implemented** as NPL extensions: SRFI 88 keyword objects, SRFI 89 `define*`/`lambda*`, and Guile-style `#:optional`/`#:key` aliases. `#:foo` is always available; the trailing-colon `foo:` spelling is enabled by `#!srfi-88`. | SRFI 88 / SRFI 89 |
+| Default-valued optional parameters | **implemented** by SRFI 89 `define*`/`lambda*`; `case-lambda` remains available | — |
+| Curly-infix expressions | **implemented** core `{...}` in both readers; neoteric `f(x)`/`e[...]` and a precedence handler remain follow-up work | SRFI 105 |
 | Records: inheritance, `#:guard`, opaque, prefab | absent (all records transparent, generative) | SRFI 99 / SRFI 256 |
 | `filter`, `fold`, `partition`, `sort` | **implemented** in `(npl list)` / `(srfi 1)` and `(npl sort)` / `(srfi 132)` / `(srfi 95)` | — |
 | `string-split`, `string-join`, `string-trim` | **implemented** in `(npl string)` / `(srfi 13)`, `(npl string cursor)` / `(srfi 130)`, and `(npl string immutable)` / `(srfi 140)` | SRFI 152 (`string-split` is also in SRFI 130) |
@@ -137,6 +138,16 @@ status:
 
 Adding any of these follows [extending](extending.md); most need no compiler
 change and no seed relay.
+
+### SRFI 88 lexical note
+
+`#:foo` keyword syntax is always available. SRFI 88's trailing-colon
+spelling is opt-in: after `#!srfi-88`, a token ending in `:` (except `:`
+itself) is a keyword object, not a symbol, and R7RS code that uses such an
+identifier as a symbol must spell it with bars, `|foo:|`. `#!no-srfi-88`
+returns to symbol reading. This keeps existing R7RS identifiers such as
+import prefixes (`b:`) working by default while supporting SRFI 88 source
+when requested.
 
 ## What "frozen" means
 

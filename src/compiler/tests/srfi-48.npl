@@ -1,0 +1,43 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl format))
+
+(include "framework.npl")
+
+(define (main)
+  (test-equal "format display and write"
+              (lambda () (format "~a ~s" "hi" "hi"))
+              "hi \"hi\"")
+  (test-equal "format decimal"
+              (lambda () (format "~d" 42))
+              "42")
+  (test-equal "format radix"
+              (lambda () (format "~x ~o ~b" 255 8 5))
+              "ff 10 101")
+  (test-equal "format tilde and newline"
+              (lambda () (format "~~ ~%"))
+              "~ \n")
+  (test-equal "format freshline"
+              (lambda () (format "a~&b"))
+              "a\nb")
+  (test-equal "format fixed width"
+              (lambda () (format "~6F" 32))
+              "    32")
+  (test-equal "format fixed digits"
+              (lambda () (format "~8,2F" 32))
+              "   32.00")
+  (test-equal "format character"
+              (lambda () (format "~c" #\A))
+              "A")
+  (test-equal "format indirection"
+              (lambda () (format "~?" "~a-~a" '(1 2)))
+              "1-2")
+  (test-equal "format to port"
+              (lambda ()
+                (let ((port (open-output-string)))
+                  (format port "~a" 42)
+                  (get-output-string port)))
+              "42")
+  (finish-tests "srfi-48"))
+(main)

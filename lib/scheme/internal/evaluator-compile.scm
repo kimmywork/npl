@@ -143,9 +143,13 @@
                                  value))
         (else (lambda (frame) (error "eval: immutable binding")))))))
 
-(define (eval-global-definition cell value)
+(define (eval-global-definition cell value name)
   (lambda (frame)
-    (set-car! cell (value frame))))
+    (let ((value (value frame)))
+      (if (procedure? value)
+          (npl_closure_set_name value (string->symbol name))
+          #f)
+      (set-car! cell value))))
 
 ; Definitions reach the compiler only at top level: the frontend turns
 ; internal ones into letrec* (core-body-expression).
@@ -153,7 +157,8 @@
   (cond
     ((pair? scope) (error "eval: definition in expression context"))
     ((eval-environment-mutable? environment)
-     (eval-global-definition (eval-environment-cell environment name) value))
+     (eval-global-definition (eval-environment-cell environment name) value
+                             name))
     (else (lambda (frame) (error "eval: immutable environment")))))
 
 (define (eval-compile-define form scope environment)
@@ -553,6 +558,7 @@
     ((= tag 108) (eval-constant #t))
     ((= tag 109) (eval-constant #f))
     ((= tag 110) (eval-constant EVAL-UNSPECIFIED))
+    ((= tag 205) (eval-constant (string->keyword (cdr form))))
     ((= tag 204) (eval-literal (frontend-datum->runtime (car (cdr form)))))
     ((= tag 200) (eval-compile-define form scope environment))
     ((= tag 211) (eval-compile-define-function form scope environment))

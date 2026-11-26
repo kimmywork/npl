@@ -27,6 +27,7 @@
   (include "../../../src/compiler/frontend/syntax-eval-syntax.npl")
   (include "../../../src/compiler/frontend/syntax-primitives.npl")
   (include "../../../src/compiler/frontend/expand.npl")
+  (include "../../../src/compiler/frontend/keyword-args.npl")
   (include "../../../src/compiler/frontend/expand-values.npl")
   (include "../../../src/compiler/frontend/expand-record.npl")
   (include "../../../src/compiler/frontend/expand-match.npl")
@@ -275,6 +276,8 @@
         ((null? datum) ())
         ((datum-symbol? datum)
          (frontend-runtime-symbol (datum-symbol-name datum)))
+        ((datum-keyword? datum)
+         (string->keyword (datum-keyword-name datum)))
         ; A copy: the evaluator marks constants immutable
         ; (evaluator-compile.scm eval-literal), and the datum's text belongs
         ; to the frontend.
