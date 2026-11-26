@@ -192,6 +192,53 @@ static void check_fxboxes(void)
     npl_gc_unroot(&box);
 }
 
+static void check_orders(void)
+{
+    for (int order = 0; order <= 4; order++) {
+        NplVal ord = npl_fixnum(order);
+        NplVal flag = npl_atomic_flag_make();
+        NplVal box = npl_atomic_box_make(npl_fixnum(1));
+        NplVal fx = npl_atomic_fxbox_make(npl_fixnum(1));
+        NplVal pair = npl_atomic_pair_make(npl_fixnum(1), npl_fixnum(2));
+        npl_gc_root(&flag);
+        npl_gc_root(&box);
+        npl_gc_root(&fx);
+        npl_gc_root(&pair);
+        CHECK(npl_atomic_flag_test_and_set(flag, ord) == npl_false(),
+              "flag test-and-set under every order");
+        CHECK(npl_atomic_flag_test_and_set(flag, ord) == npl_true(),
+              "flag previous state under every order");
+        (void)npl_atomic_flag_clear(flag, ord);
+        CHECK(npl_atomic_box_ref(box, ord) == npl_fixnum(1),
+              "box ref under every order");
+        CHECK(npl_atomic_box_swap(box, npl_fixnum(2), ord) == npl_fixnum(1),
+              "box swap under every order");
+        CHECK(npl_atomic_box_compare_and_swap(box, npl_fixnum(2),
+                                              npl_fixnum(3), ord) ==
+              npl_fixnum(2), "box CAS under every order");
+        CHECK(npl_atomic_fxbox_add_fetch(fx, npl_fixnum(2), ord) ==
+              npl_fixnum(1), "fxbox fetch under every order");
+        CHECK(npl_atomic_fxbox_compare_and_swap(fx, npl_fixnum(3),
+                                                npl_fixnum(4), ord) ==
+              npl_fixnum(3), "fxbox CAS under every order");
+        NplVal snapshot = npl_atomic_pair_ref(pair, ord);
+        CHECK(value_at(snapshot, 0) == npl_fixnum(1) &&
+              value_at(snapshot, 1) == npl_fixnum(2),
+              "pair ref under every order");
+        NplVal swapped = npl_atomic_pair_swap(pair, npl_fixnum(3),
+                                              npl_fixnum(4), ord);
+        CHECK(value_at(swapped, 0) == npl_fixnum(1) &&
+              value_at(swapped, 1) == npl_fixnum(2),
+              "pair swap under every order");
+        CHECK(npl_atomic_fence(ord) == npl_unspecified(),
+              "fence under every order");
+        npl_gc_unroot(&pair);
+        npl_gc_unroot(&fx);
+        npl_gc_unroot(&box);
+        npl_gc_unroot(&flag);
+    }
+}
+
 static void check_pairs(void)
 {
     NplVal pair = npl_atomic_pair_make(npl_fixnum(1), npl_fixnum(2));
@@ -655,6 +702,7 @@ int main(void)
     check_flags();
     check_boxes();
     check_fxboxes();
+    check_orders();
     check_pairs();
     check_gc_edges();
     check_counter_contention();

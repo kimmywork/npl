@@ -24,6 +24,7 @@
 #include "thread.h"
 #include <pthread.h>
 #include <sched.h>
+#include <stdlib.h>
 
 #define NPL_ATOMIC_RELAXED 0
 #define NPL_ATOMIC_ACQUIRE 1
@@ -80,6 +81,79 @@ static int64_t fixnum_argument(NplVal value, const char *who)
     if (!npl_is_fixnum(value))
         npl_primitive_error(who, "expected a fixnum", value);
     return npl_fixnum_value(value);
+}
+
+/* T3-D: scalar operations with a weaker-than-sequentially-consistent order
+ * use per-location C11-style atomics.  Sequentially consistent operations
+ * stay in the common locked domain, as do pair operations and fences, so the
+ * public default still has one total order across every object kind.  Set
+ * NPL_ATOMIC_FORCE_LOCKED to compare against the T3-A/B reference path. */
+static int fast_path_enabled(void)
+{
+    static int cached = -1;
+    int value = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+    if (value < 0) {
+        const char *text = getenv("NPL_ATOMIC_FORCE_LOCKED");
+        value = (text && *text) ? 0 : 1;
+        __atomic_store_n(&cached, value, __ATOMIC_RELAXED);
+    }
+    return value;
+}
+
+static int c_load_order(int order)
+{
+    switch (order) {
+    case NPL_ATOMIC_RELAXED: return __ATOMIC_RELAXED;
+    case NPL_ATOMIC_ACQUIRE: return __ATOMIC_ACQUIRE;
+    /* No direct "release load": strengthen the requested order. */
+    case NPL_ATOMIC_RELEASE: return __ATOMIC_SEQ_CST;
+    case NPL_ATOMIC_ACQUIRE_RELEASE: return __ATOMIC_SEQ_CST;
+    default: return __ATOMIC_SEQ_CST;
+    }
+}
+
+static int c_store_order(int order)
+{
+    switch (order) {
+    case NPL_ATOMIC_RELAXED: return __ATOMIC_RELAXED;
+    /* No direct "acquire store": strengthen the requested order. */
+    case NPL_ATOMIC_ACQUIRE: return __ATOMIC_SEQ_CST;
+    case NPL_ATOMIC_RELEASE: return __ATOMIC_RELEASE;
+    case NPL_ATOMIC_ACQUIRE_RELEASE: return __ATOMIC_SEQ_CST;
+    default: return __ATOMIC_SEQ_CST;
+    }
+}
+
+static int c_rmw_order(int order)
+{
+    switch (order) {
+    case NPL_ATOMIC_RELAXED: return __ATOMIC_RELAXED;
+    case NPL_ATOMIC_ACQUIRE: return __ATOMIC_ACQUIRE;
+    case NPL_ATOMIC_RELEASE: return __ATOMIC_RELEASE;
+    case NPL_ATOMIC_ACQUIRE_RELEASE: return __ATOMIC_ACQ_REL;
+    default: return __ATOMIC_SEQ_CST;
+    }
+}
+
+static int c_cas_failure_order(int order)
+{
+    switch (order) {
+    case NPL_ATOMIC_RELAXED: return __ATOMIC_RELAXED;
+    case NPL_ATOMIC_ACQUIRE: return __ATOMIC_ACQUIRE;
+    /* A release RMW has a relaxed failure order. */
+    case NPL_ATOMIC_RELEASE: return __ATOMIC_RELAXED;
+    case NPL_ATOMIC_ACQUIRE_RELEASE: return __ATOMIC_ACQUIRE;
+    default: return __ATOMIC_SEQ_CST;
+    }
+}
+
+/* Sequentially consistent operations share the locked domain; the other
+ * orders may use the per-location fast path unless the reference path was
+ * requested. */
+static int use_fast_path(int order)
+{
+    return order != NPL_ATOMIC_SEQUENTIALLY_CONSISTENT &&
+           fast_path_enabled();
 }
 
 static NplAtomicFlag *flag_argument(NplVal value, const char *who)
@@ -178,21 +252,30 @@ NplVal npl_atomic_flag_p(NplVal value)
 NplVal npl_atomic_flag_test_and_set(NplVal value, NplVal order)
 {
     NplAtomicFlag *flag = flag_argument(value, "atomic-flag-test-and-set!");
-    (void)order_code(order, "atomic-flag-test-and-set!");
-    atomic_lock();
-    int previous = flag->value;
-    flag->value = 1;
-    atomic_unlock();
+    int code = order_code(order, "atomic-flag-test-and-set!");
+    int previous;
+    if (use_fast_path(code)) {
+        previous = __atomic_exchange_n(&flag->value, 1, c_rmw_order(code));
+    } else {
+        atomic_lock();
+        previous = flag->value;
+        flag->value = 1;
+        atomic_unlock();
+    }
     return previous ? npl_true() : npl_false();
 }
 
 NplVal npl_atomic_flag_clear(NplVal value, NplVal order)
 {
     NplAtomicFlag *flag = flag_argument(value, "atomic-flag-clear!");
-    (void)order_code(order, "atomic-flag-clear!");
-    atomic_lock();
-    flag->value = 0;
-    atomic_unlock();
+    int code = order_code(order, "atomic-flag-clear!");
+    if (use_fast_path(code))
+        __atomic_store_n(&flag->value, 0, c_store_order(code));
+    else {
+        atomic_lock();
+        flag->value = 0;
+        atomic_unlock();
+    }
     return npl_unspecified();
 }
 
@@ -216,7 +299,9 @@ NplVal npl_atomic_box_p(NplVal value)
 NplVal npl_atomic_box_ref(NplVal value, NplVal order)
 {
     NplAtomicBox *box = box_argument(value, "atomic-box-ref");
-    (void)order_code(order, "atomic-box-ref");
+    int code = order_code(order, "atomic-box-ref");
+    if (use_fast_path(code))
+        return __atomic_load_n(&box->value, c_load_order(code));
     atomic_lock();
     NplVal result = box->value;
     atomic_unlock();
@@ -226,17 +311,28 @@ NplVal npl_atomic_box_ref(NplVal value, NplVal order)
 NplVal npl_atomic_box_set(NplVal value, NplVal object, NplVal order)
 {
     NplAtomicBox *box = box_argument(value, "atomic-box-set!");
-    (void)order_code(order, "atomic-box-set!");
-    atomic_lock();
-    store_box(box, object);
-    atomic_unlock();
+    int code = order_code(order, "atomic-box-set!");
+    if (use_fast_path(code)) {
+        __atomic_store_n(&box->value, object, c_store_order(code));
+        npl_gc_write_barrier_atomic(&box->header, object);
+    } else {
+        atomic_lock();
+        store_box(box, object);
+        atomic_unlock();
+    }
     return npl_unspecified();
 }
 
 NplVal npl_atomic_box_swap(NplVal value, NplVal object, NplVal order)
 {
     NplAtomicBox *box = box_argument(value, "atomic-box-swap!");
-    (void)order_code(order, "atomic-box-swap!");
+    int code = order_code(order, "atomic-box-swap!");
+    if (use_fast_path(code)) {
+        NplVal previous = __atomic_exchange_n(&box->value, object,
+                                              c_rmw_order(code));
+        npl_gc_write_barrier_atomic(&box->header, object);
+        return previous;
+    }
     atomic_lock();
     NplVal previous = box->value;
     store_box(box, object);
@@ -248,7 +344,15 @@ NplVal npl_atomic_box_compare_and_swap(NplVal value, NplVal expected,
                                        NplVal desired, NplVal order)
 {
     NplAtomicBox *box = box_argument(value, "atomic-box-compare-and-swap!");
-    (void)order_code(order, "atomic-box-compare-and-swap!");
+    int code = order_code(order, "atomic-box-compare-and-swap!");
+    if (use_fast_path(code)) {
+        NplVal actual = expected;
+        if (__atomic_compare_exchange_n(&box->value, &actual, desired, 0,
+                                        c_rmw_order(code),
+                                        c_cas_failure_order(code)))
+            npl_gc_write_barrier_atomic(&box->header, desired);
+        return actual;
+    }
     atomic_lock();
     NplVal actual = box->value;
     if (actual == expected)
@@ -278,7 +382,9 @@ NplVal npl_atomic_fxbox_p(NplVal value)
 NplVal npl_atomic_fxbox_ref(NplVal value, NplVal order)
 {
     NplAtomicFxbox *box = fxbox_argument(value, "atomic-fxbox-ref");
-    (void)order_code(order, "atomic-fxbox-ref");
+    int code = order_code(order, "atomic-fxbox-ref");
+    if (use_fast_path(code))
+        return npl_fixnum(__atomic_load_n(&box->value, c_load_order(code)));
     atomic_lock();
     int64_t result = box->value;
     atomic_unlock();
@@ -289,10 +395,14 @@ NplVal npl_atomic_fxbox_set(NplVal value, NplVal object, NplVal order)
 {
     NplAtomicFxbox *box = fxbox_argument(value, "atomic-fxbox-set!");
     int64_t desired = fixnum_argument(object, "atomic-fxbox-set!");
-    (void)order_code(order, "atomic-fxbox-set!");
-    atomic_lock();
-    box->value = desired;
-    atomic_unlock();
+    int code = order_code(order, "atomic-fxbox-set!");
+    if (use_fast_path(code)) {
+        __atomic_store_n(&box->value, desired, c_store_order(code));
+    } else {
+        atomic_lock();
+        box->value = desired;
+        atomic_unlock();
+    }
     return npl_unspecified();
 }
 
@@ -300,7 +410,10 @@ NplVal npl_atomic_fxbox_swap(NplVal value, NplVal object, NplVal order)
 {
     NplAtomicFxbox *box = fxbox_argument(value, "atomic-fxbox-swap!");
     int64_t desired = fixnum_argument(object, "atomic-fxbox-swap!");
-    (void)order_code(order, "atomic-fxbox-swap!");
+    int code = order_code(order, "atomic-fxbox-swap!");
+    if (use_fast_path(code))
+        return npl_fixnum(__atomic_exchange_n(&box->value, desired,
+                                             c_rmw_order(code)));
     atomic_lock();
     int64_t previous = box->value;
     box->value = desired;
@@ -317,7 +430,14 @@ NplVal npl_atomic_fxbox_compare_and_swap(NplVal value, NplVal expected,
         "atomic-fxbox-compare-and-swap!");
     int64_t desired_fx = fixnum_argument(desired,
         "atomic-fxbox-compare-and-swap!");
-    (void)order_code(order, "atomic-fxbox-compare-and-swap!");
+    int code = order_code(order, "atomic-fxbox-compare-and-swap!");
+    if (use_fast_path(code)) {
+        int64_t actual = expected_fx;
+        (void)__atomic_compare_exchange_n(&box->value, &actual, desired_fx, 0,
+                                          c_rmw_order(code),
+                                          c_cas_failure_order(code));
+        return npl_fixnum(actual);
+    }
     atomic_lock();
     int64_t actual = box->value;
     if (actual == expected_fx)
@@ -326,48 +446,62 @@ NplVal npl_atomic_fxbox_compare_and_swap(NplVal value, NplVal expected,
     return npl_fixnum(actual);
 }
 
+static int fxbox_next(int64_t previous, int64_t operand, int operation,
+                      int64_t *next)
+{
+    switch (operation) {
+    case 0:
+        return add_checked(previous, operand, next);
+    case 1:
+        return subtract_checked(previous, operand, next);
+    case 2:
+        *next = (int64_t)((uint64_t)previous & (uint64_t)operand);
+        return in_fixnum_range(*next);
+    case 3:
+        *next = (int64_t)((uint64_t)previous | (uint64_t)operand);
+        return in_fixnum_range(*next);
+    default:
+        *next = (int64_t)((uint64_t)previous ^ (uint64_t)operand);
+        return in_fixnum_range(*next);
+    }
+}
+
 static NplVal fxbox_update(NplVal value, NplVal object, NplVal order,
                            int operation, const char *who)
 {
     NplAtomicFxbox *box = fxbox_argument(value, who);
     int64_t operand = fixnum_argument(object, who);
-    (void)order_code(order, who);
+    int code = order_code(order, who);
     int overflow = 0;
     int64_t previous;
+
+    if (use_fast_path(code)) {
+        previous = __atomic_load_n(&box->value, c_load_order(code));
+        for (;;) {
+            int64_t next;
+            if (!fxbox_next(previous, operand, operation, &next)) {
+                overflow = 1;
+                break;
+            }
+            int64_t actual = previous;
+            if (__atomic_compare_exchange_n(&box->value, &actual, next, 0,
+                                            c_rmw_order(code),
+                                            c_cas_failure_order(code))) {
+                previous = actual;
+                break;
+            }
+            previous = actual;   /* observed current value; retry */
+        }
+        if (overflow)
+            npl_primitive_error(who, "fixnum overflow", npl_fixnum(operand));
+        return npl_fixnum(previous);
+    }
+
     atomic_lock();
     previous = box->value;
-    switch (operation) {
-    case 0: {
-        int64_t next;
-        if (add_checked(previous, operand, &next)) box->value = next;
-        else overflow = 1;
-        break;
-    }
-    case 1: {
-        int64_t next;
-        if (subtract_checked(previous, operand, &next)) box->value = next;
-        else overflow = 1;
-        break;
-    }
-    case 2: {
-        int64_t next = (int64_t)((uint64_t)previous & (uint64_t)operand);
-        if (in_fixnum_range(next)) box->value = next;
-        else overflow = 1;
-        break;
-    }
-    case 3: {
-        int64_t next = (int64_t)((uint64_t)previous | (uint64_t)operand);
-        if (in_fixnum_range(next)) box->value = next;
-        else overflow = 1;
-        break;
-    }
-    default: {
-        int64_t next = (int64_t)((uint64_t)previous ^ (uint64_t)operand);
-        if (in_fixnum_range(next)) box->value = next;
-        else overflow = 1;
-        break;
-    }
-    }
+    int64_t next;
+    if (fxbox_next(previous, operand, operation, &next)) box->value = next;
+    else overflow = 1;
     atomic_unlock();
     if (overflow)
         npl_primitive_error(who, "fixnum overflow", npl_fixnum(operand));

@@ -255,3 +255,15 @@ target_compile_options(atomic_test PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
 set_target_properties(atomic_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
+
+# T3-D measurement probe: locked reference vs weak-order scalar fast paths.
+add_executable(atomic_bench
+  ${RUNTIME_SRC_DIR}/atomic_bench.c
+  ${RUNTIME_SRC_DIR}/standalone-slots.c
+)
+target_include_directories(atomic_bench PRIVATE ${RUNTIME_SRC_DIR})
+target_link_libraries(atomic_bench PRIVATE npl_runtime)
+target_compile_options(atomic_bench PRIVATE
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+set_target_properties(atomic_bench PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)

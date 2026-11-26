@@ -41,13 +41,29 @@ and swap also return two values from one indivisible snapshot. All five
 
 ## Ordering and implementation status
 
-The T3 reference implementation serializes **all** public operations,
-including fences, through one dedicated atomic-domain mutex. It therefore
-deliberately provides sequentially-consistent behavior for every requested
-order and one total order across flags, boxes, fixnum boxes and pairs. It is
-not a lock-free implementation and makes no lock-free progress guarantee. A
-blocked pipe, port or symbol-table operation cannot stop an unrelated atomic
-counter: this lock domain is separate from the runtime's shared-object lock.
+The initial T3 reference implementation serialized **all** public operations,
+including fences, through one dedicated atomic-domain mutex. T3-D keeps that
+domain for sequentially consistent operations, pair operations and fences, but
+gives scalar flag/box/fixnum-box operations with `relaxed`, `acquire`,
+`release` or `acquire-release` a per-location `__atomic_*` fast path. The
+mapping follows the design table: loads strengthen an unavailable release
+order to sequentially consistent, stores strengthen acquire, CAS failure uses
+relaxed for a release RMW, and so on.
+
+The mixed-domain argument is:
+
+- every sequentially consistent scalar operation, every pair operation and
+  every fence uses the same locked domain, so the public default still has one
+  total order across all object kinds;
+- weaker scalar operations are only promised their C11 acquire/release or
+  relaxed semantics on that location, not membership in the sequentially
+  consistent total order (SRFI 230 does not promise one for weaker orders);
+- a pair is always one lock, never two independent word stores;
+- pointer stores still complete their remembered-set publication before the
+  next safepoint or blocked transition.
+
+`NPL_ATOMIC_FORCE_LOCKED=1` selects the all-locked reference path for
+comparison.
 
 The mutex is acquired with trylock plus a safepoint poll, so a world stop never
 waits on a thread blocked in `pthread_mutex_lock`. The critical section never
@@ -56,9 +72,20 @@ order validation happen before the lock; arithmetic range failure is recorded
 inside and raised after release. A lock waiter can therefore be cancelled at
 its next safepoint without leaving the atomic domain locked.
 
-T3-D may specialize scalar operations with the C11/compiler atomic boundary
-and retain the locked path as a reference. Until then, every order selects the
-same stronger implementation.
+`runtime/atomic_bench.c` is a small measurement probe, not the repository
+benchmark runner. A representative macOS arm64 run (`5,000,000` scalar ops,
+`1,000,000` pair swaps) gave roughly:
+
+| Operation | Weak-order fast path | Forced locked |
+|---|---:|---:|
+| `box-ref` relaxed | 2.5 ns/op | 6.7 ns/op |
+| `box-swap!` relaxed | 4.2 ns/op | 7.8 ns/op |
+| `fxbox+/fetch!` relaxed | 5.0 ns/op | 7.0 ns/op |
+| flag set+clear relaxed | 5.7 ns/op | 13.5 ns/op |
+| pair swap (always locked) | ~50 ns/op | ~50 ns/op |
+
+These are process-level probes, not the B6/B7 matrix or a general throughput
+claim. Optional pair specialization remains future work.
 
 ## Fixnum range policy
 
@@ -90,8 +117,11 @@ under `NPL_GC_NURSERY_BYTES=65536 NPL_GC_VERIFY=100`.
   release/acquire publication, and native/virtual workers on M=1 and M=4
   carriers.
 - `runtime/atomic_test.c` — C substrate, pair snapshots, publication,
-  concurrent collector races, failed-CAS retention and GC barriers.
+  concurrent collector races, failed-CAS retention and GC barriers; it runs
+  with both the fast-path and `NPL_ATOMIC_FORCE_LOCKED=1` configurations.
+- `runtime/atomic_bench.c` — T3-D locked-versus-fast measurement probe.
 
 The implementation is host-executed on macOS arm64; the repository CI Linux
-gate also passed for the T3-A/B/C revision. T3-D fast-path measurements remain
-future evidence.
+gate also passed for the T3-A/B/C revision. The T3-D weak-order paths are
+measured with the probe above; the full B6/B7 benchmark matrix and optional
+pair specialization remain future evidence.
