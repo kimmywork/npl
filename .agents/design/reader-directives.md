@@ -1,116 +1,32 @@
-# Reader Directives and Reader Extensions
+# Reader Directives
 
-Status: **implemented subset**. Simple directives, parenthesized
-`#!(name args...)`, and the `npl` language profile are implemented in both
-readers. Additional profiles and general datum arguments in the compiler
-remain follow-up work.
+Status: **implemented**. This document is the settled contract for `#!`
+reader directives. Language profiles are out of scope.
 
-## Why this document
+## Scope
 
-NPL has accumulated several `#!` markers:
-
-- R7RS `#!fold-case` / `#!no-fold-case`
-- SRFI 105 `#!curly-infix`
-- SRFI 88 `#!srfi-88` and the canonical `#!colon-keyword`
-
-They started as one-off lexer switches. That is enough for the primer, but
-it is not a good long-term reader-extension design. In particular:
-
-- `#!curly-infix` currently gates only the neoteric forms; core `{...}` is
-  always accepted.
-- `#!srfi-88` is named after a standard but is really a source-level
-  feature flag, and the trailing-colon spelling breaks R7RS identifiers
-  such as the common import prefix `b:`.
-- The compiler reader and the runtime reader have separate directive
-  implementations and have already diverged in error handling.
-- A global lexer switch is not the right state model for a reader that can
-  read multiple files or ports in one process.
-
-The goal is a small, explicit reader-options system: directives are
-composable, per port/source, validated, and can grow into a Racket-style
-`#lang`-like extension point without changing the `#!` surface each time.
-
-## Current behavior (interim)
-
-The current implementation:
-
-- both readers recognize `#!fold-case`, `#!no-fold-case`,
-  `#!curly-infix`, `#!srfi-88`, and `#!colon-keyword`;
-- both accept consecutive directives separated by whitespace, for example:
-
-  ```scheme
-  #!curly-infix #!colon-keyword
-  ```
-
-- stores runtime reader options on the input port, so a directive persists
-  across the forms read from that port;
-- resets compiler reader options at the start of each source file.
-
-The remaining rough edges are intentional inputs to this design:
-
-- core `{...}` syntax is still available without `#!curly-infix`; the
-  directive currently gates only the neoteric `f(x)` / `f[x]` / `f{x}`
-  forms;
-- `#!srfi-88` is retained as a compatibility alias;
-- the registry is a fixed table; there is no plugin loading;
-- default profiles are implicit.
-
-## Core rule: presence enables, absence does not
-
-For NPL reader features, a directive is a **one-way activation**, not a
-toggle:
-
-- `#!colon-keyword` means “this source/port reads trailing-colon
-  keywords.”
-- Without it, trailing-colon tokens stay ordinary symbols.
-- `#!curly-infix` means “this source/port reads curly-infix lists.”
-- Without it, the default reader behavior applies.
-- There is no `#!no-colon-keyword` or `#!no-curly-infix` in this design.
-
-This keeps the mental model simple: a file lists the reader features it
-uses. Separate files and separate ports start from their profile defaults.
-
-**Exception:** R7RS itself specifies the pair `#!fold-case` and
-`#!no-fold-case`. Those remain a standardized toggle pair because dropping
-`#!no-fold-case` would break R7RS source.
-
-## Shebang and `#!` do not conflict
-
-A shebang is a Unix convention, not a Scheme datum. The two forms are
-distinguished by the **first character after `#!`**:
-
-- `#!` followed by `/` or whitespace at the very start of a file is a
-  shebang. `npli` removes that first line before reading; `nplc` rejects it
-  with a line-1 diagnostic because compiled source files are not scripts.
-- `#!` followed by a letter, `(`, or `[` is a reader directive. It may
-  appear at the start of a file, because it is not a shebang.
-
-Therefore this is valid for `npli`:
+NPL supports two directive forms:
 
 ```scheme
-#!/usr/bin/env npli
-#!colon-keyword
-(import (scheme base))
+#!name
+#!(name argument ...)
 ```
 
-and this is not a shebang:
+Directives adjust the reader that consumes the rest of the source or port.
+They are one-way feature activations, with the R7RS case-folding pair as
+the only standardized toggle exception. They do not select a language, load
+code, or grant capabilities.
+
+The bracket group form `#![...]` is not part of the design. Consecutive
+directives already compose:
 
 ```scheme
 #!curly-infix
+#!colon-keyword
+#!(curly-infix neoteric)
 ```
 
-`nplc` continues to reject shebang lines, but accepts the same directive
-line.
-
-Directives are recognized only at datum boundaries (where the reader would
-skip whitespace). They are not recognized inside strings, character
-literals, bar-quoted symbols, or block comments.
-
-A shebang consumes the rest of its line, so a directive placed after a
-shebang on the **same line** is lost. Put directives on the following
-line(s).
-
-## Proposed directive syntax
+## Syntax
 
 ### Simple form
 
@@ -118,303 +34,147 @@ line(s).
 #!<name>
 ```
 
-where `<name>` is one or more ASCII letters, digits, `-`, or `_`, followed
-by whitespace or a delimiter. The directive consumes no datum.
-
-Examples:
-
-```scheme
-#!curly-infix
-#!colon-keyword
-```
+`<name>` is one or more ASCII letters, digits, `-`, or `_`, followed by
+whitespace or a datum delimiter. A simple directive consumes no datum.
 
 ### Parameterized form
-
-A directive that needs arguments uses one parenthesized list:
 
 ```text
 #!(<name> <argument> ...)
 ```
 
-Examples:
-
-```scheme
-#!(lang npl)
-#!(lang r7rs)
-#!(curly-infix neoteric)
-```
-
-Rules:
-
 - The first element is a directive name.
-- Arguments are reader data, not evaluated expressions. The compiler
-  reader currently accepts identifier atoms; the runtime reader accepts
-  general datums and validates them.
-- Arity and argument types are supplied by the directive registry.
-- The parenthesized form is allowed for zero-argument directives too, so
-  `#!(colon-keyword)` is equivalent to `#!colon-keyword`.
-- No whitespace is needed between `#!` and `(`; `#! (lang npl)` should be
-  rejected because `#! ` at the start of a line is shebang syntax.
+- Arguments are reader data, not evaluated expressions.
+- Arity and argument types are defined by the directive registry.
+- The parenthesized form is allowed for zero-argument directives, so
+  `#!(colon-keyword)` equals `#!colon-keyword`.
+- No whitespace is allowed between `#!` and `(`. At the start of a file,
+  `#! ` is shebang syntax, not a directive.
+- Nested directives inside the argument list are errors.
+- The compiler reader currently accepts identifier atoms as arguments;
+  the runtime reader accepts general datums and validates them.
 
-The parenthesized form is the recommended parameterized syntax. It is
-already a list datum, so it composes naturally with the reader and needs no
-new delimiter.
+## Shebang boundary
 
-### Why not `#![directive1, directive2, ...]`?
+A shebang is not a directive. The first character after `#!` decides:
 
-The group form is unnecessary:
+- `#!` followed by `/` or whitespace is a shebang.
+- `#!` followed by a letter or `(` is a directive.
 
-- Consecutive directives already compose:
+`npli` replaces a shebang line with spaces before reading, so line numbers
+stay stable and a directive may follow on the next line. `nplc` rejects
+shebang lines because compiled source files are not scripts. `nplc` accepts
+directive lines.
 
-  ```scheme
-  #!colon-keyword
-  #!curly-infix
-  #!(lang npl)
-  ```
+## Directive registry
 
-- Comma is not a separator in Scheme; it is unquote syntax. Writing
-  `#![colon-keyword, curly-infix]` would be misleading and would require a
-  separate comma-aware parser inside the bracket group.
-- A whitespace-separated `#![colon-keyword curly-infix]` is possible, but it
-  only saves a few `#!` prefixes while adding a second grammar and a second
-  place for validation errors.
-
-This design therefore **does not propose** the bracket group form. If it is
-ever added, it should use whitespace-separated names, not commas, and should
-expand to the same ordered directive sequence as consecutive directives.
-
-## Proposed feature names
-
-| Feature | Form | Semantics |
+| Directive | Arguments | Effect |
 |---|---|---|
-| case folding | `#!fold-case`, `#!no-fold-case` | R7RS standardized toggle pair |
-| curly infix | `#!curly-infix` | enable SRFI 105 core `{...}`; absence uses the profile default |
-| curly neoteric | `#!(curly-infix neoteric)` | enable `f(x)`, `e{}`, `e[...]` where supported |
-| colon keywords | `#!colon-keyword` | enable trailing-colon keyword objects |
-| language profile | `#!(lang <name>)` | select the reader/language profile; once per source/port |
+| `#!fold-case` | none | fold identifiers and character names |
+| `#!no-fold-case` | none | return to case-sensitive reading |
+| `#!curly-infix` | none, or `neoteric` | enable neoteric forms; core `{...}` is already available |
+| `#!colon-keyword` | none | make trailing-colon tokens keyword objects |
+| `#!srfi-88` | none | compatibility alias for `#!colon-keyword` |
 
-`#!srfi-88` remains a compatibility alias for `#!colon-keyword`. The
-canonical descriptive name is singular `#!colon-keyword` (not
-`post-column-keyword`; “post-colon keyword” is clearer as
-`colon-keyword`).
+`#:foo` is always a keyword, independent of `#!colon-keyword`. With the
+directive off, `foo:` is an ordinary symbol so R7RS import prefixes such as
+`b:` keep working. With it on, write a literal symbol as `|foo:|`.
 
-The trailing-colon feature is **off by default**. This preserves R7RS
-identifiers such as `b:` and `foo:`. `#:foo` is always available as the
-Guile-compatible keyword spelling, independent of this directive.
+There is no `#!no-colon-keyword`, `#!no-curly-infix`, or
+`#!no-srfi-88`. Start a fresh source or port for the default behavior.
+R7RS `#!no-fold-case` is the exception because R7RS defines the pair.
 
-## Directive semantics
+### Neoteric forms
 
-- **Presence enables.** Repeating an activation is idempotent.
-- **No NPL feature toggle.** There is no `#!no-colon-keyword` or
-  `#!no-curly-infix`. A fresh file/port starts from its profile default.
-- **Order independent for independent features.** `#!colon-keyword` before
-  or after `#!curly-infix` gives the same result.
-- **Validated.** Unknown directives, wrong arity, and malformed arguments
-  are errors in both readers, with line and column information.
-- **Per port/source.** Runtime options belong to the input port; compiler
-  options belong to the source being parsed. They do not leak between files
-  or independent ports.
-- **No evaluation.** Directives change how data is read; they do not run
-  user code and do not grant capabilities.
-- **Shebang excluded.** `#!/...` and `#! ...` at line 1 are shebangs, not
-  directives.
-
-## `#!lang` / reader profiles
-
-A parameterized language directive selects a profile:
+Under `#!curly-infix`:
 
 ```scheme
-#!(lang npl)
+f(x)      => (f x)
+f[x]      => ($bracket-apply$ f x)
+f{x + 1}  => (f (+ x 1))
 ```
 
-or:
+Adjacency is significant: `f (x)` remains two data. The mappings recurse
+left-to-right inside lists, vectors, and curly lists. `(. datum)` maps to
+`datum`, so `f(. rest)` is the improper call `(f . rest)`.
+
+Dotted curly-infix lists are always mixed:
 
 ```scheme
-#!(lang r7rs)
+{a + b . c} => ($nfx$ a + b . c)
 ```
 
-Semantics:
+## Semantics
 
-- `lang` may appear only once per source/port, and must be the first
-  non-shebang directive.
-- A profile supplies default feature flags and may add a language-level
-  prelude or a datum post-read hook.
-- Feature directives after `#!(lang ...)` may only **add** reader features
-  allowed by that profile; they cannot replace the language.
-- Two `lang` directives in one file are an error, not “last one wins”.
-  `#!(lang npl)` and `#!(lang r7rs)` describe different readers and cannot
-  both apply to one datum stream.
-- Unknown profiles are errors.
-- Loading a profile is subject to the same trust boundary as importing a
-  library; it must not grant ambient filesystem, network, or FFI authority
-  by itself.
-- The compiler and evaluator must use the same profile registry, so the
-  same source reads identically under `nplc` and `npli`.
+- **Presence enables.** Repetition is idempotent.
+- **Order independent** for independent features.
+- **Per port/source.** Runtime options live on the input port and persist
+  across `read` calls. Compiler options reset at the start of each source
+  file; included files get their own fresh options.
+- **Validated.** Unknown names, bad arity, malformed arguments, and nested
+  directives are errors in both readers. The wording is kept aligned.
+- **No evaluation.** Directives only change how data is read.
+- **No language profiles.** `#!` does not select a language or prelude.
 
-Possible profiles:
+## State model
 
-| Profile | Defaults |
-|---|---|
-| `r7rs` | no colon keywords; no NPL curly-infix; R7RS directives |
-| `npl` | current NPL defaults (core `{}` policy decided separately) |
-| `guile` | `#:` always; optional colon keywords; useful for Guile source |
+Runtime:
 
-A smaller first step is a profile directive without code loading:
+- `NplPort` stores `read_fold_case`, `read_keyword_colon`, and
+  `read_neoteric`.
+- Each `npl_read_datum` initializes an `NplDatumReader` from the port.
+- A directive updates both the active reader and its port.
+- A fresh port starts from the defaults.
 
-```scheme
-#!(profile r7rs)
-```
+Compiler:
 
-with a fixed table of flags. `#!lang` can then select a profile plus a
-prelude. This avoids executing arbitrary code at read time and is easier to
-audit.
+- `LEX-FOLD-CASE`, `LEX-SRFI-88`, and `LEX-NEOTERIC` are lexer cells.
+- `parse-source-text` resets them before lexing.
+- Adjacency and the neoteric flag are captured per token, so a mid-file
+  directive does not retroactively change earlier data.
+- Included sources and library files are parsed independently.
 
-## Curly-infix scope
+## Extending the reader
 
-The current `{...}` core reader is always on. The generalized directive
-should eventually define:
+To add a directive:
 
-- `#!curly-infix`: enable `{...}`, nested curly lists, and the mapping rules;
-- `#!(curly-infix neoteric)`: additionally enable `f(x)`, `e{}`, `e[...]`;
-- absence: use the language profile default.
+1. Choose a name, arity, and argument grammar.
+2. Add a branch to the runtime directive dispatcher and the compiler lexer
+   dispatcher. Keep the accept/reject wording identical.
+3. If the option persists, add a field to `NplPort`, initialize it in
+   `make_port`, and copy it into `NplDatumReader`.
+4. If the compiler needs per-token state (for example adjacency-sensitive
+   syntax), store it in the token, not only in a global cell.
+5. Reset compiler state in `parse-source-text`.
+6. Add a compiler suite, a negative reader test, and a native/REPL
+   differential fixture. Update the coverage ratchet if a new export is
+   introduced.
 
-Interim behavior: core `{...}` is always available, and both
-`#!curly-infix` and `#!(curly-infix neoteric)` enable the neoteric forms.
-
-Neoteric forms depend on whitespace/adjacency and `e[...]` conflicts with
-NPL's bracket lists, so they should not be forced on by the basic flag. A
-separate argument or a separate profile is safer.
-
-## Architecture
-
-### Runtime reader
-
-- `NplPort` owns the reader-options record: case folding, colon keywords,
-  curly-infix flags, and (later) profile id.
-- `npl_read_datum` initializes its `NplDatumReader` from the port.
-- `read_directive` updates the port, so the option persists across `read`
-  calls.
-- A fresh port starts from its default profile.
-
-### Compiler reader
-
-- Replace the global directive cells with a `READER-OPTIONS` record passed
-  through the lexer/datum parser (or stored per `parse-source-text`
-  invocation).
-- Reset options at the start of each source file.
-- Use the same directive-name table and error wording as the runtime
-  reader.
-- The compiler reader is the source of truth for `nplc`; the runtime reader
-  is the source of truth for `read`, `npli`, and `load`. Differential tests
-  must compare both.
-
-### Shared registry
-
-The directive table should be data, not duplicated `cond` chains:
-
-```text
-(name, arity, handler)
-```
-
-The handler may:
-
-- set a one-way feature flag;
-- validate arguments;
-- install a datum post-read hook;
-- select a language profile (only for `lang`, first non-shebang directive).
-
-The table can live in NPL source and be mirrored by a small C table for the
-runtime reader, with a consistency test that both readers accept exactly
-the same names and arities.
-
-### Diagnostics
-
-Every directive error should include:
-
-- the directive text;
-- line and column;
-- whether it was unknown, malformed, has wrong arity, is disallowed by the
-  profile, or appears in an invalid position.
-
-## State and scoping
-
-- Runtime: per input port, persistent across calls to `read`.
-- Compiler: per source file, reset before lexing.
-- `load`/`include`: each included source gets its own fresh options;
-  directives do not leak into the includer.
-- REPL: the standard input port keeps its options until replaced. There is
-  no in-place disable; start a fresh port for a fresh profile.
-- Multiple files and independent ports do not share feature state.
-- `#!(lang ...)` is fixed for the lifetime of that source/port.
+Extension arguments are validated by the directive; there is no dynamic
+plugin loading and no user code runs at read time.
 
 ## Interaction matrix
 
-| Combination | Expected result |
+| Combination | Result |
 |---|---|
 | `#!fold-case` then `#!colon-keyword` | symbols fold; `foo:` is a keyword |
 | `#!colon-keyword` then `#!fold-case` | same; order independent |
 | `#!colon-keyword` repeated | still enabled; idempotent |
-| `#!curly-infix` then `#!colon-keyword` | `{}`, neoteric forms, and `foo:` all active |
+| `#!curly-infix` then `#!colon-keyword` | neoteric forms and `foo:` both active |
 | `#!curly-infix` repeated | still enabled; idempotent |
-| `#!(lang npl)` then `#!colon-keyword` | profile defaults plus colon keywords (if allowed) |
-| `#!(lang npl)` then `#!(lang r7rs)` | error: one language per source |
-| `#!colon-keyword` then `#!(lang npl)` | error: `lang` must be first |
-| shebang then directives | `npli` strips shebang; directives apply to the rest |
-| `nplc` shebang | rejected with line-1 shebang diagnostic |
+| `#!(curly-infix neoteric)` | same as `#!curly-infix` in the current reader |
+| `#!(colon-keyword)` | same as `#!colon-keyword` |
+| shebang then directives | `npli` strips the shebang; directives apply to the rest |
+| `nplc` shebang | rejected |
 | unknown `#!foo` | error in both readers |
-| `#!(lang unknown)` | error in both readers |
-
-## Migration plan
-
-1. Add `#!colon-keyword` as the canonical spelling and keep `#!srfi-88` as
-   an alias.
-2. Remove the former `#!no-srfi-88` spelling; R7RS `#!no-fold-case` stays.
-3. Move compiler options from global cells to a per-source record.
-4. Keep runtime options on the port (already true in the interim fix).
-5. Keep arity/argument validation and diagnostics aligned in both readers.
-6. Extend the profile table beyond `npl` when a second profile is defined.
-7. Decide the default curly-infix profile and whether neoteric remains an
-   argument or becomes a separate profile.
+| nested `#!(curly-infix #!fold-case)` | error in both readers |
 
 ## Tests
 
-- Consecutive directives, same line and separate lines, both orders.
-- Parameterized `#!(lang npl)` and wrong arity/unknown language.
-- Multiple `#!(lang ...)` in one source is an error.
-- Shebang plus directives under `npli`; shebang rejection under `nplc`.
-- Runtime directives persist across forms read from one port; a new port
-  starts clean.
-- Compiler directives reset between files and between includes.
-- Unknown directives fail in both readers with line/column.
-- `fold-case` + keyword interactions.
-- `#!colon-keyword` enables `foo:`; absence keeps it a symbol and keeps
-  `b:` usable as an import prefix.
-- `#!curly-infix` with and without `{}` syntax, neoteric forms, and a
-  fresh source/port without the directive.
-- Differential tests: the same source read by `nplc` and `npli` produces
-  the same datum stream and observable output.
-
-## Open questions
-
-- Should basic `{...}` be on by default, or only under `#!curly-infix`?
-- Should neoteric forms be an argument (`#!(curly-infix neoteric)`) or a
-  separate directive/profile?
-- Is `#!(profile r7rs)` useful enough to add before full `#!lang`?
-- How should a `#!lang` profile interact with library imports and
-  `cond-expand` feature identifiers?
-- Should `#!srfi-88` be deprecated in documentation immediately or kept as
-  a compatibility spelling indefinitely?
-
-## Interim state after the first implementation
-
-The current source implements the feature flags as one-off lexer/runtime
-switches, with per-port persistence for the runtime and per-file reset for
-the compiler. It accepts `#!srfi-88` and `#!colon-keyword` as one-way
-activations; the former `#!no-srfi-88` spelling is gone. `#!curly-infix`
-enables the neoteric forms in both readers, with adjacency captured per
-token so a mid-file directive does not retroactively change earlier data.
-It implements a small registry with the simple directives, parenthesized
-`#!(name args...)`, and `#!(lang npl)` with the first-and-once rule.
-Unknown directives, malformed directives, and the former `#!no-srfi-88`
-spelling are errors in both readers. Additional language profiles and
-general datum arguments in the compiler reader remain follow-up work.
+- Simple and parameterized directives, same line and separate lines.
+- Zero-argument parenthesized directives.
+- Unknown names, arity errors, malformed arguments, nested directives.
+- Runtime option persistence across reads; fresh ports reset.
+- Compiler reset between files and includes.
+- Mid-file directives and per-token adjacency.
+- Differential native/REPL fixtures for observable output.

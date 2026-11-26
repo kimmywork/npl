@@ -125,7 +125,7 @@ status:
 | Object system, classes, generic methods | absent | no mainstream SRFI; SRFI 20 is dormant; NPL route is records + dispatch (see [extending](extending.md)) |
 | Keyword arguments | **implemented** as NPL extensions: SRFI 88 keyword objects, SRFI 89 `define*`/`lambda*`, and Guile-style `#:optional`/`#:key`/`#:allow-other-keys` aliases. `#:foo` is always available; the trailing-colon `foo:` spelling is enabled by `#!colon-keyword` (`#!srfi-88` is an alias). | SRFI 88 / SRFI 89 |
 | Default-valued optional parameters | **implemented** by SRFI 89 `define*`/`lambda*`; `case-lambda` remains available | — |
-| Curly-infix expressions | **implemented** core `{...}` in both readers; `#!curly-infix` additionally enables the neoteric `f(x)`, `f[x]`, and `f{x}` forms. A precedence handler remains follow-up work. | SRFI 105 |
+| Curly-infix expressions | **implemented** core `{...}`, dotted curly lists, and the neoteric `f(x)`, `f[x]`, `f{x}`, and `f(. rest)` forms in both readers under `#!curly-infix`. Mixed expressions map to the application-defined `$nfx$` hook, as SRFI 105 specifies. | SRFI 105 |
 | Procedure display names | **implemented** for top-level, library, primitive, parameter, and direct local lambda bindings; aliases keep the original name | NPL extension |
 | Records: inheritance, `#:guard`, opaque, prefab | absent (all records transparent, generative) | SRFI 99 / SRFI 256 |
 | `filter`, `fold`, `partition`, `sort` | **implemented** in `(npl list)` / `(srfi 1)` and `(npl sort)` / `(srfi 132)` / `(srfi 95)` | — |
@@ -144,11 +144,21 @@ change and no seed relay.
 
 Both readers accept R7RS `#!fold-case` / `#!no-fold-case` (identifiers and
 character names fold), plus NPL's `#!curly-infix`, `#!colon-keyword`, and
-the `#!srfi-88` alias. Parenthesized `#!(name args...)` forms are accepted;
-`#!(lang npl)` is the current profile and must be the first non-shebang
-directive. Unknown directives are errors. Directives may be
+the `#!srfi-88` alias. Parenthesized `#!(name args...)` forms are
+accepted, including `#!(curly-infix neoteric)`. Directives adjust reader
+options; they do not select a language. Unknown directives are errors. Directives may be
 consecutive and apply from their position onward; compiler adjacencies are
 captured per token, so a mid-file directive does not rewrite earlier data.
+
+### SRFI 105 note
+
+Both readers implement curly-infix, neoteric, and dotted forms. A mixed
+expression such as `{a + b * c}` becomes `($nfx$ a + b * c)`, and a dotted
+curly list remains improper: `{a + b . c}` becomes
+`($nfx$ a + b . c)`. `f(. rest)` becomes `(f . rest)`.
+`(npl infix)` defines `$nfx$` as a clear error and `$bracket-apply$` for
+vectors, strings, bytevectors, and lists; applications may supply their own
+`$nfx$` handler. Precedence is intentionally not built into the reader.
 
 ### SRFI 88 lexical note
 

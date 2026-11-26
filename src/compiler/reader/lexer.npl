@@ -39,8 +39,6 @@
 (define LEX-PENDING-SPACE (cell #t))
 (define LEX-NEOTERIC (cell #f))
 (define LEX-FOLD-CASE (cell #f))
-(define LEX-DIRECTIVE-SEEN (cell #f))
-(define LEX-LANG-SEEN (cell #f))
 
 (define (token kind payload)
   ; The tight bit records adjacency to the previous token; the neoteric bit
@@ -165,12 +163,6 @@
           (lex-directive-end s (+ i 1)))
       i))
 
-(define (directive-mark-seen!)
-  (cell-set! LEX-DIRECTIVE-SEEN #t))
-
-(define (directive-arg-count args)
-  (if (null? args) 0 (+ 1 (directive-arg-count (cdr args)))))
-
 (define (directive-single-arg? args name)
   (if (null? args)
       #f
@@ -182,39 +174,23 @@
 ; are identifiers; current entries take no argument or one option.
 (define (apply-directive name args)
   (cond
-    ((string=? name "lang")
-     (if (cell-get LEX-LANG-SEEN)
-         (fatal "lang directive may appear only once"))
-     (if (cell-get LEX-DIRECTIVE-SEEN)
-         (fatal "lang directive must be first"))
-     (if (not (= (directive-arg-count args) 1))
-         (fatal "lang directive needs a language"))
-     (if (not (string=? (car args) "npl"))
-         (fatal "unknown language"))
-     (cell-set! LEX-LANG-SEEN #t)
-     (directive-mark-seen!))
     ((string=? name "fold-case")
      (if (not (null? args)) (fatal "directive takes no arguments"))
-     (cell-set! LEX-FOLD-CASE #t)
-     (directive-mark-seen!))
+     (cell-set! LEX-FOLD-CASE #t))
     ((string=? name "no-fold-case")
      (if (not (null? args)) (fatal "directive takes no arguments"))
-     (cell-set! LEX-FOLD-CASE #f)
-     (directive-mark-seen!))
+     (cell-set! LEX-FOLD-CASE #f))
     ((string=? name "curly-infix")
      (if (not (if (null? args) #t
                   (directive-single-arg? args "neoteric")))
          (fatal "curly-infix directive takes no arguments or neoteric"))
-     (cell-set! LEX-NEOTERIC #t)
-     (directive-mark-seen!))
+     (cell-set! LEX-NEOTERIC #t))
     ((string=? name "srfi-88")
      (if (not (null? args)) (fatal "directive takes no arguments"))
-     (cell-set! LEX-SRFI-88 #t)
-     (directive-mark-seen!))
+     (cell-set! LEX-SRFI-88 #t))
     ((string=? name "colon-keyword")
      (if (not (null? args)) (fatal "directive takes no arguments"))
-     (cell-set! LEX-SRFI-88 #t)
-     (directive-mark-seen!))
+     (cell-set! LEX-SRFI-88 #t))
     (else (fatal "unknown directive"))))
 
 (define (directive-skip-line s i)

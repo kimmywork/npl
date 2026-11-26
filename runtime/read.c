@@ -1,6 +1,7 @@
 /* Datum input: read (R7RS 6.13.2), decoding UTF-8. See port.h for the
  * module split. */
 
+#include "read-internal.h"
 #include "port.h"
 #include "thread.h"
 #include "read-buffer.h"
@@ -13,23 +14,7 @@
  * thread), held in the current NplThreadContext. */
 #define CTX npl_ctx()
 
-/* Datum labels (R7RS 2.4): labels is a list of (n placeholder . value)
- * entries for this read (rooted by npl_read_datum); value is the
- * placeholder until the labelled datum is complete. */
-typedef struct {
-    NplPort *port;
-    int lookahead;
-    int has_lookahead;
-    NplVal labels;
-    int fold_case;      /* #!fold-case in effect (R7RS 2.1) */
-    int keyword_colon;  /* #!colon-keyword: foo: reads as a keyword */
-    int neoteric;       /* #!curly-infix: f(x), e{}, e[...] */
-    int in_directive;   /* reading #!(name args...) */
-    int directive_seen; /* a reader directive was already seen */
-    int lang_seen;      /* #!(lang ...) was already seen */
-} NplDatumReader;
-
-static void read_error(const char *message)
+void npl_read_error(const char *message)
 {
     if (CTX->read_recovery) {
         (void)snprintf(CTX->read_error_message,
@@ -44,12 +29,12 @@ static void read_error(const char *message)
 static void read_buffer_error(NplReadBuffer *buffer, const char *message)
 {
     (void)buffer;   /* freed by the cleanup frame at the longjmp landing */
-    read_error(message);
+    npl_read_error(message);
 }
 
 /* The datum reader works on characters (UTF-8 decoded). Its own lookahead
  * is returned to the port when read finishes (npl_read_datum). */
-static int reader_get(NplDatumReader *reader)
+int npl_reader_get(NplDatumReader *reader)
 {
     if (reader->has_lookahead) {
         reader->has_lookahead = 0;
@@ -58,7 +43,7 @@ static int reader_get(NplDatumReader *reader)
     return npl_port_read_char_internal(reader->port);
 }
 
-static int reader_peek(NplDatumReader *reader)
+int npl_reader_peek(NplDatumReader *reader)
 {
     if (!reader->has_lookahead) {
         reader->lookahead = npl_port_read_char_internal(reader->port);
@@ -67,7 +52,7 @@ static int reader_peek(NplDatumReader *reader)
     return reader->lookahead;
 }
 
-static int datum_delimiter(int code)
+int npl_datum_delimiter(int code)
 {
     return code == EOF || code == '(' || code == ')' ||
            code == '[' || code == ']' || code == '{' || code == '}' ||
@@ -76,10 +61,6 @@ static int datum_delimiter(int code)
            code == '\n' || code == '\r' || code == '\f';
 }
 
-static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof);
-static NplVal read_list_datum(NplDatumReader *reader, int open);
-static int symbol_named(NplVal value, const char *name);
-
 /* #| ... |# comments nest (R7RS 2.2). */
 static void skip_block_comment(NplDatumReader *reader)
 {
@@ -87,130 +68,15 @@ static void skip_block_comment(NplDatumReader *reader)
     int previous = 0;
     while (depth > 0) {
         npl_safepoint_poll();   /* a large block comment can be long */
-        int code = reader_get(reader);
-        if (code == EOF) read_error("unterminated block comment");
+        int code = npl_reader_get(reader);
+        if (code == EOF) npl_read_error("unterminated block comment");
         if (previous == '|' && code == '#') { depth--; code = 0; }
         else if (previous == '#' && code == '|') { depth++; code = 0; }
         previous = code;
     }
 }
 
-/* Number of elements in a proper list, or -1 if it is improper. */
-static int directive_count(NplVal list)
-{
-    int count = 0;
-    while (npl_is_ptr(list) && npl_header(list)->tag == BOX_PAIR) {
-        count++;
-        list = npl_cdr(list);
-    }
-    return npl_is_nil(list) ? count : -1;
-}
-
-static int directive_symbol_name(NplVal value, char *buffer, size_t size)
-{
-    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_SYMBOL) return 0;
-    const NplString *symbol = (const NplString *)npl_header(value);
-    uint32_t count = npl_string_char_count_internal(symbol);
-    if ((size_t)count + 1 >= size) return 0;
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t code = npl_string_char_at_internal(symbol, i);
-        if (code >= 0x80) return 0;
-        buffer[i] = (char)code;
-    }
-    buffer[count] = '\0';
-    return 1;
-}
-
-static void directive_mark_seen(NplDatumReader *reader)
-{
-    reader->directive_seen = 1;
-    reader->port->read_directive_seen = 1;
-}
-
-/* One registry entry for simple and parenthesized directives.  Arguments
- * are datums; current entries take identifiers or none. */
-static void directive_apply(NplDatumReader *reader, const char *name,
-                            NplVal args)
-{
-    int count = directive_count(args);
-    if (count < 0) read_error("malformed directive");
-
-    if (strcmp(name, "lang") == 0) {
-        if (reader->lang_seen)
-            read_error("lang directive may appear only once");
-        if (reader->directive_seen)
-            read_error("lang directive must be first");
-        if (count != 1)
-            read_error("lang directive needs a language");
-        if (!symbol_named(npl_car(args), "npl"))
-            read_error("unknown language");
-        reader->lang_seen = 1;
-        reader->port->read_lang_seen = 1;
-        directive_mark_seen(reader);
-        return;
-    }
-
-    if (strcmp(name, "fold-case") == 0) {
-        if (count != 0) read_error("directive takes no arguments");
-        reader->fold_case = 1;
-        reader->port->read_fold_case = 1;
-    } else if (strcmp(name, "no-fold-case") == 0) {
-        if (count != 0) read_error("directive takes no arguments");
-        reader->fold_case = 0;
-        reader->port->read_fold_case = 0;
-    } else if (strcmp(name, "curly-infix") == 0) {
-        if (!(count == 0 ||
-              (count == 1 && symbol_named(npl_car(args), "neoteric"))))
-            read_error("curly-infix directive takes no arguments or neoteric");
-        reader->neoteric = 1;
-        reader->port->read_neoteric = 1;
-    } else if (strcmp(name, "srfi-88") == 0 ||
-               strcmp(name, "colon-keyword") == 0) {
-        if (count != 0) read_error("directive takes no arguments");
-        reader->keyword_colon = 1;
-        reader->port->read_keyword_colon = 1;
-    } else {
-        read_error("unknown directive");
-    }
-    directive_mark_seen(reader);
-}
-
-static void read_parameterized_directive(NplDatumReader *reader)
-{
-    (void)reader_get(reader);   /* ( */
-    int saved = reader->in_directive;
-    reader->in_directive = 1;
-    NplVal list = read_list_datum(reader, '(');
-    reader->in_directive = saved;
-    if (directive_count(list) < 1) read_error("malformed directive");
-    char name[32];
-    if (!directive_symbol_name(npl_car(list), name, sizeof(name)))
-        read_error("malformed directive");
-    directive_apply(reader, name, npl_cdr(list));
-}
-
-/* #!directive or #!(name args...) at a datum boundary. */
-static void read_directive(NplDatumReader *reader)
-{
-    if (reader_peek(reader) == '(') {
-        read_parameterized_directive(reader);
-        return;
-    }
-    char name[32];
-    size_t length = 0;
-    while (!datum_delimiter(reader_peek(reader))) {
-        int code = reader_get(reader);
-        if (length + 1 >= sizeof(name)) read_error("unknown directive");
-        name[length++] = (char)code;
-    }
-    name[length] = '\0';
-    directive_apply(reader, name, npl_nil());
-}
-
-/* Skips whitespace and comments: line (;), block (#|...|#), datum (#;),
- * and #! directives. A '#' that starts none of these is pushed back as the
- * reader's lookahead pair: reader->pending_hash. */
-static int symbol_named(NplVal value, const char *name)
+int npl_symbol_named(NplVal value, const char *name)
 {
     if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_SYMBOL) return 0;
     const NplString *symbol = (const NplString *)npl_header(value);
@@ -223,37 +89,37 @@ static int symbol_named(NplVal value, const char *name)
     return 1;
 }
 
-static void reader_skip_space(NplDatumReader *reader)
+void npl_reader_skip_space(NplDatumReader *reader)
 {
     for (;;) {
-        int code = reader_peek(reader);
+        int code = npl_reader_peek(reader);
         if (code == ' ' || code == '\t' || code == '\n' || code == '\r' ||
             code == '\f') {
-            (void)reader_get(reader);
+            (void)npl_reader_get(reader);
         } else if (code == ';') {
-            while ((code = reader_get(reader)) != EOF && code != '\n') {
+            while ((code = npl_reader_get(reader)) != EOF && code != '\n') {
                 npl_safepoint_poll();   /* long line comment */
             }
         } else if (code == '#') {
-            (void)reader_get(reader);
-            int next = reader_peek(reader);
+            (void)npl_reader_get(reader);
+            int next = npl_reader_peek(reader);
             if (next == '|') {
-                (void)reader_get(reader);
+                (void)npl_reader_get(reader);
                 skip_block_comment(reader);
             } else if (next == ';') {
-                (void)reader_get(reader);
+                (void)npl_reader_get(reader);
                 /* The commented-out thing must be a datum: a lone '.' is
                  * list syntax, not a datum (chibi r7rs-tests). */
-                reader_skip_space(reader);
-                int lead = reader_peek(reader);
-                NplVal skipped = read_datum_inner(reader, 0);
-                if (lead != '|' && symbol_named(skipped, "."))
-                    read_error("datum comment needs a datum");
+                npl_reader_skip_space(reader);
+                int lead = npl_reader_peek(reader);
+                NplVal skipped = npl_read_datum_inner(reader, 0);
+                if (lead != '|' && npl_symbol_named(skipped, "."))
+                    npl_read_error("datum comment needs a datum");
             } else if (next == '!') {
-                (void)reader_get(reader);
+                (void)npl_reader_get(reader);
                 if (reader->in_directive)
-                    read_error("directive inside directive");
-                read_directive(reader);
+                    npl_read_error("directive inside directive");
+                npl_read_directive(reader);
             } else {
                 /* Not a comment: give the '#' back. The next character is
                  * already in the lookahead, so keep both through the port. */
@@ -289,19 +155,17 @@ static int hex_scalar(const char *text, size_t length, uint32_t *code)
     return 1;
 }
 
-static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof);
-
 static NplVal read_string_datum(NplDatumReader *reader)
 {
     NplReadBuffer *buffer = npl_read_buffer_new();
     for (;;) {
         npl_safepoint_poll();   /* long runtime loop: large string */
-        int code = reader_get(reader);
+        int code = npl_reader_get(reader);
         if (code == EOF)
             read_buffer_error(buffer, "unexpected EOF in string");
         if (code == '"') break;
         if (code == '\\') {
-            code = reader_get(reader);
+            code = npl_reader_get(reader);
             if (code == EOF)
                 read_buffer_error(buffer, "unexpected EOF in string escape");
             if (code == 'n') code = '\n';
@@ -312,7 +176,7 @@ static NplVal read_string_datum(NplDatumReader *reader)
             else if (code == 'x' || code == 'X') {
                 char hex[8];
                 size_t used = 0;
-                while ((code = reader_get(reader)) != ';') {
+                while ((code = npl_reader_get(reader)) != ';') {
                     if (code == EOF || used == sizeof(hex))
                         read_buffer_error(buffer, "malformed \\x escape");
                     hex[used++] = (char)code;
@@ -325,14 +189,14 @@ static NplVal read_string_datum(NplDatumReader *reader)
                        code == '\r') {
                 /* \<intraline whitespace>*<line ending><intraline
                  * whitespace>* is a line continuation (R7RS 6.7). */
-                while (code == ' ' || code == '\t') code = reader_get(reader);
+                while (code == ' ' || code == '\t') code = npl_reader_get(reader);
                 if (code == '\r') {
-                    if (reader_peek(reader) == '\n') (void)reader_get(reader);
+                    if (npl_reader_peek(reader) == '\n') (void)npl_reader_get(reader);
                 } else if (code != '\n') {
                     read_buffer_error(buffer, "unknown string escape");
                 }
-                while (reader_peek(reader) == ' ' || reader_peek(reader) == '\t')
-                    (void)reader_get(reader);
+                while (npl_reader_peek(reader) == ' ' || npl_reader_peek(reader) == '\t')
+                    (void)npl_reader_get(reader);
                 continue;
             } else if (code != '"' && code != '\\' && code != '|')
                 read_buffer_error(buffer, "unknown string escape");
@@ -350,15 +214,15 @@ static void read_bar_symbol_part(NplDatumReader *reader, NplReadBuffer *buffer)
 {
     for (;;) {
         npl_safepoint_poll();   /* long runtime loop: barred symbol */
-        int code = reader_get(reader);
+        int code = npl_reader_get(reader);
         if (code == EOF) read_buffer_error(buffer, "unterminated |symbol|");
         if (code == '|') return;
         if (code == '\\') {
-            code = reader_get(reader);
+            code = npl_reader_get(reader);
             if (code == 'x' || code == 'X') {
                 char hex[8];
                 size_t used = 0;
-                while ((code = reader_get(reader)) != ';') {
+                while ((code = npl_reader_get(reader)) != ';') {
                     if (code == EOF || used == sizeof(hex))
                         read_buffer_error(buffer, "malformed \\x escape");
                     hex[used++] = (char)code;
@@ -379,7 +243,7 @@ static void read_bar_symbol_part(NplDatumReader *reader, NplReadBuffer *buffer)
     }
 }
 
-static NplVal read_token_datum(NplDatumReader *reader, int first)
+NplVal npl_read_token_datum(NplDatumReader *reader, int first)
 {
     NplReadBuffer *buffer = npl_read_buffer_new();
     int barred = 0;
@@ -388,24 +252,24 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
         read_bar_symbol_part(reader, buffer);
     } else {
         if (first == '\\')
-            read_error("backslash is not a valid identifier character");
+            npl_read_error("backslash is not a valid identifier character");
         npl_read_buffer_push(buffer, first);
     }
     /* A |...| part may continue the token, and vice versa (abc|d e|f). */
     for (;;) {
         npl_safepoint_poll();   /* long runtime loop: long symbol */
-        int code = reader_peek(reader);
+        int code = npl_reader_peek(reader);
         if (code == '|') {
-            (void)reader_get(reader);
+            (void)npl_reader_get(reader);
             barred = 1;
             read_bar_symbol_part(reader, buffer);
-        } else if (datum_delimiter(code)) {
+        } else if (npl_datum_delimiter(code)) {
             break;
         } else {
             if (code == '\\' && !barred)
                 read_buffer_error(buffer,
                     "backslash is not a valid identifier character");
-            npl_read_buffer_push(buffer, reader_get(reader));
+            npl_read_buffer_push(buffer, npl_reader_get(reader));
         }
     }
     npl_read_buffer_push(buffer, 0);
@@ -444,7 +308,7 @@ static NplVal read_token_datum(NplDatumReader *reader, int first)
 }
 
 
-static NplVal reverse_onto(NplVal values, NplVal tail)
+NplVal npl_reverse_onto(NplVal values, NplVal tail)
 {
     while (!npl_is_nil(values)) {
         tail = npl_cons(npl_car(values), tail);
@@ -453,33 +317,33 @@ static NplVal reverse_onto(NplVal values, NplVal tail)
     return tail;
 }
 
-static NplVal read_list_datum(NplDatumReader *reader, int open)
+NplVal npl_read_list_datum(NplDatumReader *reader, int open)
 {
     NplVal reversed = npl_nil();
     int close_code = open == '[' ? ']' : ')';
     for (;;) {
         npl_safepoint_poll();   /* long runtime loop: long list */
-        reader_skip_space(reader);
-        int code = reader_peek(reader);
-        if (code == EOF) read_error("unexpected EOF in list");
+        npl_reader_skip_space(reader);
+        int code = npl_reader_peek(reader);
+        if (code == EOF) npl_read_error("unexpected EOF in list");
         if (code == ')' || code == ']') {
-            (void)reader_get(reader);
-            if (code != close_code) read_error("mismatched closing bracket");
-            return reverse_onto(reversed, npl_nil());
+            (void)npl_reader_get(reader);
+            if (code != close_code) npl_read_error("mismatched closing bracket");
+            return npl_reverse_onto(reversed, npl_nil());
         }
         int bar = code == '|';
-        NplVal value = read_datum_inner(reader, 0);
-        if (!bar && symbol_named(value, ".")) {
-            if (npl_is_nil(reversed)) read_error("misplaced dot");
-            reader_skip_space(reader);
-            if (reader_peek(reader) == ')' || reader_peek(reader) == ']')
-                read_error("missing datum after dot");
-            NplVal tail = read_datum_inner(reader, 0);
-            reader_skip_space(reader);
-            int close = reader_get(reader);
+        NplVal value = npl_read_datum_inner(reader, 0);
+        if (!bar && npl_symbol_named(value, ".")) {
+            if (npl_is_nil(reversed)) npl_read_error("misplaced dot");
+            npl_reader_skip_space(reader);
+            if (npl_reader_peek(reader) == ')' || npl_reader_peek(reader) == ']')
+                npl_read_error("missing datum after dot");
+            NplVal tail = npl_read_datum_inner(reader, 0);
+            npl_reader_skip_space(reader);
+            int close = npl_reader_get(reader);
             if (close != close_code)
-                read_error("expected matching close after dotted datum");
-            return reverse_onto(reversed, tail);
+                npl_read_error("expected matching close after dotted datum");
+            return npl_reverse_onto(reversed, tail);
         }
         reversed = npl_cons(value, reversed);
     }
@@ -509,21 +373,21 @@ static NplVal read_character_datum(NplDatumReader *reader)
         { "escape", 0x1B }, { "newline", 10 }, { "null", 0 }, { "nul", 0 },
         { "return", 13 }, { "space", 32 }, { "tab", 9 },
     };
-    int first = reader_get(reader);
-    if (first == EOF) read_error("empty character literal");
-    if (datum_delimiter(reader_peek(reader))) return npl_char((uint32_t)first);
+    int first = npl_reader_get(reader);
+    if (first == EOF) npl_read_error("empty character literal");
+    if (npl_datum_delimiter(npl_reader_peek(reader))) return npl_char((uint32_t)first);
     /* Names are compared after ASCII case folding under #!fold-case. */
     char buffer[32];
     size_t length = 0;
     buffer[length++] = (char)first;
-    while (!datum_delimiter(reader_peek(reader))) {
-        int code = reader_get(reader);
+    while (!npl_datum_delimiter(npl_reader_peek(reader))) {
+        int code = npl_reader_get(reader);
         if (length + 1 >= sizeof(buffer) || code >= 0x80)
-            read_error("unknown character name");
+            npl_read_error("unknown character name");
         buffer[length++] = (char)code;
     }
     buffer[length] = '\0';
-    if (first >= 0x80) read_error("unknown character name");
+    if (first >= 0x80) npl_read_error("unknown character name");
     if (reader->fold_case)
         for (size_t i = 0; i < length; i++)
             if (buffer[i] >= 'A' && buffer[i] <= 'Z') buffer[i] += 'a' - 'A';
@@ -533,7 +397,7 @@ static NplVal read_character_datum(NplDatumReader *reader)
     if ((buffer[0] == 'x' || buffer[0] == 'X') &&
         hex_scalar(buffer + 1, length - 1, &code))
         return npl_char(code);
-    read_error("unknown character name");
+    npl_read_error("unknown character name");
     return npl_nil();
 }
 
@@ -556,13 +420,13 @@ static NplVal read_hash_radix_datum(NplDatumReader *reader, int prefix)
     NplReadBuffer *buffer = npl_read_buffer_new();
     npl_read_buffer_push(buffer, '#');
     npl_read_buffer_push(buffer, prefix);
-    while (!datum_delimiter(reader_peek(reader)))
-        npl_read_buffer_push(buffer, reader_get(reader));
+    while (!npl_datum_delimiter(npl_reader_peek(reader)))
+        npl_read_buffer_push(buffer, npl_reader_get(reader));
     NplVal text = npl_string_from_utf8((const uint8_t *)buffer->data,
                                        buffer->length, BOX_STRING);
     NplVal value = npl_number_from_string(text);
     npl_read_buffer_finish(buffer);
-    if (value == npl_false()) read_error("invalid radix number");
+    if (value == npl_false()) npl_read_error("invalid radix number");
     return value;
 }
 
@@ -677,7 +541,7 @@ static int shape_equal(NplVal left, NplVal right)
 static NplVal array_collect(NplVal list, int64_t rank, NplVal *flat_reversed)
 {
     if (!array_proper_list_p(list))
-        read_error("array literal row is not a proper list");
+        npl_read_error("array literal row is not a proper list");
     if (rank == 1) {
         int64_t count = 0;
         NplVal cursor = list;
@@ -687,7 +551,7 @@ static NplVal array_collect(NplVal list, int64_t rank, NplVal *flat_reversed)
             count++;
             cursor = npl_pair_ptr(cursor)->cdr;
         }
-        if (!npl_is_nil(cursor)) read_error("improper array row");
+        if (!npl_is_nil(cursor)) npl_read_error("improper array row");
         return npl_cons(npl_fixnum(count), npl_nil());
     }
     int64_t rows = 0;
@@ -696,16 +560,16 @@ static NplVal array_collect(NplVal list, int64_t rank, NplVal *flat_reversed)
     while (array_pair_p(cursor)) {
         NplVal row = npl_pair_ptr(cursor)->car;
         if (!array_pair_p(row) && !npl_is_nil(row))
-            read_error("array literal row is not a list");
+            npl_read_error("array literal row is not a list");
         NplVal row_shape = array_collect(row, rank - 1, flat_reversed);
         if (rows == 0)
             shape = row_shape;
         else if (!shape_equal(shape, row_shape))
-            read_error("array literal rows differ in shape");
+            npl_read_error("array literal rows differ in shape");
         rows++;
         cursor = npl_pair_ptr(cursor)->cdr;
     }
-    if (!npl_is_nil(cursor)) read_error("improper array list");
+    if (!npl_is_nil(cursor)) npl_read_error("improper array list");
     if (rows == 0) {
         for (int64_t i = 0; i < rank - 1; i++)
             shape = npl_cons(npl_fixnum(0), shape);
@@ -716,16 +580,16 @@ static NplVal array_collect(NplVal list, int64_t rank, NplVal *flat_reversed)
 /* Build [npl-array-tag shape flat-data] from the list read after #nA. */
 static NplVal array_from_items(NplVal list, int64_t rank)
 {
-    if (rank < 1) read_error("array literal rank must be at least 1");
-    if (rank > 32) read_error("array literal rank is too large");
+    if (rank < 1) npl_read_error("array literal rank must be at least 1");
+    if (rank > 32) npl_read_error("array literal rank is too large");
     if (rank == 1) {
         if (!array_proper_list_p(list))
-            read_error("array literal row is not a proper list");
+            npl_read_error("array literal row is not a proper list");
         return npl_list_to_vector(list);
     }
     NplVal flat_reversed = npl_nil();
     NplVal shape = npl_list_to_vector(array_collect(list, rank, &flat_reversed));
-    NplVal data = npl_list_to_vector(reverse_onto(flat_reversed, npl_nil()));
+    NplVal data = npl_list_to_vector(npl_reverse_onto(flat_reversed, npl_nil()));
     NplVal items[3];
     items[0] = npl_symbol("npl-array-literal-5f8d", 22);
     items[1] = shape;
@@ -739,20 +603,20 @@ static NplVal read_label_after_digits(NplDatumReader *reader, int64_t label,
 {
     if (code == '#') {
         NplVal entry = label_entry(reader, label);
-        if (npl_is_nil(entry)) read_error("undefined datum label");
+        if (npl_is_nil(entry)) npl_read_error("undefined datum label");
         return npl_pair_ptr(npl_pair_ptr(entry)->cdr)->cdr;
     }
-    if (code != '=') read_error("malformed datum label");
+    if (code != '=') npl_read_error("malformed datum label");
     if (!npl_is_nil(label_entry(reader, label)))
-        read_error("duplicate datum label");
+        npl_read_error("duplicate datum label");
     /* A fresh pair stands for the datum until it is read. */
     NplVal placeholder = npl_cons(npl_false(), npl_false());
     NplVal entry = npl_cons(npl_fixnum(label),
                             npl_cons(placeholder, placeholder));
     reader->labels = npl_cons(entry, reader->labels);
-    NplVal datum = read_datum_inner(reader, 0);
+    NplVal datum = npl_read_datum_inner(reader, 0);
     if (datum == placeholder)
-        read_error("datum label cannot reference itself");
+        npl_read_error("datum label cannot reference itself");
     NplSeen seen = { NULL, 0, 0 };
     datum = patch_placeholder(datum, placeholder, datum, &seen);
     free(seen.slots);
@@ -765,8 +629,8 @@ static NplVal read_label_after_digits(NplDatumReader *reader, int64_t label,
 static NplVal read_hash_keyword_datum(NplDatumReader *reader)
 {
     NplReadBuffer *buffer = npl_read_buffer_new();
-    while (!datum_delimiter(reader_peek(reader)))
-        npl_read_buffer_push(buffer, reader_get(reader));
+    while (!npl_datum_delimiter(npl_reader_peek(reader)))
+        npl_read_buffer_push(buffer, npl_reader_get(reader));
     if (buffer->length == 0)
         read_buffer_error(buffer, "keyword name is empty");
     NplVal keyword = npl_keyword(buffer->data, (uint32_t)buffer->length);
@@ -776,34 +640,34 @@ static NplVal read_hash_keyword_datum(NplDatumReader *reader)
 
 static NplVal read_hash_datum(NplDatumReader *reader)
 {
-    int code = reader_get(reader);
+    int code = npl_reader_get(reader);
     if (code >= '0' && code <= '9') {
         int64_t rank = code - '0';
         int next;
-        while ((next = reader_get(reader)) >= '0' && next <= '9') {
+        while ((next = npl_reader_get(reader)) >= '0' && next <= '9') {
             if (rank > (INT64_C(1) << 40))
-                read_error("datum label too large");
+                npl_read_error("datum label too large");
             rank = rank * 10 + (next - '0');
         }
         if (next == 'A' || next == 'a') {
-            if (rank > 32) read_error("array literal rank is too large");
-            reader_skip_space(reader);
-            if (reader_peek(reader) != '(')
-                read_error("array literal requires (...)");
-            (void)reader_get(reader);
-            return array_from_items(read_list_datum(reader, '('), rank);
+            if (rank > 32) npl_read_error("array literal rank is too large");
+            npl_reader_skip_space(reader);
+            if (npl_reader_peek(reader) != '(')
+                npl_read_error("array literal requires (...)");
+            (void)npl_reader_get(reader);
+            return array_from_items(npl_read_list_datum(reader, '('), rank);
         }
         return read_label_after_digits(reader, rank, next);
     }
     if (code == 't' || code == 'f') {
         /* #t #f #true #false (R7RS 2.1). */
         const char *rest = code == 't' ? "rue" : "alse";
-        if (!datum_delimiter(reader_peek(reader))) {
+        if (!npl_datum_delimiter(npl_reader_peek(reader))) {
             for (const char *p = rest; *p; p++)
-                if (reader_get(reader) != *p)
-                    read_error("invalid boolean literal");
-            if (!datum_delimiter(reader_peek(reader)))
-                read_error("invalid boolean literal");
+                if (npl_reader_get(reader) != *p)
+                    npl_read_error("invalid boolean literal");
+            if (!npl_datum_delimiter(npl_reader_peek(reader)))
+                npl_read_error("invalid boolean literal");
         }
         return code == 't' ? npl_true() : npl_false();
     }
@@ -813,124 +677,43 @@ static NplVal read_hash_datum(NplDatumReader *reader)
         return read_hash_radix_datum(reader, code);
     if (code == '\\') return read_character_datum(reader);
     if (code == ':') return read_hash_keyword_datum(reader);
-    if (code == '(') return npl_list_to_vector(read_list_datum(reader, '('));
+    if (code == '(') return npl_list_to_vector(npl_read_list_datum(reader, '('));
     if (code == 'u') {
-        if (reader_get(reader) != '8' || reader_get(reader) != '(')
-            read_error("malformed bytevector");
-        return bytevector_from_list(read_list_datum(reader, '('));
+        if (npl_reader_get(reader) != '8' || npl_reader_get(reader) != '(')
+            npl_read_error("malformed bytevector");
+        return bytevector_from_list(npl_read_list_datum(reader, '('));
     }
-    read_error("unknown # syntax");
+    npl_read_error("unknown # syntax");
     return npl_nil();
 }
 
-static int curly_equal(NplVal left, NplVal right)
+NplVal npl_read_datum_plain(NplDatumReader *reader, int allow_eof)
 {
-    if (left == right) return 1;
-    if (!npl_is_ptr(left) || !npl_is_ptr(right))
-        return npl_eqv(left, right) == npl_true();
-    NplHeader *a = npl_header(left);
-    NplHeader *b = npl_header(right);
-    if (a->tag != b->tag) return 0;
-    switch (a->tag) {
-    case BOX_PAIR:
-        return curly_equal(npl_car(left), npl_car(right)) &&
-               curly_equal(npl_cdr(left), npl_cdr(right));
-    case BOX_VECTOR: {
-        NplVector *va = (NplVector *)a;
-        NplVector *vb = (NplVector *)b;
-        if (va->length != vb->length) return 0;
-        for (uint32_t i = 0; i < va->length; i++)
-            if (!curly_equal(va->data[i], vb->data[i])) return 0;
-        return 1;
-    }
-    case BOX_STRING:
-    case BOX_SYMBOL:
-    case BOX_KEYWORD:
-        return npl_string_same_chars_internal(
-            (const NplString *)a, (const NplString *)b);
-    default:
-        return npl_eqv(left, right) == npl_true();
-    }
-}
-
-static NplVal curly_operands(NplVal items, NplVal reversed)
-{
-    if (npl_is_nil(items)) return reverse_onto(reversed, npl_nil());
-    NplVal rest = npl_cdr(items);
-    if (npl_is_nil(rest))
-        return reverse_onto(npl_cons(npl_car(items), reversed), npl_nil());
-    return curly_operands(npl_cdr(rest),
-                          npl_cons(npl_car(items), reversed));
-}
-
-static NplVal read_curly_infix(NplDatumReader *reader)
-{
-    NplVal reversed = npl_nil();
-    int64_t count = 0;
-    npl_gc_root(&reversed);
-    for (;;) {
-        npl_safepoint_poll();
-        reader_skip_space(reader);
-        int code = reader_peek(reader);
-        if (code == EOF) read_error("unexpected EOF in curly-infix list");
-        if (code == '}') {
-            (void)reader_get(reader);
-            break;
-        }
-        NplVal item = read_datum_inner(reader, 0);
-        reversed = npl_cons(item, reversed);
-        count++;
-    }
-    NplVal items = reverse_onto(reversed, npl_nil());
-    npl_gc_unroot(&reversed);
-    if (count == 0) return npl_nil();
-    if (count == 1) return npl_car(items);
-    if (count == 2)
-        return npl_cons(npl_car(items),
-                        npl_cons(npl_car(npl_cdr(items)), npl_nil()));
-    if ((count % 2) == 0)
-        return npl_cons(npl_symbol("$nfx$", 5), items);
-
-    NplVal operator = npl_car(npl_cdr(items));
-    NplVal rest = npl_cdr(npl_cdr(items));
-    while (!npl_is_nil(rest)) {
-        rest = npl_cdr(rest);        /* skip the operand */
-        if (!npl_is_nil(rest)) {
-            if (!curly_equal(operator, npl_car(rest)))
-                return npl_cons(npl_symbol("$nfx$", 5), items);
-            rest = npl_cdr(rest);    /* skip the next operator */
-        }
-    }
-    return npl_cons(operator, curly_operands(items, npl_nil()));
-}
-
-static NplVal read_datum_plain(NplDatumReader *reader, int allow_eof)
-{
-    reader_skip_space(reader);
-    int code = reader_get(reader);
+    npl_reader_skip_space(reader);
+    int code = npl_reader_get(reader);
     if (code == EOF) {
         if (allow_eof) return npl_port_eof_internal();
-        read_error("unexpected EOF");
+        npl_read_error("unexpected EOF");
     }
-    if (code == '(' || code == '[') return read_list_datum(reader, code);
-    if (code == '{') return read_curly_infix(reader);
-    if (code == ')') read_error("unexpected )");
-    if (code == ']') read_error("unexpected ]");
-    if (code == '}') read_error("unexpected }");
+    if (code == '(' || code == '[') return npl_read_list_datum(reader, code);
+    if (code == '{') return npl_read_curly_infix(reader);
+    if (code == ')') npl_read_error("unexpected )");
+    if (code == ']') npl_read_error("unexpected ]");
+    if (code == '}') npl_read_error("unexpected }");
     if (code == '"') return read_string_datum(reader);
-    if (code == '\'') return quoted_datum(read_datum_inner(reader, 0));
+    if (code == '\'') return quoted_datum(npl_read_datum_inner(reader, 0));
     if (code == '`')
-        return abbreviated_datum("quasiquote", read_datum_inner(reader, 0));
+        return abbreviated_datum("quasiquote", npl_read_datum_inner(reader, 0));
     if (code == ',') {
-        if (reader_peek(reader) == '@') {
-            (void)reader_get(reader);
+        if (npl_reader_peek(reader) == '@') {
+            (void)npl_reader_get(reader);
             return abbreviated_datum("unquote-splicing",
-                                     read_datum_inner(reader, 0));
+                                     npl_read_datum_inner(reader, 0));
         }
-        return abbreviated_datum("unquote", read_datum_inner(reader, 0));
+        return abbreviated_datum("unquote", npl_read_datum_inner(reader, 0));
     }
     if (code == '#') return read_hash_datum(reader);
-    return read_token_datum(reader, code);
+    return npl_read_token_datum(reader, code);
 }
 
 /* SRFI 105 neoteric forms: only when #!curly-infix has enabled them.  The
@@ -938,34 +721,6 @@ static NplVal read_datum_plain(NplDatumReader *reader, int allow_eof)
  * as well as at the top level.  Whitespace is significant: a datum followed
  * immediately by an opening delimiter is an application, while f (x) stays
  * two data. */
-static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof)
-{
-    NplVal value = read_datum_plain(reader, allow_eof);
-    if (!reader->neoteric) return value;
-    for (;;) {
-        int next = reader_peek(reader);
-        if (next == '(') {
-            (void)reader_get(reader);
-            NplVal args = read_list_datum(reader, '(');
-            value = npl_cons(value, args);
-        } else if (next == '[') {
-            (void)reader_get(reader);
-            NplVal args = read_list_datum(reader, '[');
-            value = npl_cons(npl_symbol("$bracket-apply$", 15),
-                             npl_cons(value, args));
-        } else if (next == '{') {
-            (void)reader_get(reader);
-            NplVal content = read_curly_infix(reader);
-            value = npl_is_nil(content)
-                ? npl_cons(value, npl_nil())
-                : npl_cons(value, npl_cons(content, npl_nil()));
-        } else {
-            break;
-        }
-    }
-    return value;
-}
-
 NplVal npl_read_datum(NplVal port_value_arg)
 {
     NplPort *port = npl_port_require_mode_internal(port_value_arg, NPL_PORT_INPUT,
@@ -974,11 +729,9 @@ NplVal npl_read_datum(NplVal port_value_arg)
                               (int)port->read_fold_case,
                               (int)port->read_keyword_colon,
                               (int)port->read_neoteric,
-                              0,
-                              (int)port->read_directive_seen,
-                              (int)port->read_lang_seen };
+                              0 };
     npl_gc_root(&reader.labels);
-    NplVal value = read_datum_inner(&reader, 1);
+    NplVal value = npl_read_datum_inner(&reader, 1);
     npl_gc_unroot(&reader.labels);
     if (reader.has_lookahead && reader.lookahead != EOF) {
         uint8_t bytes[4];

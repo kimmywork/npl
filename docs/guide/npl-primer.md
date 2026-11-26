@@ -415,7 +415,9 @@ is two separate data.
 ```
 
 `f(x)`, `f[x]`, and `f{x}` are the neoteric application, bracket-apply,
-and curly-argument forms. `'f(1)` reads as the datum `(f 1)`. The
+and curly-argument forms. `'f(1)` reads as the datum `(f 1)`, and
+`f(. rest)` is the improper call `(f . rest)`. Dotted curly lists stay
+improper and are mixed: `{a + b . c}` reads as `($nfx$ a + b . c)`. The
 `#!curly-infix` activation is one-way and lasts for the rest of the file;
 there is no `#!no-curly-infix`. A fresh file or port starts from the
 default reader behavior.
@@ -426,17 +428,16 @@ alias. The `#:foo` spelling always works without a directive. R7RS's
 `#!fold-case` / `#!no-fold-case` pair remains the one standardized
 toggle.
 
-Parameterized directives use one parenthesized list. The `npl` language
-profile is the default and must be the first non-shebang directive:
+Parameterized directives use one parenthesized list:
 
 ```scheme
-#!(lang npl)
 #!(curly-infix neoteric)
 #!(colon-keyword)
 ```
 
 `#!(curly-infix)` is equivalent to `#!curly-infix`, and
-`#!(curly-infix neoteric)` enables the neoteric forms as well.
+`#!(curly-infix neoteric)` enables the neoteric forms as well. Directives
+adjust the reader; they do not select a language.
 
 Anything that is not `#f` is true. `member` returns the remaining list when
 it finds a match, and `#f` otherwise:

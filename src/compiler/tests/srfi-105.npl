@@ -43,5 +43,11 @@
   (test-equal "neoteric whitespace stays separate"
               (lambda () (let ((f (lambda (x) x))) (f (+ 3 5))))
               8)
+  (test-assert "dotted curly is mixed"
+               (equal? '{a + b . c} '($nfx$ a + b . c)))
+  (test-assert "dotted neoteric call"
+               (equal? 'f(a . b) '(f a . b)))
+  (test-assert "dotted neoteric arguments"
+               (equal? 'read(. options) '(read . options)))
   (finish-tests "srfi-105"))
 (main)

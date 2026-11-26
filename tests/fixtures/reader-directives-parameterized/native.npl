@@ -1,4 +1,3 @@
-#!(lang npl)
 #!(curly-infix neoteric)
 #!(colon-keyword)
 
@@ -9,3 +8,5 @@
 (write increment(41)) (newline)
 (write (keyword? 'foo:)) (newline)
 (write {1 + 2 + 3}) (newline)
+(write '{1 + 2 . 3}) (newline)
+(write 'read(. options)) (newline)

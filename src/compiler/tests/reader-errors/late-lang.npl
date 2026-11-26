@@ -1,3 +1,0 @@
-#!fold-case
-#!(lang npl)
-(import (scheme base))

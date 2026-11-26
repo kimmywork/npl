@@ -1,3 +1,5 @@
 42
 #t
 6
+($nfx$ 1 + 2 . 3)
+(read . options)

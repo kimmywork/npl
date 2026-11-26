@@ -11,29 +11,24 @@
     #f))
 
 (define (main)
-  (test-assert "late lang directive"
-               (read-error? "#!fold-case\n#!(lang npl)\n1"))
-  (test-assert "duplicate lang directive"
-               (read-error? "#!(lang npl)\n#!(lang npl)\n1"))
   (test-assert "unknown parameterized directive"
                (read-error? "#!(bogus)\n1"))
   (test-assert "directive arity"
                (read-error? "#!(fold-case extra)\n1"))
-  (test-assert "missing language"
-               (read-error? "#!(lang)\n1"))
+  (test-assert "curly-infix option"
+               (read-error? "#!(curly-infix bogus)\n1"))
   (test-assert "nested directive"
-               (read-error? "#!(lang #!fold-case npl)\n1"))
-  (test-assert "duplicate lang across reads"
+               (read-error? "#!(curly-infix #!fold-case)\n1"))
+  (test-assert "directive option persists across reads"
                (let ((port (open-input-string
-                             "#!(lang npl)\n1\n#!(lang npl)\n2")))
-                 (read port)
-                 (guard (condition (#t #t))
-                   (read port)
-                   #f)))
+                             "#!(curly-infix neoteric)\nf(1)")))
+                 (equal? (read port) '(f 1))))
   (test-assert "fresh port starts clean"
-               (let ((first (open-input-string "#!fold-case\n1"))
-                     (second (open-input-string "#!(lang npl)\n2")))
+               (let ((first (open-input-string "#!(curly-infix neoteric)\n1"))
+                     (second (open-input-string "f(1)")))
                  (read first)
-                 (= (read second) 2)))
+                 (let ((head (read second))
+                       (tail (read second)))
+                   (if (eq? head 'f) (equal? tail '(1)) #f))))
   (finish-tests "reader-directive-errors"))
 (main)

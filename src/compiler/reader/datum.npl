@@ -241,16 +241,33 @@
                          (loop (cdr next))
                          (cons (datum-symbol "$nfx$") items)))))))))))
 
+(define (append-onto left right)
+  (if (null? left)
+      right
+      (cons (car left) (append-onto (cdr left) right))))
+
+; Returns (proper? . items).  A dotted curly list is always mixed.
 (define (curly-items cur acc)
   (if (= (peek-kind cur) 25)
-      (begin (advance! cur) (rev acc))
+      (begin (advance! cur) (cons #t (rev acc)))
       (if (= (peek-kind cur) 7)
           (fatal "unexpected end of input in curly-infix list")
-          (curly-items cur (cons (parse-quote-datum cur) acc)))))
+          (if (dot-token? cur)
+              (begin
+                (advance! cur)
+                (let ((tail (parse-quote-datum cur)))
+                  (if (not (= (peek-kind cur) 25))
+                      (fatal "expected } after dotted curly-infix datum"))
+                  (advance! cur)
+                  (cons #f (append-onto (rev acc) tail))))
+              (curly-items cur (cons (parse-quote-datum cur) acc))))))
 
 (define (parse-curly-datum cur)
   (advance! cur)
-  (curly-map (curly-items cur ())))
+  (let ((items (curly-items cur ())))
+    (if (car items)
+        (curly-map (cdr items))
+        (cons (datum-symbol "$nfx$") (cdr items)))))
 
 (define (parse-quote-plain cur)
   (let ((k (peek-kind cur)))
