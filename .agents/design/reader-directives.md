@@ -1,7 +1,9 @@
 # Reader Directives and Reader Extensions
 
-Status: **design proposal**. The generalized registry, parameterized
-directives, and `#!lang`-style profiles are not implemented yet.
+Status: **implemented subset**. Simple directives, parenthesized
+`#!(name args...)`, and the `npl` language profile are implemented in both
+readers. Additional profiles and general datum arguments in the compiler
+remain follow-up work.
 
 ## Why this document
 
@@ -30,7 +32,7 @@ composable, per port/source, validated, and can grow into a Racket-style
 
 ## Current behavior (interim)
 
-The current implementation, before the generalized registry:
+The current implementation:
 
 - both readers recognize `#!fold-case`, `#!no-fold-case`,
   `#!curly-infix`, `#!srfi-88`, and `#!colon-keyword`;
@@ -50,7 +52,7 @@ The remaining rough edges are intentional inputs to this design:
   directive currently gates only the neoteric `f(x)` / `f[x]` / `f{x}`
   forms;
 - `#!srfi-88` is retained as a compatibility alias;
-- there is no plugin/`#lang` registry;
+- the registry is a fixed table; there is no plugin loading;
 - default profiles are implicit.
 
 ## Core rule: presence enables, absence does not
@@ -145,7 +147,9 @@ Examples:
 Rules:
 
 - The first element is a directive name.
-- Arguments are reader datums, not evaluated expressions.
+- Arguments are reader data, not evaluated expressions. The compiler
+  reader currently accepts identifier atoms; the runtime reader accepts
+  general datums and validates them.
 - Arity and argument types are supplied by the directive registry.
 - The parenthesized form is allowed for zero-argument directives too, so
   `#!(colon-keyword)` is equivalent to `#!colon-keyword`.
@@ -274,6 +278,9 @@ should eventually define:
 - `#!(curly-infix neoteric)`: additionally enable `f(x)`, `e{}`, `e[...]`;
 - absence: use the language profile default.
 
+Interim behavior: core `{...}` is always available, and both
+`#!curly-infix` and `#!(curly-infix neoteric)` enable the neoteric forms.
+
 Neoteric forms depend on whitespace/adjacency and `e[...]` conflicts with
 NPL's bracket lists, so they should not be forced on by the basic flag. A
 separate argument or a separate profile is safer.
@@ -364,11 +371,10 @@ Every directive error should include:
 2. Remove the former `#!no-srfi-88` spelling; R7RS `#!no-fold-case` stays.
 3. Move compiler options from global cells to a per-source record.
 4. Keep runtime options on the port (already true in the interim fix).
-5. Add arity/argument validation and identical diagnostics in both readers.
-6. Add `#!(lang ...)`/`#!(profile ...)` only after the flag registry is
-   stable and tested.
-7. Decide the default curly-infix profile and whether neoteric is an
-   argument or a separate profile.
+5. Keep arity/argument validation and diagnostics aligned in both readers.
+6. Extend the profile table beyond `npl` when a second profile is defined.
+7. Decide the default curly-infix profile and whether neoteric remains an
+   argument or becomes a separate profile.
 
 ## Tests
 
@@ -407,7 +413,8 @@ the compiler. It accepts `#!srfi-88` and `#!colon-keyword` as one-way
 activations; the former `#!no-srfi-88` spelling is gone. `#!curly-infix`
 enables the neoteric forms in both readers, with adjacency captured per
 token so a mid-file directive does not retroactively change earlier data.
-It deliberately does **not** implement the registry, parameterized
-directives, or `#!lang`. Unknown directives and the former
-`#!no-srfi-88` spelling are errors in both readers. This document is the
-contract for the follow-up refactor.
+It implements a small registry with the simple directives, parenthesized
+`#!(name args...)`, and `#!(lang npl)` with the first-and-once rule.
+Unknown directives, malformed directives, and the former `#!no-srfi-88`
+spelling are errors in both readers. Additional language profiles and
+general datum arguments in the compiler reader remain follow-up work.

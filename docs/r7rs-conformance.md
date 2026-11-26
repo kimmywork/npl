@@ -144,7 +144,9 @@ change and no seed relay.
 
 Both readers accept R7RS `#!fold-case` / `#!no-fold-case` (identifiers and
 character names fold), plus NPL's `#!curly-infix`, `#!colon-keyword`, and
-the `#!srfi-88` alias. Unknown directives are errors. Directives may be
+the `#!srfi-88` alias. Parenthesized `#!(name args...)` forms are accepted;
+`#!(lang npl)` is the current profile and must be the first non-shebang
+directive. Unknown directives are errors. Directives may be
 consecutive and apply from their position onward; compiler adjacencies are
 captured per token, so a mid-file directive does not rewrite earlier data.
 

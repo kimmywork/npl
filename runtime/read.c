@@ -24,6 +24,9 @@ typedef struct {
     int fold_case;      /* #!fold-case in effect (R7RS 2.1) */
     int keyword_colon;  /* #!colon-keyword: foo: reads as a keyword */
     int neoteric;       /* #!curly-infix: f(x), e{}, e[...] */
+    int in_directive;   /* reading #!(name args...) */
+    int directive_seen; /* a reader directive was already seen */
+    int lang_seen;      /* #!(lang ...) was already seen */
 } NplDatumReader;
 
 static void read_error(const char *message)
@@ -74,6 +77,8 @@ static int datum_delimiter(int code)
 }
 
 static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof);
+static NplVal read_list_datum(NplDatumReader *reader, int open);
+static int symbol_named(NplVal value, const char *name);
 
 /* #| ... |# comments nest (R7RS 2.2). */
 static void skip_block_comment(NplDatumReader *reader)
@@ -90,10 +95,108 @@ static void skip_block_comment(NplDatumReader *reader)
     }
 }
 
-/* #!fold-case / #!no-fold-case directives (R7RS 2.1). */
+/* Number of elements in a proper list, or -1 if it is improper. */
+static int directive_count(NplVal list)
+{
+    int count = 0;
+    while (npl_is_ptr(list) && npl_header(list)->tag == BOX_PAIR) {
+        count++;
+        list = npl_cdr(list);
+    }
+    return npl_is_nil(list) ? count : -1;
+}
+
+static int directive_symbol_name(NplVal value, char *buffer, size_t size)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_SYMBOL) return 0;
+    const NplString *symbol = (const NplString *)npl_header(value);
+    uint32_t count = npl_string_char_count_internal(symbol);
+    if ((size_t)count + 1 >= size) return 0;
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t code = npl_string_char_at_internal(symbol, i);
+        if (code >= 0x80) return 0;
+        buffer[i] = (char)code;
+    }
+    buffer[count] = '\0';
+    return 1;
+}
+
+static void directive_mark_seen(NplDatumReader *reader)
+{
+    reader->directive_seen = 1;
+    reader->port->read_directive_seen = 1;
+}
+
+/* One registry entry for simple and parenthesized directives.  Arguments
+ * are datums; current entries take identifiers or none. */
+static void directive_apply(NplDatumReader *reader, const char *name,
+                            NplVal args)
+{
+    int count = directive_count(args);
+    if (count < 0) read_error("malformed directive");
+
+    if (strcmp(name, "lang") == 0) {
+        if (reader->lang_seen)
+            read_error("lang directive may appear only once");
+        if (reader->directive_seen)
+            read_error("lang directive must be first");
+        if (count != 1)
+            read_error("lang directive needs a language");
+        if (!symbol_named(npl_car(args), "npl"))
+            read_error("unknown language");
+        reader->lang_seen = 1;
+        reader->port->read_lang_seen = 1;
+        directive_mark_seen(reader);
+        return;
+    }
+
+    if (strcmp(name, "fold-case") == 0) {
+        if (count != 0) read_error("directive takes no arguments");
+        reader->fold_case = 1;
+        reader->port->read_fold_case = 1;
+    } else if (strcmp(name, "no-fold-case") == 0) {
+        if (count != 0) read_error("directive takes no arguments");
+        reader->fold_case = 0;
+        reader->port->read_fold_case = 0;
+    } else if (strcmp(name, "curly-infix") == 0) {
+        if (!(count == 0 ||
+              (count == 1 && symbol_named(npl_car(args), "neoteric"))))
+            read_error("curly-infix directive takes no arguments or neoteric");
+        reader->neoteric = 1;
+        reader->port->read_neoteric = 1;
+    } else if (strcmp(name, "srfi-88") == 0 ||
+               strcmp(name, "colon-keyword") == 0) {
+        if (count != 0) read_error("directive takes no arguments");
+        reader->keyword_colon = 1;
+        reader->port->read_keyword_colon = 1;
+    } else {
+        read_error("unknown directive");
+    }
+    directive_mark_seen(reader);
+}
+
+static void read_parameterized_directive(NplDatumReader *reader)
+{
+    (void)reader_get(reader);   /* ( */
+    int saved = reader->in_directive;
+    reader->in_directive = 1;
+    NplVal list = read_list_datum(reader, '(');
+    reader->in_directive = saved;
+    if (directive_count(list) < 1) read_error("malformed directive");
+    char name[32];
+    if (!directive_symbol_name(npl_car(list), name, sizeof(name)))
+        read_error("malformed directive");
+    directive_apply(reader, name, npl_cdr(list));
+}
+
+/* #!directive or #!(name args...) at a datum boundary. */
 static void read_directive(NplDatumReader *reader)
 {
-    char name[16];
+    if (reader_peek(reader) == '(') {
+        read_parameterized_directive(reader);
+        return;
+    }
+    char name[32];
     size_t length = 0;
     while (!datum_delimiter(reader_peek(reader))) {
         int code = reader_get(reader);
@@ -101,20 +204,7 @@ static void read_directive(NplDatumReader *reader)
         name[length++] = (char)code;
     }
     name[length] = '\0';
-    if (strcmp(name, "fold-case") == 0) {
-        reader->fold_case = 1;
-        reader->port->read_fold_case = 1;
-    } else if (strcmp(name, "no-fold-case") == 0) {
-        reader->fold_case = 0;
-        reader->port->read_fold_case = 0;
-    } else if (strcmp(name, "curly-infix") == 0) {
-        reader->neoteric = 1;
-        reader->port->read_neoteric = 1;
-    } else if (strcmp(name, "srfi-88") == 0 ||
-               strcmp(name, "colon-keyword") == 0) {
-        reader->keyword_colon = 1;
-        reader->port->read_keyword_colon = 1;
-    } else read_error("unknown directive");
+    directive_apply(reader, name, npl_nil());
 }
 
 /* Skips whitespace and comments: line (;), block (#|...|#), datum (#;),
@@ -161,6 +251,8 @@ static void reader_skip_space(NplDatumReader *reader)
                     read_error("datum comment needs a datum");
             } else if (next == '!') {
                 (void)reader_get(reader);
+                if (reader->in_directive)
+                    read_error("directive inside directive");
                 read_directive(reader);
             } else {
                 /* Not a comment: give the '#' back. The next character is
@@ -881,7 +973,10 @@ NplVal npl_read_datum(NplVal port_value_arg)
     NplDatumReader reader = { port, 0, 0, npl_nil(),
                               (int)port->read_fold_case,
                               (int)port->read_keyword_colon,
-                              (int)port->read_neoteric };
+                              (int)port->read_neoteric,
+                              0,
+                              (int)port->read_directive_seen,
+                              (int)port->read_lang_seen };
     npl_gc_root(&reader.labels);
     NplVal value = read_datum_inner(&reader, 1);
     npl_gc_unroot(&reader.labels);

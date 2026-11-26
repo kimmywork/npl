@@ -29,6 +29,8 @@ static NplVal make_port(FILE *stream, uint32_t mode)
     port->read_fold_case = 0;
     port->read_keyword_colon = 0;
     port->read_neoteric = 0;
+    port->read_directive_seen = 0;
+    port->read_lang_seen = 0;
     return (NplVal)(uintptr_t)port | TAG_PTR;
 }
 

@@ -426,6 +426,18 @@ alias. The `#:foo` spelling always works without a directive. R7RS's
 `#!fold-case` / `#!no-fold-case` pair remains the one standardized
 toggle.
 
+Parameterized directives use one parenthesized list. The `npl` language
+profile is the default and must be the first non-shebang directive:
+
+```scheme
+#!(lang npl)
+#!(curly-infix neoteric)
+#!(colon-keyword)
+```
+
+`#!(curly-infix)` is equivalent to `#!curly-infix`, and
+`#!(curly-infix neoteric)` enables the neoteric forms as well.
+
 Anything that is not `#f` is true. `member` returns the remaining list when
 it finds a match, and `#f` otherwise:
 

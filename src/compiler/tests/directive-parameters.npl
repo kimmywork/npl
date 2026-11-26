@@ -1,0 +1,26 @@
+#!(lang npl)
+#!(curly-infix neoteric)
+#!(colon-keyword)
+
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl infix)
+        (npl keyword))
+
+(include "framework.npl")
+
+(define (increment x) (+ x 1))
+
+(define (main)
+  (test-equal "parameterized neoteric"
+              (lambda () increment(41))
+              42)
+  (test-equal "parameterized colon keyword"
+              (lambda () (keyword? 'foo:))
+              #t)
+  (test-equal "parenthesized zero-argument directive"
+              (lambda () (keyword? #:bar))
+              #t)
+  (finish-tests "directive-parameters"))
+(main)
