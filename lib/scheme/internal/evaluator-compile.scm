@@ -129,19 +129,38 @@
           (eval-unbound cell)
           (set-car! cell new-value)))))
 
+(define (eval-name-local-initializer name init compiled)
+  (if (if (pair? init)
+          (if (number? (car init))
+              (if (= (car init) 212) #t (= (car init) 219))
+              #f)
+          #f)
+      (let ((display (string->symbol (display-name-of name))))
+        (lambda (frame)
+          (let ((value (compiled frame)))
+            (if (procedure? value)
+                (npl_closure_set_name value display)
+                #f)
+            value)))
+      compiled))
+
 (define (eval-compile-set form scope environment)
   (let ((name (cdr (car (cdr form))))
-        (value (eval-compile (car (cdr (cdr form))) scope environment)))
-    (let ((address (eval-scope-lookup name scope 0)))
-      (cond
-        (address
-         (let ((depth (car address)) (index (cdr address)))
-           (lambda (frame)
-             (vector-set! (eval-frame-up frame depth) index (value frame)))))
-        ((eval-environment-mutable? environment)
-         (eval-global-assignment (eval-environment-cell environment name)
-                                 value))
-        (else (lambda (frame) (error "eval: immutable binding")))))))
+        (expression (car (cdr (cdr form)))))
+    (let ((value
+            (eval-name-local-initializer
+              name expression
+              (eval-compile expression scope environment))))
+      (let ((address (eval-scope-lookup name scope 0)))
+        (cond
+          (address
+           (let ((depth (car address)) (index (cdr address)))
+             (lambda (frame)
+               (vector-set! (eval-frame-up frame depth) index (value frame)))))
+          ((eval-environment-mutable? environment)
+           (eval-global-assignment (eval-environment-cell environment name)
+                                   value))
+          (else (lambda (frame) (error "eval: immutable binding"))))))))
 
 (define (eval-global-definition cell value name)
   (lambda (frame)
@@ -481,10 +500,20 @@
        (lambda (frame)
          (code (list->vector (cons frame (eval-run-list inits frame)))))))))
 
+(define (eval-name-local-inits bindings inits)
+  (if (null? bindings)
+      '()
+      (let ((binding (car bindings)))
+        (cons (eval-name-local-initializer
+                (cdr (car binding)) (cdr binding) (car inits))
+              (eval-name-local-inits (cdr bindings) (cdr inits))))))
+
 (define (eval-compile-let form scope environment)
   (let ((bindings (car (cdr form))))
     (eval-make-let
-      (eval-compile-list (eval-binding-inits bindings) scope environment)
+      (eval-name-local-inits
+        bindings
+        (eval-compile-list (eval-binding-inits bindings) scope environment))
       (eval-compile-body (car (cdr (cdr form)))
                          (cons (eval-binding-names bindings) scope)
                          environment))))
@@ -533,7 +562,9 @@
   (let ((bindings (car (cdr form))))
     (let ((inner (cons (eval-binding-names bindings) scope)))
       (eval-make-letrec
-        (eval-compile-list (eval-binding-inits bindings) inner environment)
+        (eval-name-local-inits
+          bindings
+          (eval-compile-list (eval-binding-inits bindings) inner environment))
         (eval-compile-body (car (cdr (cdr form))) inner environment)
         sequential))))
 

@@ -560,7 +560,11 @@ bar
 
 NPL prints anonymous procedure values as `#<procedure>`. Top-level and
 library procedures include names when known, for example
-`#<procedure scheme/base:map>`; local closures may remain anonymous.
+`#<procedure scheme/base:map>`. A closure bound directly by `let`, `let*`,
+`letrec`, an internal definition, or `set!` takes the binding's source name,
+such as `#<procedure local>`. Aliasing an existing procedure keeps its
+original name, so a local alias of `car` still prints as
+`#<procedure car>`.
 
 ## 9. Iteration and recursion
 

@@ -5,9 +5,11 @@
 
 (define (fresh-value-name identifier)
   (cell-set! EXPAND-NEXT-VALUE (+ 1 (cell-get EXPAND-NEXT-VALUE)))
-  (string-append "_npl_h_"
-    (string-append (number->string (cell-get EXPAND-NEXT-VALUE))
-      (string-append "_" (sanitize (datum-symbol-name identifier) 0 "")))))
+  (record-display-name
+    (string-append "_npl_h_"
+      (string-append (number->string (cell-get EXPAND-NEXT-VALUE))
+        (string-append "_" (sanitize (datum-symbol-name identifier) 0 ""))))
+    (datum-symbol-name identifier)))
 
 (define (resolve-identifier identifier environment)
   (let ((binding (lookup-value-binding identifier environment)))

@@ -28,15 +28,32 @@
 
 (define (emit-set e env)
   (let ((name (cdr (car (cdr e)))))
-    (let ((value (emit-set-value name (car (cdr (cdr e))) env)))
-      (let ((local (env-lookup env name)))
-        (if (> (string-length local) 0)
-            (write-cell-op local value)
-            (let ((global (lookup-glob name)))
-              (if (> (string-length global) 0)
-                  (func-line (string-append "storel " value ", " global))
-                  (fatal (string-append "set!: unbound " name))))))
-      "18")))
+    (let ((expression (car (cdr (cdr e)))))
+      (let ((value (emit-set-value name expression env)))
+        (if (lambda-form? expression) (name-closure name value) 0)
+        (let ((local (env-lookup env name)))
+          (if (> (string-length local) 0)
+              (write-cell-op local value)
+              (let ((global (lookup-glob name)))
+                (if (> (string-length global) 0)
+                    (func-line (string-append "storel " value ", " global))
+                    (fatal (string-append "set!: unbound " name))))))
+        "18"))))
+
+; A direct lambda initializer names its closure after the local binding.
+; Tag 219 is the direct-call form of the same lambda.
+(define (lambda-form? value)
+  (if (pair-shape? value)
+      (if (number? (car value))
+          (if (= (car value) 212) #t (= (car value) 219))
+          #f)
+      #f))
+
+(define (name-closure name value)
+  (func-line
+    (string-append "call $npl_closure_set_name(l " value ", l "
+                   (label-ref-op (intern-sym (display-name-of name))) ")"))
+  value)
 
 (define (binding-values binds env)
   (if (null? binds)
@@ -47,9 +64,15 @@
 (define (bind-values binds values env)
   (if (null? binds)
       env
-      (bind-values
-        (cdr binds) (cdr values)
-        (env-bind env (cdr (car (car binds))) (car values)))))
+      (let ((binding (car binds))
+            (value (car values)))
+        (let ((name (cdr (car binding))))
+          (bind-values
+            (cdr binds) (cdr values)
+            (env-bind env name
+              (if (lambda-form? (cdr binding))
+                  (name-closure name value)
+                  value)))))))
 
 (define (emit-let e env)
   (let ((binds (car (cdr e))))
@@ -66,9 +89,13 @@
       (emit-body body env)
       (let ((binding (car binds)))
         (let ((value (emit-expr (cdr binding) env)))
-          (emit-letstar-binds
-            (cdr binds) body
-            (env-bind env (cdr (car binding)) value))))))
+          (let ((name (cdr (car binding))))
+            (emit-letstar-binds
+              (cdr binds) body
+              (env-bind env name
+                (if (lambda-form? (cdr binding))
+                    (name-closure name value)
+                    value))))))))
 
 (define (allocate-bindings binds env)
   (allocate-binding-cells binds env (placeholder-bindings? binds)))
@@ -127,18 +154,26 @@
 (define (write-bindings binds values env)
   (if (null? binds)
       0
-      (begin
-        (write-cell-op (env-lookup env (cdr (car (car binds))))
-                       (car values))
-        (write-bindings (cdr binds) (cdr values) env))))
+      (let ((binding (car binds))
+            (value (car values)))
+        (let ((name (cdr (car binding))))
+          (write-cell-op (env-lookup env name)
+                         (if (lambda-form? (cdr binding))
+                             (name-closure name value)
+                             value))
+          (write-bindings (cdr binds) (cdr values) env)))))
 
 (define (initialize-bindings binds env)
   (if (null? binds)
       0
       (let ((binding (car binds)))
         (let ((value (emit-expr (cdr binding) env)))
-          (write-cell-op (env-lookup env (cdr (car binding))) value)
-          (initialize-bindings (cdr binds) env)))))
+          (let ((name (cdr (car binding))))
+            (write-cell-op (env-lookup env name)
+                           (if (lambda-form? (cdr binding))
+                               (name-closure name value)
+                               value))
+            (initialize-bindings (cdr binds) env))))))
 
 (define (emit-letrec e env sequential)
   (let ((binds (car (cdr e))))
@@ -174,9 +209,15 @@
 
 (define (initialize-internal body env)
   (if (if (null? body) #f (internal-def? (car body)))
-      (let ((value (emit-expr (internal-value (car body)) env)))
-        (write-cell-op (env-lookup env (internal-name (car body))) value)
-        (initialize-internal (cdr body) env))
+      (let ((form (car body)))
+        (let ((name (internal-name form))
+              (expression (internal-value form)))
+          (let ((value (emit-expr expression env)))
+            (write-cell-op (env-lookup env name)
+                           (if (lambda-form? expression)
+                               (name-closure name value)
+                               value))
+            (initialize-internal (cdr body) env))))
       body))
 
 (define (emit-sequence body env)

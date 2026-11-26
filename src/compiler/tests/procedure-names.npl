@@ -23,5 +23,34 @@
   (test-equal "parameter"
               (lambda () (format #f "~s" (make-parameter 1)))
               "#<parameter>")
+  (test-equal "let-bound procedure name"
+              (lambda ()
+                (format #f "~s" (let ((local (lambda (x) x))) local)))
+              "#<procedure local>")
+  (test-equal "letrec-bound procedure name"
+              (lambda ()
+                (format #f "~s" (letrec ((local (lambda (x) x))) local)))
+              "#<procedure local>")
+  (test-equal "internal definition procedure name"
+              (lambda ()
+                (format #f "~s" (let () (define (inner x) x) inner)))
+              "#<procedure inner>")
+  (test-equal "local alias keeps its procedure name"
+              (lambda () (format #f "~s" (let ((alias car)) alias)))
+              "#<procedure car>")
+  (test-equal "named let procedure name"
+              (lambda () (format #f "~s" (let loop ((n 0)) loop)))
+              "#<procedure loop>")
+  (test-equal "set! procedure name"
+              (lambda ()
+                (format #f "~s" (let ((slot #f))
+                                  (set! slot (lambda (x) x))
+                                  slot)))
+              "#<procedure slot>")
+  (test-equal "hyphenated local procedure name"
+              (lambda ()
+                (format #f "~s"
+                        (let ((add-one (lambda (x) (+ x 1)))) add-one)))
+              "#<procedure add-one>")
   (finish-tests "procedure-names"))
 (main)

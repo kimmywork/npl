@@ -126,6 +126,7 @@ status:
 | Keyword arguments | **implemented** as NPL extensions: SRFI 88 keyword objects, SRFI 89 `define*`/`lambda*`, and Guile-style `#:optional`/`#:key`/`#:allow-other-keys` aliases. `#:foo` is always available; the trailing-colon `foo:` spelling is enabled by `#!colon-keyword` (`#!srfi-88` is an alias). | SRFI 88 / SRFI 89 |
 | Default-valued optional parameters | **implemented** by SRFI 89 `define*`/`lambda*`; `case-lambda` remains available | — |
 | Curly-infix expressions | **implemented** core `{...}` in both readers; `#!curly-infix` additionally enables the neoteric `f(x)`, `f[x]`, and `f{x}` forms. A precedence handler remains follow-up work. | SRFI 105 |
+| Procedure display names | **implemented** for top-level, library, primitive, parameter, and direct local lambda bindings; aliases keep the original name | NPL extension |
 | Records: inheritance, `#:guard`, opaque, prefab | absent (all records transparent, generative) | SRFI 99 / SRFI 256 |
 | `filter`, `fold`, `partition`, `sort` | **implemented** in `(npl list)` / `(srfi 1)` and `(npl sort)` / `(srfi 132)` / `(srfi 95)` | — |
 | `string-split`, `string-join`, `string-trim` | **implemented** in `(npl string)` / `(srfi 13)`, `(npl string cursor)` / `(srfi 130)`, and `(npl string immutable)` / `(srfi 140)` | SRFI 152 (`string-split` is also in SRFI 130) |

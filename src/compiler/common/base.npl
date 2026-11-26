@@ -81,6 +81,23 @@
 (define (datum-tagged? value tag)
   (if (pair-shape? value) (eq? (car value) tag) #f))
 
+; Emitted local names are hygienically renamed; procedure printing wants the
+; source name.  The expander records each rename here.
+(define DISPLAY-NAMES (cell ()))
+
+(define (record-display-name emitted source)
+  (cell-set! DISPLAY-NAMES
+             (cons (cons emitted source) (cell-get DISPLAY-NAMES)))
+  emitted)
+
+(define (display-name-of emitted)
+  (let loop ((entries (cell-get DISPLAY-NAMES)))
+    (if (null? entries)
+        emitted
+        (if (string=? emitted (car (car entries)))
+            (cdr (car entries))
+            (loop (cdr entries))))))
+
 (define (datum-symbol name) (cons DATUM-SYMBOL-TAG name))
 (define (datum-keyword name) (cons DATUM-KEYWORD-TAG name))
 (define (datum-string text) (cons DATUM-STRING-TAG text))

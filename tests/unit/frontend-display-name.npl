@@ -1,0 +1,18 @@
+; The frontend records source names for hygienically renamed locals.  A name
+; that was never renamed falls through unchanged.
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl internal frontend))
+
+(write (display-name-of "plain"))
+(newline)
+(let ((name (display-name-of "plain")))
+  (if (string=? name "plain")
+      (begin
+        (display "frontend-display-name PASS")
+        (newline))
+      (begin
+        (display "frontend-display-name FAIL")
+        (newline)
+        (exit 1))))

@@ -13,7 +13,8 @@
           frontend-bytevector-items->runtime
           frontend-set-native-hook!
           frontend-set-c-primitive-hook!
-          frontend-numeric-alias-suffixes)
+          frontend-numeric-alias-suffixes
+          display-name-of)
   (import (npl internal primitive))
   (include "../../../src/compiler/common/base.npl")
   (include "../../../src/compiler/reader/lexer.npl")
