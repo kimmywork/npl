@@ -9,12 +9,12 @@ NPL has accumulated several `#!` markers:
 
 - R7RS `#!fold-case` / `#!no-fold-case`
 - SRFI 105 `#!curly-infix`
-- SRFI 88 `#!srfi-88` / `#!no-srfi-88`
+- SRFI 88 `#!srfi-88` and the canonical `#!colon-keyword`
 
 They started as one-off lexer switches. That is enough for the primer, but
 it is not a good long-term reader-extension design. In particular:
 
-- `#!curly-infix` currently does not actually switch anything: `{...}` is
+- `#!curly-infix` currently gates only the neoteric forms; core `{...}` is
   always accepted.
 - `#!srfi-88` is named after a standard but is really a source-level
   feature flag, and the trailing-colon spelling breaks R7RS identifiers
@@ -32,12 +32,13 @@ composable, per port/source, validated, and can grow into a Racket-style
 
 The current implementation, before the generalized registry:
 
-- recognizes `#!fold-case`, `#!no-fold-case`, `#!curly-infix`,
-  `#!srfi-88`, and `#!no-srfi-88`;
+- the runtime reader recognizes `#!fold-case`, `#!no-fold-case`,
+  `#!curly-infix`, `#!srfi-88`, and `#!colon-keyword`; the compiler reader
+  recognizes `#!curly-infix`, `#!srfi-88`, and `#!colon-keyword`;
 - accepts consecutive directives separated by whitespace, for example:
 
   ```scheme
-  #!curly-infix #!srfi-88
+  #!curly-infix #!colon-keyword
   ```
 
 - stores runtime reader options on the input port, so a directive persists
@@ -48,8 +49,10 @@ The remaining rough edges are intentional inputs to this design:
 
 - unknown directives: the runtime reader reports an error, while the
   compiler reader currently ignores them;
-- `#!curly-infix` is currently a no-op for the core `{...}` syntax;
-- `#!srfi-88` is a provisional name;
+- core `{...}` syntax is still available without `#!curly-infix`; the
+  directive currently gates only the neoteric `f(x)` / `f[x]` / `f{x}`
+  forms;
+- `#!srfi-88` is retained as a compatibility alias;
 - there is no plugin/`#lang` registry;
 - default profiles are implicit.
 
@@ -347,7 +350,7 @@ Every directive error should include:
 | `#!fold-case` then `#!colon-keyword` | symbols fold; `foo:` is a keyword |
 | `#!colon-keyword` then `#!fold-case` | same; order independent |
 | `#!colon-keyword` repeated | still enabled; idempotent |
-| `#!curly-infix` then `#!colon-keyword` | `{}` and `foo:` both active |
+| `#!curly-infix` then `#!colon-keyword` | `{}`, neoteric forms, and `foo:` all active |
 | `#!curly-infix` repeated | still enabled; idempotent |
 | `#!(lang npl)` then `#!colon-keyword` | profile defaults plus colon keywords (if allowed) |
 | `#!(lang npl)` then `#!(lang r7rs)` | error: one language per source |
@@ -361,8 +364,7 @@ Every directive error should include:
 
 1. Add `#!colon-keyword` as the canonical spelling and keep `#!srfi-88` as
    an alias.
-2. Remove `#!no-srfi-88` from the NPL feature model; R7RS
-   `#!no-fold-case` stays.
+2. Remove the former `#!no-srfi-88` spelling; R7RS `#!no-fold-case` stays.
 3. Move compiler options from global cells to a per-source record.
 4. Keep runtime options on the port (already true in the interim fix).
 5. Add arity/argument validation and identical diagnostics in both readers.
@@ -384,8 +386,8 @@ Every directive error should include:
 - `fold-case` + keyword interactions.
 - `#!colon-keyword` enables `foo:`; absence keeps it a symbol and keeps
   `b:` usable as an import prefix.
-- `#!curly-infix` with and without `{}` syntax, and neoteric argument when
-  implemented.
+- `#!curly-infix` with and without `{}` syntax, neoteric forms, and a
+  fresh source/port without the directive.
 - Differential tests: the same source read by `nplc` and `npli` produces
   the same datum stream and observable output.
 
@@ -404,8 +406,10 @@ Every directive error should include:
 
 The current source implements the feature flags as one-off lexer/runtime
 switches, with per-port persistence for the runtime and per-file reset for
-the compiler. It still accepts the provisional `#!srfi-88` / `#!no-srfi-88`
-pair. It deliberately does **not** implement the registry,
-`#!colon-keyword` alias, parameterized directives, unknown-directive
-parity, or `#!lang`. This document is the contract for the follow-up
-refactor.
+the compiler. It accepts `#!srfi-88` and `#!colon-keyword` as one-way
+activations; the former `#!no-srfi-88` spelling is gone. `#!curly-infix`
+enables the neoteric forms in both readers, with adjacency captured per
+token so a mid-file directive does not retroactively change earlier data.
+It deliberately does **not** implement the registry, parameterized
+directives, unknown-directive parity, or `#!lang`. This document is the
+contract for the follow-up refactor.

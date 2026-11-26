@@ -123,9 +123,9 @@ status:
 | Area | Status | Route, if wanted |
 |---|---|---|
 | Object system, classes, generic methods | absent | no mainstream SRFI; SRFI 20 is dormant; NPL route is records + dispatch (see [extending](extending.md)) |
-| Keyword arguments | **implemented** as NPL extensions: SRFI 88 keyword objects, SRFI 89 `define*`/`lambda*`, and Guile-style `#:optional`/`#:key` aliases. `#:foo` is always available; the trailing-colon `foo:` spelling is enabled by `#!srfi-88`. | SRFI 88 / SRFI 89 |
+| Keyword arguments | **implemented** as NPL extensions: SRFI 88 keyword objects, SRFI 89 `define*`/`lambda*`, and Guile-style `#:optional`/`#:key` aliases. `#:foo` is always available; the trailing-colon `foo:` spelling is enabled by `#!colon-keyword` (`#!srfi-88` is an alias). | SRFI 88 / SRFI 89 |
 | Default-valued optional parameters | **implemented** by SRFI 89 `define*`/`lambda*`; `case-lambda` remains available | — |
-| Curly-infix expressions | **implemented** core `{...}` in both readers; neoteric `f(x)`/`e[...]` and a precedence handler remain follow-up work | SRFI 105 |
+| Curly-infix expressions | **implemented** core `{...}` in both readers; `#!curly-infix` additionally enables the neoteric `f(x)`, `f[x]`, and `f{x}` forms. A precedence handler remains follow-up work. | SRFI 105 |
 | Records: inheritance, `#:guard`, opaque, prefab | absent (all records transparent, generative) | SRFI 99 / SRFI 256 |
 | `filter`, `fold`, `partition`, `sort` | **implemented** in `(npl list)` / `(srfi 1)` and `(npl sort)` / `(srfi 132)` / `(srfi 95)` | — |
 | `string-split`, `string-join`, `string-trim` | **implemented** in `(npl string)` / `(srfi 13)`, `(npl string cursor)` / `(srfi 130)`, and `(npl string immutable)` / `(srfi 140)` | SRFI 152 (`string-split` is also in SRFI 130) |
@@ -142,12 +142,13 @@ change and no seed relay.
 ### SRFI 88 lexical note
 
 `#:foo` keyword syntax is always available. The trailing-colon spelling is
-opt-in: after `#!srfi-88` (a provisional name; the reader-directive design
-proposes `#!colon-keyword`), a token ending in `:` (except `:`) is a
-keyword object, not a symbol, and R7RS code that uses such an identifier as
-a symbol must spell it with bars, `|foo:|`. `#!no-srfi-88` returns to symbol
-reading. This keeps existing R7RS identifiers such as import prefixes
-(`b:`) working by default while supporting SRFI 88 source when requested.
+opt-in: after `#!colon-keyword` (with `#!srfi-88` retained as an alias), a
+token ending in `:` (except `:`) is a keyword object, not a symbol, and
+R7RS code that uses such an identifier as a symbol must spell it with bars,
+`|foo:|`. The former `#!no-srfi-88` spelling is gone; use a fresh
+source/port for the default. This keeps existing R7RS identifiers such as
+import prefixes (`b:`) working by default while supporting SRFI 88 source
+when requested.
 
 ## What "frozen" means
 

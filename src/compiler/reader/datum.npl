@@ -8,7 +8,13 @@
 (define (peek-kind cur)
   (skip-datum-comments! cur)
   (car (car (car cur))))
-(define (peek-payload cur) (cdr (car (car cur))))
+(define (peek-payload cur) (car (cdr (car (car cur)))))
+(define (peek-tight cur)
+  (skip-datum-comments! cur)
+  (car (cdr (cdr (car (car cur))))))
+(define (peek-neoteric cur)
+  (skip-datum-comments! cur)
+  (cdr (cdr (cdr (car (car cur))))))
 (define (advance! cur) (set-car! cur (cdr (car cur))))
 
 (define (skip-datum-comments! cur)
@@ -246,7 +252,7 @@
   (advance! cur)
   (curly-map (curly-items cur ())))
 
-(define (parse-quote-datum cur)
+(define (parse-quote-plain cur)
   (let ((k (peek-kind cur)))
     (case k
       ((5) (let ((v (peek-payload cur))) (advance! cur) v))
@@ -289,6 +295,30 @@
       ((24) (parse-curly-datum cur))
       ((25) (fatal "unexpected }"))
       (else (fatal "bad quoted datum")))))
+
+; SRFI 105 neoteric forms are enabled by #!curly-infix.  Adjacency comes
+; from the lexer's tight flag: f(x) is an application, f (x) is two data.
+(define (parse-quote-datum cur)
+  (let ((value (parse-quote-plain cur)))
+    (if (peek-neoteric cur)
+        (let loop ((value value))
+          (if (peek-tight cur)
+              (cond
+                ((= (peek-kind cur) 1)
+                 (advance! cur)
+                 (loop (cons value (datum-items cur 1))))
+                ((= (peek-kind cur) 21)
+                 (advance! cur)
+                 (loop (cons (datum-symbol "$bracket-apply$")
+                             (cons value (datum-items cur 21)))))
+                ((= (peek-kind cur) 24)
+                 (let ((content (parse-curly-datum cur)))
+                   (loop (if (null? content)
+                             (cons value ())
+                             (cons value (cons content ()))))))
+                (else value))
+              value))
+        value)))
 
 (define (parse-quasiquote-abbreviation cur)
   (cell-set! QUASIQUOTE-LEVEL (+ 1 (cell-get QUASIQUOTE-LEVEL)))

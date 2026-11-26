@@ -271,10 +271,10 @@ Horace looks at you and says, '3 screws, eh? That'll be 6 coins!'
 
 The SRFI 89 spelling uses `keyword:` objects and parenthesized optional
 parameters. Trailing-colon keyword reading is opt-in, so start the file
-with `#!srfi-88`:
+with `#!colon-keyword`:
 
 ```scheme
-#!srfi-88
+#!colon-keyword
 
 (define* (g a (b 1) (c: c 2))
   (list a b c))
@@ -285,8 +285,8 @@ with `#!srfi-88`:
 
 `#:optional`/`#:key` are NPL's Guile-compatible extensions; the canonical
 SRFI 89 spelling is `(b 1)` and `(c: c 2)`. The `c:` spelling requires
-`#!srfi-88` at the top of the source (the reader-directive design proposes
-the clearer name `#!colon-keyword`); the `#:c` spelling always works.
+`#!colon-keyword` at the top of the source (`#!srfi-88` remains an alias);
+the `#:c` spelling always works.
 
 A procedure can return multiple values:
 
@@ -380,8 +380,40 @@ list maps to a prefix call:
 `{}` is the empty list, `{5}` is `5`, and `{- 5}` is `(- 5)`. A mixed
 expression such as `{4 + 5 * 6}` maps to `($nfx$ 4 + 5 * 6)`; import
 `(npl infix)` to get a clear error handler, or define `$nfx$` yourself.
-Curly-infix support is enabled by default; `#!curly-infix` is accepted as
-an explicit marker.
+Core curly-infix support is enabled by default.
+
+Start a source file with `#!curly-infix` to also enable the neoteric forms
+from SRFI 105. Adjacency is significant: `f(x)` is `(f x)`, while `f (x)`
+is two separate data.
+
+```scheme
+#!curly-infix
+(import (scheme base) (npl infix))
+
+(define (increment x) (+ x 1))
+```
+
+```scheme
+> increment(41)
+42
+> (let ((double (lambda (x) (* x 2))))
+    double{20 + 1})
+42
+> (vector 10 20 30)[1]
+20
+```
+
+`f(x)`, `f[x]`, and `f{x}` are the neoteric application, bracket-apply,
+and curly-argument forms. `'f(1)` reads as the datum `(f 1)`. The
+`#!curly-infix` activation is one-way and lasts for the rest of the file;
+there is no `#!no-curly-infix`. A fresh file or port starts from the
+default reader behavior.
+
+Reader directives are one-way activations. `#!colon-keyword` enables
+trailing-colon keywords (`foo:`), and `#!srfi-88` remains a compatibility
+alias. The `#:foo` spelling always works without a directive. R7RS's
+`#!fold-case` / `#!no-fold-case` pair remains the one standardized
+toggle.
 
 Anything that is not `#f` is true. `member` returns the remaining list when
 it finds a match, and `#f` otherwise:

@@ -22,7 +22,8 @@ typedef struct {
     int has_lookahead;
     NplVal labels;
     int fold_case;      /* #!fold-case in effect (R7RS 2.1) */
-    int keyword_colon;  /* #!srfi-88: foo: reads as a keyword */
+    int keyword_colon;  /* #!colon-keyword: foo: reads as a keyword */
+    int neoteric;       /* #!curly-infix: f(x), e{}, e[...] */
 } NplDatumReader;
 
 static void read_error(const char *message)
@@ -107,13 +108,12 @@ static void read_directive(NplDatumReader *reader)
         reader->fold_case = 0;
         reader->port->read_fold_case = 0;
     } else if (strcmp(name, "curly-infix") == 0) {
-        /* braces are always on */
-    } else if (strcmp(name, "srfi-88") == 0) {
+        reader->neoteric = 1;
+        reader->port->read_neoteric = 1;
+    } else if (strcmp(name, "srfi-88") == 0 ||
+               strcmp(name, "colon-keyword") == 0) {
         reader->keyword_colon = 1;
         reader->port->read_keyword_colon = 1;
-    } else if (strcmp(name, "no-srfi-88") == 0) {
-        reader->keyword_colon = 0;
-        reader->port->read_keyword_colon = 0;
     } else read_error("unknown directive");
 }
 
@@ -812,7 +812,7 @@ static NplVal read_curly_infix(NplDatumReader *reader)
     return npl_cons(operator, curly_operands(items, npl_nil()));
 }
 
-static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof)
+static NplVal read_datum_plain(NplDatumReader *reader, int allow_eof)
 {
     reader_skip_space(reader);
     int code = reader_get(reader);
@@ -841,13 +841,47 @@ static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof)
     return read_token_datum(reader, code);
 }
 
+/* SRFI 105 neoteric forms: only when #!curly-infix has enabled them.  The
+ * wrapper is used recursively, so f(x) works inside lists and curly lists
+ * as well as at the top level.  Whitespace is significant: a datum followed
+ * immediately by an opening delimiter is an application, while f (x) stays
+ * two data. */
+static NplVal read_datum_inner(NplDatumReader *reader, int allow_eof)
+{
+    NplVal value = read_datum_plain(reader, allow_eof);
+    if (!reader->neoteric) return value;
+    for (;;) {
+        int next = reader_peek(reader);
+        if (next == '(') {
+            (void)reader_get(reader);
+            NplVal args = read_list_datum(reader, '(');
+            value = npl_cons(value, args);
+        } else if (next == '[') {
+            (void)reader_get(reader);
+            NplVal args = read_list_datum(reader, '[');
+            value = npl_cons(npl_symbol("$bracket-apply$", 15),
+                             npl_cons(value, args));
+        } else if (next == '{') {
+            (void)reader_get(reader);
+            NplVal content = read_curly_infix(reader);
+            value = npl_is_nil(content)
+                ? npl_cons(value, npl_nil())
+                : npl_cons(value, npl_cons(content, npl_nil()));
+        } else {
+            break;
+        }
+    }
+    return value;
+}
+
 NplVal npl_read_datum(NplVal port_value_arg)
 {
     NplPort *port = npl_port_require_mode_internal(port_value_arg, NPL_PORT_INPUT,
                                      NPL_PORT_TEXTUAL, "read");
     NplDatumReader reader = { port, 0, 0, npl_nil(),
                               (int)port->read_fold_case,
-                              (int)port->read_keyword_colon };
+                              (int)port->read_keyword_colon,
+                              (int)port->read_neoteric };
     npl_gc_root(&reader.labels);
     NplVal value = read_datum_inner(&reader, 1);
     npl_gc_unroot(&reader.labels);

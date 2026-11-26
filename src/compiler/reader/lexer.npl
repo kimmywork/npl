@@ -36,17 +36,29 @@
           j)
       j))
 
+(define LEX-PENDING-SPACE (cell #t))
+(define LEX-NEOTERIC (cell #f))
+
+(define (token kind payload)
+  ; The tight bit records adjacency to the previous token; the neoteric bit
+  ; records whether #!curly-infix was active when this token was read, so a
+  ; directive in the middle of a file affects only later data.
+  (let ((tight (if (cell-get LEX-PENDING-SPACE) #f #t))
+        (neoteric (cell-get LEX-NEOTERIC)))
+    (cell-set! LEX-PENDING-SPACE #f)
+    (cons kind (cons payload (cons tight neoteric)))))
+
 (define (push-number s i acc)
   (let ((j (sym-run-end s i)))
     (let ((v (npl_number_from_string (substring s i j))))
       (if (eq? v #f) (fatal "invalid exact number"))
-      (lex-loop s j (cons (cons 5 v) acc)))))
+      (lex-loop s j (cons (token 5 v) acc)))))
 
 (define (push-radix-number s i acc)
   (let ((j (sym-run-end s (+ i 2))))
     (let ((value (npl_number_from_string (substring s i j))))
       (if (eq? value #f) (fatal "invalid radix number"))
-      (lex-loop s j (cons (cons 5 value) acc)))))
+      (lex-loop s j (cons (token 5 value) acc)))))
 
 (define LEX-SRFI-88 (cell #f))
 
@@ -59,8 +71,8 @@
                 (= (string-byte-ref nm (- length 1)) 58)
                 #f)
             #f)
-        (cons 23 (substring nm 0 (- length 1)))
-        (cons 4 nm))))
+        (token 23 (substring nm 0 (- length 1)))
+        (token 4 nm))))
 
 (define (push-symbol s i acc)
   (let ((j (sym-run-end s i)))
@@ -72,34 +84,36 @@
                     #f)
                 (fatal "invalid exact number")
                 (lex-loop s j (cons (symbol-token nm) acc)))
-            (lex-loop s j (cons (cons 5 value) acc)))))))
+            (lex-loop s j (cons (token 5 value) acc)))))))
 
 (define (step-token s i acc)
   (cond
-    ((lex-cls? (string-byte-ref s i) 0) (lex-loop s (+ i 1) acc))
+    ((lex-cls? (string-byte-ref s i) 0)
+     (cell-set! LEX-PENDING-SPACE #t)
+     (lex-loop s (+ i 1) acc))
     ((lex-cls? (string-byte-ref s i) 1) (lex-comment s i acc))
     ((= (string-byte-ref s i) 123)
-     (lex-loop s (+ i 1) (cons (cons 24 ()) acc)))
+     (lex-loop s (+ i 1) (cons (token 24 ()) acc)))
     ((= (string-byte-ref s i) 125)
-     (lex-loop s (+ i 1) (cons (cons 25 ()) acc)))
+     (lex-loop s (+ i 1) (cons (token 25 ()) acc)))
     ((lex-cls? (string-byte-ref s i) 2)
      (lex-loop s (+ i 1)
-       (cons (cons (if (= (string-byte-ref s i) 91) 21 1) ()) acc)))
+       (cons (token (if (= (string-byte-ref s i) 91) 21 1) ()) acc)))
     ((lex-cls? (string-byte-ref s i) 3)
      (lex-loop s (+ i 1)
-       (cons (cons (if (= (string-byte-ref s i) 93) 22 2) ()) acc)))
+       (cons (token (if (= (string-byte-ref s i) 93) 22 2) ()) acc)))
     ((lex-cls? (string-byte-ref s i) 4)
-     (lex-loop s (+ i 1) (cons (cons 3 ()) acc)))
+     (lex-loop s (+ i 1) (cons (token 3 ()) acc)))
     ((lex-cls? (string-byte-ref s i) 5) (lex-string s (+ i 1) () acc))
     ((lex-cls? (string-byte-ref s i) 9) (lex-hash s (+ i 1) acc))
     ((lex-cls? (string-byte-ref s i) 11)
-     (lex-loop s (+ i 1) (cons (cons 10 ()) acc)))
+     (lex-loop s (+ i 1) (cons (token 10 ()) acc)))
     ((lex-cls? (string-byte-ref s i) 12)
      (if (if (< (+ i 1) (string-length s))
              (= (string-byte-ref s (+ i 1)) 64)
              #f)
-         (lex-loop s (+ i 2) (cons (cons 12 ()) acc))
-         (lex-loop s (+ i 1) (cons (cons 11 ()) acc))))
+         (lex-loop s (+ i 2) (cons (token 12 ()) acc))
+         (lex-loop s (+ i 1) (cons (token 11 ()) acc))))
     ((lex-cls? (string-byte-ref s i) 6) (push-number s i acc))
     ((= (string-byte-ref s i) 124) (lex-bar-symbol s (+ i 1) () acc))
     ((sym-or-neg s i)
@@ -109,16 +123,40 @@
     (else (do-bad-char s i))))
 
 ; #!curly-infix and the other reader directives are markers, not data.
+; A directive name ends at whitespace or any datum delimiter, matching the
+; runtime reader's read_directive.
+(define (directive-delimiter? code)
+  (if (< code 33)
+      #t
+      (if (= code 34)
+          #t
+          (if (= code 39)
+              #t
+              (if (= code 40)
+                  #t
+                  (if (= code 41)
+                      #t
+                      (if (= code 44)
+                          #t
+                          (if (= code 59)
+                              #t
+                              (if (= code 91)
+                                  #t
+                                  (if (= code 93)
+                                      #t
+                                      (if (= code 96)
+                                          #t
+                                          (if (= code 123)
+                                              #t
+                                              (if (= code 124)
+                                                  #t
+                                                  (= code 125))))))))))))))
+
 (define (lex-directive-end s i)
   (if (< i (string-length s))
-      (let ((code (string-byte-ref s i)))
-        (if (if (= code 10)
-                #t
-                (if (= code 13)
-                    #t
-                    (if (= code 32) #t (= code 9))))
-            i
-            (lex-directive-end s (+ i 1))))
+      (if (directive-delimiter? (string-byte-ref s i))
+          i
+          (lex-directive-end s (+ i 1)))
       i))
 
 (define (lex-hash-directive s i acc)
@@ -129,11 +167,14 @@
       (do-bad-char s (- i 1))
       (let ((end (lex-directive-end s i)))
         (let ((name (substring s i end)))
-          (if (string=? name "srfi-88")
+          (if (string=? name "curly-infix")
+              (cell-set! LEX-NEOTERIC #t)
+              #f)
+          (if (if (string=? name "srfi-88")
+                  #t
+                  (string=? name "colon-keyword"))
               (cell-set! LEX-SRFI-88 #t)
-              (if (string=? name "no-srfi-88")
-                  (cell-set! LEX-SRFI-88 #f)
-                  #f)))
+              #f))
         (lex-loop s end acc))))
 
 (define (lex-hash s j acc)
@@ -144,15 +185,18 @@
     ((92) (lex-char s (+ j 1) acc))
     ((98 66 111 79 100 68 120 88 101 69 105 73)
      (push-radix-number s (- j 1) acc))
-    ((124) (lex-loop s (skip-block-comment s (+ j 1) 1) acc))
-    ((59) (lex-loop s (+ j 1) (cons (cons 18 ()) acc)))
-    ((40) (lex-loop s (+ j 1) (cons (cons 14 ()) acc)))
+    ((124) (cell-set! LEX-PENDING-SPACE #t)
+     (lex-loop s (skip-block-comment s (+ j 1) 1) acc))
+    ((59) (cell-set! LEX-PENDING-SPACE #t)
+     (lex-loop s (+ j 1) (cons (token 18 ()) acc)))
+    ((40) (lex-loop s (+ j 1) (cons (token 14 ()) acc)))
     ((117) (lex-bytevector-open s j acc))
     ((58)
      (let ((end (sym-run-end s (+ j 1))))
        (if (= end (+ j 1)) (fatal "keyword name is empty"))
-       (lex-loop s end (cons (cons 23 (substring s (+ j 1) end)) acc))))
-    ((33) (lex-hash-directive s (+ j 1) acc))
+       (lex-loop s end (cons (token 23 (substring s (+ j 1) end)) acc))))
+    ((33) (cell-set! LEX-PENDING-SPACE #t)
+     (lex-hash-directive s (+ j 1) acc))
     (else
       (if (lex-cls? (string-byte-ref s j) 6)
           (lex-array-or-label s j acc)
@@ -164,7 +208,7 @@
     (if (if (= end (+ j 1))
             #t
             (string=? (substring s j end) long))
-        (lex-loop s end (cons (cons kind ()) acc))
+        (lex-loop s end (cons (token kind ()) acc))
         (fatal "invalid boolean literal"))))
 
 ;; Position after the |# that closes a nested #| comment (R7RS 2.2).
@@ -187,7 +231,7 @@
               (if (= c 65) #t (= c 97)))
             #f)
         (lex-loop s (+ end 1)
-                  (cons (cons 20 (npl_lex_number s j end)) acc))
+                  (cons (token 20 (npl_lex_number s j end)) acc))
         (lex-datum-label s j acc))))
 
 (define (lex-datum-label s j acc)
@@ -195,8 +239,8 @@
     (if (not (< end (string-length s))) (fatal "bad datum label"))
     (let ((label (npl_lex_number s j end)))
       (case (string-byte-ref s end)
-        ((61) (lex-loop s (+ end 1) (cons (cons 16 label) acc)))
-        ((35) (lex-loop s (+ end 1) (cons (cons 17 label) acc)))
+        ((61) (lex-loop s (+ end 1) (cons (token 16 label) acc)))
+        ((35) (lex-loop s (+ end 1) (cons (token 17 label) acc)))
         (else (fatal "bad datum label"))))))
 
 (define (lex-bytevector-open s j acc)
@@ -205,7 +249,7 @@
               (= (string-byte-ref s (+ j 2)) 40)
               #f)
           #f)
-      (lex-loop s (+ j 3) (cons (cons 15 ()) acc))
+      (lex-loop s (+ j 3) (cons (token 15 ()) acc))
       (do-bad-char s j)))
 
 (define (hex-digit-value code)
@@ -249,7 +293,7 @@
     (let ((actual-end (if (= end j) (+ j 1) end)))
       (let ((name (substring s j actual-end)))
         (lex-loop s actual-end
-          (cons (cons 13 (character-code name)) acc))))))
+          (cons (token 13 (character-code name)) acc))))))
 
 (define (sym-or-neg s i)
   (if (lex-cls? (string-byte-ref s i) 7) #t
@@ -263,6 +307,7 @@
 
 (define (lex-comment s i acc)
   ; i sits on the semi-colon
+  (cell-set! LEX-PENDING-SPACE #t)
   (if (and2 (< i (string-length s)) (not (= (string-byte-ref s i) 10)))
       (lex-comment s (+ i 1) acc)
       (if (< i (string-length s))
@@ -272,7 +317,7 @@
 
 (define (lex-eof acc)
   ; token stream in reverse order + eof sentinel
-  (rev (cons (cons 7 ()) acc)))
+  (rev (cons (token 7 ()) acc)))
 
 (define (skip-intraline s index)
   (if (< index (string-length s))
@@ -342,7 +387,7 @@
     (cond
       ; token 19: a |...| symbol, which is never the dot of a pair
       ((= code 124)
-       (lex-loop s (+ j 1) (cons (cons 19 (concat-pieces out)) acc)))
+       (lex-loop s (+ j 1) (cons (token 19 (concat-pieces out)) acc)))
       ((= code 92)
        (if (not (< (+ j 1) (string-length s))) (fatal "unterminated |symbol|"))
        (let ((escaped (string-byte-ref s (+ j 1))))
@@ -370,7 +415,7 @@
   (let ((code (string-byte-ref s j)))
     (cond
       ((= code 34)
-       (lex-loop s (+ j 1) (cons (cons 6 (concat-pieces out)) acc)))
+       (lex-loop s (+ j 1) (cons (token 6 (concat-pieces out)) acc)))
       ((= code 92)
        (lex-string-escape s (+ j 1) out acc))
       (else

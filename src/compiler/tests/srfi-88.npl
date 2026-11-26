@@ -1,6 +1,7 @@
-#!srfi-88
+#!colon-keyword
 
 (import (scheme base)
+        (scheme read)
         (scheme write)
         (scheme process-context)
         (npl format)
@@ -22,5 +23,15 @@
               (lambda () (format #f "~s" (string->keyword "bar")))
               "#:bar")
   (test-equal "write keyword" (lambda () (format #f "~s" #:baz)) "#:baz")
+  (test-assert "colon-keyword directive in a port"
+               (keyword?
+                 (read (open-input-string "#!colon-keyword foo:"))))
+  (test-assert "srfi-88 alias in a port"
+               (keyword?
+                 (read (open-input-string "#!srfi-88 foo:"))))
+  (test-assert "removed no-srfi-88 directive is rejected"
+               (guard (condition (#t #t))
+                 (read (open-input-string "#!no-srfi-88 1"))
+                 #f))
   (finish-tests "srfi-88"))
 (main)

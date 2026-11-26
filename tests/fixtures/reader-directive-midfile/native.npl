@@ -1,0 +1,10 @@
+(import (scheme base) (scheme write) (npl keyword))
+
+(write '(x(1))) (newline)
+(write (symbol? 'foo:)) (newline)
+
+(write #!colon-keyword'foo:) (newline)
+(write (keyword? 'foo:)) (newline)
+
+(write #!curly-infix'g(1)) (newline)
+(write '(x(1))) (newline)

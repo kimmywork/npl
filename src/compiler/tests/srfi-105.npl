@@ -26,5 +26,22 @@
   (test-equal "bracket apply"
               (lambda () ($bracket-apply$ (vector 10 20 30) 1))
               20)
+  (test-equal "neoteric call"
+              (lambda () (let ((f (lambda (x) (+ x 1)))) f(41)))
+              42)
+  (test-equal "neoteric curried call"
+              (lambda ()
+                (let ((k (lambda (x) (lambda (y) (+ x y))))) k(1)(2)))
+              3)
+  (test-equal "neoteric curly argument"
+              (lambda () (let ((g (lambda (x) (* x 3)))) g{5 + 2}))
+              21)
+  (test-equal "neoteric bracket argument"
+              (lambda () (vector 10 20 30)[1])
+              20)
+  (test-assert "neoteric quote" (equal? 'f(1) '(f 1)))
+  (test-equal "neoteric whitespace stays separate"
+              (lambda () (let ((f (lambda (x) x))) (f (+ 3 5))))
+              8)
   (finish-tests "srfi-105"))
 (main)
