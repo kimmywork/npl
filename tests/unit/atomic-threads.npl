@@ -96,11 +96,12 @@
           (atomic-box-set! acknowledged #t (memory-order release)))
       (if (if (pair? value) (not (eq? (car value) (cdr value))) #f)
           'torn
-          (if (eq? (atomic-box-ref finished (memory-order acquire)) #t)
-              observations
-              (begin
-                (thread-yield!)
-                (loop (+ observations 1))))))))
+          (let ((next (+ observations 1)))
+            (if (eq? (atomic-box-ref finished (memory-order acquire)) #t)
+                next
+                (begin
+                  (thread-yield!)
+                  (loop next))))))))
 
 (define publisher-thread (make-thread publisher))
 (define observer-thread (make-thread observer))

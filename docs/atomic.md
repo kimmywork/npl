@@ -55,6 +55,9 @@ The mixed-domain argument is:
 - every sequentially consistent scalar operation, every pair operation and
   every fence uses the same locked domain, so the public default still has one
   total order across all object kinds;
+- scalar operations in the locked domain also use `__atomic_*` loads/stores/
+  exchanges/CAS, so a weak-order fast path and a sequentially consistent
+  operation on the same location cannot lose an update;
 - weaker scalar operations are only promised their C11 acquire/release or
   relaxed semantics on that location, not membership in the sequentially
   consistent total order (SRFI 230 does not promise one for weaker orders);

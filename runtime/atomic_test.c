@@ -13,6 +13,7 @@
 #include "npl.h"
 #include "thread.h"
 #include <pthread.h>
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -381,6 +382,7 @@ static void check_gc_edges(void)
 typedef struct {
     Gate *gate;
     int iterations;
+    int order;
     int64_t *old_values;
     int ok;
 } CounterWorker;
@@ -397,7 +399,7 @@ static void *counter_worker(void *argument)
     gate_wait(worker->gate);
     for (int i = 0; i < worker->iterations; i++) {
         NplVal old = npl_atomic_fxbox_add_fetch(
-            g_counter_box, npl_fixnum(1), ORDER_SEQ);
+            g_counter_box, npl_fixnum(1), npl_fixnum(worker->order));
         if (!npl_is_fixnum(old)) {
             worker->ok = 0;
             break;
@@ -410,6 +412,8 @@ static void *counter_worker(void *argument)
 
 static void check_counter_contention(void)
 {
+    /* Half the workers use the locked seq-cst path and half use the fast
+     * relaxed path, so a lost update between the two protocols is caught. */
     enum { WORKERS = 4, PER_WORKER = 5000 };
     g_counter_box = npl_atomic_fxbox_make(npl_fixnum(0));
     npl_gc_root(&g_counter_box);
@@ -421,6 +425,7 @@ static void check_counter_contention(void)
     for (int i = 0; i < WORKERS; i++) {
         workers[i].gate = &gate;
         workers[i].iterations = PER_WORKER;
+        workers[i].order = (i % 2 == 0) ? 4 : 0;
         workers[i].old_values = (int64_t *)calloc(PER_WORKER,
                                                   sizeof(int64_t));
         workers[i].ok = 1;
@@ -557,7 +562,7 @@ static void *collector_worker(void *argument)
     if (!npl_thread_attach()) return NULL;
     while (!__atomic_load_n(worker->stop, __ATOMIC_ACQUIRE)) {
         npl_gc_collect();
-        worker->collections++;
+        __atomic_add_fetch(&worker->collections, 1, __ATOMIC_RELAXED);
     }
     npl_thread_detach();
     return NULL;
@@ -621,6 +626,11 @@ static void check_concurrent_collector(void)
     gate_open(&gate);
     npl_gc_exclude();
     pthread_create(&collector_thread, NULL, collector_worker, &collector);
+    /* Do not let a fast worker schedule stop the collector before its first
+     * collection; the positive-collection assertion must not be timing
+     * dependent. */
+    while (__atomic_load_n(&collector.collections, __ATOMIC_ACQUIRE) == 0)
+        sched_yield();
     for (int i = 0; i < WORKERS; i++)
         pthread_join(threads[i], NULL);
     __atomic_store_n(&stop, 1, __ATOMIC_RELEASE);

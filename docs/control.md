@@ -48,8 +48,9 @@ The default abort handler reinstalls the prompt and calls the thunk passed to
 missing tag raises a `continuation-violation?` condition whose prompt tag is
 available through `continuation-violation-prompt-tag`.
 
-`default-continuation-prompt-tag` is an ordinary tag object; `continuation-
-prompt-tag?` recognizes both explicit and default tags.
+`(default-continuation-prompt-tag)` is a zero-argument procedure returning the
+singleton default tag; `continuation-prompt-tag?` recognizes both explicit and
+default tags.
 
 ## Non-composable and composable continuations
 
@@ -91,10 +92,20 @@ the current tests, but it is not the final architecture. In particular:
 
 - composable invocation from a virtual thread blocks its carrier (use a native
   thread for now);
-- concurrent invocation of one continuation and invocation across a
-  continuation barrier are not supported;
-- `call-in-continuation` / `call-in` / `return-to` are not implemented;
+- invocations sharing one prompt are serialized, but a captured prefix must
+  not recursively invoke the same origin (that would deadlock on the prompt
+  mutex);
+- winders outside the captured prompt are re-entered by the helper's
+  cross-thread transfer; only winders between the prompt and the capture point
+  are intended to run. This will be fixed by the T4-A segment representation;
 - continuation barriers are not implemented;
+- `call-in-continuation` / `call-in` / `return-to` are not implemented;
+- there is no initial default prompt/continuation boundary, so omitted-tag
+  captures require an explicit prompt; `call/cc` remains a full R7RS
+  continuation rather than a default-prompt-delimited one;
+- the continuation registry uses strong references, so repeatedly creating and
+  discarding continuations retains their wrappers until a GC-aware weak
+  registry is added;
 - continuation marks, parameterization objects, fluids, promises, the
   exception-handler-stack condition, and the SRFI 226 thread/interrupt
   adapters remain future increments;

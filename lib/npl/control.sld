@@ -45,8 +45,11 @@
       prompt-tag?
       (name prompt-tag-name))
 
-    (define default-continuation-prompt-tag
+    (define default-prompt-tag
       (make-prompt-tag 'default))
+
+    (define (default-continuation-prompt-tag)
+      default-prompt-tag)
 
     (define (make-continuation-prompt-tag . maybe-name)
       (make-prompt-tag
@@ -56,12 +59,13 @@
       (prompt-tag? object))
 
     (define-record-type prompt
-      (make-prompt tag handler escape return)
+      (make-prompt tag handler escape return lock)
       prompt?
       (tag prompt-tag)
       (handler prompt-handler)
       (escape prompt-escape set-prompt-escape!)
-      (return prompt-return set-prompt-return!))
+      (return prompt-return set-prompt-return!)
+      (lock prompt-lock))
 
     (define-record-type abort-packet
       (make-abort-packet arguments)
@@ -101,6 +105,12 @@
                                            (default-handler tag))
             (error "default prompt handler expected a thunk" thunk))))
 
+    (define (prompt-prefix origin stack)
+      (cond
+        ((null? stack) '())
+        ((eq? (car stack) origin) (list origin))
+        (else (cons (car stack) (prompt-prefix origin (cdr stack))))))
+
     (define (register-continuation! procedure kind origin tag stack)
       (set! continuations
             (cons (list procedure kind origin tag stack) continuations))
@@ -123,11 +133,15 @@
 
     (define (call-with-continuation-prompt thunk . rest)
       (let* ((tag (if (pair? rest) (car rest)
-                      default-continuation-prompt-tag))
-             (handler (if (if (pair? rest) (pair? (cdr rest)) #f)
-                          (car (cdr rest))
+                      default-prompt-tag))
+             (supplied-handler
+               (if (if (pair? rest) (pair? (cdr rest)) #f)
+                   (car (cdr rest))
+                   #f))
+             (handler (if supplied-handler
+                          supplied-handler
                           (default-handler tag)))
-             (prompt (make-prompt tag handler #f #f)))
+             (prompt (make-prompt tag handler #f #f (make-mutex))))
         (call-with-values
           (lambda ()
             (core-call/cc
@@ -166,26 +180,34 @@
     ;; the origin prompt's terminal to the helper, so the prefix returns here
     ;; instead of to the prompt's original caller.
     (define (invoke-captured origin continuation arguments)
-      (let ((saved (prompt-return origin)))
-        (let ((helper
-               (make-thread
-                 (lambda ()
-                   (core-call/cc
-                     (lambda (exit)
-                       (set-prompt-return!
-                         origin
-                         (lambda vals
-                           (exit (lambda () (apply values vals)))))
-                       (apply continuation arguments)))))))
-          (thread-start! helper)
-          (dynamic-wind
-            (lambda () (values))
-            (lambda () (thread-join! helper))
-            (lambda () (set-prompt-return! origin saved))))))
+      ;; Distinct continuations captured under one prompt share its return
+      ;; slot.  Serialize invocations for that origin; the documented limit is
+      ;; that a captured prefix must not recursively invoke the same origin.
+      (mutex-lock! (prompt-lock origin))
+      (dynamic-wind
+        (lambda () (values))
+        (lambda ()
+          (let ((saved (prompt-return origin)))
+            (let ((helper
+                   (make-thread
+                     (lambda ()
+                       (core-call/cc
+                         (lambda (exit)
+                           (set-prompt-return!
+                             origin
+                             (lambda vals
+                               (exit (lambda () (apply values vals)))))
+                           (apply continuation arguments)))))))
+              (thread-start! helper)
+              (dynamic-wind
+                (lambda () (values))
+                (lambda () (thread-join! helper))
+                (lambda () (set-prompt-return! origin saved))))))
+        (lambda () (mutex-unlock! (prompt-lock origin)))))
 
     (define (call-with-composable-continuation proc . rest)
       (let* ((tag (if (pair? rest) (car rest)
-                      default-continuation-prompt-tag))
+                      default-prompt-tag))
              (origin (find-prompt tag (prompt-stack))))
         (if (not origin)
             (raise-continuation-violation tag)
@@ -197,12 +219,13 @@
                                 (invoke-captured origin continuation args)))
                            (result)))))
                   (register-continuation! wrapped 'composable origin tag
-                                          (prompt-stack))
+                                          (prompt-prefix origin
+                                                         (prompt-stack)))
                   (proc wrapped)))))))
 
     (define (call-with-non-composable-continuation proc . rest)
       (let* ((tag (if (pair? rest) (car rest)
-                      default-continuation-prompt-tag))
+                      default-prompt-tag))
              (origin (find-prompt tag (prompt-stack))))
         (if (not origin)
             (raise-continuation-violation tag)
@@ -219,7 +242,8 @@
                                                      args))))
                                (raise-continuation-violation tag))))))
                   (register-continuation! wrapped 'non-composable origin tag
-                                          (prompt-stack))
+                                          (prompt-prefix origin
+                                                         (prompt-stack)))
                   (proc wrapped)))))))
 
     (define (call-with-current-continuation proc)
@@ -227,7 +251,7 @@
         (lambda (continuation)
           (let ((wrapped (lambda args (apply continuation args))))
             (register-continuation! wrapped 'non-composable #f
-                                    default-continuation-prompt-tag
+                                    default-prompt-tag
                                     (prompt-stack))
             (proc wrapped)))))
 
@@ -237,21 +261,15 @@
       (if (pair? maybe-continuation)
           (let* ((info (continuation-info (car maybe-continuation)))
                  (kind (if info (car (cdr info)) #f))
-                 (origin (if info (car (cdr (cdr info))) #f))
                  (captured-tag (if info (car (cdr (cdr (cdr info)))) #f))
                  (stack (if info (car (cdr (cdr (cdr (cdr info)))))
                             '())))
             (cond
               ((not info) #f)
               ((if (eq? kind 'composable) (eq? tag captured-tag) #f) #f)
-              ((eq? tag captured-tag) #t)
-              ((eq? tag default-continuation-prompt-tag) #t)
               ((find-prompt tag stack) #t)
-              ((if origin (eq? tag (prompt-tag origin)) #f) #t)
               (else #f)))
-          (if (find-prompt tag (prompt-stack))
-              #t
-              (eq? tag default-continuation-prompt-tag))))
+          (if (find-prompt tag (prompt-stack)) #t #f)))
 
     (define-syntax unwind-protect
       (syntax-rules ()
@@ -284,7 +302,7 @@
                     (lambda args
                       (reset (apply continuation args)))))
                (abort-current-continuation
-                 default-continuation-prompt-tag
+                 default-prompt-tag
                  (lambda () expression ...))))))))
 
     (define-syntax shift-at

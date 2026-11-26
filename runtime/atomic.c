@@ -218,12 +218,6 @@ static NplVal two_values(NplVal first, NplVal second)
     return result;
 }
 
-static void store_box(NplAtomicBox *box, NplVal value)
-{
-    box->value = value;
-    npl_gc_write_barrier_atomic(&box->header, value);
-}
-
 static void store_pair(NplAtomicPair *pair, NplVal first, NplVal second)
 {
     pair->first = first;
@@ -258,8 +252,7 @@ NplVal npl_atomic_flag_test_and_set(NplVal value, NplVal order)
         previous = __atomic_exchange_n(&flag->value, 1, c_rmw_order(code));
     } else {
         atomic_lock();
-        previous = flag->value;
-        flag->value = 1;
+        previous = __atomic_exchange_n(&flag->value, 1, __ATOMIC_SEQ_CST);
         atomic_unlock();
     }
     return previous ? npl_true() : npl_false();
@@ -273,7 +266,7 @@ NplVal npl_atomic_flag_clear(NplVal value, NplVal order)
         __atomic_store_n(&flag->value, 0, c_store_order(code));
     else {
         atomic_lock();
-        flag->value = 0;
+        __atomic_store_n(&flag->value, 0, __ATOMIC_SEQ_CST);
         atomic_unlock();
     }
     return npl_unspecified();
@@ -303,7 +296,7 @@ NplVal npl_atomic_box_ref(NplVal value, NplVal order)
     if (use_fast_path(code))
         return __atomic_load_n(&box->value, c_load_order(code));
     atomic_lock();
-    NplVal result = box->value;
+    NplVal result = __atomic_load_n(&box->value, __ATOMIC_SEQ_CST);
     atomic_unlock();
     return result;
 }
@@ -317,7 +310,8 @@ NplVal npl_atomic_box_set(NplVal value, NplVal object, NplVal order)
         npl_gc_write_barrier_atomic(&box->header, object);
     } else {
         atomic_lock();
-        store_box(box, object);
+        __atomic_store_n(&box->value, object, __ATOMIC_SEQ_CST);
+        npl_gc_write_barrier_atomic(&box->header, object);
         atomic_unlock();
     }
     return npl_unspecified();
@@ -334,8 +328,9 @@ NplVal npl_atomic_box_swap(NplVal value, NplVal object, NplVal order)
         return previous;
     }
     atomic_lock();
-    NplVal previous = box->value;
-    store_box(box, object);
+    NplVal previous = __atomic_exchange_n(&box->value, object,
+                                          __ATOMIC_SEQ_CST);
+    npl_gc_write_barrier_atomic(&box->header, object);
     atomic_unlock();
     return previous;
 }
@@ -354,9 +349,10 @@ NplVal npl_atomic_box_compare_and_swap(NplVal value, NplVal expected,
         return actual;
     }
     atomic_lock();
-    NplVal actual = box->value;
-    if (actual == expected)
-        store_box(box, desired);
+    NplVal actual = expected;
+    if (__atomic_compare_exchange_n(&box->value, &actual, desired, 0,
+                                    __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+        npl_gc_write_barrier_atomic(&box->header, desired);
     atomic_unlock();
     return actual;
 }
@@ -386,7 +382,7 @@ NplVal npl_atomic_fxbox_ref(NplVal value, NplVal order)
     if (use_fast_path(code))
         return npl_fixnum(__atomic_load_n(&box->value, c_load_order(code)));
     atomic_lock();
-    int64_t result = box->value;
+    int64_t result = __atomic_load_n(&box->value, __ATOMIC_SEQ_CST);
     atomic_unlock();
     return npl_fixnum(result);
 }
@@ -400,7 +396,7 @@ NplVal npl_atomic_fxbox_set(NplVal value, NplVal object, NplVal order)
         __atomic_store_n(&box->value, desired, c_store_order(code));
     } else {
         atomic_lock();
-        box->value = desired;
+        __atomic_store_n(&box->value, desired, __ATOMIC_SEQ_CST);
         atomic_unlock();
     }
     return npl_unspecified();
@@ -415,8 +411,8 @@ NplVal npl_atomic_fxbox_swap(NplVal value, NplVal object, NplVal order)
         return npl_fixnum(__atomic_exchange_n(&box->value, desired,
                                              c_rmw_order(code)));
     atomic_lock();
-    int64_t previous = box->value;
-    box->value = desired;
+    int64_t previous = __atomic_exchange_n(&box->value, desired,
+                                           __ATOMIC_SEQ_CST);
     atomic_unlock();
     return npl_fixnum(previous);
 }
@@ -439,9 +435,9 @@ NplVal npl_atomic_fxbox_compare_and_swap(NplVal value, NplVal expected,
         return npl_fixnum(actual);
     }
     atomic_lock();
-    int64_t actual = box->value;
-    if (actual == expected_fx)
-        box->value = desired_fx;
+    int64_t actual = expected_fx;
+    (void)__atomic_compare_exchange_n(&box->value, &actual, desired_fx, 0,
+                                      __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
     atomic_unlock();
     return npl_fixnum(actual);
 }
@@ -498,10 +494,22 @@ static NplVal fxbox_update(NplVal value, NplVal object, NplVal order,
     }
 
     atomic_lock();
-    previous = box->value;
-    int64_t next;
-    if (fxbox_next(previous, operand, operation, &next)) box->value = next;
-    else overflow = 1;
+    previous = __atomic_load_n(&box->value, __ATOMIC_SEQ_CST);
+    for (;;) {
+        int64_t next;
+        if (!fxbox_next(previous, operand, operation, &next)) {
+            overflow = 1;
+            break;
+        }
+        int64_t actual = previous;
+        if (__atomic_compare_exchange_n(&box->value, &actual, next, 0,
+                                        __ATOMIC_SEQ_CST,
+                                        __ATOMIC_SEQ_CST)) {
+            previous = actual;
+            break;
+        }
+        previous = actual;
+    }
     atomic_unlock();
     if (overflow)
         npl_primitive_error(who, "fixnum overflow", npl_fixnum(operand));

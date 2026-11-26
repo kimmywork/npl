@@ -20,7 +20,7 @@
                (let ((tag (make-continuation-prompt-tag 'tag)))
                  (and (continuation-prompt-tag? tag)
                       (continuation-prompt-tag?
-                        default-continuation-prompt-tag)
+                        (default-continuation-prompt-tag))
                       (not (continuation-prompt-tag? 'tag)))))
   (test-assert "call-with-continuation-prompt returns body values"
                (equal? (call-with-values
@@ -38,6 +38,15 @@
                            tag
                            list)
                          '(a b))))
+  (test-assert "explicit #f handler selects the default handler"
+               (let ((tag (make-continuation-prompt-tag)))
+                 (= (call-with-continuation-prompt
+                      (lambda ()
+                        (abort-current-continuation
+                          tag (lambda () 27)))
+                      tag
+                      #f)
+                    27)))
   (test-assert "default abort handler reinstalls the prompt"
                (let ((tag (make-continuation-prompt-tag)))
                  (= (call-with-continuation-prompt
@@ -144,6 +153,22 @@
                                    values tag))))
                            tag)
                          '(#t #t #f))))
+  (test-assert "availability excludes prompts outside the delimiter"
+               (let ((outer (make-continuation-prompt-tag))
+                     (inner (make-continuation-prompt-tag)))
+                 (call-with-continuation-prompt
+                   (lambda ()
+                     (call-with-continuation-prompt
+                       (lambda ()
+                         (let ((k (call-with-composable-continuation
+                                    (lambda (continuation) continuation)
+                                    inner)))
+                           (and (not (continuation-prompt-available?
+                                       outer k))
+                                (not (continuation-prompt-available?
+                                       inner k)))))
+                       inner))
+                   outer)))
   (test-assert "multiple values cross a composable prompt"
                (let ((tag (make-continuation-prompt-tag)))
                  (equal? (call-with-continuation-prompt
