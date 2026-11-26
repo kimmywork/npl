@@ -3,14 +3,16 @@
 Status (2026-11-26): merged baseline `bf6d497`, PR #8. T1.1–T1.3,
 T2 `(npl thread)` / `(srfi 18)`, cross-thread user continuations, T2b
 virtual threads through increment D, T3-A/B/C (SRFI 230), and the T3-D
-weak-order scalar fast paths/benchmark probe are implemented. T4-A and a
-partial T4-B prototype are implemented as `(npl control)` (prompts,
-non-composable/composable continuations, inspection, `reset`/`shift`), and a
-T4-D subset (parameterization snapshots and `temporarily`) is in
-`(npl control parameters)`; the remaining T4 components, optional pair
-specialization, and the
-optimization/benchmark milestones below remain **designs, not implemented
-features**. Earlier increment reports are historical; the two PR review
+weak-order scalar fast paths/benchmark probe are implemented. A **library-level
+T4 control prototype** is implemented as `(npl control)` (prompts,
+non-composable/composable continuations, inspection, `reset`/`shift`) with
+same-thread prompt segments and a per-thread meta-continuation override; a
+T4-D subset (shared-cell parameterization snapshots and `temporarily`) is in
+`(npl control parameters)`. T4-A is **not complete**: the compiler-visible
+segmented continuation and semantic-frame representation, barriers,
+`call-in`/`return-to`, marks, thread parameters/fluids, promises, and the
+thread/interrupt adapters remain **designs, not implemented features**, as do
+optional pair specialization and the optimization/benchmark milestones. Earlier increment reports are historical; the two PR review
 sections supersede their intermediate implementation details.
 
 Current T2b uses per-carrier queues (two carriers by default), migration on
@@ -1271,7 +1273,7 @@ increment ports applicable executable examples from the reference into common
 fixtures. Native-only stress supplements differential tests; it does not
 replace them. Compare normalized observable results, not interleaving traces.
 
-### T4-A/partial T4-B implementation status (2026-11-26)
+### T4 library-level prototype (2026-11-26; T4-A not complete)
 
 `lib/npl/control.sld` implements a prompt/abort prototype and partial T4-B
 surface on top of the existing full `call/cc`; component libraries
