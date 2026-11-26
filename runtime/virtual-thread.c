@@ -132,11 +132,26 @@ static void registry_remove(NplVirtualThread *vt)
     }
 }
 
+/* Test/tuning override read once while the queues are created.  An explicit
+ * npl_virtual_thread_set_carriers call takes precedence.  Called under
+ * g_lock before the queue count is frozen. */
+static void carrier_count_from_environment(void)
+{
+    if (g_carrier_count_explicit) return;
+    const char *text = getenv("NPL_VTHREAD_CARRIERS");
+    if (!text || !*text) return;
+    char *end = NULL;
+    long count = strtol(text, &end, 10);
+    if (end && *end == '\0' && count > 0 && count <= 256)
+        g_carrier_count = (int)count;
+}
+
 /* Called under g_lock. The queue count is frozen at the first enqueue so a
  * late set_carriers() cannot invalidate indices already handed to carriers. */
 static void ensure_queues(void)
 {
     if (g_queues) return;
+    carrier_count_from_environment();
     g_queues_count = g_carrier_count;
     g_queues = (VThreadQueue *)calloc(
         (size_t)g_queues_count, sizeof(VThreadQueue));
@@ -550,23 +565,9 @@ void npl_virtual_thread_defer_start(void)
     g_defer_start = 1;
 }
 
-/* Test/tuning override read once at carrier start.  An explicit
- * npl_virtual_thread_set_carriers call takes precedence. */
-static void carrier_count_from_environment(void)
-{
-    if (g_carrier_count_explicit) return;
-    const char *text = getenv("NPL_VTHREAD_CARRIERS");
-    if (!text || !*text) return;
-    char *end = NULL;
-    long count = strtol(text, &end, 10);
-    if (end && *end == '\0' && count > 0 && count <= 256)
-        g_carrier_count = (int)count;
-}
-
 void npl_virtual_thread_run(void)
 {
     g_defer_start = 0;
-    carrier_count_from_environment();
     pthread_once(&g_carrier_once, start_carriers);
 }
 

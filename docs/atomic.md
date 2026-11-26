@@ -27,10 +27,11 @@ the same boxes and pairs.
 | Pair | `make-atomic-pair`, `atomic-pair?`, `atomic-pair-ref`, `atomic-pair-set!`, `atomic-pair-swap!`, `atomic-pair-compare-and-swap!` |
 | Fence | `atomic-fence` with a required order |
 
-Every operation accepts an optional order and defaults to
-`sequentially-consistent`. `memory-order` checks the **spelling** of its
-identifier, not its lexical binding, and expands to the corresponding ordinary
-symbol. Invalid names are compile-time syntax errors.
+Every operation with an optional order argument defaults to
+`sequentially-consistent`; `atomic-fence` requires an explicit order.
+`memory-order` checks the **spelling** of its identifier, not its lexical
+binding, and expands to the corresponding ordinary symbol. Invalid names are
+compile-time syntax errors.
 
 CAS returns the observed old contents on both success and failure, never a
 success boolean. Box CAS uses `eq?`; fixnum-box CAS compares fixnums; pair CAS

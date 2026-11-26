@@ -444,7 +444,7 @@ static void check_publication(void)
 /* ---- collector thread racing pointer swaps and failed CAS results ---- */
 
 typedef struct {
-    volatile int *stop;
+    int *stop;
     int collections;
 } CollectorWorker;
 
@@ -452,7 +452,7 @@ static void *collector_worker(void *argument)
 {
     CollectorWorker *worker = (CollectorWorker *)argument;
     if (!npl_thread_attach()) return NULL;
-    while (!*worker->stop) {
+    while (!__atomic_load_n(worker->stop, __ATOMIC_ACQUIRE)) {
         npl_gc_collect();
         worker->collections++;
     }
@@ -509,18 +509,18 @@ static void check_concurrent_collector(void)
         workers[i].ok = 1;
         pthread_create(&threads[i], NULL, swap_worker, &workers[i]);
     }
-    volatile int stop = 0;
+    int stop = 0;
     CollectorWorker collector = { &stop, 0 };
     pthread_t collector_thread;
-    pthread_create(&collector_thread, NULL, collector_worker, &collector);
+    /* Let every worker leave gate_wait and enter a polling loop before the
+     * collector can stop the world.  The joining main thread has no poll
+     * site, so exclude it from the mutator count first. */
     gate_open(&gate);
-    /* The main thread waits in pthread_join, which has no safepoint poll.
-     * Exclude it from the mutator count while the collector thread runs, as
-     * the T2b harness does for its own joins. */
     npl_gc_exclude();
+    pthread_create(&collector_thread, NULL, collector_worker, &collector);
     for (int i = 0; i < WORKERS; i++)
         pthread_join(threads[i], NULL);
-    stop = 1;
+    __atomic_store_n(&stop, 1, __ATOMIC_RELEASE);
     pthread_join(collector_thread, NULL);
     npl_gc_include();
     CHECK(collector.collections > 0,
