@@ -1,0 +1,145 @@
+;; SRFI 230 / (npl atomic) compiler suite.  The differential
+;; tests/fixtures/atomic fixture covers the same surface on npli; the native
+;; runtime/atomic_test.c harness owns contention and GC histories.
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl atomic))
+
+(include "framework.npl")
+
+(define (caught thunk)
+  (guard (condition (#t condition))
+    (thunk)
+    #f))
+
+(define (two-values thunk)
+  (call-with-values thunk list))
+
+(define (main)
+  ;; ---- memory orders ----
+  (test-assert "memory-order names"
+               (and (eq? (memory-order relaxed) 'relaxed)
+                    (eq? (memory-order acquire) 'acquire)
+                    (eq? (memory-order release) 'release)
+                    (eq? (memory-order acquire-release) 'acquire-release)
+                    (eq? (memory-order sequentially-consistent)
+                         'sequentially-consistent)))
+  (test-assert "memory-order ignores lexical binding"
+               (let ((acquire 'shadowed))
+                 (eq? (memory-order acquire) 'acquire)))
+  (test-assert "memory-order?"
+               (and (memory-order? 'relaxed)
+                    (memory-order? 'acquire)
+                    (memory-order? 'release)
+                    (memory-order? 'acquire-release)
+                    (memory-order? 'sequentially-consistent)
+                    (not (memory-order? 'invalid))))
+
+  ;; ---- flags ----
+  (test-assert "atomic flag"
+               (let ((flag (make-atomic-flag)))
+                 (and (atomic-flag? flag)
+                      (not (atomic-flag-test-and-set! flag))
+                      (atomic-flag-test-and-set! flag (memory-order acquire))
+                      (begin
+                        (atomic-flag-clear! flag (memory-order release))
+                        (not (atomic-flag-test-and-set! flag))))))
+  (test-assert "atomic-flag? rejects a non-flag"
+               (not (atomic-flag? 1)))
+
+  ;; ---- boxes ----
+  (test-assert "atomic box ref/swap/CAS"
+               (let ((box (make-atomic-box 'a)))
+                 (and (atomic-box? box)
+                      (eq? (atomic-box-ref box) 'a)
+                      (eq? (atomic-box-swap! box 'b (memory-order release))
+                           'a)
+                      (eq? (atomic-box-compare-and-swap! box 'a 'c) 'b)
+                      (eq? (atomic-box-compare-and-swap! box 'b 'c) 'b)
+                      (begin (atomic-box-set! box 'd) #t)
+                      (eq? (atomic-box-ref box (memory-order acquire)) 'd))))
+  (test-assert "box CAS uses eq?, not equal?"
+               (let* ((expected (list 1 2))
+                      (actual (list 1 2))
+                      (box (make-atomic-box actual)))
+                 (eq? (atomic-box-compare-and-swap! box expected 'unused)
+                      actual)))
+  (test-error "atomic-box-ref rejects a non-box" (atomic-box-ref 'box))
+  (test-error "atomic-box-ref rejects an invalid order"
+              (atomic-box-ref (make-atomic-box 1) 'bogus))
+  (test-error "atomic-box-ref rejects extra arguments"
+              (atomic-box-ref (make-atomic-box 1)
+                              (memory-order relaxed) 'extra))
+
+  ;; ---- fixnum boxes ----
+  (test-assert "atomic fxbox operations"
+               (let ((box (make-atomic-fxbox 10)))
+                 (and (atomic-fxbox? box)
+                      (= (atomic-fxbox-ref box) 10)
+                      (= (atomic-fxbox-swap! box 20) 10)
+                      (= (atomic-fxbox-compare-and-swap! box 10 30) 20)
+                      (= (atomic-fxbox-compare-and-swap! box 20 30) 20)
+                      (= (atomic-fxbox+/fetch! box 5) 30)
+                      (= (atomic-fxbox-/fetch! box 2) 35)
+                      (= (atomic-fxbox-and/fetch! box 15) 33)
+                      (= (atomic-fxbox-ior/fetch! box 6) 1)
+                      (= (atomic-fxbox-xor/fetch! box 3) 7)
+                      (= (atomic-fxbox-ref box) 4))))
+  (test-error "make-atomic-fxbox rejects a non-fixnum"
+              (make-atomic-fxbox 'not-a-fixnum))
+  (test-assert "fxbox maximum overflow is rejected before the store"
+               (let* ((maximum 2305843009213693951)
+                      (box (make-atomic-fxbox maximum)))
+                 (and (caught (lambda () (atomic-fxbox+/fetch! box 1)))
+                      (= (atomic-fxbox-ref box) maximum))))
+  (test-assert "fxbox minimum overflow is rejected before the store"
+               (let* ((minimum -2305843009213693952)
+                      (box (make-atomic-fxbox minimum)))
+                 (and (caught (lambda () (atomic-fxbox-/fetch! box 1)))
+                      (= (atomic-fxbox-ref box) minimum))))
+
+  ;; ---- pairs ----
+  (test-assert "atomic pair two-value operations"
+               (let ((pair (make-atomic-pair 'a 'b)))
+                 (and (atomic-pair? pair)
+                      (equal? (two-values (lambda () (atomic-pair-ref pair)))
+                              '(a b))
+                      (equal? (two-values
+                                (lambda () (atomic-pair-swap! pair 'c 'd)))
+                              '(a b))
+                      (equal? (two-values
+                                (lambda ()
+                                  (atomic-pair-compare-and-swap!
+                                    pair 'a 'b 'e 'f)))
+                              '(c d))
+                      (equal? (two-values
+                                (lambda ()
+                                  (atomic-pair-compare-and-swap!
+                                    pair 'c 'd 'e 'f)))
+                              '(c d))
+                      (begin
+                        (atomic-pair-set! pair 'g 'h (memory-order release))
+                        #t)
+                      (equal? (two-values (lambda () (atomic-pair-ref pair)))
+                              '(g h)))))
+  (test-assert "atomic-pair? rejects an ordinary pair"
+               (not (atomic-pair? (cons 1 2))))
+
+  ;; ---- fence ----
+  (test-assert "atomic-fence accepts every order"
+               (begin
+                 (atomic-fence (memory-order relaxed))
+                 (atomic-fence (memory-order acquire))
+                 (atomic-fence (memory-order release))
+                 (atomic-fence (memory-order acquire-release))
+                 (atomic-fence (memory-order sequentially-consistent))
+                 #t))
+  (test-error "atomic-fence requires a memory order"
+              (atomic-fence 'bogus))
+  (test-error "atomic-fence requires its order argument"
+              (atomic-fence))
+
+  (finish-tests "srfi-230"))
+
+(main)

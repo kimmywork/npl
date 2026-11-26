@@ -1,0 +1,130 @@
+; T3 concurrency acceptance: one hot atomic fixnum box, release/acquire
+; pointer publication, and native/virtual workers sharing the same objects.
+;
+; Native-only in effect: npli has the APIs, but this test deliberately uses
+; real pthread scheduling and virtual-thread carriers.  It asserts normalized
+; results, never a scheduling trace.
+(import (scheme base) (scheme write) (scheme process-context)
+        (npl atomic) (npl thread) (npl thread virtual))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+(define (caught thunk)
+  (guard (condition (#t #t)) (thunk) #f))
+
+; ---- one contended fixnum counter: exact total and old-value permutation ----
+(define counter (make-atomic-fxbox 0))
+(define worker-count 4)
+(define per-worker 2000)
+
+(define (counter-worker)
+  (let loop ((left per-worker) (old '()))
+    (if (= left 0)
+        old
+        (loop (- left 1)
+              (cons (atomic-fxbox+/fetch! counter 1) old)))))
+
+(define threads
+  (map (lambda (ignored) (make-thread counter-worker))
+       (list 0 1 2 3)))
+(for-each thread-start! threads)
+(define histories (map thread-join! threads))
+
+(check 'counter-total (* worker-count per-worker)
+       (atomic-fxbox-ref counter))
+
+(define total (* worker-count per-worker))
+(define seen (make-vector total #f))
+(for-each
+  (lambda (history)
+    (for-each
+      (lambda (old)
+        (if (if (integer? old) (if (>= old 0) (< old total) #f) #f)
+            (vector-set! seen old #t)
+            (vector-set! seen 0 'invalid)))
+      history))
+  histories)
+(check 'counter-history
+       #t
+       (let loop ((index 0))
+         (if (= index total)
+             #t
+             (if (eq? (vector-ref seen index) #t)
+                 (loop (+ index 1))
+                 #f))))
+
+; ---- publication through an atomic box ----
+(define published (make-atomic-box #f))
+(define finished (make-atomic-box #f))
+
+(define (publisher)
+  (let loop ((index 0))
+    (if (= index 3000)
+        (atomic-box-set! published (cons 'done 'done) (memory-order release))
+        (begin
+          (atomic-box-set! published (cons index index) (memory-order release))
+          (thread-yield!)
+          (loop (+ index 1))))
+    (atomic-box-set! finished #t (memory-order release))))
+
+(define (observer)
+  (let loop ((checks 0))
+    (let ((value (atomic-box-ref published (memory-order acquire))))
+      (if (if (pair? value) (not (eq? (car value) (cdr value))) #f)
+          'torn
+          (if (eq? (atomic-box-ref finished (memory-order acquire)) #t)
+              checks
+              (begin
+                (thread-yield!)
+                (loop (+ checks 1))))))))
+
+(define publisher-thread (make-thread publisher))
+(define observer-thread (make-thread observer))
+(thread-start! publisher-thread)
+(thread-start! observer-thread)
+(thread-join! publisher-thread)
+(define observation (thread-join! observer-thread))
+(check 'publication #t (if (eq? observation 'torn) #f #t))
+
+; ---- virtual workers share the same atomic objects ----
+(define virtual-counter (make-atomic-fxbox 0))
+(define virtual-workers 3)
+(define virtual-steps 200)
+
+(define (virtual-worker)
+  (let loop ((left virtual-steps))
+    (if (= left 0)
+        'done
+        (begin
+          (atomic-fxbox+/fetch! virtual-counter 1 (memory-order relaxed))
+          (virtual-thread-yield!)
+          (loop (- left 1))))))
+
+(define virtual-threads
+  (map (lambda (index)
+         (make-virtual-thread virtual-worker index))
+       (list 0 1 2)))
+(for-each virtual-thread-start! virtual-threads)
+(check 'virtual-results
+       '(done done done)
+       (map virtual-thread-join! virtual-threads))
+(check 'virtual-total (* virtual-workers virtual-steps)
+       (atomic-fxbox-ref virtual-counter))
+
+; ---- overflow is catchable and leaves the box unchanged ----
+(define maximum 2305843009213693951)
+(define edge (make-atomic-fxbox maximum))
+(check 'overflow-caught
+       #t
+       (caught (lambda () (atomic-fxbox+/fetch! edge 1))))
+(check 'overflow-unchanged maximum (atomic-fxbox-ref edge))
+
+(if (= failures 0)
+    (begin (display "atomic-threads: PASS") (newline) (exit 0))
+    (begin (display "atomic-threads: FAIL") (newline) (exit 1)))

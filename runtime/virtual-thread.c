@@ -71,6 +71,7 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
 static int g_shutdown;
 static int g_carrier_count = 2;
+static int g_carrier_count_explicit;
 static pthread_t *g_carrier_handles;
 static pthread_once_t g_carrier_once = PTHREAD_ONCE_INIT;
 static int g_defer_start;       /* harness-only: batch before starting carriers */
@@ -549,9 +550,23 @@ void npl_virtual_thread_defer_start(void)
     g_defer_start = 1;
 }
 
+/* Test/tuning override read once at carrier start.  An explicit
+ * npl_virtual_thread_set_carriers call takes precedence. */
+static void carrier_count_from_environment(void)
+{
+    if (g_carrier_count_explicit) return;
+    const char *text = getenv("NPL_VTHREAD_CARRIERS");
+    if (!text || !*text) return;
+    char *end = NULL;
+    long count = strtol(text, &end, 10);
+    if (end && *end == '\0' && count > 0 && count <= 256)
+        g_carrier_count = (int)count;
+}
+
 void npl_virtual_thread_run(void)
 {
     g_defer_start = 0;
+    carrier_count_from_environment();
     pthread_once(&g_carrier_once, start_carriers);
 }
 
@@ -580,8 +595,10 @@ void npl_virtual_thread_set_carriers(int count)
 {
     /* Only effective before any thread has been enqueued and before carriers
      * start; otherwise queue indices already in flight would be invalid. */
-    if (count > 0 && !g_queues && !g_carrier_handles)
+    if (count > 0 && !g_queues && !g_carrier_handles) {
         g_carrier_count = count;
+        g_carrier_count_explicit = 1;
+    }
 }
 
 void npl_virtual_thread_shutdown(void)

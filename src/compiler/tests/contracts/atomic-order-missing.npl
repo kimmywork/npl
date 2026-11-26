@@ -1,0 +1,2 @@
+(import (scheme base) (npl atomic))
+(define order (memory-order))

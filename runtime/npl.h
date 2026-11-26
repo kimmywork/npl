@@ -44,6 +44,10 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define TAG_PTR     1   /* pointer to boxed NplVal */
 #define TAG_IMM     2   /* immediate (nil, bool, char) */
 
+/* Signed 62-bit fixnum range (the tag occupies the low two bits). */
+#define NPL_FIXNUM_MIN (-(INT64_C(1) << 61))
+#define NPL_FIXNUM_MAX ((INT64_C(1) << 61) - 1)
+
 /* ---- Boxed value tags ---- */
 #define BOX_PAIR    0
 #define BOX_STRING  1
@@ -82,6 +86,12 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_DYNAMIC_CONTEXT 32
 /* T2b: a virtual thread's one-shot scheduler continuation and state. */
 #define BOX_VIRTUAL_THREAD 33
+/* T3 (SRFI 230): opaque atomic-domain objects.  Flags and fixnum boxes
+ * carry no managed edges; plain boxes have one and pairs two. */
+#define BOX_ATOMIC_FLAG 34
+#define BOX_ATOMIC_BOX 35
+#define BOX_ATOMIC_FXBOX 36
+#define BOX_ATOMIC_PAIR 37
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -181,6 +191,30 @@ typedef struct {
     NplVal parameters;
     NplVal source_initial_handler;
 } NplDynamicContext;
+
+/* SRFI 230 atomic objects.  The atomic-domain lock in atomic.c makes the
+ * updates indivisible; the fields are ordinary NplVal storage so the
+ * collector visits pointer contents. */
+typedef struct {
+    NplHeader header;
+    int value;                 /* 0 = clear, nonzero = set */
+} NplAtomicFlag;
+
+typedef struct {
+    NplHeader header;
+    NplVal value;
+} NplAtomicBox;
+
+typedef struct {
+    NplHeader header;
+    int64_t value;             /* raw fixnum value, always in NPL fixnum range */
+} NplAtomicFxbox;
+
+typedef struct {
+    NplHeader header;
+    NplVal first;
+    NplVal second;
+} NplAtomicPair;
 
 typedef struct {
     NplHeader header;
@@ -433,6 +467,11 @@ static inline NplHeader *npl_header(NplVal v) {
 
 void npl_gc_remember_internal(NplHeader *object);
 void npl_gc_write_barrier_value(NplVal holder, NplVal value);
+/* Pointer store from a multi-writer atomic critical section.  The flag
+ * checks and remembered-set insertion happen under the heap mutex, unlike the
+ * inline fast-path barrier's unlocked precheck.  Lock order is always
+ * atomic-domain lock -> heap lock; no poll may run while either is held. */
+void npl_gc_write_barrier_atomic(void *object, NplVal value);
 /* Every NplVal field of a heap object, for marking and verification. */
 typedef void (*NplChildVisitor)(NplVal value);
 void npl_gc_visit_children_internal(NplHeader *header, NplChildVisitor visit);
@@ -877,6 +916,46 @@ NplVal npl_char_full_case(NplVal character, NplVal kind);
 NplVal npl_string_full_case(NplVal string, NplVal kind);
 NplVal npl_little_endian_p(void);
 void npl_raise_record(NplVal object);
+/* SRFI 230 (atomic.c).  Orders are 0=relaxed, 1=acquire, 2=release,
+ * 3=acquire-release, 4=sequentially-consistent; the NPL wrapper validates
+ * and maps the public symbols.  Nevertheless every entry validates its order
+ * before taking the atomic-domain lock.  CAS returns the observed old value
+ * (or pair) on success and failure. */
+NplVal npl_atomic_flag_make(void);
+NplVal npl_atomic_flag_p(NplVal value);
+NplVal npl_atomic_flag_test_and_set(NplVal value, NplVal order);
+NplVal npl_atomic_flag_clear(NplVal value, NplVal order);
+NplVal npl_atomic_box_make(NplVal value);
+NplVal npl_atomic_box_p(NplVal value);
+NplVal npl_atomic_box_ref(NplVal value, NplVal order);
+NplVal npl_atomic_box_set(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_box_swap(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_box_compare_and_swap(NplVal value, NplVal expected,
+                                       NplVal desired, NplVal order);
+NplVal npl_atomic_fxbox_make(NplVal value);
+NplVal npl_atomic_fxbox_p(NplVal value);
+NplVal npl_atomic_fxbox_ref(NplVal value, NplVal order);
+NplVal npl_atomic_fxbox_set(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_swap(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_compare_and_swap(NplVal value, NplVal expected,
+                                         NplVal desired, NplVal order);
+NplVal npl_atomic_fxbox_add_fetch(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_sub_fetch(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_and_fetch(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_ior_fetch(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_xor_fetch(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_pair_make(NplVal first, NplVal second);
+NplVal npl_atomic_pair_p(NplVal value);
+NplVal npl_atomic_pair_ref(NplVal value, NplVal order);
+NplVal npl_atomic_pair_set(NplVal value, NplVal first, NplVal second,
+                           NplVal order);
+NplVal npl_atomic_pair_swap(NplVal value, NplVal first, NplVal second,
+                            NplVal order);
+NplVal npl_atomic_pair_compare_and_swap(NplVal value, NplVal expected_first,
+                                        NplVal expected_second,
+                                        NplVal desired_first,
+                                        NplVal desired_second, NplVal order);
+NplVal npl_atomic_fence(NplVal order);
 NplVal npl_platform_feature(NplVal name);
 NplVal npl_platform_features(void);
 NplVal npl_platform_triple(void);

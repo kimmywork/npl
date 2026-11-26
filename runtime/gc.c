@@ -246,6 +246,20 @@ void npl_gc_visit_children_internal(NplHeader *header,
         }
         case BOX_TIME:
             break;
+        case BOX_ATOMIC_FLAG:
+        case BOX_ATOMIC_FXBOX:
+            break;
+        case BOX_ATOMIC_BOX: {
+            NplAtomicBox *box = (NplAtomicBox *)header;
+            visit(box->value);
+            break;
+        }
+        case BOX_ATOMIC_PAIR: {
+            NplAtomicPair *pair = (NplAtomicPair *)header;
+            visit(pair->first);
+            visit(pair->second);
+            break;
+        }
         default:
             break;
         }

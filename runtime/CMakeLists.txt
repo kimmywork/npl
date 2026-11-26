@@ -4,6 +4,7 @@ set(RUNTIME_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/alloc.c
+  ${RUNTIME_SRC_DIR}/atomic.c
   ${RUNTIME_SRC_DIR}/clock.c
   ${RUNTIME_SRC_DIR}/complex.c
   ${RUNTIME_SRC_DIR}/control.c
@@ -59,6 +60,7 @@ set_target_properties(npl_runtime PROPERTIES
 # each carrying a copy of the runtime.
 add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/alloc.c
+  ${RUNTIME_SRC_DIR}/atomic.c
   ${RUNTIME_SRC_DIR}/clock.c
   ${RUNTIME_SRC_DIR}/complex.c
   ${RUNTIME_SRC_DIR}/control.c
@@ -239,4 +241,17 @@ target_link_libraries(virtual_thread_test PRIVATE npl_runtime)
 target_compile_options(virtual_thread_test PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
 set_target_properties(virtual_thread_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
+
+# T3 acceptance: SRFI 230 object identity, CAS old-value results, pair
+# snapshots, fixed-point counter histories, publication and GC barriers.
+add_executable(atomic_test
+  ${RUNTIME_SRC_DIR}/atomic_test.c
+  ${RUNTIME_SRC_DIR}/standalone-slots.c
+)
+target_include_directories(atomic_test PRIVATE ${RUNTIME_SRC_DIR})
+target_link_libraries(atomic_test PRIVATE npl_runtime)
+target_compile_options(atomic_test PRIVATE
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+set_target_properties(atomic_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)

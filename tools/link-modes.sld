@@ -70,8 +70,9 @@
         (write-text wide
           (string-append
             "(import (scheme base) (scheme write) (srfi 1) (srfi 13)\n"
-            "        (npl time) (npl unix))\n"
-            "(display (length (string->list \"abc\")))\n"))
+            "        (srfi 230) (npl time) (npl unix))\n"
+            "(display (length (string->list \"abc\")))\n"
+            "(display (atomic-box-ref (make-atomic-box 'shared)))\n"))
         (write-text native
           (string-append
             "(import (scheme base) (scheme write) (npl time))\n"

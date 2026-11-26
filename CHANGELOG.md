@@ -12,6 +12,10 @@ behavior).
 - Canonical `(npl ...)` extension libraries with thin `(srfi N)`
   compatibility aliases. Libraries are imported individually; there is no
   aggregate import syntax.
+- SRFI 230 atomic flags, boxes, fixnum boxes, pairs and fences as
+  `(npl atomic)` / `(srfi 230)`. The T3 baseline uses one atomic-domain mutex
+  for every order and every object kind; fixnum arithmetic rejects a result
+  outside the 62-bit fixnum range before changing the box.
 - SRFI 1 lists as `(npl list)` / `(srfi 1)`.
 - SRFI 13 strings as `(npl string)` / `(srfi 13)`, with a shared string
   kernel; character-set criteria are not supported because NPL has no
