@@ -350,19 +350,19 @@ static NplVal fxbox_update(NplVal value, NplVal object, NplVal order,
         break;
     }
     case 2: {
-        int64_t next = previous & operand;
+        int64_t next = (int64_t)((uint64_t)previous & (uint64_t)operand);
         if (in_fixnum_range(next)) box->value = next;
         else overflow = 1;
         break;
     }
     case 3: {
-        int64_t next = previous | operand;
+        int64_t next = (int64_t)((uint64_t)previous | (uint64_t)operand);
         if (in_fixnum_range(next)) box->value = next;
         else overflow = 1;
         break;
     }
     default: {
-        int64_t next = previous ^ operand;
+        int64_t next = (int64_t)((uint64_t)previous ^ (uint64_t)operand);
         if (in_fixnum_range(next)) box->value = next;
         else overflow = 1;
         break;
@@ -425,10 +425,7 @@ NplVal npl_atomic_pair_ref(NplVal value, NplVal order)
     NplVal first = pair->first;
     NplVal second = pair->second;
     atomic_unlock();
-    npl_gc_root(&value);
-    NplVal result = two_values(first, second);
-    npl_gc_unroot(&value);
-    return result;
+    return two_values(first, second);
 }
 
 NplVal npl_atomic_pair_set(NplVal value, NplVal first, NplVal second,
@@ -452,10 +449,7 @@ NplVal npl_atomic_pair_swap(NplVal value, NplVal first, NplVal second,
     NplVal previous_second = pair->second;
     store_pair(pair, first, second);
     atomic_unlock();
-    npl_gc_root(&value);
-    NplVal result = two_values(previous_first, previous_second);
-    npl_gc_unroot(&value);
-    return result;
+    return two_values(previous_first, previous_second);
 }
 
 NplVal npl_atomic_pair_compare_and_swap(NplVal value, NplVal expected_first,
@@ -472,10 +466,7 @@ NplVal npl_atomic_pair_compare_and_swap(NplVal value, NplVal expected_first,
     if (actual_first == expected_first && actual_second == expected_second)
         store_pair(pair, desired_first, desired_second);
     atomic_unlock();
-    npl_gc_root(&value);
-    NplVal result = two_values(actual_first, actual_second);
-    npl_gc_unroot(&value);
-    return result;
+    return two_values(actual_first, actual_second);
 }
 
 /* ---- fence ---- */

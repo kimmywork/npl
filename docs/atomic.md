@@ -92,5 +92,6 @@ under `NPL_GC_NURSERY_BYTES=65536 NPL_GC_VERIFY=100`.
 - `runtime/atomic_test.c` — C substrate, pair snapshots, publication,
   concurrent collector races, failed-CAS retention and GC barriers.
 
-The current implementation is host-executed on macOS arm64. Linux execution
-and T3-D fast-path measurements remain future evidence.
+The implementation is host-executed on macOS arm64; the repository CI Linux
+gate also passed for the T3-A/B/C revision. T3-D fast-path measurements remain
+future evidence.

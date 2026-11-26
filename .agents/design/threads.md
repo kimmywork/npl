@@ -999,8 +999,9 @@ T3-A, T3-B and T3-C are implemented; T3-D remains a design.
   fixture, and `src/compiler/tests/srfi-230.npl`.
 - Static/shared identity is exercised by the existing link-mode gate; the
   atomic code has no independent TLS or per-executable state. Host execution
-  is macOS arm64; Linux execution remains missing evidence. T3-D fast paths,
-  mixed-domain ordering proofs, and the B6/B7 benchmarks are not implemented.
+  is macOS arm64; the repository CI Linux gate also passed for this revision.
+  T3-D fast paths, mixed-domain ordering proofs, and the B6/B7 benchmarks are
+  not implemented.
 
 Concurrent tests use start gates and bounded joins, not sleep-based ordering:
 

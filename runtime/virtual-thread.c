@@ -30,6 +30,7 @@
 #include "npl.h"
 #include "thread.h"
 #include "thread-sched.h"
+#include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -141,8 +142,10 @@ static void carrier_count_from_environment(void)
     const char *text = getenv("NPL_VTHREAD_CARRIERS");
     if (!text || !*text) return;
     char *end = NULL;
+    errno = 0;
     long count = strtol(text, &end, 10);
-    if (end && *end == '\0' && count > 0 && count <= 256)
+    if (errno == 0 && end != text && *end == '\0' &&
+        count > 0 && count <= 256)
         g_carrier_count = (int)count;
 }
 
@@ -595,11 +598,15 @@ NplVal npl_vthread_join(NplVal value)
 void npl_virtual_thread_set_carriers(int count)
 {
     /* Only effective before any thread has been enqueued and before carriers
-     * start; otherwise queue indices already in flight would be invalid. */
+     * start; otherwise queue indices already in flight would be invalid.
+     * Serialize with the first npl_vthread_start / start_carriers path, which
+     * reads these fields under g_lock. */
+    pthread_mutex_lock(&g_lock);
     if (count > 0 && !g_queues && !g_carrier_handles) {
         g_carrier_count = count;
         g_carrier_count_explicit = 1;
     }
+    pthread_mutex_unlock(&g_lock);
 }
 
 void npl_virtual_thread_shutdown(void)

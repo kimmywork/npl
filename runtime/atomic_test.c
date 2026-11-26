@@ -243,32 +243,88 @@ static void force_minor_collection(void)
     }
 }
 
+static int payload_is(NplVal value, int64_t first, int64_t second)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_PAIR &&
+           npl_car(value) == npl_fixnum(first) &&
+           npl_cdr(value) == npl_fixnum(second);
+}
+
 static void check_gc_edges(void)
 {
-    NplVal young = npl_cons(npl_fixnum(11), npl_fixnum(22));
-    npl_gc_root(&young);
     NplVal box = npl_atomic_box_make(npl_false());
     NplVal pair = npl_atomic_pair_make(npl_false(), npl_false());
     npl_gc_root(&box);
     npl_gc_root(&pair);
 
-    /* Promote the holders, then store young pointer values.  The barrier's
-     * remembered-set entry is what keeps them alive when the direct `young`
-     * root is removed; NPL_GC_VERIFY also checks it independently. */
+    /* Promote the holders first, so every following pointer store is a true
+     * old-to-young store.  `young` and `second` are allocated afterwards. */
     npl_gc_collect();
+    NplVal young = npl_cons(npl_fixnum(11), npl_fixnum(22));
+    NplVal second = npl_cons(npl_fixnum(33), npl_fixnum(44));
+    npl_gc_root(&young);
+    npl_gc_root(&second);
+
+    /* Cover set!, swap! and a successful CAS from the promoted holders. */
     npl_atomic_box_set(box, young, ORDER_RELEASE);
     npl_atomic_pair_set(pair, young, young, ORDER_RELEASE);
+    NplVal swapped = npl_atomic_box_swap(box, second, ORDER_RELEASE);
+    CHECK(swapped == young, "old box swap returns the young value");
+    NplVal previous = npl_atomic_pair_swap(pair, second, second, ORDER_RELEASE);
+    CHECK(values_count(previous) == 2 &&
+          value_at(previous, 0) == young &&
+          value_at(previous, 1) == young,
+          "old pair swap returns the young values");
+    NplVal box_cas = npl_atomic_box_compare_and_swap(box, second, young,
+                                                    ORDER_SEQ);
+    CHECK(box_cas == second, "old box CAS stores a young value");
+    NplVal pair_cas = npl_atomic_pair_compare_and_swap(
+        pair, second, second, young, young, ORDER_SEQ);
+    CHECK(values_count(pair_cas) == 2 &&
+          value_at(pair_cas, 0) == second &&
+          value_at(pair_cas, 1) == second,
+          "old pair CAS stores young values");
+
+    /* Failed CAS still returns the young observed value(s). */
+    NplVal failed = npl_atomic_box_compare_and_swap(box, second, second,
+                                                   ORDER_SEQ);
+    CHECK(failed == young, "old box failed CAS returns the young value");
+    NplVal failed_pair = npl_atomic_pair_compare_and_swap(
+        pair, second, second, second, second, ORDER_SEQ);
+    CHECK(values_count(failed_pair) == 2 &&
+          value_at(failed_pair, 0) == young &&
+          value_at(failed_pair, 1) == young,
+          "old pair failed CAS returns the young values");
+
+    /* Drop the direct roots: only the remembered set now keeps `young`
+     * reachable from the old holders.  NPL_GC_VERIFY also checks the
+     * barrier independently. */
+    swapped = npl_nil();
+    previous = npl_nil();
+    box_cas = npl_nil();
+    pair_cas = npl_nil();
+    failed = npl_nil();
+    failed_pair = npl_nil();
+    npl_gc_unroot(&second);
     npl_gc_unroot(&young);
     force_minor_collection();
-    CHECK(npl_atomic_box_ref(box, ORDER_ACQUIRE) != npl_false(),
-          "old box retains a young value across minor GC");
+    CHECK(payload_is(npl_atomic_box_ref(box, ORDER_ACQUIRE), 11, 22),
+          "old box retains field values across minor GC");
     NplVal snapshot = npl_atomic_pair_ref(pair, ORDER_ACQUIRE);
     CHECK(value_at(snapshot, 0) != npl_false() &&
-          value_at(snapshot, 1) != npl_false(),
-          "old pair retains young values across minor GC");
+          payload_is(value_at(snapshot, 0), 11, 22) &&
+          value_at(snapshot, 1) != npl_false() &&
+          payload_is(value_at(snapshot, 1), 11, 22),
+          "old pair retains field values across minor GC");
     npl_gc_collect();
-    CHECK(npl_atomic_box_ref(box, ORDER_ACQUIRE) != npl_false(),
-          "old box retains its value across full GC");
+    CHECK(payload_is(npl_atomic_box_ref(box, ORDER_ACQUIRE), 11, 22),
+          "old box retains field values across full GC");
+    snapshot = npl_atomic_pair_ref(pair, ORDER_ACQUIRE);
+    CHECK(value_at(snapshot, 0) != npl_false() &&
+          payload_is(value_at(snapshot, 0), 11, 22) &&
+          value_at(snapshot, 1) != npl_false() &&
+          payload_is(value_at(snapshot, 1), 11, 22),
+          "old pair retains field values across full GC");
     npl_gc_unroot(&pair);
     npl_gc_unroot(&box);
 }
@@ -552,14 +608,45 @@ static void check_failed_cas_result(void)
     NplVal old = npl_atomic_box_compare_and_swap(box, second, replacement,
                                                  ORDER_SEQ);
     CHECK(old == first, "failed CAS returns the replaced observed value");
+    /* The box no longer holds `first`; drop its direct root so the returned
+     * observed value must stay valid on its own. */
+    npl_gc_unroot(&first);
     (void)npl_atomic_box_set(box, second, ORDER_SEQ);
     npl_gc_collect();
     CHECK(npl_car(old) == npl_fixnum(1) && npl_cdr(old) == npl_fixnum(2),
-          "failed CAS result remains live after replacement and GC");
+          "failed box CAS result remains live after replacement and GC");
+
+    /* Pair CAS failure returns a two-value packet of the observed pair. */
+    NplVal pair_first = npl_cons(npl_fixnum(7), npl_fixnum(8));
+    NplVal pair_second = npl_cons(npl_fixnum(9), npl_fixnum(10));
+    NplVal wrong_first = npl_cons(npl_fixnum(11), npl_fixnum(12));
+    NplVal wrong_second = npl_cons(npl_fixnum(13), npl_fixnum(14));
+    NplVal pair = npl_atomic_pair_make(pair_first, pair_second);
+    npl_gc_root(&pair_first);
+    npl_gc_root(&pair_second);
+    npl_gc_root(&wrong_first);
+    npl_gc_root(&wrong_second);
+    npl_gc_root(&pair);
+    NplVal old_pair = npl_atomic_pair_compare_and_swap(
+        pair, wrong_first, wrong_second, replacement, replacement, ORDER_SEQ);
+    CHECK(values_count(old_pair) == 2 &&
+          value_at(old_pair, 0) == pair_first &&
+          value_at(old_pair, 1) == pair_second,
+          "failed pair CAS returns the observed two values");
+    npl_gc_unroot(&pair_first);
+    npl_gc_unroot(&pair_second);
+    npl_gc_collect();
+    CHECK(values_count(old_pair) == 2 &&
+          payload_is(value_at(old_pair, 0), 7, 8) &&
+          payload_is(value_at(old_pair, 1), 9, 10),
+          "failed pair CAS two-value result remains live after GC");
+
+    npl_gc_unroot(&pair);
+    npl_gc_unroot(&wrong_second);
+    npl_gc_unroot(&wrong_first);
     npl_gc_unroot(&box);
     npl_gc_unroot(&replacement);
     npl_gc_unroot(&second);
-    npl_gc_unroot(&first);
 }
 
 int main(void)

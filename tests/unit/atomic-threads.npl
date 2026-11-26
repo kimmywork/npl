@@ -61,28 +61,46 @@
 
 ; ---- publication through an atomic box ----
 (define published (make-atomic-box #f))
+(define started (make-atomic-box #f))
+(define acknowledged (make-atomic-box #f))
 (define finished (make-atomic-box #f))
 
 (define (publisher)
-  (let loop ((index 0))
+  (atomic-box-set! published (cons 1 1) (memory-order release))
+  (atomic-box-set! started #t (memory-order release))
+  ; Wait for the observer to validate at least one published pair, so a
+  ; serial publisher-then-observer schedule cannot satisfy this phase.
+  (let wait ()
+    (if (eq? (atomic-box-ref acknowledged (memory-order acquire)) #t)
+        #t
+        (begin (thread-yield!) (wait))))
+  (let loop ((index 2))
     (if (= index 3000)
-        (atomic-box-set! published (cons 'done 'done) (memory-order release))
+        (atomic-box-set! finished #t (memory-order release))
         (begin
-          (atomic-box-set! published (cons index index) (memory-order release))
+          (atomic-box-set! published (cons index index)
+                           (memory-order release))
           (thread-yield!)
-          (loop (+ index 1))))
-    (atomic-box-set! finished #t (memory-order release))))
+          (loop (+ index 1))))))
 
 (define (observer)
-  (let loop ((checks 0))
+  (let wait ()
+    (if (eq? (atomic-box-ref started (memory-order acquire)) #t)
+        #t
+        (begin (thread-yield!) (wait))))
+  (let loop ((observations 0))
     (let ((value (atomic-box-ref published (memory-order acquire))))
+      ; Acknowledge even a malformed read so the publisher cannot wait
+      ; forever; the torn result still fails the assertion below.
+      (if (= observations 0)
+          (atomic-box-set! acknowledged #t (memory-order release)))
       (if (if (pair? value) (not (eq? (car value) (cdr value))) #f)
           'torn
           (if (eq? (atomic-box-ref finished (memory-order acquire)) #t)
-              checks
+              observations
               (begin
                 (thread-yield!)
-                (loop (+ checks 1))))))))
+                (loop (+ observations 1))))))))
 
 (define publisher-thread (make-thread publisher))
 (define observer-thread (make-thread observer))
@@ -90,14 +108,29 @@
 (thread-start! observer-thread)
 (thread-join! publisher-thread)
 (define observation (thread-join! observer-thread))
-(check 'publication #t (if (eq? observation 'torn) #f #t))
+(check 'publication
+       #t
+       (if (eq? observation 'torn) #f (if (> observation 0) #t #f)))
+(check 'publication-observations #t (> observation 0))
 
-; ---- virtual workers share the same atomic objects ----
+; ---- native and virtual workers share one atomic object ----
 (define virtual-counter (make-atomic-fxbox 0))
 (define virtual-workers 3)
 (define virtual-steps 200)
+(define native-steps 1000)
+(define start-gate (make-atomic-box #f))
+
+(define (wait-for-start)
+  (let loop ()
+    (if (eq? (atomic-box-ref start-gate (memory-order acquire)) #t)
+        #t
+        (begin (thread-yield!) (loop)))))
 
 (define (virtual-worker)
+  (let wait ()
+    (if (eq? (atomic-box-ref start-gate (memory-order acquire)) #t)
+        #t
+        (begin (virtual-thread-yield!) (wait))))
   (let loop ((left virtual-steps))
     (if (= left 0)
         'done
@@ -106,15 +139,30 @@
           (virtual-thread-yield!)
           (loop (- left 1))))))
 
+(define (native-worker)
+  (wait-for-start)
+  (let loop ((left native-steps))
+    (if (= left 0)
+        'done
+        (begin
+          (atomic-fxbox+/fetch! virtual-counter 1 (memory-order relaxed))
+          (thread-yield!)
+          (loop (- left 1))))))
+
+(define native-thread (make-thread native-worker))
 (define virtual-threads
   (map (lambda (index)
          (make-virtual-thread virtual-worker index))
        (list 0 1 2)))
+(thread-start! native-thread)
 (for-each virtual-thread-start! virtual-threads)
+(atomic-box-set! start-gate #t (memory-order release))
+(check 'native-result 'done (thread-join! native-thread))
 (check 'virtual-results
        '(done done done)
        (map virtual-thread-join! virtual-threads))
-(check 'virtual-total (* virtual-workers virtual-steps)
+(check 'shared-native-virtual-total
+       (+ (* virtual-workers virtual-steps) native-steps)
        (atomic-fxbox-ref virtual-counter))
 
 ; ---- overflow is catchable and leaves the box unchanged ----
