@@ -143,7 +143,7 @@ change and no seed relay.
 
 `#:foo` keyword syntax is always available. The trailing-colon spelling is
 opt-in: after `#!srfi-88` (a provisional name; the reader-directive design
-proposes `#!colon-keywords`), a token ending in `:` (except `:`) is a
+proposes `#!colon-keyword`), a token ending in `:` (except `:`) is a
 keyword object, not a symbol, and R7RS code that uses such an identifier as
 a symbol must spell it with bars, `|foo:|`. `#!no-srfi-88` returns to symbol
 reading. This keeps existing R7RS identifiers such as import prefixes

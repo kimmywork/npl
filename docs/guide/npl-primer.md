@@ -286,7 +286,7 @@ with `#!srfi-88`:
 `#:optional`/`#:key` are NPL's Guile-compatible extensions; the canonical
 SRFI 89 spelling is `(b 1)` and `(c: c 2)`. The `c:` spelling requires
 `#!srfi-88` at the top of the source (the reader-directive design proposes
-the clearer name `#!colon-keywords`); the `#:c` spelling always works.
+the clearer name `#!colon-keyword`); the `#:c` spelling always works.
 
 A procedure can return multiple values:
 
