@@ -1,0 +1,16 @@
+#!fold-case
+(import (scheme base) (scheme write))
+
+(define folded-name 7)
+(define folded-space #\SPACE)
+
+(write FOLDED-NAME) (newline)
+(write (char=? FOLDED-SPACE #\space)) (newline)
+
+#!no-fold-case
+(define Mixed 8)
+(define mixed 9)
+
+(write Mixed) (newline)
+(write mixed) (newline)
+(write (eq? 'Mixed 'mixed)) (newline)

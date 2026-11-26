@@ -193,6 +193,7 @@ run_suite srfi-88 "PASS srfi-88 11"
 run_suite srfi-89 "PASS srfi-89 20"
 run_suite procedure-names "PASS procedure-names 12"
 run_suite srfi-105 "PASS srfi-105 16"
+run_suite fold-case "PASS fold-case 5"
 run_suite thread "PASS thread 26"
 run_suite srfi-170 "PASS srfi-170 132"
 run_suite platform "PASS platform 5"
@@ -703,6 +704,7 @@ reject_compile macro-errors/multiple-ellipsis-pattern.npl \
 reject_compile macro-errors/template-ellipsis-depth.npl \
     template-ellipsis-depth "pattern variable used at wrong ellipsis depth"
 reject_reader backslash-identifier "bad character byte 92"
+reject_reader removed-srfi-directive "unknown directive"
 reject_compile contracts/duplicate-definition.npl \
     duplicate-definition "duplicate top-level definition"
 

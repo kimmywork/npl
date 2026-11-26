@@ -38,6 +38,7 @@
 
 (define LEX-PENDING-SPACE (cell #t))
 (define LEX-NEOTERIC (cell #f))
+(define LEX-FOLD-CASE (cell #f))
 
 (define (token kind payload)
   ; The tight bit records adjacency to the previous token; the neoteric bit
@@ -65,14 +66,17 @@
 (define (symbol-token nm)
   ; SRFI 88 trailing-colon keywords are opt-in; #:foo is always a keyword.
   ; |foo:| is handled by the bar-symbol token path.
-  (let ((length (string-length nm)))
-    (if (if (cell-get LEX-SRFI-88)
-            (if (> length 1)
-                (= (string-byte-ref nm (- length 1)) 58)
-                #f)
-            #f)
-        (token 23 (substring nm 0 (- length 1)))
-        (token 4 nm))))
+  (let ((nm (if (cell-get LEX-FOLD-CASE)
+                (npl_string_full_case nm 2)
+                nm)))
+    (let ((length (string-length nm)))
+      (if (if (cell-get LEX-SRFI-88)
+              (if (> length 1)
+                  (= (string-byte-ref nm (- length 1)) 58)
+                  #f)
+              #f)
+          (token 23 (substring nm 0 (- length 1)))
+          (token 4 nm)))))
 
 (define (push-symbol s i acc)
   (let ((j (sym-run-end s i)))
@@ -167,14 +171,13 @@
       (do-bad-char s (- i 1))
       (let ((end (lex-directive-end s i)))
         (let ((name (substring s i end)))
-          (if (string=? name "curly-infix")
-              (cell-set! LEX-NEOTERIC #t)
-              #f)
-          (if (if (string=? name "srfi-88")
-                  #t
-                  (string=? name "colon-keyword"))
-              (cell-set! LEX-SRFI-88 #t)
-              #f))
+          (cond
+            ((string=? name "fold-case") (cell-set! LEX-FOLD-CASE #t))
+            ((string=? name "no-fold-case") (cell-set! LEX-FOLD-CASE #f))
+            ((string=? name "curly-infix") (cell-set! LEX-NEOTERIC #t))
+            ((string=? name "srfi-88") (cell-set! LEX-SRFI-88 #t))
+            ((string=? name "colon-keyword") (cell-set! LEX-SRFI-88 #t))
+            (else (fatal "unknown directive"))))
         (lex-loop s end acc))))
 
 (define (lex-hash s j acc)
@@ -292,8 +295,14 @@
   (let ((end (sym-run-end s j)))
     (let ((actual-end (if (= end j) (+ j 1) end)))
       (let ((name (substring s j actual-end)))
-        (lex-loop s actual-end
-          (cons (token 13 (character-code name)) acc))))))
+        (let ((name
+                (if (if (cell-get LEX-FOLD-CASE)
+                        (> (string-length name) 1)
+                        #f)
+                    (npl_string_full_case name 2)
+                    name)))
+          (lex-loop s actual-end
+            (cons (token 13 (character-code name)) acc)))))))
 
 (define (sym-or-neg s i)
   (if (lex-cls? (string-byte-ref s i) 7) #t

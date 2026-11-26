@@ -13,5 +13,5 @@
   "self-tail-calls" "closure-captures" "named-loops" "direct-calls"
   "direct-lambdas" "literal-mutation" "records" "record-extensions"
   "hash-tables" "match" "match-extensions" "srfi-core" "srfi-i2-i3"
-  "reader-directives" "reader-directive-midfile" "keyword-arguments"
-  "procedure-names")
+  "reader-directives" "reader-directive-midfile" "reader-fold-case"
+  "keyword-arguments" "procedure-names")

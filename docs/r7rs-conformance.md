@@ -140,6 +140,14 @@ status:
 Adding any of these follows [extending](extending.md); most need no compiler
 change and no seed relay.
 
+### Reader directives
+
+Both readers accept R7RS `#!fold-case` / `#!no-fold-case` (identifiers and
+character names fold), plus NPL's `#!curly-infix`, `#!colon-keyword`, and
+the `#!srfi-88` alias. Unknown directives are errors. Directives may be
+consecutive and apply from their position onward; compiler adjacencies are
+captured per token, so a mid-file directive does not rewrite earlier data.
+
 ### SRFI 88 lexical note
 
 `#:foo` keyword syntax is always available. The trailing-colon spelling is

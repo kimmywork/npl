@@ -1,0 +1,2 @@
+#!no-srfi-88
+(import (scheme base))

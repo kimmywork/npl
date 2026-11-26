@@ -32,10 +32,9 @@ composable, per port/source, validated, and can grow into a Racket-style
 
 The current implementation, before the generalized registry:
 
-- the runtime reader recognizes `#!fold-case`, `#!no-fold-case`,
-  `#!curly-infix`, `#!srfi-88`, and `#!colon-keyword`; the compiler reader
-  recognizes `#!curly-infix`, `#!srfi-88`, and `#!colon-keyword`;
-- accepts consecutive directives separated by whitespace, for example:
+- both readers recognize `#!fold-case`, `#!no-fold-case`,
+  `#!curly-infix`, `#!srfi-88`, and `#!colon-keyword`;
+- both accept consecutive directives separated by whitespace, for example:
 
   ```scheme
   #!curly-infix #!colon-keyword
@@ -47,8 +46,6 @@ The current implementation, before the generalized registry:
 
 The remaining rough edges are intentional inputs to this design:
 
-- unknown directives: the runtime reader reports an error, while the
-  compiler reader currently ignores them;
 - core `{...}` syntax is still available without `#!curly-infix`; the
   directive currently gates only the neoteric `f(x)` / `f[x]` / `f{x}`
   forms;
@@ -411,5 +408,6 @@ activations; the former `#!no-srfi-88` spelling is gone. `#!curly-infix`
 enables the neoteric forms in both readers, with adjacency captured per
 token so a mid-file directive does not retroactively change earlier data.
 It deliberately does **not** implement the registry, parameterized
-directives, unknown-directive parity, or `#!lang`. This document is the
+directives, or `#!lang`. Unknown directives and the former
+`#!no-srfi-88` spelling are errors in both readers. This document is the
 contract for the follow-up refactor.

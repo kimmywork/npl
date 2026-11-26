@@ -42,6 +42,7 @@
   ; Reader feature directives are per source file, not per compiler process.
   (cell-set! LEX-SRFI-88 #f)
   (cell-set! LEX-NEOTERIC #f)
+  (cell-set! LEX-FOLD-CASE #f)
   (cell-set! LEX-PENDING-SPACE #t)
   (check-parens source 0 1 1 () 0)
   (let ((cur (cell (lex-loop source 0 ()))))
