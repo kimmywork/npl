@@ -288,6 +288,17 @@ SRFI 89 spelling is `(b 1)` and `(c: c 2)`. The `c:` spelling requires
 `#!colon-keyword` at the top of the source (`#!srfi-88` remains an alias);
 the `#:c` spelling always works.
 
+Unknown keyword arguments raise an error by default. Put
+`#:allow-other-keys` in the formal list to ignore them instead:
+
+```scheme
+(define* (f a #:key x #:allow-other-keys)
+  (list a x))
+
+> (f 1 #:x 2 #:ignored 3)
+(1 2)
+```
+
 A procedure can return multiple values:
 
 ```scheme

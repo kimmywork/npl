@@ -1,0 +1,9 @@
+(import (scheme base) (scheme write))
+
+(define* (f a #:key x #:allow-other-keys)
+  (list a x))
+
+(write (f 1 #:x 2 #:z 3)) (newline)
+(write (f 1 #:z 3)) (newline)
+(write ((lambda* (#:key x #:allow-other-keys) x) #:x 5 #:z 9))
+(newline)

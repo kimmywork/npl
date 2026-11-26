@@ -28,6 +28,12 @@
 (define* (rest-marker a #:key x #:rest rest)
   (list a x rest))
 
+(define* (allowy a #:key x #:allow-other-keys)
+  (list a x))
+
+(define* (allow-before #:allow-other-keys #:key x)
+  x)
+
 (define (main)
   (test-equal "guile optional defaults"
               (lambda () (equal? (f 10) '(10 1 2 3 4)))
@@ -66,6 +72,24 @@
               (f 1 #:z 2))
   (test-error "duplicate keyword"
               (f 1 #:d 2 #:d 3))
+  (test-equal "allow other keywords"
+              (lambda () (equal? (allowy 1 #:x 2 #:z 3) '(1 2)))
+              #t)
+  (test-equal "allow other keywords keeps defaults"
+              (lambda () (equal? (allowy 1 #:z 3) '(1 #f)))
+              #t)
+  (test-error "allow other keywords still rejects duplicates"
+              (allowy 1 #:x 2 #:x 3))
+  (test-error "allow other keywords still needs a value"
+              (allowy 1 #:z))
+  (test-equal "allow-other-keys before #:key"
+              (lambda () (allow-before #:x 7 #:z 8))
+              7)
+  (test-equal "lambda* allow other keywords"
+              (lambda ()
+                ((lambda* (#:key x #:allow-other-keys) x)
+                 #:x 5 #:z 9))
+              5)
   (test-equal "lambda*"
               (lambda ()
                 (equal? ((lambda* (a (b 2) (c: c 3))

@@ -6,10 +6,12 @@
  *   (2 . keyword)     optional named
  *   (4 . keyword)     required named
  *   (3 . #f)          rest
+ *   (5 . #f)          allow other keywords; always first, not a slot
  *
- * The result is a vector with one (present . value) pair per spec entry.
- * Defaults and required-named errors stay in generated Scheme code, where
- * they can be evaluated in the scope of the preceding parameters.
+ * The result is a vector with one (present . value) pair per spec entry,
+ * excluding the leading allow-other-keys marker. Defaults and required-named
+ * errors stay in generated Scheme code, where they can be evaluated in the
+ * scope of the preceding parameters.
  */
 
 #include "npl.h"
@@ -65,9 +67,20 @@ static int64_t named_slot(NplVal spec, NplVal keyword)
     return -1;
 }
 
+/* A leading (5 . #f) entry tells the parser to skip unknown keywords. */
+static int spec_allows_other_keys(NplVal spec)
+{
+    if (!npl_is_ptr(spec) || npl_header(spec)->tag != BOX_PAIR) return 0;
+    NplVal entry = npl_car(spec);
+    if (!npl_is_ptr(entry) || npl_header(entry)->tag != BOX_PAIR) return 0;
+    return npl_fixnum_value(npl_car(entry)) == 5;
+}
+
 NplVal npl_keyword_parse(NplVal spec, NplVal args)
 {
     const char *who = "keyword-arguments";
+    int allow_other_keys = spec_allows_other_keys(spec);
+    if (allow_other_keys) spec = npl_cdr(spec);
     int64_t count = spec_count(spec, who);
     NplVal full_spec = spec;
     NplVal *initial = (NplVal *)calloc((size_t)count, sizeof(NplVal));
@@ -103,16 +116,19 @@ NplVal npl_keyword_parse(NplVal spec, NplVal args)
                             "keyword argument has no value", key);
                     NplVal value = npl_car(npl_cdr(args));
                     int64_t slot = named_slot(full_spec, key);
-                    if (slot < 0)
-                        npl_primitive_error(who,
-                            "unknown keyword argument", key);
-                    NplVal present = npl_car(npl_vector_ref(
-                        result, npl_fixnum(slot)));
-                    if (!npl_is_false(present))
-                        npl_primitive_error(who,
-                            "duplicate keyword argument", key);
-                    npl_vector_set(result, npl_fixnum(slot),
-                                   npl_cons(npl_true(), value));
+                    if (slot < 0) {
+                        if (!allow_other_keys)
+                            npl_primitive_error(who,
+                                "unknown keyword argument", key);
+                    } else {
+                        NplVal present = npl_car(npl_vector_ref(
+                            result, npl_fixnum(slot)));
+                        if (!npl_is_false(present))
+                            npl_primitive_error(who,
+                                "duplicate keyword argument", key);
+                        npl_vector_set(result, npl_fixnum(slot),
+                                       npl_cons(npl_true(), value));
+                    }
                     args = npl_cdr(npl_cdr(args));
                 }
             }
