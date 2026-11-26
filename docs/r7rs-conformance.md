@@ -141,13 +141,13 @@ change and no seed relay.
 
 ### SRFI 88 lexical note
 
-`#:foo` keyword syntax is always available. SRFI 88's trailing-colon
-spelling is opt-in: after `#!srfi-88`, a token ending in `:` (except `:`
-itself) is a keyword object, not a symbol, and R7RS code that uses such an
-identifier as a symbol must spell it with bars, `|foo:|`. `#!no-srfi-88`
-returns to symbol reading. This keeps existing R7RS identifiers such as
-import prefixes (`b:`) working by default while supporting SRFI 88 source
-when requested.
+`#:foo` keyword syntax is always available. The trailing-colon spelling is
+opt-in: after `#!srfi-88` (a provisional name; the reader-directive design
+proposes `#!colon-keywords`), a token ending in `:` (except `:`) is a
+keyword object, not a symbol, and R7RS code that uses such an identifier as
+a symbol must spell it with bars, `|foo:|`. `#!no-srfi-88` returns to symbol
+reading. This keeps existing R7RS identifiers such as import prefixes
+(`b:`) working by default while supporting SRFI 88 source when requested.
 
 ## What "frozen" means
 

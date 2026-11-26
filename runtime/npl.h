@@ -269,6 +269,8 @@ typedef struct {
     uint32_t position;
     uint32_t length;
     uint32_t pushed;        /* bytes in pushback (stream ports) */
+    uint32_t read_fold_case;     /* #!fold-case state for this port */
+    uint32_t read_keyword_colon; /* #!srfi-88 state for this port */
     uint8_t pushback[8];    /* read-ahead bytes, consumed first (io.c): at
                                most one character of lookahead plus the
                                tail of one invalid UTF-8 sequence */

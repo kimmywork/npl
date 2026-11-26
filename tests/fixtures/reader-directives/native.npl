@@ -1,0 +1,4 @@
+#!curly-infix #!srfi-88
+(import (scheme base) (scheme write) (npl keyword))
+(write (keyword? 'foo:)) (newline)
+(write {1 + 2 + 3}) (newline)

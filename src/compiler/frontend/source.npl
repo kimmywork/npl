@@ -39,6 +39,8 @@
   (if (absolute-path? path) path (string-append base path)))
 
 (define (parse-source-text source)
+  ; Reader feature directives are per source file, not per compiler process.
+  (cell-set! LEX-SRFI-88 #f)
   (check-parens source 0 1 1 () 0)
   (let ((cur (cell (lex-loop source 0 ()))))
     (parse-all cur ())))

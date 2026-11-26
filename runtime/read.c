@@ -100,12 +100,21 @@ static void read_directive(NplDatumReader *reader)
         name[length++] = (char)code;
     }
     name[length] = '\0';
-    if (strcmp(name, "fold-case") == 0) reader->fold_case = 1;
-    else if (strcmp(name, "no-fold-case") == 0) reader->fold_case = 0;
-    else if (strcmp(name, "curly-infix") == 0) { /* braces are always on */ }
-    else if (strcmp(name, "srfi-88") == 0) reader->keyword_colon = 1;
-    else if (strcmp(name, "no-srfi-88") == 0) reader->keyword_colon = 0;
-    else read_error("unknown directive");
+    if (strcmp(name, "fold-case") == 0) {
+        reader->fold_case = 1;
+        reader->port->read_fold_case = 1;
+    } else if (strcmp(name, "no-fold-case") == 0) {
+        reader->fold_case = 0;
+        reader->port->read_fold_case = 0;
+    } else if (strcmp(name, "curly-infix") == 0) {
+        /* braces are always on */
+    } else if (strcmp(name, "srfi-88") == 0) {
+        reader->keyword_colon = 1;
+        reader->port->read_keyword_colon = 1;
+    } else if (strcmp(name, "no-srfi-88") == 0) {
+        reader->keyword_colon = 0;
+        reader->port->read_keyword_colon = 0;
+    } else read_error("unknown directive");
 }
 
 /* Skips whitespace and comments: line (;), block (#|...|#), datum (#;),
@@ -836,7 +845,9 @@ NplVal npl_read_datum(NplVal port_value_arg)
 {
     NplPort *port = npl_port_require_mode_internal(port_value_arg, NPL_PORT_INPUT,
                                      NPL_PORT_TEXTUAL, "read");
-    NplDatumReader reader = { port, 0, 0, npl_nil(), 0, 0 };
+    NplDatumReader reader = { port, 0, 0, npl_nil(),
+                              (int)port->read_fold_case,
+                              (int)port->read_keyword_colon };
     npl_gc_root(&reader.labels);
     NplVal value = read_datum_inner(&reader, 1);
     npl_gc_unroot(&reader.labels);

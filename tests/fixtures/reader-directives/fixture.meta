@@ -1,0 +1,7 @@
+name=reader-directives
+native=native.npl
+repl=repl.in
+oracle=none
+expected-out=expected.out
+expected-err=expected.err
+expected-status=0

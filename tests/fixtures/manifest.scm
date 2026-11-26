@@ -12,4 +12,5 @@
   "cyclic-data" "numeric-alias-paths" "unspecified-values"
   "self-tail-calls" "closure-captures" "named-loops" "direct-calls"
   "direct-lambdas" "literal-mutation" "records" "record-extensions"
-  "hash-tables" "match" "match-extensions" "srfi-core" "srfi-i2-i3")
+  "hash-tables" "match" "match-extensions" "srfi-core" "srfi-i2-i3"
+  "reader-directives")
