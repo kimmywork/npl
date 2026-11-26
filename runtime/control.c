@@ -255,18 +255,27 @@ static NplParameterization *require_parameterization(NplVal value,
     return (NplParameterization *)npl_header(value);
 }
 
-/* Freeze the current binding chain.  A later parameter-set! on this thread
- * mutates its own nodes in place, so the snapshot must own a clone. */
-NplVal npl_parameterization_capture(void)
+static NplVal make_parameterization(NplVal bindings)
 {
     NplParameterization *parameterization = (NplParameterization *)
         npl_alloc_object(sizeof(NplParameterization));
     parameterization->header.tag = BOX_PARAMETERIZATION;
     parameterization->header.flags = 0;
-    NplVal boxed = (NplVal)(uintptr_t)parameterization | TAG_PTR;
+    parameterization->bindings = bindings;
+    return (NplVal)(uintptr_t)parameterization | TAG_PTR;
+}
+
+/* Freeze the current binding chain.  A later parameter-set! on this thread
+ * mutates its own nodes in place, so the snapshot must own a clone. */
+NplVal npl_parameterization_capture(void)
+{
+    NplVal boxed = make_parameterization(npl_nil());
     npl_gc_root(&boxed);
+    NplParameterization *parameterization =
+        (NplParameterization *)npl_header(boxed);
     parameterization->bindings =
         npl_clone_parameter_bindings(CTX->current_parameters);
+    npl_gc_write_barrier(parameterization, parameterization->bindings);
     npl_gc_unroot(&boxed);
     return boxed;
 }
@@ -285,7 +294,9 @@ NplVal npl_parameterization_enter(NplVal value)
 {
     (void)require_parameterization(value, "call-with-parameterization");
     npl_gc_root(&value);
-    NplVal old = npl_parameterization_capture();
+    /* Save the exact caller chain, not a clone: continuation re-entry inside
+     * the surrounding wind frame must see mutations made after the call. */
+    NplVal old = make_parameterization(CTX->current_parameters);
     npl_gc_root(&old);
     NplParameterization *parameterization =
         (NplParameterization *)npl_header(value);
@@ -300,10 +311,7 @@ NplVal npl_parameterization_leave(NplVal value)
 {
     NplParameterization *parameterization =
         require_parameterization(value, "call-with-parameterization");
-    npl_gc_root(&value);
-    CTX->current_parameters =
-        npl_clone_parameter_bindings(parameterization->bindings);
-    npl_gc_unroot(&value);
+    CTX->current_parameters = parameterization->bindings;
     return npl_unspecified();
 }
 

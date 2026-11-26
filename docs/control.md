@@ -80,6 +80,7 @@ parameterization snapshots:
 
 ```scheme
 (define p (make-parameter 10 (lambda (x) (* x x))))
+(p 12)                                    ; p is now 144
 
 (define saved
   (parameterize ((p (p)))
@@ -96,8 +97,11 @@ parameterization snapshots:
 `parameter?` recognizes existing parameter objects. Snapshots clone the
 binding chain, so later `parameter-set!` calls do not mutate a captured
 snapshot; installing one clones again, so mutations inside the thunk do not
-leak back. `temporarily` accepts any parameter-like procedure, installs new
-values on entry, and restores old values on every exit through `dynamic-wind`.
+leak back. `temporarily` accepts any parameter-like procedure and swaps its saved values
+with the current values on every entry and exit through `dynamic-wind`. Because
+the values are installed through the parameter's setter, a non-idempotent
+converter can transform the restored value (the SRFI 226 example with a `+1`
+converter ends at `3`, not the initial `2`).
 
 NPL's existing parameters already use thread-owned copy-on-write bindings, so
 this prototype does not yet expose SRFI 226's separate ordinary shared-cell
@@ -124,9 +128,10 @@ the current tests, but it is not the final architecture. In particular:
 
 - composable invocation from a virtual thread blocks its carrier (use a native
   thread for now);
-- invocations sharing one prompt are serialized, but a captured prefix must
-  not recursively invoke the same origin (that would deadlock on the prompt
-  mutex);
+- each helper stores its prompt result destination in its own
+  `thread-specific` slot, so overlapping invocations do not share a mutable
+  prompt-return slot; the helper temporarily overwrites user
+  `thread-specific` state while it runs;
 - winders outside the captured prompt are re-entered by the helper's
   cross-thread transfer; only winders between the prompt and the capture point
   are intended to run. This will be fixed by the T4-A segment representation;

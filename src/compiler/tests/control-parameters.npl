@@ -77,6 +77,22 @@
                                  (parameterize ((p 3)) (p))
                                  (p)))
                          '(2 3 2))))
+  (test-assert "leave restores the caller's exact chain for continuation re-entry"
+               (let ((p (make-parameter 1))
+                     (k #f)
+                     (saved #f))
+                 (parameterize ((p 2))
+                   (call/cc (lambda (continuation) (set! k continuation)))
+                   (set! saved
+                         (parameterize ((p 3))
+                           (current-parameterization)))
+                   (call-with-parameterization saved (lambda () (p)))
+                   (p 4)
+                   (if k
+                       (let ((continuation k))
+                         (set! k #f)
+                         (continuation 'again))
+                       (p)))))
   (test-assert "snapshot bindings survive allocation"
                (let ((p (make-parameter 1))
                      (saved #f))

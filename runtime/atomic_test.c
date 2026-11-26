@@ -554,12 +554,16 @@ static void check_publication(void)
 typedef struct {
     int *stop;
     int collections;
+    int failed;
 } CollectorWorker;
 
 static void *collector_worker(void *argument)
 {
     CollectorWorker *worker = (CollectorWorker *)argument;
-    if (!npl_thread_attach()) return NULL;
+    if (!npl_thread_attach()) {
+        __atomic_store_n(&worker->failed, 1, __ATOMIC_RELEASE);
+        return NULL;
+    }
     while (!__atomic_load_n(worker->stop, __ATOMIC_ACQUIRE)) {
         npl_gc_collect();
         __atomic_add_fetch(&worker->collections, 1, __ATOMIC_RELAXED);
@@ -618,7 +622,7 @@ static void check_concurrent_collector(void)
         pthread_create(&threads[i], NULL, swap_worker, &workers[i]);
     }
     int stop = 0;
-    CollectorWorker collector = { &stop, 0 };
+    CollectorWorker collector = { &stop, 0, 0 };
     pthread_t collector_thread;
     /* Let every worker leave gate_wait and enter a polling loop before the
      * collector can stop the world.  The joining main thread has no poll
@@ -629,7 +633,8 @@ static void check_concurrent_collector(void)
     /* Do not let a fast worker schedule stop the collector before its first
      * collection; the positive-collection assertion must not be timing
      * dependent. */
-    while (__atomic_load_n(&collector.collections, __ATOMIC_ACQUIRE) == 0)
+    while (__atomic_load_n(&collector.collections, __ATOMIC_ACQUIRE) == 0 &&
+           !__atomic_load_n(&collector.failed, __ATOMIC_ACQUIRE))
         sched_yield();
     for (int i = 0; i < WORKERS; i++)
         pthread_join(threads[i], NULL);

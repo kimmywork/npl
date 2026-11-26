@@ -59,13 +59,12 @@
       (prompt-tag? object))
 
     (define-record-type prompt
-      (make-prompt tag handler escape return lock)
+      (make-prompt tag handler escape return)
       prompt?
       (tag prompt-tag)
       (handler prompt-handler)
       (escape prompt-escape set-prompt-escape!)
-      (return prompt-return set-prompt-return!)
-      (lock prompt-lock))
+      (return prompt-return set-prompt-return!))
 
     (define-record-type abort-packet
       (make-abort-packet arguments)
@@ -131,6 +130,11 @@
       (let ((info (continuation-info object)))
         (if (if info (eq? (car (cdr info)) 'non-composable) #f) #t #f)))
 
+    (define (prompt-finish prompt values)
+      (let* ((specific (thread-specific (current-thread)))
+             (entry (if (pair? specific) (assq prompt specific) #f)))
+        (apply (if entry (cdr entry) (prompt-return prompt)) values)))
+
     (define (call-with-continuation-prompt thunk . rest)
       (let* ((tag (if (pair? rest) (car rest)
                       default-prompt-tag))
@@ -141,7 +145,7 @@
              (handler (if supplied-handler
                           supplied-handler
                           (default-handler tag)))
-             (prompt (make-prompt tag handler #f #f (make-mutex))))
+             (prompt (make-prompt tag handler #f #f)))
         (call-with-values
           (lambda ()
             (core-call/cc
@@ -154,7 +158,7 @@
                   (call-with-values
                     (lambda () (thunk))
                     (lambda vals
-                      (apply (prompt-return prompt) vals)))))))
+                      (prompt-finish prompt vals)))))))
           (lambda results
             (cond
               ((if (= (length results) 1)
@@ -179,31 +183,34 @@
     ;; Return a thunk that delivers the captured prefix's values.  Redirect
     ;; the origin prompt's terminal to the helper, so the prefix returns here
     ;; instead of to the prompt's original caller.
+    (define (call-with-return-override prompt return thunk)
+      (let* ((self (current-thread))
+             (old (thread-specific self))
+             (entries (if (pair? old) old '())))
+        (thread-specific-set! self (cons (cons prompt return) entries))
+        ;; Do not use dynamic-wind here: invoking the captured continuation
+        ;; exits it and would remove the override before the prefix reaches
+        ;; the prompt.  The helper ends at that point, so a normal return is
+        ;; the only path that needs to restore the previous value.
+        (let ((result (thunk)))
+          (thread-specific-set! self old)
+          result)))
+
     (define (invoke-captured origin continuation arguments)
-      ;; Distinct continuations captured under one prompt share its return
-      ;; slot.  Serialize invocations for that origin; the documented limit is
-      ;; that a captured prefix must not recursively invoke the same origin.
-      (mutex-lock! (prompt-lock origin))
-      (dynamic-wind
-        (lambda () (values))
-        (lambda ()
-          (let ((saved (prompt-return origin)))
-            (let ((helper
-                   (make-thread
-                     (lambda ()
-                       (core-call/cc
-                         (lambda (exit)
-                           (set-prompt-return!
-                             origin
-                             (lambda vals
-                               (exit (lambda () (apply values vals)))))
-                           (apply continuation arguments)))))))
-              (thread-start! helper)
-              (dynamic-wind
-                (lambda () (values))
-                (lambda () (thread-join! helper))
-                (lambda () (set-prompt-return! origin saved))))))
-        (lambda () (mutex-unlock! (prompt-lock origin)))))
+      ;; The helper's own thread-specific slot carries its result destination,
+      ;; so overlapping invocations never share a mutable prompt-return slot.
+      (let ((helper
+             (make-thread
+               (lambda ()
+                 (core-call/cc
+                   (lambda (exit)
+                     (call-with-return-override
+                       origin
+                       (lambda vals
+                         (exit (lambda () (apply values vals))))
+                       (lambda () (apply continuation arguments)))))))))
+        (thread-start! helper)
+        (thread-join! helper)))
 
     (define (call-with-composable-continuation proc . rest)
       (let* ((tag (if (pair? rest) (car rest)

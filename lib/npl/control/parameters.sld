@@ -39,21 +39,27 @@
           thunk
           (lambda () (%parameterization-leave saved)))))
 
-    ;; temporarily works with any parameter-like procedure: it saves the old
-    ;; values, installs the new ones on entry, and restores the old ones on
-    ;; every exit (including continuation exits through dynamic-wind).
+    ;; temporarily works with any parameter-like procedure.  Each entry and
+    ;; exit exchanges the pending values with the current values, as required
+    ;; by SRFI 226; a converter runs again when a value is installed.
     (define-syntax temporarily
       (syntax-rules ()
         ((_ ((parameter-expression value-expression) ...) body ...)
          (let ((parameters (list parameter-expression ...))
-               (new-values (list value-expression ...)))
-           (let ((old-values (map (lambda (parameter) (parameter))
-                                  parameters)))
-             (dynamic-wind
-               (lambda ()
+               (pending-values (list value-expression ...)))
+           (dynamic-wind
+             (lambda ()
+               (let ((current-values
+                      (map (lambda (parameter) (parameter))
+                           parameters)))
                  (for-each (lambda (parameter value) (parameter value))
-                           parameters new-values))
-               (lambda () body ...)
-               (lambda ()
+                           parameters pending-values)
+                 (set! pending-values current-values)))
+             (lambda () body ...)
+             (lambda ()
+               (let ((current-values
+                      (map (lambda (parameter) (parameter))
+                           parameters)))
                  (for-each (lambda (parameter value) (parameter value))
-                           parameters old-values))))))))))
+                           parameters pending-values)
+                 (set! pending-values current-values))))))))))
