@@ -76,7 +76,8 @@ build_ssa "$ROOT/bootstrap/current.ssa" "$WORK/compiler"
 # internally and exits non-zero on failure.
 for name in cross-thread-terminal cross-thread-continuation \
             cross-thread-wind-parameters virtual-threads virtual-thread-edge \
-            thread-timeouts review-fixes sync-nested-recovery atomic-threads; do
+            thread-timeouts review-fixes sync-nested-recovery atomic-threads \
+            control-virtual; do
     emit "$WORK/compiler" "$ROOT/tests/unit/$name.npl" "$WORK/$name.ssa"
     build_ssa "$WORK/$name.ssa" "$WORK/$name"
     "$WORK/$name" > "$WORK/$name.out" 2>&1
@@ -87,6 +88,8 @@ done
 for carriers in 1 4; do
     NPL_VTHREAD_CARRIERS=$carriers NPL_GC_NURSERY_BYTES=65536 \
         NPL_GC_VERIFY=10 "$WORK/atomic-threads" > "$WORK/atomic-threads.out"
+    NPL_VTHREAD_CARRIERS=$carriers NPL_GC_NURSERY_BYTES=65536 \
+        NPL_GC_VERIFY=10 "$WORK/control-virtual" > "$WORK/control-virtual.out"
 done
 
 run_suite() {

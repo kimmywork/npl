@@ -265,19 +265,13 @@ static NplVal make_parameterization(NplVal bindings)
     return (NplVal)(uintptr_t)parameterization | TAG_PTR;
 }
 
-/* Freeze the current binding chain.  A later parameter-set! on this thread
- * mutates its own nodes in place, so the snapshot must own a clone. */
+/* A parameterization maps parameter objects to mutable cells, so capture
+ * shares the current binding chain instead of cloning it.  Reinstalling the
+ * same snapshot therefore preserves cell identity, and a parameter-set!
+ * through that parameterization is visible on the next installation. */
 NplVal npl_parameterization_capture(void)
 {
-    NplVal boxed = make_parameterization(npl_nil());
-    npl_gc_root(&boxed);
-    NplParameterization *parameterization =
-        (NplParameterization *)npl_header(boxed);
-    parameterization->bindings =
-        npl_clone_parameter_bindings(CTX->current_parameters);
-    npl_gc_write_barrier(parameterization, parameterization->bindings);
-    npl_gc_unroot(&boxed);
-    return boxed;
+    return make_parameterization(CTX->current_parameters);
 }
 
 NplVal npl_parameterization_p(NplVal value)
@@ -300,8 +294,7 @@ NplVal npl_parameterization_enter(NplVal value)
     npl_gc_root(&old);
     NplParameterization *parameterization =
         (NplParameterization *)npl_header(value);
-    CTX->current_parameters =
-        npl_clone_parameter_bindings(parameterization->bindings);
+    CTX->current_parameters = parameterization->bindings;
     npl_gc_unroot(&old);
     npl_gc_unroot(&value);
     return old;

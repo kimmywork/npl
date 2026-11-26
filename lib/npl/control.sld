@@ -130,10 +130,32 @@
       (let ((info (continuation-info object)))
         (if (if info (eq? (car (cdr info)) 'non-composable) #f) #t #f)))
 
+    (define (remove-prompt-override prompt entries)
+      (cond
+        ((null? entries) '())
+        ((eq? (car (car entries)) prompt) (cdr entries))
+        (else (cons (car entries)
+                    (remove-prompt-override prompt (cdr entries))))))
+
     (define (prompt-finish prompt values)
-      (let* ((specific (thread-specific (current-thread)))
+      (let* ((self (current-thread))
+             (specific (thread-specific self))
              (entry (if (pair? specific) (assq prompt specific) #f)))
-        (apply (if entry (cdr entry) (prompt-return prompt)) values)))
+        (if entry
+            (begin
+              ;; One-shot meta-continuation: remove it before resuming so the
+              ;; invoker's later return through this prompt uses its own
+              ;; terminal.
+              (thread-specific-set! self
+                                    (remove-prompt-override prompt specific))
+              (apply (cdr entry) values))
+            (apply (prompt-return prompt) values))))
+
+    (define (install-prompt-return! prompt target)
+      (let* ((self (current-thread))
+             (old (thread-specific self))
+             (entries (if (pair? old) old '())))
+        (thread-specific-set! self (cons (cons prompt target) entries))))
 
     (define (call-with-continuation-prompt thunk . rest)
       (let* ((tag (if (pair? rest) (car rest)
@@ -180,38 +202,6 @@
             ((prompt-escape prompt) (make-abort-packet objects))
             (raise-continuation-violation tag))))
 
-    ;; Return a thunk that delivers the captured prefix's values.  Redirect
-    ;; the origin prompt's terminal to the helper, so the prefix returns here
-    ;; instead of to the prompt's original caller.
-    (define (call-with-return-override prompt return thunk)
-      (let* ((self (current-thread))
-             (old (thread-specific self))
-             (entries (if (pair? old) old '())))
-        (thread-specific-set! self (cons (cons prompt return) entries))
-        ;; Do not use dynamic-wind here: invoking the captured continuation
-        ;; exits it and would remove the override before the prefix reaches
-        ;; the prompt.  The helper ends at that point, so a normal return is
-        ;; the only path that needs to restore the previous value.
-        (let ((result (thunk)))
-          (thread-specific-set! self old)
-          result)))
-
-    (define (invoke-captured origin continuation arguments)
-      ;; The helper's own thread-specific slot carries its result destination,
-      ;; so overlapping invocations never share a mutable prompt-return slot.
-      (let ((helper
-             (make-thread
-               (lambda ()
-                 (core-call/cc
-                   (lambda (exit)
-                     (call-with-return-override
-                       origin
-                       (lambda vals
-                         (exit (lambda () (apply values vals))))
-                       (lambda () (apply continuation arguments)))))))))
-        (thread-start! helper)
-        (thread-join! helper)))
-
     (define (call-with-composable-continuation proc . rest)
       (let* ((tag (if (pair? rest) (car rest)
                       default-prompt-tag))
@@ -222,9 +212,10 @@
               (lambda (continuation)
                 (let ((wrapped
                        (lambda args
-                         (let ((result
-                                (invoke-captured origin continuation args)))
-                           (result)))))
+                         (core-call/cc
+                           (lambda (return-k)
+                             (install-prompt-return! origin return-k)
+                             (apply continuation args))))))
                   (register-continuation! wrapped 'composable origin tag
                                           (prompt-prefix origin
                                                          (prompt-stack)))
@@ -242,11 +233,10 @@
                        (lambda args
                          (let ((cut (find-prompt tag (prompt-stack))))
                            (if cut
-                               ((prompt-escape cut)
-                                (make-transfer-packet
-                                  (lambda ()
-                                    (invoke-captured origin continuation
-                                                     args))))
+                               (begin
+                                 (install-prompt-return!
+                                   origin (prompt-escape cut))
+                                 (apply continuation args))
                                (raise-continuation-violation tag))))))
                   (register-continuation! wrapped 'non-composable origin tag
                                           (prompt-prefix origin

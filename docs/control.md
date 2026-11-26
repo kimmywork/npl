@@ -94,10 +94,15 @@ parameterization snapshots:
       (list before (p)))))                ; => (20736 0)
 ```
 
-`parameter?` recognizes existing parameter objects. Snapshots clone the
-binding chain, so later `parameter-set!` calls do not mutate a captured
-snapshot; installing one clones again, so mutations inside the thunk do not
-leak back. `temporarily` accepts any parameter-like procedure and swaps its saved values
+`parameter?` recognizes existing parameter objects. A parameterization maps
+parameter objects to mutable cells: capturing shares the current binding
+chain, and installing the same parameterization again preserves those cells.
+A `parameter-set!` made through a snapshot persists in that parameterization,
+while the surrounding parameterization keeps its own cells. Cross-thread
+installation still follows NPL's existing thread-owned copy-on-write rules,
+so ordinary shared-cell behavior across threads and the separate inheritable
+thread-local kind remain T4-D work. `temporarily` accepts any parameter-like
+procedure and swaps its saved values
 with the current values on every entry and exit through `dynamic-wind`. Because
 the values are installed through the parameter's setter, a non-idempotent
 converter can transform the restored value (the SRFI 226 example with a `+1`
@@ -110,31 +115,35 @@ fluid syntax. Those remain T4-D work.
 
 ## Implementation boundary
 
-The current CPS continuation is an opaque closure. Cutting or splicing it
-requires the compiler-visible segment representation described in T4-A of
-`.agents/design/threads.md`; that representation is not implemented yet.
-Instead, a captured prefix is re-entered on a **helper native thread**:
+The current CPS continuation is still an opaque closure. Prompts and
+composable invocation are implemented with a **prompt segment record plus a
+per-thread one-shot meta-continuation override**:
 
-- the runtime's cross-thread `call/cc` restores the captured dynamic
-  environment (parameters, handlers, winders);
-- the origin prompt's terminal is temporarily redirected to a result thunk;
-- the invoker waits for the helper and receives the result, including multiple
-  values;
-- `dynamic-wind` before/after thunks run through the existing transition
-  engine.
+- a prompt record holds its tag, handler, escape/terminal continuation and
+  outer return continuation;
+- invoking a composable continuation installs the invoker's continuation as a
+  one-shot override on the origin prompt, then applies the captured prefix on
+  the **same logical thread**;
+- when the prefix reaches the prompt terminal, it consumes the override and
+  returns its values to the invoker; the invoker's later return through the
+  same prompt uses the ordinary terminal;
+- non-composable invocation installs the nearest cut prompt's escape as the
+  override, so the prefix is reinstated at that cut point.
 
-This preserves the observable prompt/abort/composition behavior exercised by
-the current tests, but it is not the final architecture. In particular:
+This removes the earlier helper-native-thread re-entry. Logical thread identity
+is preserved, virtual workers are not blocked by a carrier join, outer winders
+are not re-entered by a cross-thread transfer, and multiple values/multi-shot
+composition use the same path. `tests/unit/control-virtual.npl` exercises
+990/6930 and `reset`/`shift` inside virtual threads on M=1 and M=4 carriers.
 
-- composable invocation from a virtual thread blocks its carrier (use a native
-  thread for now);
-- each helper stores its prompt result destination in its own
-  `thread-specific` slot, so overlapping invocations do not share a mutable
-  prompt-return slot; the helper temporarily overwrites user
-  `thread-specific` state while it runs;
-- winders outside the captured prompt are re-entered by the helper's
-  cross-thread transfer; only winders between the prompt and the capture point
-  are intended to run. This will be fixed by the T4-A segment representation;
+This is still not the compiler-visible segmented-continuation representation
+required by T4-A. In particular:
+
+- the captured prefix remains a full CPS closure; there is no compiler/evaluator
+  segment or semantic-frame metadata for marks, shared-prefix identity or
+  barriers;
+- the override lives in `thread-specific`, so the implementation temporarily
+  occupies that user-visible slot during composition;
 - continuation barriers are not implemented;
 - `call-in-continuation` / `call-in` / `return-to` are not implemented;
 - there is no initial default prompt/continuation boundary, so omitted-tag
@@ -146,8 +155,7 @@ the current tests, but it is not the final architecture. In particular:
 - thread parameters, fluids, continuation marks, promises, the
   exception-handler-stack condition, and the SRFI 226 thread/interrupt
   adapters remain future increments (ordinary parameterization snapshots and
-  `temporarily` are implemented);
-- helper-thread invocation costs a native thread creation per composition.
+  `temporarily` are implemented).
 
 No changes were made to `bootstrap/current.ssa`; the prototype is a library over
 the existing compiler and evaluator.
@@ -161,6 +169,8 @@ the existing compiler and evaluator.
 - `src/compiler/tests/control-parameters.npl` — parameter snapshots,
   `call-with-parameterization`, `temporarily`, restoration on raise and
   continuation exit.
+- `tests/unit/control-virtual.npl` — same-thread composition inside virtual
+  threads on M=1 and M=4 carriers.
 - `tests/fixtures/control` and `tests/fixtures/control-parameters` —
   deterministic nplc/npli surface through all component aliases.
 - `runtime`/thread gates are unchanged and run in the normal full gate.

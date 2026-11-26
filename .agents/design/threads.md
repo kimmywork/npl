@@ -1291,20 +1291,23 @@ singular aliases `(srfi 226 prompt)`, `(srfi 226 continuation)`,
   pass. `continuation?`, `non-composable-continuation?`,
   `continuation-prompt-available?`, `unwind-protect`, `reset`, `reset-at`,
   `shift` and `shift-at` are implemented.
-- Because the current CPS continuation is opaque, re-entry uses a helper
-  native thread with the runtime's cross-thread `call/cc`; the origin prompt's
-  terminal is temporarily redirected to a result thunk. This is a T4-A
-  prototype boundary, not the final segment representation. Composable
-  invocation from a virtual thread blocks its carrier; concurrent invocation
-  of one continuation is unsupported.
+- The current CPS continuation is opaque. Prompts use a prompt segment record
+  and a per-thread one-shot meta-continuation override; composable invocation
+  applies the captured prefix on the same logical thread, and the prompt
+  terminal sends its values to the invoker. There is no helper native thread,
+  no cross-thread logical identity change and no carrier join. Outer winders
+  stay in their original extent. This is still a library-level prototype, not
+  the compiler-visible segmented representation required by T4-A; marks,
+  shared-prefix identity and barriers still need semantic frame metadata.
 - T4-D subset: `(npl control parameters)` and `(srfi 226 parameter)` add
   `parameter?`, first-class parameterization snapshots (`current-
   parameterization`, `parameterization?`, `call-with-parameterization`) and
-  `temporarily` over the existing parameter machinery. Snapshots clone the
-  binding chain and installation clones again, so mutations cannot leak into
-  a snapshot or back out of a thunk. Thread parameters and the fluid syntax
-  remain ahead because NPL's current parameters are already thread-owned COW
-  bindings rather than the SRFI 226 shared-cell model.
+  `temporarily` over the existing parameter machinery. A parameterization
+  shares the binding chain, so reinstalling the same snapshot preserves the
+  mutable parameter cells (within one thread). Cross-thread shared cells,
+  thread parameters and the fluid syntax remain ahead because NPL's current
+  parameters use thread-owned COW bindings rather than the SRFI 226
+  shared-cell model.
 - Not implemented: `call-in-continuation`/`call-in`/`return-to`, continuation
   barriers, continuation marks, thread parameters/fluids, promises,
   exception/condition payloads, thread/interrupt adapters, and the composite

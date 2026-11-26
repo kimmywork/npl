@@ -1,0 +1,53 @@
+; T4 control in virtual threads.  The same-thread prompt/meta-continuation
+; implementation does not create a helper native thread, so composable
+; invocation does not block a carrier.  Native-only in effect: npli has the
+; APIs, but this asserts virtual-thread execution and carrier migration.
+(import (except (scheme base) call/cc call-with-current-continuation)
+        (scheme write)
+        (scheme process-context)
+        (npl control)
+        (npl thread virtual))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+(define (worker index)
+  (let ((tag (make-continuation-prompt-tag)))
+    (let ((composed
+           (* 2
+              (call-with-continuation-prompt
+                (lambda ()
+                  (* 3
+                     (call-with-composable-continuation
+                       (lambda (k)
+                         (* 5
+                            (call-with-continuation-prompt
+                              (lambda () (* 7 (k 11)))
+                              tag)))
+                       tag)))
+                tag))))
+      (virtual-thread-yield!)
+      (list index
+            composed
+            (+ 1 (reset (* 2 (shift k (k 4)))))
+            (+ 1 (reset (* 2 (shift k (k (k 4))))))
+            (virtual-thread? (current-virtual-thread))))))
+
+(define threads
+  (map (lambda (index) (make-virtual-thread (lambda () (worker index))))
+       (list 0 1 2)))
+(for-each virtual-thread-start! threads)
+(check 'virtual-control-results
+       '((0 6930 9 17 #t)
+         (1 6930 9 17 #t)
+         (2 6930 9 17 #t))
+       (map virtual-thread-join! threads))
+
+(if (= failures 0)
+    (begin (display "control-virtual: PASS") (newline) (exit 0))
+    (begin (display "control-virtual: FAIL") (newline) (exit 1)))
