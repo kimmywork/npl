@@ -1,0 +1,15 @@
+id: scheme-no-long-as-i64-in-c-structs
+language: scheme
+severity: error
+message: "Do not hardcode C 'long' as 64-bit type code 7 in c-struct-type-code."
+note: >-
+  On Windows (LLP64), C 'long' is 32 bits (type code 6), whereas on LP64 Unix it is
+  64 bits (type code 7). Dispatch on (npl_platform_feature \"windows\").
+files:
+  - src/compiler/frontend/c-structs.npl
+rule:
+  pattern: ((string=? $NAME $TYPE) 7)
+  has:
+    kind: string
+    regex: '^"long"$'
+    stopBy: end

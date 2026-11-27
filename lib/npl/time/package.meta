@@ -19,5 +19,5 @@
       (npl_time_localtime_prim "npl_time_localtime_prim" 2)
       (npl_time_mktime_prim "npl_time_mktime_prim" 2)
       (npl_time_timegm_prim "npl_time_timegm_prim" 2)))
-  (platforms (or darwin linux))
+  (platforms (or darwin linux windows))
   (dependencies ()))

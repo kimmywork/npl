@@ -1,0 +1,15 @@
+id: c-no-unguarded-stack-high-clamp
+valid:
+  - |
+    void f(Ctx *context, uintptr_t stack_bottom) {
+    #ifdef _WIN32
+        if (context->stack_high && stack_bottom > context->stack_high)
+            stack_bottom = context->stack_high;
+    #endif
+    }
+invalid:
+  - |
+    void f(Ctx *context, uintptr_t stack_bottom) {
+        if (context->stack_high && stack_bottom > context->stack_high)
+            stack_bottom = context->stack_high;
+    }

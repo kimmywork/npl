@@ -31,6 +31,9 @@ main.o: config.h
 
 config.h:
 	@case `uname` in                               \
+	*MINGW*|*MSYS*|*CYGWIN*)                       \
+		echo "#define Deftgt T_amd64_win";     \
+		;;                                     \
 	*Darwin*)                                      \
 		case `uname -m` in                     \
 		*arm64*)                               \

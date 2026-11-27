@@ -1,0 +1,164 @@
+; Windows shared-mode resolution and DLL staging for nplc --native=shared.
+;
+; Windows has no ELF/Mach-O rpath: the loader searches the executable's own
+; directory and PATH.  Resolve each native package's link input (.dll.a or
+; .dll) and deployment DLL from the same search-directory entry, then stage
+; libnpl_runtime.dll and each resolved package DLL beside the output executable
+; (skipping identical files so running executables in the same directory are
+; not disrupted by a write-lock conflict).
+
+(define (driver-runtime-shared config)
+  (let ((explicit (driver-environment "NPL_RUNTIME_SHARED")))
+    (if explicit explicit
+        (let ((directory (path-dir (driver-runtime config))))
+          (cond
+            ((if (driver-windows?)
+                 (file-exists? (string-append directory "libnpl_runtime.dll.a"))
+                 #f)
+             (string-append directory "libnpl_runtime.dll.a"))
+            ((file-exists? (string-append directory "libnpl_runtime.dll"))
+             (string-append directory "libnpl_runtime.dll"))
+            ((file-exists? (string-append directory "libnpl_runtime.dylib"))
+             (string-append directory "libnpl_runtime.dylib"))
+            ((file-exists? (string-append directory "libnpl_runtime.so"))
+             (string-append directory "libnpl_runtime.so"))
+            (else
+             (driver-error
+               "shared runtime not found; build npl_runtime_shared")))))))
+
+(define (driver-runtime-slots config)
+  (if (driver-windows?)
+      (let ((path (string-append (path-dir (driver-runtime-shared config))
+                                 "npl_runtime_slots.o")))
+        (if (file-exists? path) (cons path ()) ()))
+      ()))
+
+; Resolve (cons link-input deploy-dll) from the same search-directory entry.
+; In an installed Windows prefix, <prefix>/lib/npl/native/lib<name>.dll.a pairs
+; with <prefix>/bin/lib<name>.dll; in a build tree or NPL_NATIVE_PATH entry,
+; both artifacts (or a bare .dll) live in the same directory.
+(define (driver-native-shared-pair-in-dir directory primary file)
+  (let ((dll (string-append directory "/" file)))
+    (if (driver-windows?)
+        (let ((implib (string-append dll ".a"))
+              (has-dll (file-exists? dll)))
+          (if (file-exists? implib)
+              (if has-dll
+                  (cons implib dll)
+                  (let ((in-bin (if (if primary (string=? directory primary) #f)
+                                    (driver-layout (string-append "bin/" file))
+                                    #f)))
+                    (cons implib in-bin)))
+              (if has-dll (cons dll dll) #f)))
+        (if (file-exists? dll) (cons dll #f) #f))))
+
+(define (driver-native-shared-pair-in-dirs directories primary file)
+  (if (null? directories)
+      #f
+      (let ((found (driver-native-shared-pair-in-dir
+                     (car directories) primary file)))
+        (if found
+            found
+            (driver-native-shared-pair-in-dirs
+              (cdr directories) primary file)))))
+
+(define (driver-resolve-native-shared-pair config entry name)
+  (let ((directories (driver-native-search-directories config))
+        (primary (driver-native-directory config))
+        (file (driver-native-shared-name entry name)))
+    (let ((pair (driver-native-shared-pair-in-dirs directories primary file)))
+      (if pair
+          pair
+          (if (string=? file (string-append "lib" name ".dylib"))
+              (driver-native-shared-pair-in-dirs
+                directories primary
+                (string-append "lib" name
+                  (if (driver-windows?) ".dll" ".so")))
+              #f)))))
+
+(define (driver-read-binary-chunks path)
+  (let ((in (open-binary-input-file path)))
+    (let ((chunks
+            (let loop ((acc ()))
+              (let ((chunk (read-bytevector 65536 in)))
+                (if (eof-object? chunk)
+                    (rev acc)
+                    (loop (cons chunk acc)))))))
+      (close-port in)
+      chunks)))
+
+(define (driver-bytevector=? left right)
+  (let ((len (bytevector-length left)))
+    (if (not (= len (bytevector-length right)))
+        #f
+        (let loop ((index 0))
+          (if (= index len)
+              #t
+              (if (= (bytevector-u8-ref left index)
+                     (bytevector-u8-ref right index))
+                  (loop (+ index 1))
+                  #f))))))
+
+(define (driver-chunks=? left right)
+  (cond
+    ((if (null? left) (null? right) #f) #t)
+    ((if (pair? left) (pair? right) #f)
+     (if (driver-bytevector=? (car left) (car right))
+         (driver-chunks=? (cdr left) (cdr right))
+         #f))
+    (else #f)))
+
+(define (driver-copy-binary-file source destination)
+  (let ((chunks (driver-read-binary-chunks source)))
+    (if (if (file-exists? destination)
+            (driver-chunks=? chunks (driver-read-binary-chunks destination))
+            #f)
+        #f
+        (let ((out (open-binary-output-file destination)))
+          (let write-loop ((rest chunks))
+            (if (pair? rest)
+                (begin
+                  (write-bytevector (car rest) out)
+                  (write-loop (cdr rest)))))
+          (close-port out)
+          #t))))
+
+(define (driver-stage-one-dll source destination-dir)
+  (if source
+      (let ((destination (string-append destination-dir
+                                        (driver-base-name source))))
+        (if (not (string=? source destination))
+            (driver-copy-binary-file source destination)))))
+
+(define (driver-windows-runtime-dll config)
+  (let ((shared (driver-runtime-shared config)))
+    (let ((beside (string-append (path-dir shared) "libnpl_runtime.dll")))
+      (if (file-exists? beside)
+          beside
+          (let ((in-bin (driver-layout "bin/libnpl_runtime.dll")))
+            (if in-bin in-bin
+                (if (string=? (driver-base-name shared) "libnpl_runtime.dll")
+                    shared
+                    #f)))))))
+
+(define (driver-windows-package-dll config entry name)
+  (let ((pair (driver-resolve-native-shared-pair config entry name)))
+    (if pair (cdr pair) #f)))
+
+(define (driver-stage-windows-dlls config directory executable)
+  (if (if (driver-windows?)
+          (string=? (driver-native-mode config) "shared")
+          #f)
+      (let ((destination-dir (path-dir executable))
+            (native (driver-native-directory config)))
+        (let ((names (driver-native-package-names directory))
+              (entries (if native (driver-native-entries native) ())))
+          (driver-stage-one-dll
+            (driver-windows-runtime-dll config) destination-dir)
+          (let loop ((rest names))
+            (if (pair? rest)
+                (let ((entry (driver-native-entry (car rest) entries)))
+                  (driver-stage-one-dll
+                    (driver-windows-package-dll config entry (car rest))
+                    destination-dir)
+                  (loop (cdr rest)))))))))

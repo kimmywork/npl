@@ -19,51 +19,62 @@
           (scheme process-context)
           (only (npl string) string-suffix?)
           (only (npl util) path-directory)
+          (npl platform)
           (npl process)
           (npl ffi))
   (begin
     (define (native-file? path)
       (if (if (string-suffix? ".dylib" path) #t
-              (if (string-suffix? ".so" path) #t #f))
+              (if (string-suffix? ".so" path) #t
+                  (string-suffix? ".dll" path)))
           (file-exists? path)
           #f))
+
+    (define (path-separator? ch)
+      (or (char=? ch #\/)
+          (and (platform-feature? 'windows) (char=? ch #\\))))
 
     (define (explicit-native-path? name)
       (if (string-suffix? ".dylib" name) #t
           (if (string-suffix? ".so" name) #t
-              (let loop ((index 0))
-                (if (= index (string-length name))
-                    #f
-                    (if (char=? (string-ref name index) #\/)
-                        #t
-                        (loop (+ index 1))))))))
+              (if (string-suffix? ".dll" name) #t
+                  (let loop ((index 0))
+                    (if (= index (string-length name))
+                        #f
+                        (if (path-separator? (string-ref name index))
+                            #t
+                            (loop (+ index 1)))))))))
 
     (define (native-file-names name)
-      (list (string-append "lib" name ".dylib")
-            (string-append "lib" name ".so")
-            (string-append name ".dylib")
-            (string-append name ".so")))
+      (if (platform-feature? 'windows)
+          (list (string-append "lib" name ".dll")
+                (string-append name ".dll"))
+          (list (string-append "lib" name ".dylib")
+                (string-append "lib" name ".so")
+                (string-append name ".dylib")
+                (string-append name ".so"))))
 
     (define (native-files-in directory name)
       (map (lambda (file)
              (if (if (string=? directory "")
                      #t
-                     (char=? (string-ref directory
-                                         (- (string-length directory) 1))
-                             #\/))
+                     (path-separator?
+                       (string-ref directory
+                                   (- (string-length directory) 1))))
                  (string-append directory file)
                  (string-append directory "/" file)))
            (native-file-names name)))
 
     (define (split-colon text)
-      (let loop ((start 0) (index 0) (parts '()))
-        (cond
-          ((= index (string-length text))
-           (reverse (cons (substring text start index) parts)))
-          ((char=? (string-ref text index) #\:)
-           (loop (+ index 1) (+ index 1)
-                 (cons (substring text start index) parts)))
-          (else (loop start (+ index 1) parts)))))
+      (let ((sep (if (platform-feature? 'windows) #\; #\:)))
+        (let loop ((start 0) (index 0) (parts '()))
+          (cond
+            ((= index (string-length text))
+             (reverse (cons (substring text start index) parts)))
+            ((char=? (string-ref text index) sep)
+             (loop (+ index 1) (+ index 1)
+                   (cons (substring text start index) parts)))
+            (else (loop start (+ index 1) parts))))))
 
     (define (non-empty strings)
       (cond
@@ -78,8 +89,10 @@
           (if configured (non-empty (split-colon configured)) '())
           (if executable
               (let ((directory (path-directory executable)))
-                (list (string-append directory "../lib/npl/native/")
-                      (string-append directory "../lib/npl/")))
+                (append
+                  (if (platform-feature? 'windows) (list directory) '())
+                  (list (string-append directory "../lib/npl/native/")
+                        (string-append directory "../lib/npl/"))))
               '())
           (list "lib/npl/native/"))))
 

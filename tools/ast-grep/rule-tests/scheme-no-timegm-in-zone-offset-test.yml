@@ -1,0 +1,12 @@
+id: scheme-no-timegm-in-zone-offset
+valid:
+  - |
+    (define (local-tm-zone-offset tm-value utc-seconds)
+      (npl_time_gmtime_prim ts-value utc-tm))
+invalid:
+  - |
+    (define (local-tm-zone-offset tm-value utc-seconds)
+      (with-resource (gm-value (make-c-struct timespec) free-c-struct)
+        (if (not (= (npl_time_timegm_prim tm-value gm-value) 0))
+            0
+            (- (c-struct-ref gm-value 'tv_sec) utc-seconds))))

@@ -1,0 +1,17 @@
+id: c-no-unguarded-stack-high-clamp
+language: c
+severity: error
+message: "Do not clamp stack bounds against stack_high outside #ifdef _WIN32."
+note: >-
+  On Unix, stack_high is only the init marker rather than the OS stack limit, so
+  clamping against it truncates older host frames (e.g. trampoline re-entry).
+  Restrict stack_high clamping to #ifdef _WIN32 where GetCurrentThreadStackLimits
+  provides an authoritative bound.
+files:
+  - runtime/**/*.c
+rule:
+  pattern: if ($CTX->stack_high && $BOUND > $CTX->stack_high) $BODY
+  not:
+    inside:
+      kind: preproc_ifdef
+      stopBy: end

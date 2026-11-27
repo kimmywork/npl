@@ -120,7 +120,7 @@
   (if (= (string-length root) 0)
       (fatal "standard library root must not be empty"))
   (cell-set! LIBRARY-STANDARD-ROOT
-    (if (= (string-byte-ref root (- (string-length root) 1)) 47)
+    (if (path-separator? (string-byte-ref root (- (string-length root) 1)))
         root
         (string-append root "/"))))
 

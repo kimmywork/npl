@@ -1,0 +1,19 @@
+id: scheme-no-blind-dll-overwrite
+language: scheme
+severity: error
+message: "Compare existing destination DLL contents before overwriting in driver-copy-binary-file."
+note: >-
+  On Windows, overwriting a DLL that is currently mapped by another running
+  executable fails with a sharing violation. Check (file-exists? destination)
+  and compare contents before calling (open-binary-output-file ...).
+files:
+  - src/compiler/driver-shared.npl
+rule:
+  pattern: (open-binary-output-file $$$ARGS)
+  inside:
+    pattern: (define (driver-copy-binary-file $$$PARAMS) $$$BODY)
+    stopBy: end
+    not:
+      has:
+        pattern: (file-exists? $$$EXIST_ARGS)
+        stopBy: end

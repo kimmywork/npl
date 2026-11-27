@@ -1,0 +1,20 @@
+id: c-no-direct-stack-limit
+language: c
+severity: error
+message: "Do not access npl_stack_limit or npl_gc_stop_requested directly in runtime/."
+note: >-
+  On Windows shared DLL runtime (libnpl_runtime.dll), the executable owns the PE
+  TLS slot for npl_stack_limit and npl_gc_stop_requested. Use NPL_STACK_LIMIT_GET(),
+  NPL_STACK_LIMIT_SET(v), and NPL_GC_STOP_PTR() instead.
+files:
+  - runtime/**/*.c
+ignores:
+  - runtime/win32-exe-slots.c
+  - runtime/standalone-slots.c
+  - runtime/*_test.c
+rule:
+  kind: identifier
+  regex: ^(npl_stack_limit|npl_gc_stop_requested)$
+  inside:
+    kind: compound_statement
+    stopBy: end

@@ -31,16 +31,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include "os-win32.h"
+#else
 #include <unistd.h>
 #include <sys/mman.h>
-
-/* Per-thread state (roots and the conservative stack bound) lives in the
- * current native context; heap metadata below stays process-wide. */
-#define CTX npl_ctx()
-
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
 #endif
+#endif
+
+#define CTX npl_ctx()
 
 #ifndef NPL_GC_MIN_THRESHOLD
 #define NPL_GC_MIN_THRESHOLD (128u * 1024u * 1024u)
@@ -135,7 +136,11 @@ static size_t align_up(size_t n, size_t alignment)
 void npl_runtime_oom_internal(void)
 {
     static const char msg[] = "npl runtime: out of memory\n";
+#ifdef _WIN32
+    npl_win32_write_stderr(msg, sizeof(msg) - 1);
+#else
     (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+#endif
     _Exit(1);
 }
 
@@ -173,9 +178,14 @@ static NplChunk *map_chunk(size_t need)
     size_t map_size = NPL_CHUNK_SIZE;
     while (map_size < header + need) map_size += NPL_CHUNK_SIZE;
 
+#ifdef _WIN32
+    void *mem = npl_win32_map_chunk(map_size);
+    if (!mem) npl_runtime_oom_internal();
+#else
     void *mem = mmap(NULL, map_size, PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (mem == MAP_FAILED) npl_runtime_oom_internal();
+#endif
 
     NplChunk *chunk = (NplChunk *)mem;
     chunk->next = g_chunks;
@@ -781,6 +791,13 @@ uintptr_t npl_gc_swap_stack_bottom(uintptr_t stack_bottom)
 {
     NplThreadContext *context = CTX;
     uintptr_t previous = context->stack_bottom;
+#ifdef _WIN32
+    /* On Windows, stack_high is the authoritative OS stack limit from
+     * GetCurrentThreadStackLimits. On Unix, stack_high is only the init
+     * marker and older host frames (e.g. trampoline re-entry) may lie above. */
+    if (context->stack_high && stack_bottom > context->stack_high)
+        stack_bottom = context->stack_high;
+#endif
     context->stack_bottom = stack_bottom;
     return previous;
 }

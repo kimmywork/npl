@@ -76,7 +76,11 @@ deliverables are supported for core and third-party packages:
 
 - one self-contained executable linked from archives;
 - an executable plus a directory of shared objects (`@loader_path/../lib/npl`
-  and `@loader_path/../lib/npl/native` on Darwin, `$ORIGIN/...` on Linux).
+  and `@loader_path/../lib/npl/native` on Darwin, `$ORIGIN/...` on Linux; on
+  Windows, `nplc --native=shared` copies `libnpl_runtime.dll` and each
+  imported native package DLL beside the output executable because Windows
+  has no rpath, while any external third-party DLLs such as `zlib1.dll`
+  remain loaded from `PATH` or the executable directory).
 
 `npli` is the dynamic runtime and never invokes a C compiler at run time:
 layouts come from `c-struct-layouts.meta`, and `define-c-function` uses a
@@ -133,9 +137,10 @@ succeeds; its static archive carries `-lz` through `native.meta`.
   status codes; let NPL raise the error.
 - `npl.h` is installed at `<prefix>/include/npl/npl.h`. In a checkout it is
   `runtime/npl.h`.
-- `NPL_NATIVE_PATH` is a colon-separated search path for external packages.
-  Without it, `(npl native)` checks the executable's `../lib/npl/native`
-  directory and `./lib/npl/native`.
+- `NPL_NATIVE_PATH` is a colon-separated (semicolon-separated on Windows)
+  search path for external packages. Without it, `(npl native)` checks the
+  executable directory on Windows, then the executable's `../lib/npl/native`,
+  `../lib/npl`, and `./lib/npl/native`.
 
 ## Testing packages
 

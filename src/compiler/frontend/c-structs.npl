@@ -75,7 +75,7 @@
       ((string=? name "double") 9)
       ((string=? name "pointer") 10)
       ((string=? name "int") 6)
-      ((string=? name "long") 7)
+      ((string=? name "long") (if (npl_platform_feature "windows") 6 7))
       ((string=? name "int64") 7)
       ((string=? name "size_t") 3)
       ((string=? name "bool") 11)
@@ -105,10 +105,13 @@
           (string-append
             "#define _GNU_SOURCE\n#define _DARWIN_C_SOURCE\n"
             "#include <stddef.h>\n#include <stdio.h>\n#include <stdint.h>\n"
-            "#include <time.h>\n#include <sys/time.h>\n#include <sys/stat.h>\n"
-            "#include <dirent.h>\n#include <pwd.h>\n#include <grp.h>\n"
-            "#include <sys/utsname.h>\n#include <sys/resource.h>\n#include <sys/uio.h>\n"
-            "#include <sys/select.h>\n#include <stdlib.h>\n"
+            "#include <time.h>\n#include <sys/stat.h>\n#include <stdlib.h>\n"
+            "#ifndef _WIN32\n"
+            "#include <sys/time.h>\n#include <dirent.h>\n"
+            "#include <pwd.h>\n#include <grp.h>\n"
+            "#include <sys/utsname.h>\n#include <sys/resource.h>\n"
+            "#include <sys/uio.h>\n#include <sys/select.h>\n"
+            "#endif\n"
             "int main(void) {\n  printf(\"((size . %zu)\", sizeof("
             c-type "));\n")))
     (let loop ((items fields) (text header))
@@ -124,7 +127,8 @@
   (let ((configured (get-environment-variable "NPL_CC")))
     (if configured configured
         (let ((cc (get-environment-variable "CC")))
-          (if cc cc "cc")))))
+          (if cc cc
+              (if (npl_platform_feature "windows") "clang" "cc"))))))
 
 (define (c-struct-parse-layout text)
   (let ((forms (parse-source-text text)))
@@ -134,8 +138,9 @@
 
 (define (c-struct-probe c-type fields)
   (let* ((directory (make-temporary-directory))
+         (windows? (npl_platform_feature "windows"))
          (source (string-append directory "/layout.c"))
-         (binary (string-append directory "/layout"))
+         (binary (string-append directory (if windows? "/layout.exe" "/layout")))
          (output (string-append directory "/layout.out")))
     (let ((port (open-output-file source)))
       (display (c-struct-probe-source c-type fields) port)
@@ -146,7 +151,7 @@
                 (cons cc
                   (cons "-std=c99"
                     (cons "-o" (cons binary (cons source ())))))
-                "/dev/null")))
+                (if windows? "NUL" "/dev/null"))))
         (if (not (= status 0))
             (fatal (string-append
                      "define-c-struct: C probe compilation failed for "
@@ -166,15 +171,16 @@
 ; first, then the build/install cache beside the native packages.  A package
 ; that ships its own cache therefore still sees the core layouts.
 (define (c-struct-explicit-cache-paths text start index paths)
-  (if (= index (string-length text))
-      (rev (if (= start index) paths
-               (cons (substring text start index) paths)))
-      (if (= (string-byte-ref text index) 58)
-          (c-struct-explicit-cache-paths
-            text (+ index 1) (+ index 1)
-            (if (= start index) paths
-                (cons (substring text start index) paths)))
-          (c-struct-explicit-cache-paths text start (+ index 1) paths))))
+  (let ((sep (if (npl_platform_feature "windows") 59 58)))
+    (if (= index (string-length text))
+        (rev (if (= start index) paths
+                 (cons (substring text start index) paths)))
+        (if (= (string-byte-ref text index) sep)
+            (c-struct-explicit-cache-paths
+              text (+ index 1) (+ index 1)
+              (if (= start index) paths
+                  (cons (substring text start index) paths)))
+            (c-struct-explicit-cache-paths text start (+ index 1) paths)))))
 
 (define (c-struct-default-cache-paths)
   (let ((stdlib (string-append (cell-get LIBRARY-STANDARD-ROOT)

@@ -1,0 +1,15 @@
+id: scheme-no-separate-dll-staging-lookup
+language: scheme
+severity: error
+message: "Resolve Windows deployment DLL through driver-resolve-native-shared-pair instead of scanning directories independently."
+note: >-
+  Scanning directories separately for link inputs (.dll.a) and staged DLLs (.dll)
+  can pair an import library from one directory with a different DLL version from
+  another. Always derive both paths from driver-resolve-native-shared-pair.
+files:
+  - src/compiler/driver-shared.npl
+rule:
+  pattern: (driver-file-in-directories $$$ARGS)
+  inside:
+    pattern: (define (driver-windows-package-dll $$$PARAMS) $$$BODY)
+    stopBy: end

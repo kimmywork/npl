@@ -1,0 +1,13 @@
+id: scheme-no-long-as-i64-in-c-structs
+valid:
+  - |
+    (define (c-struct-type-code name)
+      (cond
+        ((string=? name "i64") 7)
+        ((string=? name "int64") 7)
+        ((string=? name "long") (if (npl_platform_feature "windows") 6 7))))
+invalid:
+  - |
+    (define (c-struct-type-code name)
+      (cond
+        ((string=? name "long") 7)))

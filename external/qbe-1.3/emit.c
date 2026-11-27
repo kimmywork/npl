@@ -21,6 +21,10 @@ emitlnk(char *n, Lnk *l, int s, FILE *f)
 
 	pfx = n[0] == '"' ? "" : T.assym;
 	sfx = "";
+	if (T.windows && l->thread) {
+		l->sec = ".tls$";
+		l->secf = "\"dw\"";
+	}
 	if (T.apple && l->thread) {
 		l->sec = "__DATA";
 		l->secf = "__thread_data,thread_local_regular";
@@ -163,7 +167,8 @@ emitfin(FILE *f, char *sec[3])
 
 	if (!stash)
 		return;
-	fprintf(f, "/* floating point constants */\n");
+	fprintf(f, T.windows ? "# floating point constants\n"
+		: "/* floating point constants */\n");
 	for (lg=4; lg>=2; lg--)
 		for (b=stash, i=0; b; b=b->link, i++) {
 			if (b->size == (1<<lg)) {
@@ -180,15 +185,17 @@ emitfin(FILE *f, char *sec[3])
 						(int64_t)b->n);
 				else if (lg == 3)
 					fprintf(f,
-						"\n\t.quad %"PRId64
-						" /* %f */\n\n",
+						T.windows
+							? "\n\t.quad %"PRId64" # %f\n\n"
+							: "\n\t.quad %"PRId64" /* %f */\n\n",
 						(int64_t)b->n,
 						*(double *)&b->n);
 				else if (lg == 2) {
 					u.i = b->n;
 					fprintf(f,
-						"\n\t.int %"PRId32
-						" /* %f */\n\n",
+						T.windows
+							? "\n\t.int %"PRId32" # %f\n\n"
+							: "\n\t.int %"PRId32" /* %f */\n\n",
 						u.i, (double)u.f);
 				}
 			}

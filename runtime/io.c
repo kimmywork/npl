@@ -7,19 +7,27 @@
 #include "port.h"
 #include <errno.h>
 #include <fcntl.h>
-#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include "os-win32.h"
+#include <direct.h>
+#include <io.h>
+#ifndef F_OK
+#define F_OK 0
+#endif
+#else
+#include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
-
 extern char **environ;
+#endif
 
 static int g_argc_stored = 0;
 static char **g_argv_stored = NULL;
@@ -138,6 +146,56 @@ static size_t process_argument_count(NplVal arguments)
     return count;
 }
 
+#ifdef _WIN32
+static NplVal run_process_win32(NplVal arguments, const char *who,
+                                NplVal input_path, NplVal output_path,
+                                NplVal error_path)
+{
+    size_t count = process_argument_count(arguments);
+    char **argv = (char **)malloc((count + 1) * sizeof(char *));
+    if (!argv) npl_runtime_oom_internal();
+    NplVal rest = arguments;
+    for (size_t index = 0; index < count; index++) {
+        argv[index] = npl_c_string_internal(process_string(npl_car(rest), who));
+        rest = npl_cdr(rest);
+    }
+    argv[count] = NULL;
+    char *in_file = (input_path != npl_false())
+        ? npl_c_string_internal(process_string(input_path, who)) : NULL;
+    char *out_file = (output_path != npl_false())
+        ? npl_c_string_internal(process_string(output_path, who)) : NULL;
+    char *err_file = (error_path != npl_false())
+        ? npl_c_string_internal(process_string(error_path, who)) : NULL;
+
+    int exit_code = 1;
+    int status = npl_win32_spawn_wait(argv, in_file, out_file, err_file,
+                                      &exit_code);
+    for (size_t index = 0; index < count; index++) free(argv[index]);
+    free(argv);
+    free(in_file);
+    free(out_file);
+    free(err_file);
+    if (status == -2)
+        npl_primitive_file_error(who, "cannot configure process", arguments);
+    if (status == -1) return npl_fixnum(127);
+    if (status < 0)
+        npl_primitive_error(who, "wait failed", arguments);
+    return npl_fixnum(exit_code);
+}
+
+NplVal npl_process_run(NplVal arguments, NplVal output_path)
+{
+    return run_process_win32(arguments, "run-process",
+                             npl_false(), output_path, npl_false());
+}
+
+NplVal npl_process_run_full(NplVal arguments, NplVal input_path,
+                           NplVal output_path, NplVal error_path)
+{
+    return run_process_win32(arguments, "run-process*",
+                             input_path, output_path, error_path);
+}
+#else
 NplVal npl_process_run(NplVal arguments, NplVal output_path)
 {
     size_t count = process_argument_count(arguments);
@@ -264,6 +322,7 @@ NplVal npl_process_run_full(NplVal arguments, NplVal input_path,
     if (WIFSIGNALED(status)) return npl_fixnum(128 + WTERMSIG(status));
     return npl_fixnum(1);
 }
+#endif /* _WIN32 */
 
 NplVal npl_get_environment_variable(NplVal name_value)
 {
@@ -282,8 +341,18 @@ NplVal npl_get_environment_variables(void)
     npl_gc_root(&variables);
     npl_gc_root(&name);
     npl_gc_root(&value);
-    for (size_t index = 0; environ[index]; index++) {
+    for (size_t index = 0;
+#ifdef _WIN32
+         _environ && _environ[index];
+#else
+         environ[index];
+#endif
+         index++) {
+#ifdef _WIN32
+        const char *entry = _environ[index];
+#else
         const char *entry = environ[index];
+#endif
         const char *separator = strchr(entry, '=');
         if (!separator) continue;
         name = npl_c_text_internal(entry, (size_t)(separator - entry));
@@ -318,6 +387,20 @@ NplVal npl_delete_file(NplVal path_value)
 
 NplVal npl_make_temporary_directory(void)
 {
+#ifdef _WIN32
+    char root[512];
+    root[0] = '.';
+    root[1] = '\0';
+    char *path = npl_win32_make_temp_dir(root, sizeof(root));
+    if (!path) {
+        npl_primitive_file_error("make-temporary-directory",
+                                 "cannot create directory",
+                                 npl_c_text_internal(root, strlen(root)));
+    }
+    NplVal value = npl_c_text_internal(path, strlen(path));
+    free(path);
+    return value;
+#else
     const char *root = getenv("TMPDIR");
     if (!root || root[0] == '\0') root = "/tmp";
     size_t length = strlen(root) + sizeof("/npl-driver.XXXXXX");
@@ -333,12 +416,17 @@ NplVal npl_make_temporary_directory(void)
     NplVal value = npl_c_text_internal(path, strlen(path));
     free(path);
     return value;
+#endif
 }
 
 NplVal npl_delete_directory(NplVal path_value)
 {
     char *path = npl_c_string_internal(process_string(path_value, "delete-directory"));
+#ifdef _WIN32
+    int failed = npl_win32_rmdir(path) != 0;
+#else
     int failed = rmdir(path) != 0;
+#endif
     int code = errno;
     free(path);
     if (failed)
@@ -350,6 +438,13 @@ NplVal npl_delete_directory(NplVal path_value)
  * Tool and library lookup policy built on it lives in NPL. */
 NplVal npl_executable_path(void)
 {
+#ifdef _WIN32
+    char *resolved = npl_win32_executable_path();
+    if (!resolved) return npl_false();
+    NplVal value = npl_c_text_internal(resolved, strlen(resolved));
+    free(resolved);
+    return value;
+#else
     char raw[PATH_MAX];
     char resolved[PATH_MAX];
 #ifdef __APPLE__
@@ -362,6 +457,7 @@ NplVal npl_executable_path(void)
 #endif
     if (!realpath(raw, resolved)) return npl_false();
     return npl_c_text_internal(resolved, strlen(resolved));
+#endif
 }
 
 /* R7RS 6.14: #t (and no argument, which the compiler passes as #t) is

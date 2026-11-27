@@ -1,0 +1,24 @@
+id: c-no-unboxed-64bit-stat-field
+language: c
+severity: error
+message: "Do not pass 64-bit struct stat fields directly to npl_fixnum()."
+note: >-
+  64-bit filesystem fields (st_size, st_ino, st_dev, st_blocks, st_atim/mtim/ctim)
+  can exceed NPL's 62-bit fixnum range and silently wrap. Box them with
+  npl_ffi_from_int64() or npl_ffi_from_uint64() with GC roots.
+files:
+  - lib/**/*.c
+  - runtime/**/*.c
+rule:
+  kind: call_expression
+  all:
+    - has:
+        field: function
+        kind: identifier
+        regex: ^npl_fixnum$
+    - has:
+        field: arguments
+        has:
+          kind: field_identifier
+          regex: ^(st_size|st_ino|st_dev|st_blocks|st_rdev|st_blksize|st_atim|st_mtim|st_ctim|st_atimespec|st_mtimespec|st_ctimespec)$
+          stopBy: end

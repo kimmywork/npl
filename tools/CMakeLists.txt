@@ -6,14 +6,20 @@ set(SMOKE_DIR ${CMAKE_BINARY_DIR}/smoke)
 set(HELLO_SSA ${CMAKE_SOURCE_DIR}/tools/hello.ssa)
 set(HELLO_S   ${SMOKE_DIR}/hello.s)
 set(HELLO_O   ${SMOKE_DIR}/hello.o)
-set(HELLO_BIN ${SMOKE_DIR}/hello)
+set(HELLO_BIN ${SMOKE_DIR}/hello${CMAKE_EXECUTABLE_SUFFIX})
+
+if(WIN32)
+  set(SMOKE_ASM_CMD ${CMAKE_C_COMPILER} -c -o ${HELLO_O} ${HELLO_S})
+else()
+  set(SMOKE_ASM_CMD ${AS_BIN} -o ${HELLO_O} ${HELLO_S})
+endif()
 
 add_custom_command(
   OUTPUT ${HELLO_BIN}
   DEPENDS ${HELLO_SSA} qbe_build
   COMMAND ${CMAKE_COMMAND} -E make_directory ${SMOKE_DIR}
   COMMAND ${QBE_BIN} -o ${HELLO_S} ${HELLO_SSA}
-  COMMAND ${AS_BIN} -o ${HELLO_O} ${HELLO_S}
+  COMMAND ${SMOKE_ASM_CMD}
   COMMAND ${CMAKE_C_COMPILER} -o ${HELLO_BIN} ${HELLO_O}
   COMMENT "Smoke: hello.ssa → exe"
   VERBATIM
