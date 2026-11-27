@@ -117,6 +117,7 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(context->handler);
             visit(context->parameters);
             visit(context->prompts);
+            visit(context->segment);
             visit(context->source_initial_handler);
             break;
         }
@@ -127,6 +128,21 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(frame->escape);
             visit(frame->return_);
             visit(frame->parent);
+            visit(frame->origin);
+            break;
+        }
+        case BOX_CONTINUATION_SEGMENT: {
+            NplContinuationSegment *segment =
+                (NplContinuationSegment *)header;
+            visit(segment->closure);
+            visit(segment->parent);
+            visit(segment->origin_prompt);
+            break;
+        }
+        case BOX_CONTINUATION_GRAFT: {
+            NplContinuationGraft *graft = (NplContinuationGraft *)header;
+            visit(graft->procedure);
+            visit(graft->arguments);
             break;
         }
         case BOX_VIRTUAL_THREAD: {
@@ -147,6 +163,7 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(vt->initial_handler);
             visit(vt->prompts);
             visit(vt->prompt_overrides);
+            visit(vt->segment);
             break;
         }
         case BOX_WIND_TRANSITION: {
@@ -159,6 +176,7 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(transition->context);
             visit(transition->target_parameters);
             visit(transition->target_prompts);
+            visit(transition->target_segment);
             visit(transition->cache);
             uint32_t count = transition->exit_count + transition->entry_count;
             for (uint32_t i = 0; i < count; i++)

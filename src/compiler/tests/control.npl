@@ -233,6 +233,145 @@
                          (lambda () (set! log (cons 'out log)))))
                      (reverse log))
                    '(10 (in out in out)))))
+  (test-assert "continuation barrier permits outward escape"
+               (eq? 'ok
+                    (call/cc
+                      (lambda (continuation)
+                        (call-with-continuation-barrier
+                          (lambda () (continuation 'ok)))))))
+  (test-assert "continuation barrier preserves multiple values"
+               (equal? (call-with-values
+                         (lambda ()
+                           (call-with-continuation-barrier
+                             (lambda () (values 1 2))))
+                         list)
+                       '(1 2)))
+  (test-assert "continuation barrier rejects inward jumps"
+               (continuation-violation?
+                 (caught
+                   (lambda ()
+                     ((call-with-continuation-barrier
+                        (lambda () (call/cc values))))))))
+  (test-assert "composable capture across a barrier raises"
+               (let ((tag (make-continuation-prompt-tag)))
+                 (continuation-violation?
+                   (caught
+                     (lambda ()
+                       (call-with-continuation-prompt
+                         (lambda ()
+                           (call-with-continuation-barrier
+                             (lambda ()
+                               (call-with-composable-continuation
+                                 values tag))))
+                         tag))))))
+  (test-assert "call-in-continuation calls in the reinstated continuation"
+               (let ((tag (make-continuation-prompt-tag)))
+                 (= (call-with-continuation-prompt
+                      (lambda ()
+                        (call/cc
+                          (lambda (continuation)
+                            (call-in-continuation
+                              continuation (lambda (x) (* x 2)) 21))))
+                      tag)
+                    42)))
+  (test-assert "return-to"
+               (let ((tag (make-continuation-prompt-tag)))
+                 (= (call-with-continuation-prompt
+                      (lambda ()
+                        (call/cc (lambda (continuation)
+                                   (return-to continuation 7))))
+                      tag)
+                    7)))
+  (test-assert "call-in-continuation preserves multiple values"
+               (let ((tag (make-continuation-prompt-tag)))
+                 (equal? (call-with-values
+                           (lambda ()
+                             (call-with-continuation-prompt
+                               (lambda ()
+                                 (call/cc
+                                   (lambda (continuation)
+                                     (call-in-continuation
+                                       continuation
+                                       (lambda () (values 1 2))))))
+                               tag))
+                           list)
+                         '(1 2))))
+  (test-assert "call-in-continuation preserves zero values"
+               (let ((tag (make-continuation-prompt-tag)))
+                 (equal? (call-with-values
+                           (lambda ()
+                             (call-with-continuation-prompt
+                               (lambda ()
+                                 (call/cc
+                                   (lambda (continuation)
+                                     (call-in-continuation
+                                       continuation
+                                       (lambda () (values))))))
+                               tag))
+                           list)
+                         '())))
+  (test-assert "call-in runs captured winders in their own extent"
+               (let ((tag (make-continuation-prompt-tag))
+                     (log '())
+                     (saved #f))
+                 (let ((first
+                        (call-with-continuation-prompt
+                          (lambda ()
+                            (dynamic-wind
+                              (lambda () (set! log (cons 'in log)))
+                              (lambda ()
+                                (call-with-non-composable-continuation
+                                  (lambda (continuation)
+                                    (set! saved continuation)
+                                    'first)
+                                  tag))
+                              (lambda () (set! log (cons 'out log)))))
+                          tag)))
+                   (set! log '())
+                   (let ((second
+                          (call-with-continuation-prompt
+                            (lambda ()
+                              (call-in-continuation
+                                saved (lambda () 'second)))
+                            tag)))
+                     (and (eq? first 'first)
+                          (eq? second 'second)
+                          (equal? (reverse log) '(in out)))))))
+  (test-assert "call-in reinstates a prompt-delimited prefix"
+               (let ((tag (make-continuation-prompt-tag))
+                     (saved #f))
+                 (let ((first
+                        (call-with-continuation-prompt
+                          (lambda ()
+                            (call-with-non-composable-continuation
+                              (lambda (continuation)
+                                (set! saved continuation)
+                                'first)
+                              tag))
+                          tag)))
+                   (and (eq? first 'first)
+                        (= (call-with-continuation-prompt
+                             (lambda ()
+                               (call-in-continuation
+                                 saved (lambda (x) (* x 10)) 4))
+                             tag)
+                           40)))))
+  (test-assert "call-in-continuation respects a captured barrier"
+               (let ((tag (make-continuation-prompt-tag))
+                     (saved #f))
+                 (call-with-continuation-prompt
+                   (lambda ()
+                     (call-with-continuation-barrier
+                       (lambda ()
+                         (call/cc
+                           (lambda (continuation)
+                             (set! saved continuation)
+                             'captured)))))
+                   tag)
+                 (continuation-violation?
+                   (caught
+                     (lambda ()
+                       (call-in-continuation saved values 1))))))
   (finish-tests "control"))
 
 (main)

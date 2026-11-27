@@ -228,6 +228,8 @@ static void save_state(NplVirtualThread *vt)
     set_field(vt, &vt->initial_handler, CTX->initial_handler);
     set_field(vt, &vt->prompts, CTX->current_prompts);
     set_field(vt, &vt->prompt_overrides, CTX->prompt_overrides);
+    set_field(vt, &vt->segment, CTX->current_segment);
+    vt->next_segment_id = CTX->next_segment_id;
     vt->next_wind_id = CTX->next_wind_id;
     vt->carrier_context = (void *)npl_ctx();
 }
@@ -250,6 +252,8 @@ static void restore_state(NplVirtualThread *vt)
     CTX->initial_handler = vt->initial_handler;
     CTX->current_prompts = vt->prompts;
     CTX->prompt_overrides = vt->prompt_overrides;
+    CTX->current_segment = vt->segment;
+    CTX->next_segment_id = vt->next_segment_id;
     CTX->next_wind_id = vt->next_wind_id;
 }
 
@@ -263,6 +267,8 @@ static void clear_carrier_state(void)
     CTX->initial_handler = npl_nil();
     CTX->current_prompts = npl_nil();
     CTX->prompt_overrides = npl_nil();
+    CTX->current_segment = npl_nil();
+    CTX->next_segment_id = 1;
     CTX->next_wind_id = 1;
     CTX->logical_thread = NULL;
 }
@@ -345,6 +351,8 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
     vt->initial_handler = npl_nil();
     vt->prompts = npl_nil();
     vt->prompt_overrides = npl_nil();
+    vt->segment = npl_nil();
+    vt->next_segment_id = 1;
     vt->next_wind_id = 1;
     vt->state = NPL_VTHREAD_NEW;
     vt->park_count = 0;

@@ -51,6 +51,9 @@ typedef struct NplTailContext {
     int escape_depth;
     /* npl_stack_limit (stack.c) when the trampoline started. */
     uintptr_t stack_limit;
+    /* T4-A: the caller's current segment, restored when the trampoline
+     * returns or a primitive error unwinds to it. */
+    NplVal saved_segment;
 } NplTailContext;
 
 /* Heap-owned argument buffers for active trampolines. Unlike
@@ -80,6 +83,7 @@ typedef struct NplSyncFrame {
     int saved_escape_depth;
     int saved_root_count;
     uintptr_t saved_stack_bottom;
+    NplVal saved_segment;
 } NplSyncFrame;
 
 /* ---- Per-thread context ----
@@ -118,9 +122,12 @@ typedef struct NplThreadContext {
     NplVal parameter_extents;
     NplVal pending_extent_key;
     NplVal initial_handler;
-    /* T4-A: runtime prompt frame chain and same-thread one-shot overrides. */
+    /* T4-A: runtime prompt frame chain, same-thread one-shot overrides and
+     * the current compiler-emitted continuation segment. */
     NplVal current_prompts;
     NplVal prompt_overrides;
+    NplVal current_segment;
+    uint64_t next_segment_id;
     uint64_t next_wind_id;
 
     /* Trampoline / escape / synchronous-call context. */

@@ -35,6 +35,9 @@ NplVal npl_prompt_make(NplVal tag, NplVal handler)
     frame->escape = npl_nil();
     frame->return_ = npl_nil();
     frame->parent = npl_nil();
+    frame->origin = npl_nil();
+    frame->barrier = 0;
+    frame->reserved = 0;
     return (NplVal)(uintptr_t)frame | TAG_PTR;
 }
 
@@ -85,6 +88,9 @@ NplVal npl_prompt_push(NplVal value)
 {
     NplPromptFrame *frame = require_prompt(value, "prompt-push!");
     frame->parent = CTX->current_prompts;
+    frame->origin = CTX->current_segment;
+    npl_gc_write_barrier(frame, frame->parent);
+    npl_gc_write_barrier(frame, frame->origin);
     CTX->current_prompts = value;
     return npl_unspecified();
 }
@@ -134,6 +140,25 @@ NplVal npl_prompt_list_from(NplVal origin)
         npl_header(origin)->tag != BOX_PROMPT_FRAME)
         return npl_nil();
     return prompt_list(CTX->current_prompts, origin);
+}
+
+NplVal npl_prompt_origin(NplVal value)
+{
+    return require_prompt(value, "prompt-origin")->origin;
+}
+
+NplVal npl_prompt_set_barrier(NplVal value, NplVal flag)
+{
+    NplPromptFrame *frame = require_prompt(value, "prompt-set-barrier!");
+    frame->barrier = npl_is_false(flag) ? 0 : 1;
+    return npl_unspecified();
+}
+
+NplVal npl_prompt_barrier_p(NplVal value)
+{
+    return require_prompt(value, "prompt-barrier?")->barrier
+               ? npl_true()
+               : npl_false();
 }
 
 NplVal npl_prompt_install_override(NplVal prompt, NplVal target)

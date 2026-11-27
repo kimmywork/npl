@@ -32,20 +32,42 @@
                        tag)))
                 tag))))
       (virtual-thread-yield!)
-      (list index
-            composed
-            (+ 1 (reset (* 2 (shift k (k 4)))))
-            (+ 1 (reset (* 2 (shift k (k (k 4))))))
-            (virtual-thread? (current-virtual-thread))))))
+      (let ((call-in-tag (make-continuation-prompt-tag))
+            (saved #f))
+        (let ((first
+               (call-with-continuation-prompt
+                 (lambda ()
+                   (call-with-non-composable-continuation
+                     (lambda (continuation)
+                       (set! saved continuation)
+                       'first)
+                     call-in-tag))
+                 call-in-tag)))
+          (let ((second
+                 (call-with-continuation-prompt
+                   (lambda ()
+                     (call-in-continuation
+                       saved (lambda (x) (* x 10)) 4))
+                   call-in-tag)))
+            (list index
+                  composed
+                  (+ 1 (reset (* 2 (shift k (k 4)))))
+                  (+ 1 (reset (* 2 (shift k (k (k 4))))))
+                  first
+                  second
+                  (guard (e ((continuation-violation? e) #t))
+                    ((call-with-continuation-barrier
+                       (lambda () (call/cc values)))))
+                  (virtual-thread? (current-virtual-thread)))))))))
 
 (define threads
   (map (lambda (index) (make-virtual-thread (lambda () (worker index))))
        (list 0 1 2)))
 (for-each virtual-thread-start! threads)
 (check 'virtual-control-results
-       '((0 6930 9 17 #t)
-         (1 6930 9 17 #t)
-         (2 6930 9 17 #t))
+       '((0 6930 9 17 first 40 #t #t)
+         (1 6930 9 17 first 40 #t #t)
+         (2 6930 9 17 first 40 #t #t))
        (map virtual-thread-join! threads))
 
 (if (= failures 0)

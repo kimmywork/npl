@@ -1,6 +1,8 @@
 #!/bin/bash
 # Recompute and atomically install bootstrap/current.ssa.
 # The file is changed only after a successful gen1/gen2/gen3 fixed-point check.
+# Pass --relay-codegen for a compiler change that alters its own emitted code;
+# the canonical gen2.ssa (gen2 == gen3) is then installed.
 
 set -eu
 
@@ -43,7 +45,7 @@ ACTIVE_PID=""
 [ "$status" -eq 0 ] || exit "$status"
 
 candidate="$WORK/current.ssa"
-cp "$WORK/gen3.ssa" "$candidate"
+cp "$WORK/canonical.ssa" "$candidate"
 mv "$candidate" "$ROOT/bootstrap/current.ssa"
 
 echo "updated: bootstrap/current.ssa"

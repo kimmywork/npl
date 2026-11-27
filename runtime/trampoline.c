@@ -37,8 +37,10 @@ static void mark_context_tails(NplThreadContext *owner, void *data)
     (void)data;
     if (!owner->attached) return;
     for (NplTailContext *context = owner->tail_context; context;
-         context = context->previous)
+         context = context->previous) {
         npl_gc_mark_candidate_internal(context->environment);
+        npl_gc_mark_candidate_internal(context->saved_segment);
+    }
     for (NplTailBuffer *buffer = owner->tail_buffers; buffer;
          buffer = buffer->previous)
         for (int64_t i = 0; i < buffer->argc; i++)
@@ -145,6 +147,19 @@ static void report_closure_arity(const char *who, const NplClosure *closure,
 
 void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
 {
+    if (npl_is_ptr(value) &&
+        npl_header(value)->tag == BOX_CONTINUATION_SEGMENT) {
+        NplContinuationSegment *segment =
+            (NplContinuationSegment *)npl_header(value);
+        CTX->current_segment = segment->parent;
+        value = segment->closure;
+    } else if (argc > 0 && npl_is_ptr(argv[argc - 1]) &&
+               npl_header(argv[argc - 1])->tag ==
+                   BOX_CONTINUATION_SEGMENT) {
+        /* A procedure call's trailing continuation establishes the frame
+         * that a capture inside the callee belongs to. */
+        CTX->current_segment = argv[argc - 1];
+    }
     if (npl_is_ptr(value) && npl_header(value)->tag == BOX_PROMISE) {
         if (argc != 1) {
             fprintf(stderr, "force: expected zero arguments\n");
@@ -209,6 +224,7 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
     context.stack_bottom = stack_bottom;
     context.escape_depth = CTX->escape_depth;
     context.stack_limit = npl_stack_limit;
+    context.saved_segment = CTX->current_segment;
 
     NplVal result = npl_nil();
     argv = context.arguments;
@@ -218,6 +234,7 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
          * released before the handler can run (shared-lock.c). */
         npl_shared_release_all();
         npl_stack_limit = context.stack_limit;
+        CTX->current_segment = context.saved_segment;
         function = context.function;
         environment = context.environment;
         argc = context.argc;
@@ -246,6 +263,7 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
     free(active_buffer->arguments);
     free(active_buffer);
     CTX->tail_context = context.previous;
+    CTX->current_segment = context.saved_segment;
     return result;
 }
 
@@ -266,6 +284,17 @@ void npl_trampoline_release_abandoned(void)
 
 NplVal npl_apply(NplVal value, int64_t argc, NplVal *argv)
 {
+    if (npl_is_ptr(value) &&
+        npl_header(value)->tag == BOX_CONTINUATION_SEGMENT) {
+        NplContinuationSegment *segment =
+            (NplContinuationSegment *)npl_header(value);
+        CTX->current_segment = segment->parent;
+        value = segment->closure;
+    } else if (argc > 0 && npl_is_ptr(argv[argc - 1]) &&
+               npl_header(argv[argc - 1])->tag ==
+                   BOX_CONTINUATION_SEGMENT) {
+        CTX->current_segment = argv[argc - 1];
+    }
     if (npl_is_ptr(value) && npl_header(value)->tag == BOX_PARAMETER) {
         npl_parameter_dispatch(value, argc, argv);
         return npl_nil();
@@ -423,6 +452,7 @@ NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
     frame.saved_escape_depth = CTX->escape_depth;
     frame.saved_root_count = npl_gc_root_count_internal();
     frame.saved_stack_bottom = npl_gc_stack_bottom_internal();
+    frame.saved_segment = CTX->current_segment;
 
     /* Allocate before the copy: the malloc'd buffer is not a GC root, but
      * these locals are on the scanned C stack. */
@@ -453,6 +483,7 @@ NplVal npl_call_sync(NplGenericFunction function, NplVal environment,
     free(arguments);
     CTX->tail_context = frame.saved_tail_context;
     CTX->escape_depth = frame.saved_escape_depth;
+    CTX->current_segment = frame.saved_segment;
     npl_gc_restore_root_count_internal(frame.saved_root_count);
     (void)npl_gc_swap_stack_bottom(frame.saved_stack_bottom);
     NplVal raised = frame.raised;

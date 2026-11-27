@@ -97,6 +97,15 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 /* T4-A semantic prompt frame (runtime dynamic context, shared by compiler
  * and evaluator call/cc). */
 #define BOX_PROMPT_FRAME 39
+/* T4-A compiler-emitted continuation segment.  A segment wraps the local CPS
+ * continuation closure and records its semantic parent frame.  The frontend
+ * emits one at every non-direct user procedure call boundary; the chain is
+ * captured by NplDynamicContext and is the shared representation for prompt
+ * delimiters, barrier identity and continuation marks. */
+#define BOX_CONTINUATION_SEGMENT 40
+/* T4-B graft packet: invoke a continuation's prefix by calling a procedure
+ * instead of delivering the transferred values. */
+#define BOX_CONTINUATION_GRAFT 41
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -186,7 +195,8 @@ typedef struct {
     uint64_t id;
 } NplWindFrame;
 
-/* Saved dynamic environment of a captured continuation (SRFI 18). The
+/* Saved dynamic environment of a captured continuation (SRFI 18/T4).  It
+ * carries wind, handler, parameter, prompt and current-segment chains.  The
  * source thread's initial handler frame is recorded so a transfer can
  * resolve it against the invoking thread instead of reusing a jmp_buf. */
 typedef struct {
@@ -195,6 +205,7 @@ typedef struct {
     NplVal handler;
     NplVal parameters;
     NplVal prompts;
+    NplVal segment;
     NplVal source_initial_handler;
 } NplDynamicContext;
 
@@ -238,6 +249,7 @@ typedef struct {
     NplVal context;
     NplVal target_parameters;
     NplVal target_prompts;
+    NplVal target_segment;
     /* (src-binding . localized-copy) map for this transfer. A binding shared
      * by a destination chain and a wind frame must resolve to ONE node, so a
      * parameter-set! in a before thunk is visible to the continuation body. */
@@ -306,7 +318,35 @@ typedef struct {
     NplVal escape;
     NplVal return_;
     NplVal parent;
+    /* Synchronization point where the prompt was installed.  The captured
+     * prefix is an end segment at this frame; barrier frames use identity in
+     * the captured/current prompt chain to reject inward jumps. */
+    NplVal origin;
+    uint32_t barrier;
+    uint32_t reserved;
 } NplPromptFrame;
+
+/* Local CPS continuation plus persistent semantic frame.  closure is the
+ * ordinary CPS continuation; parent is the segment of the continuation that
+ * receives this frame's result.  Segments are immutable: multi-shot and
+ * concurrent invocations share them.  origin_prompt snapshots the nearest
+ * enclosing prompt at creation. */
+typedef struct {
+    NplHeader header;
+    NplVal closure;
+    NplVal parent;
+    NplVal origin_prompt;
+    uint64_t id;
+} NplContinuationSegment;
+
+/* A graft carries a procedure and its argument list through the ordinary
+ * continuation-transfer path.  The captured continuation calls the procedure
+ * with its saved successor as the continuation. */
+typedef struct {
+    NplHeader header;
+    NplVal procedure;
+    NplVal arguments;
+} NplContinuationGraft;
 
 typedef struct {
     NplHeader header;
@@ -687,6 +727,20 @@ NplVal npl_prompt_list_from(NplVal origin);
 NplVal npl_prompt_install_override(NplVal prompt, NplVal target);
 /* The most recent one-shot override for PROMPT, or #f after removing it. */
 NplVal npl_prompt_take_return(NplVal prompt);
+NplVal npl_prompt_origin(NplVal value);
+NplVal npl_prompt_set_barrier(NplVal value, NplVal flag);
+NplVal npl_prompt_barrier_p(NplVal value);
+/* T4-A continuation segments (segment.c). */
+NplVal npl_segment_make(NplVal closure);
+NplVal npl_segment_p(NplVal value);
+NplVal npl_segment_current(void);
+NplVal npl_segment_parent(NplVal value);
+NplVal npl_segment_closure(NplVal value);
+NplVal npl_segment_depth(NplVal value);
+NplVal npl_graft_make(NplVal procedure, NplVal arguments);
+NplVal npl_graft_p(NplVal value);
+NplVal npl_graft_procedure(NplVal value);
+NplVal npl_graft_arguments(NplVal value);
 NplVal npl_parameters_enter(NplVal parameters, NplVal values, NplVal frames);
 NplVal npl_parameters_leave(NplVal frames);
 NplVal npl_promise_op(int64_t argc, NplVal *argv);

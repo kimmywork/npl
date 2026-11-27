@@ -325,6 +325,7 @@ NplVal npl_capture_dynamic_context(void)
     context->handler = CTX->current_handler;
     context->parameters = CTX->current_parameters;
     context->prompts = CTX->current_prompts;
+    context->segment = CTX->current_segment;
     context->source_initial_handler =
         find_initial_handler(CTX->current_handler);
     return boxed(context);
@@ -489,6 +490,7 @@ static void schedule_wind_transition(NplVal transition_value)
         if (!npl_is_nil(transition->context)) {
             CTX->current_parameters = transition->target_parameters;
             CTX->current_prompts = transition->target_prompts;
+            CTX->current_segment = transition->target_segment;
         }
         NplVal argument = transition->value;
         npl_tail_request_closure(transition->continuation, 1, &argument);
@@ -516,7 +518,8 @@ static NplVal wind_transition_resume(NplVal environment, int64_t argc,
 static NplVal make_transition(NplVal target, NplVal target_handler,
                               NplVal continuation, NplVal value,
                               NplVal context, NplVal target_parameters,
-                              NplVal target_prompts, NplVal cache)
+                              NplVal target_prompts, NplVal target_segment,
+                              NplVal cache)
 {
     NplVal common = wind_common_ancestor(CTX->current_wind, target);
     uint32_t exit_count = 0;
@@ -545,6 +548,7 @@ static NplVal make_transition(NplVal target, NplVal target_handler,
     transition->context = context;
     transition->target_parameters = target_parameters;
     transition->target_prompts = target_prompts;
+    transition->target_segment = target_segment;
     transition->cache = cache;
 
     size_t index = 0;
@@ -575,7 +579,7 @@ static void transfer_legacy(NplVal target, NplVal target_handler,
     }
     schedule_wind_transition(make_transition(
         target, target_handler, continuation, value,
-        npl_nil(), npl_nil(), npl_nil(), npl_nil()));
+        npl_nil(), npl_nil(), npl_nil(), npl_nil(), npl_nil()));
 }
 
 static void transfer_with_context(NplVal context_value,
@@ -604,16 +608,19 @@ static void transfer_with_context(NplVal context_value,
     NplVal target_handler = localize_handler(context->handler);
 
     NplVal target_prompts = context->prompts;
+    NplVal target_segment = context->segment;
     if (CTX->current_wind == target) {
         CTX->current_handler = target_handler;
         CTX->current_parameters = target_parameters;
         CTX->current_prompts = target_prompts;
+        CTX->current_segment = target_segment;
         npl_tail_request_closure(continuation, 1, &value);
         return;
     }
     schedule_wind_transition(make_transition(
         target, target_handler, continuation, value,
-        context_value, target_parameters, target_prompts, cache));
+        context_value, target_parameters, target_prompts, target_segment,
+        cache));
 }
 
 /* The first argument is a BOX_DYNAMIC_CONTEXT for a compiler emitted after

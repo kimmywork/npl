@@ -1,0 +1,144 @@
+; Continuation capture, segment construction, and the graft path.
+;
+; Split from control.npl (which keeps the CPS expression walk): the segment
+; wrapper marks non-tail user-call frame boundaries, and the captured
+; continuation dispatches ordinary values or a call-in graft after the
+; shared wind/context transfer.  Included after control.npl, whose helpers
+; these definitions use.
+
+; Wrap a local continuation closure in a compiler-visible segment at a
+; non-direct user procedure call boundary.  The runtime reads the current
+; segment as the parent, so a segment created while evaluating a callee's
+; argument belongs to the same frame chain as the enclosing call.
+(define (control-segment expression)
+  (if (control-inline-continuation? expression)
+      (cons 224 (cons expression ()))
+      expression))
+
+(define (control-application name arguments)
+  (cons (control-symbol name) arguments))
+
+(define (control-let-one name value body)
+  (core-single-let (cons (control-symbol name) value) body))
+
+(define (control-let-two first-name first-value
+                         second-name second-value body)
+  (cons 214
+    (cons
+      (cons (cons (control-symbol first-name) first-value)
+        (cons (cons (control-symbol second-name) second-value) ()))
+      (cons (cons body ()) ()))))
+
+; Graft in the captured continuation: after the wind transfer has reinstated
+; the target dynamic environment, call the procedure with the saved local
+; continuation as its successor.  A normal invocation delivers its values
+; through the same transfer path.
+(define (control-graft-branch continuation dynamic-context target-handler
+                               graft-expression)
+  (let ((procedure-name (control-fresh-name "_npl_graft_procedure_")))
+    (let ((arguments-name (control-fresh-name "_npl_graft_arguments_")))
+      (let ((resume-name (control-fresh-name "_npl_graft_resume_")))
+        (control-let-two
+          procedure-name
+          (control-application "npl_graft_procedure"
+            (cons graft-expression ()))
+          arguments-name
+          (control-application "npl_graft_arguments"
+            (cons graft-expression ()))
+          (control-application "_npl_wind_transfer"
+            (cons dynamic-context
+              (cons target-handler
+                (cons
+                  (control-raw-continuation
+                    resume-name
+                    (control-application "_npl_apply"
+                      (cons continuation
+                        (cons (control-symbol procedure-name)
+                          (cons (control-symbol arguments-name) ())))))
+                  (cons () ()))))))))))
+
+(define (control-call-cc-name? head)
+  (if (not (sym-atom? head))
+      #f
+      (if (string=? (cdr head) "call/cc")
+          #t
+          (string=? (cdr head) "call-with-current-continuation"))))
+
+; The first capture is a runtime NplDynamicContext (wind, handler,
+; parameters, prompts and the source thread's initial handler).
+; npl_wind_transfer reinstates it on the invoking thread, which may be a
+; different thread.  A graft packet is the primitive behind
+; call-in-continuation.
+(define (control-captured-continuation
+          continuation dynamic-context target-handler)
+  (let ((values-name (control-fresh-name "_npl_jump_values_")))
+    (let ((ignored-name (control-fresh-name "_npl_abandoned_")))
+      (let ((graft-name (control-fresh-name "_npl_graft_")))
+        (let ((formals
+                (cons 230
+                  (cons ()
+                    (cons (control-symbol values-name)
+                      (cons (control-symbol ignored-name) ()))))))
+          (let ((normal-body
+                  (control-application "_npl_wind_transfer"
+                    (cons dynamic-context
+                      (cons target-handler
+                        (cons continuation
+                          (cons
+                            (control-application "npl_list_to_values"
+                              (cons (control-symbol values-name) ()))
+                            ())))))))
+            (let ((graft-body
+                    (control-let-one
+                      graft-name
+                      (control-application "car"
+                        (cons (control-symbol values-name) ()))
+                      (control-graft-branch
+                        continuation dynamic-context target-handler
+                        (control-symbol graft-name)))))
+              (let ((graft-test
+                      (cons 213
+                        (cons
+                          (control-application "pair?"
+                            (cons (control-symbol values-name) ()))
+                          (cons
+                            (cons 213
+                              (cons
+                                (control-application "npl_graft_p"
+                                  (cons
+                                    (control-application "car"
+                                      (cons (control-symbol values-name) ()))
+                                    ()))
+                                (cons graft-body (cons normal-body ()))))
+                            (cons normal-body ()))))))
+                (cons 212
+                  (cons formals
+                    (cons (cons graft-test ()) ())))))))))))
+
+(define (control-cps-call-cc application continuation)
+  (if (not (= (count-up (cdr application) 0) 1))
+      (fatal "call/cc needs one procedure"))
+  (control-evaluate-list
+    (cdr application) ()
+    (lambda (procedures)
+      (let ((segment-name (control-fresh-name "_npl_segment_")))
+        (core-single-let
+          (cons (control-symbol segment-name)
+                (control-segment continuation))
+          (let ((target-name
+                  (control-fresh-name "_npl_dynamic_context_")))
+            (let ((handler-name
+                    (control-fresh-name "_npl_target_handler_")))
+              (core-single-let
+                (cons (control-symbol target-name)
+                      (cons (control-symbol "npl_capture_dynamic_context") ()))
+                (core-single-let
+                  (cons (control-symbol handler-name)
+                        (cons (control-symbol "npl_current_handler") ()))
+                  (cons (control-procedure-value (car procedures))
+                    (cons
+                      (control-captured-continuation
+                        (control-symbol segment-name)
+                        (control-symbol target-name)
+                        (control-symbol handler-name))
+                      (cons (control-symbol segment-name) ()))))))))))))

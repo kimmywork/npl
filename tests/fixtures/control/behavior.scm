@@ -1,6 +1,6 @@
 ; Deterministic SRFI 226 control prototype fixture.  The nplc and npli
-; surfaces must produce identical values; the helper-thread composable path
-; has no visible scheduling output.
+; surfaces must produce identical values; prompt segments and barrier/call-in
+; frames have no visible scheduling output.
 (define (report name value) (write (list name value)) (newline))
 
 (define tag (make-continuation-prompt-tag 'fixture))
@@ -106,6 +106,54 @@
                 (set! cleaned #t)))
             prompt
             (lambda (value) (list value cleaned)))))
+
+(report 'barrier-escape
+        (call/cc
+          (lambda (continuation)
+            (call-with-continuation-barrier
+              (lambda () (continuation 'ok))))))
+(report 'barrier-inward
+        (guard (e ((continuation-violation? e) #t)
+                  (else #f))
+          ((call-with-continuation-barrier
+             (lambda () (call/cc values))))))
+(report 'barrier-composable
+        (guard (e ((continuation-violation? e) #t)
+                  (else #f))
+          (call-with-continuation-prompt
+            (lambda ()
+              (call-with-continuation-barrier
+                (lambda ()
+                  (call-with-composable-continuation values tag))))
+            tag)))
+(report 'call-in
+        (let ((prompt (make-continuation-prompt-tag 'call-in)))
+          (call-with-continuation-prompt
+            (lambda ()
+              (call/cc
+                (lambda (continuation)
+                  (call-in-continuation
+                    continuation (lambda (x) (* x 2)) 21))))
+            prompt)))
+(report 'return-to
+        (let ((prompt (make-continuation-prompt-tag 'return-to)))
+          (call-with-continuation-prompt
+            (lambda ()
+              (call/cc (lambda (continuation)
+                         (return-to continuation 7))))
+            prompt)))
+(report 'call-in-values
+        (let ((prompt (make-continuation-prompt-tag 'call-in-values)))
+          (call-with-values
+            (lambda ()
+              (call-with-continuation-prompt
+                (lambda ()
+                  (call/cc
+                    (lambda (continuation)
+                      (call-in-continuation
+                        continuation (lambda () (values 1 2))))))
+                prompt))
+            list)))
 (report 'missing-prompt
         (guard (e ((continuation-violation? e)
                    (eq? (continuation-violation-prompt-tag e) tag)))

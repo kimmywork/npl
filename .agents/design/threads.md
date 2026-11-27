@@ -5,15 +5,19 @@ T2 `(npl thread)` / `(srfi 18)`, cross-thread user continuations, T2b
 virtual threads through increment D, T3-A/B/C (SRFI 230), and the T3-D
 weak-order scalar fast paths/benchmark probe are implemented. A **library-level
 T4 control prototype** is implemented as `(npl control)` (prompts,
-non-composable/composable continuations, inspection, `reset`/`shift`) with
-same-thread prompt segments and a per-thread meta-continuation override; a
-T4-D subset (shared-cell parameterization snapshots and `temporarily`) is in
-`(npl control parameters)`. T4-A is **not complete**: the compiler-visible
-segmented continuation and semantic-frame representation, barriers,
-`call-in`/`return-to`, marks, thread parameters/fluids, promises, and the
-thread/interrupt adapters remain **designs, not implemented features**, as do
-optional pair specialization and the optimization/benchmark milestones. Earlier increment reports are historical; the two PR review
-sections supersede their intermediate implementation details.
+non-composable/composable continuations, barriers, `call-in-continuation`,
+`call-in`, `return-to`, inspection, `reset`/`shift`) with compiler-emitted
+continuation segments and prompt frames; a T4-D subset (shared-cell
+parameterization snapshots and `temporarily`) is in
+`(npl control parameters)`. T4-A has the shared segment/semantic-frame
+representation on the compiled CPS path and the native control operators used
+by the evaluator. Remaining T4-A/T4-C work is the evaluator's direct-style
+frame adapter, terminal splicing for composable `call-in`, and continuation
+marks; thread parameters/fluids, promises, conditions and the
+thread/interrupt adapters also remain **designs, not implemented features**,
+as do optional pair specialization and the optimization/benchmark milestones.
+Earlier increment reports are historical; the two PR review sections supersede
+their intermediate implementation details.
 
 Current T2b uses per-carrier queues (two carriers by default), migration on
 yield, and a growing helper pool for explicitly wrapped blocking work. It
@@ -1099,35 +1103,35 @@ mechanisms with equivalent guarantees.
 
 ### Shared continuation model
 
-The current compiler represents continuations as heap CPS closures, and
-`BOX_DYNAMIC_CONTEXT` captures wind, handlers and parameters. This is enough
-for full `call/cc`, but an opaque closure's captured successor cannot simply
-be cut and spliced to implement a composable delimited continuation. T4-A
-must make that boundary explicit before adding public procedures.
+The compiler now emits a `BOX_CONTINUATION_SEGMENT` for each non-direct user
+procedure call boundary while a prompt is active. A segment is a **local CPS
+continuation plus a persistent semantic frame**: it holds the raw CPS closure,
+the parent segment, a stable frame id, and the nearest prompt. This makes
+non-tail call boundaries explicit without replacing the CPS closure, and the
+same representation is used by compiled code and the evaluator's native
+control operators.
 
-Use a **local CPS continuation plus a persistent meta-continuation** design:
-
-1. A prompt segment records its tag, abort handler, outer continuation,
-   parent segment, and dynamic-state boundary. The local CPS terminal returns
-   through the currently installed segment boundary, not a permanently
-   captured carrier/root C frame. Nested prompts form a heap chain.
-2. Capture records the local continuation, relevant segment/frame identities,
-   mark view, dynamic context, and delimiter. A callable wrapper carries an
-   explicit kind for `continuation?` / `non-composable-continuation?`; ordinary
-   closures and private scheduler tokens must not satisfy these predicates.
+1. A prompt frame records its tag, abort handler, outer continuation, parent
+   frame, origin segment, and barrier flag. Nested prompts form an immutable
+   heap chain captured by `BOX_DYNAMIC_CONTEXT`. The local CPS terminal returns
+   through the installed prompt boundary; the per-thread one-shot override is
+   the persistent meta-continuation used for composable invocation.
+2. Capture records the local segment, prompt prefix, dynamic context, and
+   delimiter. A callable wrapper carries an explicit kind for
+   `continuation?` / `non-composable-continuation?`; ordinary closures and
+   scheduler tokens do not satisfy these predicates.
 3. Non-composable invocation removes the unshared current prefix up to the
    matching prompt or shared active call, then installs the saved prefix.
    Composable invocation appends a fresh activation of the captured prefix
-   to the caller; its terminal returns to that caller. It does not abort the
-   caller. Do not mutate a captured successor link during application.
-4. Multi-shot and concurrent applications share immutable descriptions but
+   to the caller; its terminal returns to the caller. Captured successor links
+   are not mutated during application.
+4. Multi-shot applications share immutable segment/prompt descriptions but
    have independent activation/return chains. Parameter cells follow their
-   specified sharing policy; immutable frame metadata does not imply copying
-   all Scheme values or parameter cells.
-5. Preserve active-call/frame identity for shared-prefix wind behavior and
-   continuation barriers. A metadata chain of prompts alone is insufficient
-   for marks or shared-call detection; CPS conversion must retain semantic
-   frame boundaries even when native code eliminates an intermediate closure.
+   specified sharing policy.
+5. Barrier identity is prompt-frame identity in the captured and current
+   prompt chains. Non-tail frame identity is available from segment parents;
+   continuation marks still need a persistent mark table on those frames and
+   an evaluator frame adapter for direct-style evaluated closures.
 
 Implement segment/control policy and derived operators in focused NPL
 modules, using existing records and closures where possible. C is limited to
@@ -1138,8 +1142,9 @@ that machinery must gain segment-aware state, keep one transition engine
 and test legacy `call/cc` through it. Any unavoidable compiler/evaluator
 representation adapters share the same semantic operations and fixtures.
 
-`src/compiler/frontend/control.npl` is already 840 lines; extract cohesive
-capture/transfer or operator-dispatch code before adding T4. Similarly,
+`src/compiler/frontend/control.npl` keeps the CPS expression walk at 799
+lines; the segment/capture/graft lowering moved to
+`src/compiler/frontend/control-capture.npl` (145 lines). Similarly,
 `thread-lifecycle.c` is at 800 lines and `virtual-thread.c` at 758: new
 interrupt/lifecycle adapters and scheduler state belong in separate focused
 modules. Proposed NPL modules include control prompts, continuations, marks,
@@ -1273,36 +1278,15 @@ increment ports applicable executable examples from the reference into common
 fixtures. Native-only stress supplements differential tests; it does not
 replace them. Compare normalized observable results, not interleaving traces.
 
-### T4-A next acceptance order (2026-11-27)
+### T4-A/T4-B implementation status (2026-11-27)
 
-The library-level prototype below is not permission to skip the T4-A
-representation. The next stage is ordered and gated as follows:
-
-1. Add the compiler/evaluator shared semantic-frame representation for
-   prompts and semantic continuation frames, then a local CPS continuation
-   plus persistent meta-continuation. The representation must retain
-   non-tail-call frame boundaries and the active wind/handler/parameter
-   context through the existing transition machinery.
-2. Replace the current same-thread `thread-specific` override with segment
-   capture/composition primitives. Verify logical thread identity, composition
-   return, multi-shot invocation, default prompt behavior and wind transitions
-   before adding barriers, `call-in-continuation`, `call-in` and `return-to`.
-3. Separate ordinary shared parameter cells from inheritable thread-local
-   cells and rework parameterization installation so repeated reinstallation
-   preserves the same cells. Then add marks, fluids and the later
-   promises/interrupts components.
-4. Port the standard semantic examples to common fixtures for every increment.
-   Only after the full inventory and target evidence pass may `(srfi 226)` and
-   the `srfi-226` feature be published.
-
-### T4 library-level prototype (2026-11-26; T4-A not complete)
-
-`lib/npl/control.sld` implements a prompt/abort prototype and partial T4-B
-surface on top of the existing full `call/cc`; component libraries
-`(npl control prompts)`, `(npl control continuations)`,
-`(npl control shift-reset)` and `(npl control inspection)` re-export it, with
-singular aliases `(srfi 226 prompt)`, `(srfi 226 continuation)`,
-`(srfi 226 shift-reset)` and `(srfi 226 inspection)`.
+The frontend now emits a compiler-visible `BOX_CONTINUATION_SEGMENT` at every
+non-direct user procedure call while a prompt is active. A segment wraps the
+local CPS continuation, records its semantic parent and nearest prompt, and
+carries a stable frame id. `NplDynamicContext` captures the current segment;
+the existing wind/context transfer restores it; `NplThreadContext` roots it;
+virtual-thread save/restore carries it. Prompt frames record their origin
+segment and a barrier flag.
 
 - Prompt tags, a dynamic prompt stack, default/custom abort handlers,
   `call-with-continuation-prompt`, `abort-current-continuation`, and the
@@ -1311,22 +1295,34 @@ singular aliases `(srfi 226 prompt)`, `(srfi 226 continuation)`,
 - Non-composable invocation cuts back to the nearest matching prompt and
   reinstates the captured prefix there; composable invocation appends the
   prefix and returns its values to the caller. The reference 990/6930
-  examples, nested prompts, multi-shot `(k (k ...))`, and multiple values
-  pass. `continuation?`, `non-composable-continuation?`,
+  examples, nested prompts, multi-shot `(k (k ...))`, multiple values and
+  re-entrant winders pass. `continuation?`, `non-composable-continuation?`,
   `continuation-prompt-available?`, `unwind-protect`, `reset`, `reset-at`,
   `shift` and `shift-at` are implemented.
-- The current CPS continuation is opaque. Prompt frames are runtime objects in
-  `NplThreadContext`; `NplDynamicContext` captures the chain and the existing
-  wind transfer reinstates it on the invoking thread. A per-thread one-shot
-  meta-continuation override lets composable invocation apply the captured
-  prefix on the same logical thread; the prompt terminal sends its values to
-  the invoker. Non-composable invocation uses the nearest cut prompt's escape.
-  There is no helper native thread, no cross-thread logical identity change and
-  no carrier join. Outer winders stay in their original extent, prompt frames
-  survive `call/cc`, and virtual-thread save/restore carries the chain. This is
-  still not the compiler-visible segmented representation required by T4-A;
-  marks, shared-prefix identity and barriers still need semantic frame
-  metadata.
+- `call-with-continuation-barrier` installs an inaccessible barrier prompt.
+  Capture records the prompt prefix; non-composable invocation rejects a jump
+  into a barrier frame absent from the invoker's chain, while outward escapes
+  remain allowed. A composable capture whose prefix includes a barrier raises.
+  Barrier identity is frame identity, not a depth counter.
+- `call-in-continuation`, `call-in` and `return-to` use a graft packet. The
+  captured continuation performs its normal transfer, then calls the supplied
+  procedure with the saved successor as its continuation; prompt-delimited
+  non-composable call-in also installs the cut-prompt override. Composable
+  call-in is not supported yet.
+- Prompt frames and the current segment live in `NplThreadContext` and are
+  captured by `NplDynamicContext`. The prompt terminal consumes a per-thread
+  one-shot override. There is no helper native thread, no cross-thread logical
+  identity change and no carrier join. Outer winders stay in their original
+  extent, prompt frames survive `call/cc`, and virtual-thread save/restore
+  carries both chains.
+- Remaining T4-A/T4-C work: composable `call-in` still needs terminal splicing
+  rather than the prompt override; evaluated user closures are direct-style
+  native procedures, so continuation marks over arbitrary evaluated call
+  frames need an evaluator frame adapter. Runtime-created transition
+  continuations (wind thunks, parameter converters, promise work) do not yet
+  install a compiler segment, so captures inside those thunks have incomplete
+  frame metadata. There is still no initial default prompt boundary, and the
+  continuation registry is strong.
 - T4-D subset: `(npl control parameters)` and `(srfi 226 parameter)` add
   `parameter?`, first-class parameterization snapshots (`current-
   parameterization`, `parameterization?`, `call-with-parameterization`) and
@@ -1336,14 +1332,19 @@ singular aliases `(srfi 226 prompt)`, `(srfi 226 continuation)`,
   thread parameters and the fluid syntax remain ahead because NPL's current
   parameters use thread-owned COW bindings rather than the SRFI 226
   shared-cell model.
-- Not implemented: `call-in-continuation`/`call-in`/`return-to`, continuation
-  barriers, continuation marks, thread parameters/fluids, promises,
+- Not implemented: continuation marks, thread parameters/fluids, promises,
   exception/condition payloads, thread/interrupt adapters, and the composite
   `(srfi 226)` / `srfi-226` feature. The component aliases are partial
   releases.
-- Acceptance: `src/compiler/tests/control.npl` (18 assertions) and the
-  `tests/fixtures/control` nplc/npli differential fixture, plus the existing
-  call/cc, parameter, wind and exception suites. No frontend or seed change.
+- Acceptance: `src/compiler/tests/control.npl` (33 assertions), the
+  `tests/fixtures/control` nplc/npli differential fixture (barrier and
+  call-in cases included), `tests/unit/control-virtual.npl` on M=1/M=4 (composition, barriers and
+  call-in), and the existing call/cc, parameter, wind and exception suites.
+- The frontend/backend segment emission changes the compiler's own SSA. The
+  seed was relayed with the codegen-transient mode of
+  `tools/update_current_ssa.sh`; the installed seed is gen2 with
+  gen2 == gen3 (358,142 lines, SHA-256
+  `4fbdbf2b207b32feea3f36ddb53495e5dc4598724a450a55f12d62078137fe96`).
 
 No changes to permanent `bootstrap/bootstrap.ssa`, stage0, or
 `bootstrap/runtime/`. Frontend changes relay only `bootstrap/current.ssa`

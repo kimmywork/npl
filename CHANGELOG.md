@@ -19,10 +19,12 @@ behavior).
 - SRFI 226 control prototype as `(npl control)` with component aliases
   `(srfi 226 prompt)`, `(srfi 226 continuation)`, `(srfi 226 shift-reset)`,
   `(srfi 226 inspection)`, and `(srfi 226 parameter)`. Prompts, abort,
-  non-composable and composable continuations, predicates, `unwind-protect`,
+  non-composable and composable continuations, continuation barriers,
+  `call-in-continuation`/`call-in`/`return-to`, predicates, `unwind-protect`,
   `reset`/`shift`, ordinary parameterization snapshots, and `temporarily` are
-  implemented over the existing CPS continuation and a helper-thread re-entry
-  boundary; the composite `(srfi 226)` feature remains unadvertised.
+  implemented over compiler-emitted continuation segments and runtime prompt
+  frames; the composite `(srfi 226)` feature remains unadvertised. Composable
+  `call-in` and continuation marks remain future increments.
 - SRFI 1 lists as `(npl list)` / `(srfi 1)`.
 - SRFI 13 strings as `(npl string)` / `(srfi 13)`, with a shared string
   kernel; character-set criteria are not supported because NPL has no

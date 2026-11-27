@@ -3,6 +3,12 @@
 #
 # Builds bootstrap/current.ssa, emits the compiler three times, and requires
 # gen1 == gen2 == gen3 byte-for-byte. Use --work-dir to retain the artifacts.
+#
+# --relay-codegen accepts the one-generation transient of a compiler change
+# that alters its own emitted code (for example a new frontend lowering): if
+# gen1 differs from gen2, then gen2 == gen3 is the canonical fixed point and
+# gen2.ssa is written as canonical.ssa.  The default strict mode never
+# accepts that transient.
 
 set -eu
 # Each stage owns a process group so cancellation also stops cc's children.
@@ -23,6 +29,7 @@ KEEP=0
 # a seed from before the unified nplc (2026-09-29) exits 44 and needs
 # --seed-status 44 for the single relay that replaces it.
 SEED_STATUS=0
+RELAY_CODEGEN=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --work-dir)
@@ -39,8 +46,12 @@ while [ "$#" -gt 0 ]; do
             SEED_STATUS=$2
             shift 2
             ;;
+        --relay-codegen)
+            RELAY_CODEGEN=1
+            shift
+            ;;
         *)
-            echo "usage: $0 [--work-dir DIR] [--keep] [--seed-status N]" >&2
+            echo "usage: $0 [--work-dir DIR] [--keep] [--seed-status N] [--relay-codegen]" >&2
             exit 2
             ;;
     esac
@@ -130,10 +141,19 @@ emit_compiler "$WORK/gen1-compiler" "$WORK/gen2.ssa" 0
 build_compiler "$WORK/gen2.ssa" "$WORK/gen2-compiler"
 emit_compiler "$WORK/gen2-compiler" "$WORK/gen3.ssa" 0
 
-cmp "$WORK/gen1.ssa" "$WORK/gen2.ssa"
+if cmp -s "$WORK/gen1.ssa" "$WORK/gen2.ssa"; then
+    cp "$WORK/gen1.ssa" "$WORK/canonical.ssa"
+elif [ "$RELAY_CODEGEN" -eq 1 ]; then
+    cmp "$WORK/gen2.ssa" "$WORK/gen3.ssa"
+    cp "$WORK/gen2.ssa" "$WORK/canonical.ssa"
+    echo "current compiler codegen relay: gen1 differs; gen2 == gen3"
+else
+    cmp "$WORK/gen1.ssa" "$WORK/gen2.ssa"
+    exit 1
+fi
 cmp "$WORK/gen2.ssa" "$WORK/gen3.ssa"
-sha256=$(sha256_file "$WORK/gen1.ssa")
-lines=$(wc -l < "$WORK/gen1.ssa" | tr -d ' ')
+sha256=$(sha256_file "$WORK/canonical.ssa")
+lines=$(wc -l < "$WORK/canonical.ssa" | tr -d ' ')
 echo "current compiler fixed point: PASS"
 echo "SSA lines: $lines"
 echo "SHA-256: $sha256"
