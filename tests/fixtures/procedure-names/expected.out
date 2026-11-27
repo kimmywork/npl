@@ -5,3 +5,5 @@
 #<procedure loop>
 #<procedure slot>
 #<procedure add-one>
+#<procedure original>
+#<procedure car>

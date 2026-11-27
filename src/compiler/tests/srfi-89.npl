@@ -34,6 +34,14 @@
 (define* (allow-before #:allow-other-keys #:key x)
   x)
 
+(define* (allow-no-key a #:allow-other-keys)
+  a)
+
+(define (inner-star x)
+  (define* (helper y #:optional (z 1))
+    (+ y z))
+  (+ (helper x) (helper x 2)))
+
 (define (main)
   (test-equal "guile optional defaults"
               (lambda () (equal? (f 10) '(10 1 2 3 4)))
@@ -61,6 +69,12 @@
   (test-equal "defaults see previous parameters"
               (lambda () (equal? (defaults 3 4 key: 5) '(3 4 5)))
               #t)
+  (test-equal "optional default from earlier parameter"
+              (lambda () (equal? (defaults 3) '(3 3 9)))
+              #t)
+  (test-equal "named default sees positional parameters"
+              (lambda () (equal? (defaults 3 4) '(3 4 12)))
+              #t)
   (test-equal "rest parameter"
               (lambda () (equal? (resty 1 2 3) '(1 (2 3))))
               #t)
@@ -82,6 +96,11 @@
               (allowy 1 #:x 2 #:x 3))
   (test-error "allow other keywords still needs a value"
               (allowy 1 #:z))
+  (test-error "allow other keywords rejects duplicate unknowns"
+              (allowy 1 #:z 1 #:z 2))
+  (test-equal "allow other keywords without named parameters"
+              (lambda () (allow-no-key 1 #:z 2))
+              1)
   (test-equal "allow-other-keys before #:key"
               (lambda () (allow-before #:x 7 #:z 8))
               7)
@@ -90,6 +109,21 @@
                 ((lambda* (#:key x #:allow-other-keys) x)
                  #:x 5 #:z 9))
               5)
+  (test-equal "lambda* parameter named car"
+              (lambda () ((lambda* (car x) (+ car x)) 1 2))
+              3)
+  (test-equal "lambda* parameter named vector-ref"
+              (lambda () ((lambda* (vector-ref x) (+ vector-ref x)) 10 2))
+              12)
+  (test-equal "lambda* parameter named if"
+              (lambda () ((lambda* (if x) (+ if x)) 1 2))
+              3)
+  (test-equal "lambda* parameter named error"
+              (lambda () ((lambda* (error x) (+ error x)) 1 2))
+              3)
+  (test-equal "internal define* is prebound"
+              (lambda () (inner-star 10))
+              23)
   (test-equal "lambda*"
               (lambda ()
                 (equal? ((lambda* (a (b 2) (c: c 3))

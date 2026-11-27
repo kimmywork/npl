@@ -134,54 +134,133 @@
       (datum-symbol (string-append "keyword_slot_"
                                    (number->string index))))))
 
-(define (lambda-star-value-expr entry slot)
+(define (lambda-star-present-name index)
+  (datum-symbol
+    (fresh-value-name
+      (datum-symbol (string-append "keyword_present_"
+                                   (number->string index))))))
+
+(define (lambda-star-raw-name index)
+  (datum-symbol
+    (fresh-value-name
+      (datum-symbol (string-append "keyword_raw_"
+                                   (number->string index))))))
+
+(define (lambda-star-helper-name name)
+  (datum-symbol (fresh-value-name (datum-symbol name))))
+
+; One (slot present raw) triple per parameter, generated once so binders and
+; references use the same hygienic names.
+(define (lambda-star-names entries index)
+  (if (null? entries)
+      ()
+      (cons
+        (cons (lambda-star-slot-name index)
+          (cons (lambda-star-present-name index)
+                (cons (lambda-star-raw-name index) ())))
+        (lambda-star-names (cdr entries) (+ index 1)))))
+
+(define (lambda-star-name-slot names) (car names))
+(define (lambda-star-name-present names) (car (cdr names)))
+(define (lambda-star-name-raw names) (car (cdr (cdr names))))
+
+(define (lambda-star-select-expression)
+  (cons (datum-symbol "lambda")
+    (cons (cons (datum-symbol "present")
+            (cons (datum-symbol "raw")
+              (cons (datum-symbol "default") ())))
+      (cons (cons (datum-symbol "if")
+              (cons (datum-symbol "present")
+                (cons (datum-symbol "raw")
+                  (cons (datum-symbol "default") ()))))
+            ()))))
+
+(define (lambda-star-require-expression)
+  (cons (datum-symbol "lambda")
+    (cons (cons (datum-symbol "present")
+            (cons (datum-symbol "raw")
+              (cons (datum-symbol "message")
+                (cons (datum-symbol "key") ()))))
+      (cons (cons (datum-symbol "if")
+              (cons (datum-symbol "present")
+                (cons (datum-symbol "raw")
+                  (cons (cons (datum-symbol "error")
+                          (cons (datum-symbol "message")
+                            (cons (datum-symbol "key") ())))
+                        ()))))
+            ()))))
+
+(define (lambda-star-value-expr entry present raw select require)
   (let ((kind (lambda-star-entry-kind entry))
         (var (lambda-star-entry-var entry))
         (default (lambda-star-entry-default entry)))
     (cond
       ((= kind 0)
-       (cons (datum-symbol "if")
-         (cons (cons (datum-symbol "car") (cons slot ()))
-           (cons (cons (datum-symbol "cdr") (cons slot ()))
-             (cons (cons (datum-symbol "error")
-                     (cons (datum-string "missing required argument")
-                       (cons (quote-datum var) ())))
-                   ())))))
+       (cons require
+         (cons present
+           (cons raw
+             (cons (datum-string "missing required argument")
+               (cons (quote-datum var) ()))))))
       ((= kind 1)
-       (cons (datum-symbol "if")
-         (cons (cons (datum-symbol "car") (cons slot ()))
-           (cons (cons (datum-symbol "cdr") (cons slot ()))
+       (cons select
+         (cons present
+           (cons raw
              (cons (if default default (datum-false)) ())))))
       ((= kind 2)
-       (cons (datum-symbol "if")
-         (cons (cons (datum-symbol "car") (cons slot ()))
-           (cons (cons (datum-symbol "cdr") (cons slot ()))
+       (cons select
+         (cons present
+           (cons raw
              (cons (if default default (datum-false)) ())))))
       ((= kind 4)
-       (cons (datum-symbol "if")
-         (cons (cons (datum-symbol "car") (cons slot ()))
-           (cons (cons (datum-symbol "cdr") (cons slot ()))
-             (cons (cons (datum-symbol "error")
-                     (cons (datum-string "missing required keyword argument")
-                       (cons (quote-datum (lambda-star-entry-payload entry))
-                             ())))
-                   ())))))
-      (else
-       (cons (datum-symbol "cdr") (cons slot ()))))))
+       (cons require
+         (cons present
+           (cons raw
+             (cons (datum-string "missing required keyword argument")
+               (cons (quote-datum (lambda-star-entry-payload entry)) ()))))))
+      (else raw))))
 
-(define (lambda-star-bindings entries state index)
+(define (lambda-star-bindings entries names select require)
   (if (null? entries)
       ()
-      (let ((slot (lambda-star-slot-name index))
-            (entry (car entries)))
+      (let ((entry (car entries))
+            (name (car names)))
         (cons
-          (cons slot
-            (cons (cons (datum-symbol "vector-ref")
-                        (cons state (cons index ()))) ()))
+          (cons (lambda-star-entry-var entry)
+            (cons (lambda-star-value-expr
+                    entry
+                    (lambda-star-name-present name)
+                    (lambda-star-name-raw name)
+                    select require)
+                  ()))
+          (lambda-star-bindings (cdr entries) (cdr names)
+                                select require)))))
+
+(define (lambda-star-slot-bindings names state index tail)
+  (if (null? names)
+      tail
+      (let ((name (car names)))
+        (let ((slot (lambda-star-name-slot name))
+              (present (lambda-star-name-present name))
+              (raw (lambda-star-name-raw name)))
           (cons
-            (cons (lambda-star-entry-var entry)
-              (cons (lambda-star-value-expr entry slot) ()))
-            (lambda-star-bindings (cdr entries) state (+ index 1)))))))
+            (cons slot
+              (cons (cons (datum-symbol "vector-ref")
+                          (cons state (cons index ()))) ()))
+            (cons
+              (cons present
+                (cons (cons (datum-symbol "car") (cons slot ())) ()))
+              (cons
+                (cons raw
+                  (cons (cons (datum-symbol "cdr") (cons slot ())) ()))
+                (lambda-star-slot-bindings
+                  (cdr names) state (+ index 1) tail))))))))
+
+(define (lambda-star-helper-bindings select require)
+  (cons
+    (cons select (cons (lambda-star-select-expression) ()))
+    (cons
+      (cons require (cons (lambda-star-require-expression) ()))
+      ())))
 
 (define (expand-lambda-star form value-env macro-env)
   (let ((formals (car (cdr form)))
@@ -195,28 +274,38 @@
               (state
                 (datum-symbol
                   (fresh-value-name (datum-symbol "keyword_state")))))
-          (let ((spec
-                  (quote-datum
-                    (if allow
-                        (cons (cons 5 (datum-false))
-                              (lambda-star-spec entries))
-                        (lambda-star-spec entries)))))
-            (expand-expression
-              (cons (datum-symbol "lambda")
-                (cons args
-                  (cons
-                    (cons (datum-symbol "let*")
+          (let ((select (lambda-star-helper-name "keyword_select"))
+                (require (lambda-star-helper-name "keyword_require"))
+                (names (lambda-star-names entries 0)))
+            (let ((spec
+                    (quote-datum
+                      (if allow
+                          (cons (cons 5 (datum-false))
+                                (lambda-star-spec entries))
+                          (lambda-star-spec entries)))))
+              (let ((outer-bindings
                       (cons
+                        (cons state
+                          (cons
+                            (cons (datum-symbol "npl_keyword_parse")
+                              (cons spec (cons args ())))
+                            ()))
+                        (lambda-star-slot-bindings
+                          names state 0
+                          (lambda-star-helper-bindings select require))))
+                    (inner
+                      (cons (datum-symbol "let*")
                         (cons
-                          (cons state
-                            (cons
-                              (cons (datum-symbol "npl_keyword_parse")
-                                (cons spec (cons args ())))
-                              ()))
-                          (lambda-star-bindings entries state 0))
-                        body))
-                    ())))
-              value-env macro-env)))))))
+                          (lambda-star-bindings entries names select require)
+                          body))))
+                (expand-expression
+                  (cons (datum-symbol "lambda")
+                    (cons args
+                      (cons
+                        (cons (datum-symbol "let*")
+                          (cons outer-bindings (cons inner ())))
+                        ())))
+                  value-env macro-env)))))))))
 
 (define (expand-define-star form value-env macro-env)
   (if (null? (cdr form)) (fatal "define* needs a target"))
@@ -237,4 +326,3 @@
                           ())))
                 value-env macro-env))
             (fatal "bad define* target")))))
-

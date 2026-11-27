@@ -201,6 +201,8 @@
                   captures
                   MATCH-FAIL))
              (else (add-capture (pattern-key pattern) path input captures)))))
+        ((datum-keyword? pattern)
+         (if (syntax-equal? pattern input) captures MATCH-FAIL))
         ((datum-vector? pattern)
          (if (datum-vector? input)
              (match-pattern-list (datum-vector-items pattern)
@@ -396,6 +398,7 @@
                  (if (null? capture)
                      (fatal "missing pattern capture")
                      (capture-value capture)))))))
+    ((datum-keyword? template) template)
     ((datum-vector? template)
      (datum-vector
        (clone-template-list (datum-vector-items template)

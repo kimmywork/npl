@@ -76,6 +76,22 @@ static int spec_allows_other_keys(NplVal spec)
     return npl_fixnum_value(npl_car(entry)) == 5;
 }
 
+static int other_key_seen(NplVal keys, NplVal key)
+{
+    while (!npl_is_nil(keys)) {
+        if (keyword_name_equal(npl_car(keys), key)) return 1;
+        keys = npl_cdr(keys);
+    }
+    return 0;
+}
+
+static void note_other_key(NplVal *keys, NplVal key, const char *who)
+{
+    if (other_key_seen(*keys, key))
+        npl_primitive_error(who, "duplicate keyword argument", key);
+    *keys = npl_cons(key, *keys);
+}
+
 NplVal npl_keyword_parse(NplVal spec, NplVal args)
 {
     const char *who = "keyword-arguments";
@@ -87,9 +103,11 @@ NplVal npl_keyword_parse(NplVal spec, NplVal args)
     if (count && !initial) npl_runtime_oom_internal();
     NplVal result = npl_make_vector(count, initial);
     free(initial);
+    NplVal other_keys = npl_nil();
     npl_gc_root(&spec);
     npl_gc_root(&args);
     npl_gc_root(&result);
+    npl_gc_root(&other_keys);
 
     for (int64_t i = 0; i < count; i++)
         npl_vector_set(result, npl_fixnum(i), missing_pair());
@@ -120,6 +138,7 @@ NplVal npl_keyword_parse(NplVal spec, NplVal args)
                         if (!allow_other_keys)
                             npl_primitive_error(who,
                                 "unknown keyword argument", key);
+                        note_other_key(&other_keys, key, who);
                     } else {
                         NplVal present = npl_car(npl_vector_ref(
                             result, npl_fixnum(slot)));
@@ -144,9 +163,23 @@ NplVal npl_keyword_parse(NplVal spec, NplVal args)
         spec = npl_cdr(spec);
     }
 
+    /* #:allow-other-keys without any #:key parameters still accepts and
+     * ignores trailing keyword pairs. */
+    if (allow_other_keys) {
+        while (!npl_is_nil(args) && keyword_value_p(npl_car(args))) {
+            NplVal key = npl_car(args);
+            if (npl_is_nil(npl_cdr(args)))
+                npl_primitive_error(who, "keyword argument has no value",
+                                    key);
+            note_other_key(&other_keys, key, who);
+            args = npl_cdr(npl_cdr(args));
+        }
+    }
+
     if (!npl_is_nil(args))
         npl_primitive_error(who, "too many arguments", args);
 
+    npl_gc_unroot(&other_keys);
     npl_gc_unroot(&result);
     npl_gc_unroot(&args);
     npl_gc_unroot(&spec);

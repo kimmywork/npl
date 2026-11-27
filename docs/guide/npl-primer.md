@@ -550,8 +550,8 @@ example, we can make a version of Goldilocks that remembers its range:
 "Just right!"
 ```
 
-The outer procedure closes over `smallest-ok` and `biggest-ok`; the inner
-procedure remembers them.
+The inner `goldilocks` procedure closes over `smallest-ok` and
+`biggest-ok`; the returned closure remembers them.
 
 Closures can also implement data structures. This is a pair built from
 procedures:

@@ -43,7 +43,7 @@
     (else expression)))
 
 (define (definition-form? form)
-  (if (raw-form? form "define")
+  (if (if (raw-form? form "define") #t (raw-form? form "define*"))
       #t
       (if (raw-form? form "define-values")
           #t
@@ -732,8 +732,8 @@
          ())))
     ((datum-vector? value)
      (datum-vector
-       (expand-quasiquote-list (datum-vector-items value) depth
-                               value-env macro-env)))
+       (expand-quasiquote-vector-items (datum-vector-items value) depth
+                                       value-env macro-env)))
     ((datum-symbol? value) value)
     ((datum-keyword? value) value)
     ((datum-string? value) value)
@@ -744,6 +744,16 @@
     ((pair? value)
      (expand-quasiquote-list value depth value-env macro-env))
     (else value)))
+
+; Vectors have no dotted tail: every element is a separate element.
+(define (expand-quasiquote-vector-items values depth value-env macro-env)
+  (if (null? values)
+      ()
+      (if (pair? values)
+          (cons (expand-quasiquote (car values) depth value-env macro-env)
+                (expand-quasiquote-vector-items
+                  (cdr values) depth value-env macro-env))
+          (fatal "vector quasiquote elements must be a proper list"))))
 
 (define (expand-quasiquote-list values depth value-env macro-env)
   (if (null? values)

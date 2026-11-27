@@ -49,5 +49,12 @@
                (equal? 'f(a . b) '(f a . b)))
   (test-assert "dotted neoteric arguments"
                (equal? 'read(. options) '(read . options)))
+  (test-assert "dot-led neoteric symbol"
+               (equal? '.foo(x) '(.foo x)))
+  (test-assert "empty-list operator"
+               (equal? '{a () b () c} '(() a b c)))
+  (test-assert "cyclic operator terminates"
+               (let ((operator (car '{0 #1=(x . #1#) 1 #1# 2})))
+                 (eq? (cdr (cdr operator)) operator)))
   (finish-tests "srfi-105"))
 (main)

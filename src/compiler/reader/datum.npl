@@ -191,8 +191,19 @@
 (define (curly-length items n)
   (if (null? items) n (curly-length (cdr items) (+ n 1))))
 
-(define (curly-equal? left right)
+(define (curly-pair-seen? left right seen)
+  (if (null? seen)
+      #f
+      (if (if (eq? (car (car seen)) left)
+              (eq? (cdr (car seen)) right)
+              #f)
+          #t
+          (curly-pair-seen? left right (cdr seen)))))
+
+(define (curly-equal-tracked left right seen)
   (cond
+    ((eq? left right) #t)
+    ((if (null? left) (null? right) #f) #t)
     ((if (number? left) (number? right) #f) (= left right))
     ((if (datum-symbol? left) (datum-symbol? right) #f)
      (string=? (datum-symbol-name left) (datum-symbol-name right)))
@@ -204,13 +215,23 @@
      (= (datum-char-code left) (datum-char-code right)))
     ((if (datum-true? left) (datum-true? right) #f) #t)
     ((if (datum-false? left) (datum-false? right) #f) #t)
-    ((if (pair? left) (pair? right) #f)
-     (if (curly-equal? (car left) (car right))
-         (curly-equal? (cdr left) (cdr right))
-         #f))
     ((if (datum-vector? left) (datum-vector? right) #f)
-     (curly-equal? (datum-vector-items left) (datum-vector-items right)))
+     (if (curly-pair-seen? left right seen)
+         #t
+         (curly-equal-tracked
+           (datum-vector-items left) (datum-vector-items right)
+           (cons (cons left right) seen))))
+    ((if (pair? left) (pair? right) #f)
+     (if (curly-pair-seen? left right seen)
+         #t
+         (let ((seen (cons (cons left right) seen)))
+           (if (curly-equal-tracked (car left) (car right) seen)
+               (curly-equal-tracked (cdr left) (cdr right) seen)
+               #f))))
     (else #f)))
+
+(define (curly-equal? left right)
+  (curly-equal-tracked left right ()))
 
 (define (curly-operands items out)
   (if (null? items)

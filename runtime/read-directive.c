@@ -1,11 +1,25 @@
 #include "read-internal.h"
 #include <string.h>
 
-/* Number of elements in a proper list, or -1 if it is improper. */
+static int directive_pair_p(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_PAIR;
+}
+
+/* Number of elements in a proper list, or -1 if it is improper, cyclic, or
+ * implausibly long for a directive argument list. */
 static int directive_count(NplVal list)
 {
+    NplVal slow = list;
+    NplVal fast = list;
+    while (directive_pair_p(fast) && directive_pair_p(npl_cdr(fast))) {
+        slow = npl_cdr(slow);
+        fast = npl_cdr(npl_cdr(fast));
+        if (slow == fast) return -1;
+    }
     int count = 0;
-    while (npl_is_ptr(list) && npl_header(list)->tag == BOX_PAIR) {
+    while (directive_pair_p(list)) {
+        if (count >= 64) return -1;
         count++;
         list = npl_cdr(list);
     }
@@ -20,7 +34,7 @@ static int directive_symbol_name(NplVal value, char *buffer, size_t size)
     if ((size_t)count + 1 >= size) return 0;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t code = npl_string_char_at_internal(symbol, i);
-        if (code >= 0x80) return 0;
+        if (code == 0 || code >= 0x80) return 0;
         buffer[i] = (char)code;
     }
     buffer[count] = '\0';

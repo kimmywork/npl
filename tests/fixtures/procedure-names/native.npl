@@ -7,3 +7,9 @@
 (write (let loop ((n 0)) loop)) (newline)
 (write (let ((slot #f)) (set! slot (lambda (x) x)) slot)) (newline)
 (write (let ((add-one (lambda (x) (+ x 1)))) add-one)) (newline)
+
+(define original (lambda (x) x))
+(define alias original)
+(write alias) (newline)
+(define car-alias car)
+(write car-alias) (newline)

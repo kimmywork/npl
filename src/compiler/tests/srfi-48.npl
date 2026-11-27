@@ -39,5 +39,19 @@
                   (format port "~a" 42)
                   (get-output-string port)))
               "42")
+  (test-error "format fixed rejects non-numeric input"
+              (format "~F" #t))
+  (test-equal "freshline after literal newline"
+              (lambda () (format "a\n~&"))
+              "a\n")
+  (test-equal "freshline after written newline character"
+              (lambda () (format "~s~&" #\newline))
+              "#\\newline\n")
+  (test-equal "freshline after displayed string newline"
+              (lambda () (format "~a~&" "x\n"))
+              "x\n")
+  (test-equal "freshline after nested format"
+              (lambda () (format "~?~&" "x\n" '()))
+              "x\n")
   (finish-tests "srfi-48"))
 (main)

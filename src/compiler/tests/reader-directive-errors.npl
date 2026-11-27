@@ -24,11 +24,26 @@
                              "#!(curly-infix neoteric)\nf(1)")))
                  (equal? (read port) '(f 1))))
   (test-assert "fresh port starts clean"
-               (let ((first (open-input-string "#!(curly-infix neoteric)\n1"))
-                     (second (open-input-string "f(1)")))
+               (let* ((first (open-input-string "#!(curly-infix neoteric)\n1"))
+                      (second (open-input-string "f(1)")))
                  (read first)
-                 (let ((head (read second))
-                       (tail (read second)))
+                 (let* ((head (read second))
+                        (tail (read second)))
                    (if (eq? head 'f) (equal? tail '(1)) #f))))
+  (test-assert "cyclic directive arguments"
+               (read-error? "#!(fold-case . #1=(x . #1#))"))
+  (test-assert "cyclic curly operator terminates"
+               (let ((operator
+                       (car (read (open-input-string
+                                    "{0 #1=(x . #1#) 1 #1# 2}")))))
+                 (eq? (cdr (cdr operator)) operator)))
+  (test-assert "dot-led neoteric suffix"
+               (let ((port (open-input-string
+                             "#!(curly-infix neoteric)\n.foo(1)")))
+                 (equal? (read port) '(.foo 1))))
+  (test-assert "dot-led neoteric in curly"
+               (let ((port (open-input-string
+                             "#!(curly-infix neoteric)\n{.foo(1)}")))
+                 (equal? (read port) '(.foo 1))))
   (finish-tests "reader-directive-errors"))
 (main)

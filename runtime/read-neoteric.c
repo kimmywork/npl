@@ -1,7 +1,12 @@
 #include "read-internal.h"
 
-static int curly_equal(NplVal left, NplVal right)
+/* Cyclic operators cannot be compared structurally forever; fall back to
+ * treating excessively deep comparisons as unequal ($nfx$). */
+#define CURLY_EQUAL_MAX_DEPTH 1024
+
+static int curly_equal_depth(NplVal left, NplVal right, int depth)
 {
+    if (depth > CURLY_EQUAL_MAX_DEPTH) return 0;
     if (left == right) return 1;
     if (!npl_is_ptr(left) || !npl_is_ptr(right))
         return npl_eqv(left, right) == npl_true();
@@ -10,14 +15,15 @@ static int curly_equal(NplVal left, NplVal right)
     if (a->tag != b->tag) return 0;
     switch (a->tag) {
     case BOX_PAIR:
-        return curly_equal(npl_car(left), npl_car(right)) &&
-               curly_equal(npl_cdr(left), npl_cdr(right));
+        return curly_equal_depth(npl_car(left), npl_car(right), depth + 1) &&
+               curly_equal_depth(npl_cdr(left), npl_cdr(right), depth + 1);
     case BOX_VECTOR: {
         NplVector *va = (NplVector *)a;
         NplVector *vb = (NplVector *)b;
         if (va->length != vb->length) return 0;
         for (uint32_t i = 0; i < va->length; i++)
-            if (!curly_equal(va->data[i], vb->data[i])) return 0;
+            if (!curly_equal_depth(va->data[i], vb->data[i], depth + 1))
+                return 0;
         return 1;
     }
     case BOX_STRING:
@@ -29,6 +35,13 @@ static int curly_equal(NplVal left, NplVal right)
         return npl_eqv(left, right) == npl_true();
     }
 }
+
+static int curly_equal(NplVal left, NplVal right)
+{
+    return curly_equal_depth(left, right, 0);
+}
+
+static NplVal neoteric_suffix(NplDatumReader *reader, NplVal value);
 
 static NplVal curly_operands(NplVal items, NplVal reversed)
 {
@@ -69,7 +82,8 @@ NplVal npl_read_curly_infix(NplDatumReader *reader)
                 npl_gc_unroot(&reversed);
                 return npl_cons(npl_symbol("$nfx$", 5), items);
             }
-            NplVal item = npl_read_token_datum(reader, '.');
+            NplVal item = neoteric_suffix(
+                reader, npl_read_token_datum(reader, '.'));
             reversed = npl_cons(item, reversed);
             count++;
             continue;
@@ -101,9 +115,8 @@ NplVal npl_read_curly_infix(NplDatumReader *reader)
     return npl_cons(operator, curly_operands(items, npl_nil()));
 }
 
-NplVal npl_read_datum_inner(NplDatumReader *reader, int allow_eof)
+static NplVal neoteric_suffix(NplDatumReader *reader, NplVal value)
 {
-    NplVal value = npl_read_datum_plain(reader, allow_eof);
     if (!reader->neoteric) return value;
     for (;;) {
         int next = npl_reader_peek(reader);
@@ -125,7 +138,8 @@ NplVal npl_read_datum_inner(NplDatumReader *reader, int allow_eof)
                     value = npl_cons(value, tail);
                     continue;
                 }
-                NplVal first = npl_read_token_datum(reader, '.');
+                NplVal first = neoteric_suffix(
+                    reader, npl_read_token_datum(reader, '.'));
                 args = npl_cons(first, npl_read_list_datum(reader, '('));
             } else {
                 args = npl_read_list_datum(reader, '(');
@@ -149,3 +163,7 @@ NplVal npl_read_datum_inner(NplDatumReader *reader, int allow_eof)
     return value;
 }
 
+NplVal npl_read_datum_inner(NplDatumReader *reader, int allow_eof)
+{
+    return neoteric_suffix(reader, npl_read_datum_plain(reader, allow_eof));
+}

@@ -162,13 +162,17 @@
                                    value))
           (else (lambda (frame) (error "eval: immutable binding"))))))))
 
-(define (eval-global-definition cell value name)
+(define (eval-name-definition name compiled)
   (lambda (frame)
-    (let ((value (value frame)))
+    (let ((value (compiled frame)))
       (if (procedure? value)
           (npl_closure_set_name value (string->symbol name))
           #f)
-      (set-car! cell value))))
+      value)))
+
+(define (eval-global-definition cell value name)
+  (lambda (frame)
+    (set-car! cell (value frame))))
 
 ; Definitions reach the compiler only at top level: the frontend turns
 ; internal ones into letrec* (core-body-expression).
@@ -181,18 +185,25 @@
     (else (lambda (frame) (error "eval: immutable environment")))))
 
 (define (eval-compile-define form scope environment)
-  (eval-compile-definition
-    (cdr (car (cdr form)))
-    (eval-compile (car (cdr (cdr form))) scope environment)
-    scope environment))
+  (let ((name (cdr (car (cdr form))))
+        (expression (car (cdr (cdr form)))))
+    (eval-compile-definition
+      name
+      (eval-name-local-initializer
+        name expression
+        (eval-compile expression scope environment))
+      scope environment)))
 
 (define (eval-compile-define-function form scope environment)
   (let ((signature (car (cdr form))))
-    (eval-compile-definition
-      (cdr (car signature))
-      (eval-compile-lambda-parts (cdr signature) (car (cdr (cdr form)))
-                                 scope environment)
-      scope environment)))
+    (let ((name (cdr (car signature))))
+      (eval-compile-definition
+        name
+        (eval-name-definition
+          name
+          (eval-compile-lambda-parts (cdr signature) (car (cdr (cdr form)))
+                                     scope environment))
+        scope environment))))
 
 ; ---------------- procedures ----------------
 

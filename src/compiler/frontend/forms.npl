@@ -139,7 +139,8 @@
              (lower-quasiquote content (- depth 1))))))
     ((datum-vector? value)
      (call-node "list->vector"
-       (cons (lower-quasiquote-list (datum-vector-items value) depth) ())))
+       (cons (lower-quasiquote-vector-items (datum-vector-items value) depth)
+             ())))
     ((datum-symbol? value) (quote-node value))
     ((datum-keyword? value) (cons 205 (datum-keyword-name value)))
     ((datum-string? value) (quote-node value))
@@ -149,6 +150,19 @@
     ((datum-false? value) (quote-node value))
     ((pair-shape? value) (lower-quasiquote-list value depth))
     (else (quote-node value))))
+
+; Vectors have no dotted tail: every element is a separate element.
+(define (lower-quasiquote-vector-items values depth)
+  (if (null? values)
+      (quote-node ())
+      (if (pair-shape? values)
+          (let ((item (lower-quasiquote (car values) depth)))
+            (let ((rest (lower-quasiquote-vector-items (cdr values) depth)))
+              (if (splice-node? item)
+                  (call-node "append"
+                    (cons (car (cdr item)) (cons rest ())))
+                  (call-node "cons" (cons item (cons rest ()))))))
+          (fatal "vector quasiquote elements must be a proper list"))))
 
 (define (lower-quasiquote-list values depth)
   (if (null? values)

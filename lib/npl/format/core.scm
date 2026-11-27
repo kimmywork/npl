@@ -198,7 +198,7 @@
              ))
             (else
              (error
-              (format "FORMAT: ~F requires a number or a string, got ~s" number-or-string)))
+              (format #f "FORMAT: ~~F requires a number or a string, got ~s" number-or-string)))
             ))
 
          (define documentation-string
@@ -238,14 +238,15 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
              (anychar-dispatch
               (lambda (pos arglist last-was-newline)
                 (if (>= pos length-of-format-string)
-                  arglist ; return unused args
+                  (cons arglist last-was-newline) ; unused args + newline state
                   (let ( (char (string-ref format-strg pos)) )
                     (cond
                      ((eqv? char #\~)
                       (tilde-dispatch (+ pos 1) arglist last-was-newline))
                      (else
                       (write-char char port)
-                      (anychar-dispatch (+ pos 1) arglist #f)
+                      (anychar-dispatch (+ pos 1) arglist
+                                        (eqv? char #\newline))
                       ))
                     ))
              )) ; end anychar-dispatch
@@ -265,7 +266,7 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
                 (cond
                  ((>= pos length-of-format-string)
                   (write-char #\~ port) ; tilde at end of string is just output
-                  arglist ; return unused args
+                  (cons arglist last-was-newline)
                   )
                  (else
                   (case (char-upcase (string-ref format-strg pos))
@@ -281,17 +282,13 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
                      (require-an-arg arglist)
                      (let ( (whatever (car arglist)) )
                         (write whatever port)
-                        (anychar-dispatch (+ pos 1)
-                                          (cdr arglist)
-                                          (has-newline? whatever last-was-newline))
+                        (anychar-dispatch (+ pos 1) (cdr arglist) #f)
                      ))
                     ((#\W)
                      (require-an-arg arglist)
                      (let ( (whatever (car arglist)) )
                         (write-shared whatever port)  ;; srfi-38
-                        (anychar-dispatch (+ pos 1)
-                                          (cdr arglist)
-                                          (has-newline? whatever last-was-newline))
+                        (anychar-dispatch (+ pos 1) (cdr arglist) #f)
                      ))
                     ((#\D)       ; Decimal
                      (require-an-arg arglist)
@@ -346,8 +343,10 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
                      )
                     ((#\F)
                      (require-an-arg arglist)
-                     (display (format-fixed (car arglist) 0 #f) port)
-                     (anychar-dispatch (+ pos 1) (cdr arglist) #f)
+                     (let ((text (format-fixed (car arglist) 0 #f)))
+                       (display text port)
+                       (anychar-dispatch (+ pos 1) (cdr arglist)
+                                         (has-newline? text last-was-newline)))
                      )
                     ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9) ;; gather "~w[,d]F" w and d digits
                      (let loop ( (index (+ pos 1))
@@ -357,7 +356,7 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
                                )
                        (if (>= index length-of-format-string)
                            (error
-                            (format "FORMAT: improper numeric format directive in ~s" format-strg))
+                            (format #f "FORMAT: improper numeric format directive in ~s" format-strg))
                            (let ( (next-char (string-ref format-strg index)) )
                              (cond
                               ((char-numeric? next-char)
@@ -377,8 +376,12 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
                                                   #f
                                                   (string->number (list->string (reverse d-digits)))))
                                     )
-                                 (display (format-fixed (car arglist) width digits) port)
-                                 (anychar-dispatch (+ index 1) (cdr arglist) #f))
+                                 (let ((text (format-fixed (car arglist)
+                                                           width digits)))
+                                   (display text port)
+                                   (anychar-dispatch
+                                     (+ index 1) (cdr arglist)
+                                     (has-newline? text last-was-newline))))
                                )
                               ((char=? next-char #\,)
                                (if in-width?
@@ -387,31 +390,32 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
                                          d-digits
                                          #f)
                                    (error
-                                    (format "FORMAT: too many commas in directive ~s" format-strg)))
+                                    (format #f "FORMAT: too many commas in directive ~s" format-strg)))
                                )
                               (else
-                               (error (format "FORMAT: ~~w.dF directive ill-formed in ~s" format-strg))))))
+                               (error (format #f "FORMAT: ~~w.dF directive ill-formed in ~s" format-strg))))))
                      ))
                     ((#\? #\K)       ; indirection -- take next arg as format string
                      (cond           ;  and following arg as list of format args
                       ((< (length arglist) 2)
                        (error
-                        (format "FORMAT: less arguments than specified for ~~?: ~s" arglist))
+                        (format #f "FORMAT: less arguments than specified for ~~?: ~s" arglist))
                        )
                       ((not (string? (car arglist)))
                        (error
-                        (format "FORMAT: ~~? requires a string: ~s" (car arglist)))
+                        (format #f "FORMAT: ~~? requires a string: ~s" (car arglist)))
                        )
                       (else
-                       (format-help (car arglist) (cadr arglist))
-                       (anychar-dispatch (+ pos 1) (cddr arglist) #f)
+                       (let ((nested (format-help (car arglist) (cadr arglist))))
+                         (anychar-dispatch (+ pos 1) (cddr arglist)
+                                           (cdr nested)))
                      )))
                     ((#\H)      ; Help
                      (display documentation-string port)
                      (anychar-dispatch (+ pos 1) arglist #t)
                      )
                     (else
-                     (error (format "FORMAT: unknown tilde escape: ~s"
+                     (error (format #f "FORMAT: unknown tilde escape: ~s"
                                     (string-ref format-strg pos))))
                     )))
                 )) ; end tilde-dispatch
@@ -422,11 +426,12 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
             )) ; end format-help
 
         ; format main
-        (let ( (unused-args (format-help format-string args)) )
+        (let ( (result (format-help format-string args)) )
+          (let ( (unused-args (car result)) )
           (if (not (null? unused-args))
               (error
-               (format "FORMAT: unused arguments ~s" unused-args)))
-          (return-value))
+               (format #f "FORMAT: unused arguments ~s" unused-args)))
+          (return-value)))
 
       )) ; end letrec, if
 )))  ; end format

@@ -150,6 +150,13 @@ options; they do not select a language. Unknown directives are errors. Directive
 consecutive and apply from their position onward; compiler adjacencies are
 captured per token, so a mid-file directive does not rewrite earlier data.
 
+### SRFI 89 note
+
+Positional parameters consume only non-keyword arguments, so named
+arguments may appear before later positional parameters. This is a
+Guile-compatible extension; strict SRFI 89 positionals consume the next
+argument unconditionally.
+
 ### SRFI 105 note
 
 Both readers implement curly-infix, neoteric, and dotted forms. A mixed
@@ -169,7 +176,8 @@ R7RS code that uses such an identifier as a symbol must spell it with bars,
 `|foo:|`. The former `#!no-srfi-88` spelling is gone; use a fresh
 source/port for the default. This keeps existing R7RS identifiers such as
 import prefixes (`b:`) working by default while supporting SRFI 88 source
-when requested.
+when requested. `write` always emits `#:name`; keywords whose names contain
+delimiters are construction-only until a quoted keyword syntax exists.
 
 ## What "frozen" means
 
