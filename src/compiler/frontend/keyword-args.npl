@@ -191,7 +191,7 @@
          (cons present
            (cons raw
              (cons (cons (lambda-star-marked-symbol
-                           mark "npl_keyword_missing")
+                           mark "$npl-primitive-keyword-missing$")
                      (cons (quote-datum mark var)
                        (cons (datum-false) ())))
                    ())))))
@@ -210,7 +210,7 @@
          (cons present
            (cons raw
              (cons (cons (lambda-star-marked-symbol
-                           mark "npl_keyword_missing")
+                           mark "$npl-primitive-keyword-missing$")
                      (cons (quote-datum mark
                              (lambda-star-entry-payload entry))
                        (cons (datum-true) ())))
@@ -241,15 +241,15 @@
               (raw (lambda-star-name-raw name)))
           (cons
             (cons slot
-              (cons (cons (lambda-star-marked-symbol mark "vector-ref")
+              (cons (cons (lambda-star-marked-symbol mark "$npl-primitive-vector-ref$")
                           (cons state (cons index ()))) ()))
             (cons
               (cons present
-                (cons (cons (lambda-star-marked-symbol mark "car")
+                (cons (cons (lambda-star-marked-symbol mark "$npl-primitive-car$")
                             (cons slot ())) ()))
               (cons
                 (cons raw
-                  (cons (cons (lambda-star-marked-symbol mark "cdr")
+                  (cons (cons (lambda-star-marked-symbol mark "$npl-primitive-cdr$")
                               (cons slot ())) ()))
                 (lambda-star-slot-bindings
                   (cdr names) state (+ index 1) tail mark))))))))
@@ -282,7 +282,7 @@
                         (cons state
                           (cons
                             (cons (lambda-star-marked-symbol
-                                    mark "npl_keyword_parse")
+                                    mark "$npl-primitive-keyword-parse$")
                               (cons spec (cons args ())))
                             ()))
                         (lambda-star-slot-bindings
@@ -300,8 +300,11 @@
                           (cons outer-bindings (cons inner ())))
                         ())))
                   (lambda-star-protect
-                    '("car" "cdr" "vector-ref"
-                      "npl_keyword_parse" "npl_keyword_missing")
+                    '("$npl-primitive-car$"
+                      "$npl-primitive-cdr$"
+                      "$npl-primitive-vector-ref$"
+                      "$npl-primitive-keyword-parse$"
+                      "$npl-primitive-keyword-missing$")
                     mark value-env)
                   macro-env)))))))))
 (define (expand-define-star form value-env macro-env)

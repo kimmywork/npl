@@ -15,4 +15,5 @@
   "hash-tables" "match" "match-extensions" "srfi-core" "srfi-i2-i3"
   "reader-directives" "reader-directives-parameterized"
   "reader-directive-midfile" "reader-fold-case"
-  "keyword-arguments" "procedure-names" "lambda-star-imports")
+  "keyword-arguments" "procedure-names" "lambda-star-imports"
+  "lambda-star-rename" "lambda-star-except" "lambda-star-prefix")

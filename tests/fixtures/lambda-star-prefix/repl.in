@@ -1,0 +1,5 @@
+(import (prefix (scheme base) b:) (scheme write))
+
+(write ((lambda* (x) x) 42)) (b:newline)
+(write (b:guard (condition (#t 'raised)) ((lambda* (x) x)))) (b:newline)
+(exit)

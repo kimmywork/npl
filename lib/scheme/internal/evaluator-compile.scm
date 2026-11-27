@@ -116,11 +116,27 @@
     (let ((value (car cell)))
       (if (eq? value EVAL-UNBOUND) (eval-unbound cell) value))))
 
+; Internal lambda* helpers keep primitive identity across the evaluator's
+; name-based global cells; user definitions of car or npl_keyword_parse
+; cannot redirect them.
+(define (eval-internal-primitive name)
+  (cond
+    ((string=? name "$npl-primitive-car$") car)
+    ((string=? name "$npl-primitive-cdr$") cdr)
+    ((string=? name "$npl-primitive-vector-ref$") vector-ref)
+    ((string=? name "$npl-primitive-keyword-parse$") npl_keyword_parse)
+    ((string=? name "$npl-primitive-keyword-missing$") npl_keyword_missing)
+    (else #f)))
+
 (define (eval-compile-reference name scope environment)
-  (let ((address (eval-scope-lookup name scope 0)))
-    (if address
-        (eval-local-reference (car address) (cdr address))
-        (eval-global-reference (eval-environment-cell environment name)))))
+  (let ((primitive (eval-internal-primitive name)))
+    (if primitive
+        (eval-constant primitive)
+        (let ((address (eval-scope-lookup name scope 0)))
+          (if address
+              (eval-local-reference (car address) (cdr address))
+              (eval-global-reference
+                (eval-environment-cell environment name)))))))
 
 (define (eval-global-assignment cell value)
   (lambda (frame)
@@ -314,9 +330,11 @@
 ; The cell of an operator that names a global variable, else #f.
 (define (eval-global-operator-cell operator scope environment)
   (if (eval-core-symbol? operator)
-      (if (eval-scope-lookup (cdr operator) scope 0)
+      (if (eval-internal-primitive (cdr operator))
           #f
-          (eval-environment-cell environment (cdr operator)))
+          (if (eval-scope-lookup (cdr operator) scope 0)
+              #f
+              (eval-environment-cell environment (cdr operator))))
       #f))
 
 (define (eval-application-of operator operands scope environment)

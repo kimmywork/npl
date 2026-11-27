@@ -8,6 +8,7 @@
           (scheme file)
           (scheme write)
           (only (npl internal primitive)
-                npl_freeze_literal npl_closure_set_name string->keyword)
+                npl_freeze_literal npl_closure_set_name string->keyword
+                npl_keyword_parse npl_keyword_missing)
           (npl internal frontend))
   (include "../ordered-chain.scm" "evaluator-compile.scm" "evaluator-session.scm"))
