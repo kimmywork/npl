@@ -213,7 +213,7 @@ result and zero/multiple values arrive as the runtime values object. Full R7RS
 `call/cc` remains undelimited: installing the default prompt does not silently
 change existing `call/cc` behavior.
 
-Remaining T4-A/T4-B limits:
+Remaining T4-C+ limits:
 
 - evaluated user closures are direct-style native procedures, not
   compiler-emitted CPS segments. The shared runtime continuation objects,
