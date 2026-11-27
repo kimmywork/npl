@@ -1,0 +1,17 @@
+id: c-no-win32-exitcode-8bit-mask
+valid:
+  - |
+    int wait_child(HANDLE p, int *exit_code) {
+        DWORD code = 1;
+        GetExitCodeProcess(p, &code);
+        *exit_code = (int)code;
+        return 0;
+    }
+invalid:
+  - |
+    int wait_child(HANDLE p, int *exit_code) {
+        DWORD code = 1;
+        GetExitCodeProcess(p, &code);
+        *exit_code = (int)(code & 0xFF);
+        return 0;
+    }

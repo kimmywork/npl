@@ -1,0 +1,23 @@
+id: scheme-no-unguarded-backslash-sep
+valid:
+  - |
+    (define (path-separator? byte)
+      (if (= byte 47)
+          #t
+          (if (= byte 92) (npl_platform_feature "windows") #f)))
+  - |
+    (define (path-separator? ch)
+      (or (char=? ch #\/)
+          (and (platform-feature? 'windows) (char=? ch #\\))))
+  - |
+    (define (npli-path-separator? ch)
+      (cond-expand
+        (windows (or (char=? ch #\/) (char=? ch #\\)))
+        (else (char=? ch #\/))))
+invalid:
+  - |
+    (define (path-separator? byte)
+      (if (= byte 47) #t (= byte 92)))
+  - |
+    (define (path-separator? ch)
+      (or (char=? ch #\/) (char=? ch #\\)))

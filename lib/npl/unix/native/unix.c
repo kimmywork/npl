@@ -99,7 +99,7 @@ NplVal npl_unix_posix_error_p(NplVal value)
 NplVal npl_unix_posix_error_name(NplVal value)
 {
     NplVector *record;
-    if (!npl_unix_posix_error_p(value)) return npl_false();
+    if (npl_is_false(npl_unix_posix_error_p(value))) return npl_false();
     record = (NplVector *)npl_header(value);
     if (npl_is_nil(record->data[3]) || !npl_is_ptr(record->data[3]))
         return npl_false();
@@ -109,7 +109,7 @@ NplVal npl_unix_posix_error_name(NplVal value)
 NplVal npl_unix_posix_error_message(NplVal value)
 {
     NplVector *record;
-    if (!npl_unix_posix_error_p(value)) return npl_false();
+    if (npl_is_false(npl_unix_posix_error_p(value))) return npl_false();
     record = (NplVector *)npl_header(value);
     return record->data[2];
 }
@@ -117,23 +117,27 @@ NplVal npl_unix_posix_error_message(NplVal value)
 static NplVal unix_stat_fields(const struct stat *info)
 {
     NplVal fields[16];
-    fields[0] = npl_fixnum((int64_t)info->st_dev);
-    fields[1] = npl_fixnum((int64_t)info->st_ino);
+    for (int i = 0; i < 16; i++) fields[i] = npl_nil();
+    for (int i = 0; i < 16; i++) npl_gc_root(&fields[i]);
+    fields[0] = npl_ffi_from_int64((int64_t)info->st_dev);
+    fields[1] = npl_ffi_from_uint64((uint64_t)info->st_ino);
     fields[2] = npl_fixnum((int64_t)info->st_mode);
-    fields[3] = npl_fixnum((int64_t)info->st_nlink);
-    fields[4] = npl_fixnum((int64_t)info->st_uid);
-    fields[5] = npl_fixnum((int64_t)info->st_gid);
-    fields[6] = npl_fixnum((int64_t)info->st_rdev);
-    fields[7] = npl_fixnum((int64_t)info->st_size);
-    fields[8] = npl_fixnum((int64_t)info->st_blksize);
-    fields[9] = npl_fixnum((int64_t)info->st_blocks);
-    fields[10] = npl_fixnum((int64_t)STAT_ATIM(*info).tv_sec);
+    fields[3] = npl_ffi_from_uint64((uint64_t)info->st_nlink);
+    fields[4] = npl_ffi_from_uint64((uint64_t)info->st_uid);
+    fields[5] = npl_ffi_from_uint64((uint64_t)info->st_gid);
+    fields[6] = npl_ffi_from_int64((int64_t)info->st_rdev);
+    fields[7] = npl_ffi_from_int64((int64_t)info->st_size);
+    fields[8] = npl_ffi_from_int64((int64_t)info->st_blksize);
+    fields[9] = npl_ffi_from_int64((int64_t)info->st_blocks);
+    fields[10] = npl_ffi_from_int64((int64_t)STAT_ATIM(*info).tv_sec);
     fields[11] = npl_fixnum((int64_t)STAT_ATIM(*info).tv_nsec);
-    fields[12] = npl_fixnum((int64_t)STAT_MTIM(*info).tv_sec);
+    fields[12] = npl_ffi_from_int64((int64_t)STAT_MTIM(*info).tv_sec);
     fields[13] = npl_fixnum((int64_t)STAT_MTIM(*info).tv_nsec);
-    fields[14] = npl_fixnum((int64_t)STAT_CTIM(*info).tv_sec);
+    fields[14] = npl_ffi_from_int64((int64_t)STAT_CTIM(*info).tv_sec);
     fields[15] = npl_fixnum((int64_t)STAT_CTIM(*info).tv_nsec);
-    return npl_make_vector(16, fields);
+    NplVal result = npl_make_vector(16, fields);
+    for (int i = 15; i >= 0; i--) npl_gc_unroot(&fields[i]);
+    return result;
 }
 
 NplVal npl_unix_file_info(NplVal path_value, NplVal follow_value)

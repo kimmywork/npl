@@ -1,0 +1,15 @@
+id: scheme-no-timegm-in-zone-offset
+language: scheme
+severity: error
+message: "Do not call npl_time_timegm_prim inside local-tm-zone-offset."
+note: >-
+  Windows UCRT _mkgmtime mutates tm_isdst in place and fails for pre-1970 local
+  dates (e.g. UTC 0 in UTC-05:00). Derive the local UTC offset by comparing local
+  and UTC struct tm fields from npl_time_gmtime_prim instead.
+files:
+  - lib/npl/time.sld
+rule:
+  pattern: (npl_time_timegm_prim $$$ARGS)
+  inside:
+    pattern: (define (local-tm-zone-offset $$$PARAMS) $$$BODY)
+    stopBy: end

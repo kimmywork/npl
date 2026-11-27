@@ -14,6 +14,27 @@
 #include <errno.h>
 #include <time.h>
 
+#ifdef _WIN32
+static struct tm *npl_gmtime(const time_t *seconds, struct tm *out)
+{
+    return gmtime_s(out, seconds) == 0 ? out : NULL;
+}
+
+static struct tm *npl_localtime(const time_t *seconds, struct tm *out)
+{
+    return localtime_s(out, seconds) == 0 ? out : NULL;
+}
+
+static time_t npl_timegm(struct tm *value)
+{
+    return _mkgmtime(value);
+}
+#else
+#define npl_gmtime(sec, out) gmtime_r((sec), (out))
+#define npl_localtime(sec, out) localtime_r((sec), (out))
+#define npl_timegm(tm_ptr) timegm((tm_ptr))
+#endif
+
 static struct timespec *time_view(NplVal value, const char *who)
 {
     return (struct timespec *)npl_ffi_struct_pointer(value, "struct timespec", who);
@@ -49,7 +70,7 @@ NplVal npl_time_gmtime_prim(NplVal value, NplVal out)
 {
     struct timespec *stamp = time_view(value, "time-utc->date");
     time_t seconds = (time_t)stamp->tv_sec;
-    return npl_fixnum(gmtime_r(&seconds, time_tm_view(out, "time-utc->date"))
+    return npl_fixnum(npl_gmtime(&seconds, time_tm_view(out, "time-utc->date"))
                           ? 0 : -1);
 }
 
@@ -58,7 +79,7 @@ NplVal npl_time_localtime_prim(NplVal value, NplVal out)
     struct timespec *stamp = time_view(value, "time-utc->date");
     time_t seconds = (time_t)stamp->tv_sec;
     return npl_fixnum(
-        localtime_r(&seconds, time_tm_view(out, "time-utc->date")) ? 0 : -1);
+        npl_localtime(&seconds, time_tm_view(out, "time-utc->date")) ? 0 : -1);
 }
 
 NplVal npl_time_mktime_prim(NplVal value, NplVal out)
@@ -81,7 +102,7 @@ NplVal npl_time_timegm_prim(NplVal value, NplVal out)
     time_t seconds;
     /* Same POSIX contract as mktime above. */
     errno = 0;
-    seconds = timegm(time_tm_view(value, "date->time-utc"));
+    seconds = npl_timegm(time_tm_view(value, "date->time-utc"));
     if (seconds == (time_t)-1 && errno != 0) return npl_fixnum(-1);
     stamp->tv_sec = seconds;
     stamp->tv_nsec = 0;

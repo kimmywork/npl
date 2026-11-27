@@ -1,0 +1,32 @@
+id: c-no-win32-exitcode-8bit-mask
+language: c
+severity: error
+message: "Do not truncate Windows GetExitCodeProcess DWORD exit codes with & 0xFF / & 255."
+note: >-
+  Windows process exit codes are 32-bit DWORDs (e.g. 256 or NTSTATUS 0xC0000135).
+  Masking the low 8 bits turns non-zero exit codes like 256 or 0xC0000000 into 0.
+files:
+  - runtime/**/*.c
+  - lib/**/*.c
+rule:
+  kind: binary_expression
+  any:
+    - pattern:
+        context: "void _f(void) { (void)($CODE & 0xFF); }"
+        selector: binary_expression
+    - pattern:
+        context: "void _f(void) { (void)($CODE & 0xff); }"
+        selector: binary_expression
+    - pattern:
+        context: "void _f(void) { (void)($CODE & 255); }"
+        selector: binary_expression
+  inside:
+    kind: function_definition
+    stopBy: end
+    has:
+      kind: call_expression
+      stopBy: end
+      has:
+        field: function
+        kind: identifier
+        regex: ^GetExitCodeProcess$

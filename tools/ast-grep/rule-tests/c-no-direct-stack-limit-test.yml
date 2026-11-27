@@ -1,0 +1,17 @@
+id: c-no-direct-stack-limit
+valid:
+  - |
+    void f(uintptr_t v) {
+        uintptr_t cur = NPL_STACK_LIMIT_GET();
+        NPL_STACK_LIMIT_SET(v);
+        (void)NPL_GC_STOP_PTR();
+    }
+invalid:
+  - |
+    void f(void) {
+        uintptr_t cur = npl_stack_limit;
+    }
+  - |
+    void f(void) {
+        npl_gc_stop_requested = 1;
+    }

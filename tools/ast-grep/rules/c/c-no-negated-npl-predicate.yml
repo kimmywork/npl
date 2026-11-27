@@ -1,0 +1,18 @@
+id: c-no-negated-npl-predicate
+language: c
+severity: error
+message: "Do not negate an NplVal predicate result with !; npl_false() is a nonzero immediate."
+note: >-
+  NPL booleans are tagged immediates, so !npl_foo_p(x) is always false even
+  when the predicate returned npl_false(). Test the result with
+  npl_is_false(...), or compare it explicitly against npl_true().
+files:
+  - runtime/**/*.c
+  - lib/**/native/*.c
+ignores:
+  - runtime/*_test.c
+rule:
+  pattern: '!$PRED($$$ARGS)'
+constraints:
+  PRED:
+    regex: ^npl_[a-z0-9_]*_p$

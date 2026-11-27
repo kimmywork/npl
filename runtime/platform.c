@@ -41,6 +41,13 @@ NplVal npl_platform_feature(NplVal name_value)
         return npl_false();
 #endif
     }
+    if (platform_name_is(bytes, length, "windows")) {
+#if defined(_WIN32)
+        return npl_true();
+#else
+        return npl_false();
+#endif
+    }
     if (platform_name_is(bytes, length, "aarch64") ||
         platform_name_is(bytes, length, "arm64")) {
 #if defined(__aarch64__) || defined(__arm64__)
@@ -96,6 +103,9 @@ NplVal npl_platform_features(void)
 #if defined(__linux__)
     result = npl_cons(npl_symbol("linux", 5), result);
 #endif
+#if defined(_WIN32)
+    result = npl_cons(npl_symbol("windows", 7), result);
+#endif
 #if defined(__aarch64__) || defined(__arm64__)
     result = npl_cons(npl_symbol("aarch64", 7), result);
 #endif
@@ -124,6 +134,8 @@ NplVal npl_platform_triple(void)
     return npl_string("aarch64-unknown-linux-gnu", 25);
 #elif defined(__linux__) && (defined(__x86_64__) || defined(_M_X64))
     return npl_string("x86_64-unknown-linux-gnu", 24);
+#elif defined(_WIN32) && (defined(__x86_64__) || defined(_M_X64))
+    return npl_string("x86_64-pc-windows-gnu", 21);
 #else
     return npl_string("unknown-unknown-unknown", 23);
 #endif

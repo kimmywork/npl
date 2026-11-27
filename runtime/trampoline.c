@@ -227,7 +227,7 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
     context.root_count = npl_gc_root_count_internal();
     context.stack_bottom = stack_bottom;
     context.escape_depth = CTX->escape_depth;
-    context.stack_limit = npl_stack_limit;
+    context.stack_limit = NPL_STACK_LIMIT_GET();
     context.saved_segment = CTX->current_segment;
 
     NplVal result = npl_nil();
@@ -237,7 +237,7 @@ NplVal npl_trampoline(NplGenericFunction function, NplVal environment,
          * Any shared-object lock held by the discarded frames must be
          * released before the handler can run (shared-lock.c). */
         npl_shared_release_all();
-        npl_stack_limit = context.stack_limit;
+        NPL_STACK_LIMIT_SET(context.stack_limit);
         CTX->current_segment = context.saved_segment;
         function = context.function;
         environment = context.environment;
@@ -364,7 +364,7 @@ NplVal npl_call_cc(NplVal procedure)
     NplEscapeFrame *frame = &CTX->escape_frames[index];
     frame->id = CTX->next_escape_id++;
     frame->saved_tail_context = CTX->tail_context;
-    frame->saved_stack_limit = npl_stack_limit;
+    frame->saved_stack_limit = NPL_STACK_LIMIT_GET();
 
     NplVal result;
     if (setjmp(frame->jump) == 0) {
@@ -375,7 +375,7 @@ NplVal npl_call_cc(NplVal procedure)
     } else {
         npl_shared_release_all();
         result = frame->value;
-        npl_stack_limit = frame->saved_stack_limit;
+        NPL_STACK_LIMIT_SET(frame->saved_stack_limit);
     }
 
     CTX->escape_depth = index;

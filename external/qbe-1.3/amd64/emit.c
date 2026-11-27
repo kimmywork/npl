@@ -197,7 +197,10 @@ emitcon(Con *con, E *e)
 		p = l[0] == '"' ? "" : T.assym;
 		if (con->sym.type == SThr) {
 			assert(!T.apple);
-			fprintf(e->f, "%%fs:%s%s@tpoff", p, l);
+			if (T.windows)
+				fprintf(e->f, "%s%s@SECREL32", p, l);
+			else
+				fprintf(e->f, "%%fs:%s%s@tpoff", p, l);
 		} else {
 			assert((con->sym.type & ~SExt) == SGlo);
 			fprintf(e->f, "%s%s", p, l);
@@ -544,6 +547,13 @@ emitins(Ins i, E *e)
 				regtoa(i.to.val, SLong));
 			break;
 		}
+		if (T.windows && (con->sym.type & SThr)) {
+			if (sym[0] == '\0') {
+				emitf("movq %%gs:88, %L=", &i, e);
+				break;
+			}
+			die("unlowered thread address on amd64_win");
+		}
 		if (T.windows && con->sym.type != SGlo)
 			die("extern/thread unsupported on amd64_win");
 		switch (con->sym.type) {
@@ -592,7 +602,7 @@ emitins(Ins i, E *e)
 			emitcon(con, e);
 			if (con->type == CAddr
 			&& (con->sym.type & SExt)
-			&& !T.apple)
+			&& !T.apple && !T.windows)
 				fprintf(e->f, "@plt");
 			fprintf(e->f, "\n");
 			break;

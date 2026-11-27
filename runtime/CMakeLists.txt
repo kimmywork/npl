@@ -45,6 +45,12 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/virtual-thread-root.c
   ${RUNTIME_SRC_DIR}/write.c
 )
+if(WIN32)
+  target_sources(npl_runtime_objects PRIVATE ${RUNTIME_SRC_DIR}/os-win32.c)
+  # QBE amd64_win frames do not emit PE .pdata/.xdata unwind tables, so
+  # longjmp across compiled frames must use non-SEH _setjmp(buf, NULL).
+  target_compile_definitions(npl_runtime_objects PRIVATE __USE_MINGW_SETJMP_NON_SEH)
+endif()
 
 target_include_directories(npl_runtime_objects PUBLIC ${RUNTIME_SRC_DIR})
 target_compile_options(npl_runtime_objects PRIVATE
@@ -56,7 +62,11 @@ set_target_properties(npl_runtime_objects PROPERTIES POSITION_INDEPENDENT_CODE O
 add_library(npl_runtime STATIC $<TARGET_OBJECTS:npl_runtime_objects>)
 target_include_directories(npl_runtime PUBLIC ${RUNTIME_SRC_DIR})
 # libm (inexact math); a separate library on Linux, part of libSystem on macOS.
-target_link_libraries(npl_runtime PUBLIC m)
+if(WIN32)
+  target_link_libraries(npl_runtime PUBLIC m -Wl,-Bstatic pthread -Wl,-Bdynamic psapi)
+else()
+  target_link_libraries(npl_runtime PUBLIC m)
+endif()
 set_target_properties(npl_runtime PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime
 )
@@ -107,6 +117,13 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/virtual-thread-root.c
   ${RUNTIME_SRC_DIR}/write.c
 )
+if(WIN32)
+  target_sources(npl_runtime_shared_objects PRIVATE ${RUNTIME_SRC_DIR}/os-win32.c)
+  target_compile_definitions(npl_runtime_shared_objects PRIVATE
+    NPL_RUNTIME_SHARED_DLL
+    __USE_MINGW_SETJMP_NON_SEH
+  )
+endif()
 target_include_directories(npl_runtime_shared_objects PUBLIC ${RUNTIME_SRC_DIR})
 target_compile_options(npl_runtime_shared_objects PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic
@@ -114,32 +131,63 @@ target_compile_options(npl_runtime_shared_objects PRIVATE
 )
 # The old NPL_RUNTIME_SHARED C macro selected who defined npl_stack_limit /
 # npl_opaque_zero.  The executable now owns both slots in every link mode
-# (program.npl), so the runtime needs no C-side link-mode split.
+# (program.npl); on Windows, npl_runtime_slots.o binds those executable-owned
+# slots into libnpl_runtime.dll before main() runs.
 set_target_properties(npl_runtime_shared_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(npl_runtime_shared SHARED $<TARGET_OBJECTS:npl_runtime_shared_objects>)
 target_include_directories(npl_runtime_shared PUBLIC ${RUNTIME_SRC_DIR})
-target_link_libraries(npl_runtime_shared PUBLIC m)
-if(APPLE)
-  # The generated executable owns the npl_stack_limit TLS slot and the
-  # npl_opaque_zero data slot (program.npl emits them).  The shared runtime
-  # declares both extern and resolves them through the loader; every native
-  # package reaches the same slots, never independent copies.
-  target_link_options(npl_runtime_shared PRIVATE -undefined dynamic_lookup)
-endif()
-set_target_properties(npl_runtime_shared PROPERTIES
-  OUTPUT_NAME npl_runtime
-  LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime
-  INSTALL_NAME_DIR "@rpath"
-)
-if(APPLE)
+if(WIN32)
+  target_link_libraries(npl_runtime_shared PUBLIC m -Wl,-Bstatic pthread -Wl,-Bdynamic psapi)
+  target_link_options(npl_runtime_shared PRIVATE -Wl,--export-all-symbols)
   set_target_properties(npl_runtime_shared PROPERTIES
-    INSTALL_RPATH "@loader_path")
+    PREFIX "lib"
+    OUTPUT_NAME npl_runtime
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime
+    ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime
+  )
+  # Executable-side constructor object that binds PE-owned npl_stack_limit and
+  # npl_gc_stop_requested into libnpl_runtime.dll.
+  set(NPL_WIN_SLOTS_OBJ ${CMAKE_BINARY_DIR}/runtime/npl_runtime_slots.o)
+  add_custom_command(
+    OUTPUT ${NPL_WIN_SLOTS_OBJ}
+    DEPENDS ${RUNTIME_SRC_DIR}/win32-exe-slots.c ${RUNTIME_SRC_DIR}/npl.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/runtime
+    COMMAND ${CMAKE_C_COMPILER} -std=c99 -O2 -Wall -Wextra -Wpedantic
+            -I${RUNTIME_SRC_DIR} -c ${RUNTIME_SRC_DIR}/win32-exe-slots.c
+            -o ${NPL_WIN_SLOTS_OBJ}
+    COMMENT "runtime: npl_runtime_slots.o (Windows DLL slot bridge)"
+    VERBATIM)
+  add_custom_target(npl_runtime_win_slots DEPENDS ${NPL_WIN_SLOTS_OBJ})
+  install(TARGETS npl_runtime_shared
+    RUNTIME DESTINATION bin
+    ARCHIVE DESTINATION lib/npl
+    LIBRARY DESTINATION lib/npl)
+  install(FILES ${NPL_WIN_SLOTS_OBJ} DESTINATION lib/npl)
 else()
+  target_link_libraries(npl_runtime_shared PUBLIC m)
+  if(APPLE)
+    # The generated executable owns the npl_stack_limit TLS slot and the
+    # npl_opaque_zero data slot (program.npl emits them).  The shared runtime
+    # declares both extern and resolves them through the loader; every native
+    # package reaches the same slots, never independent copies.
+    target_link_options(npl_runtime_shared PRIVATE -undefined dynamic_lookup)
+  endif()
   set_target_properties(npl_runtime_shared PROPERTIES
-    INSTALL_RPATH "$ORIGIN")
+    OUTPUT_NAME npl_runtime
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime
+    INSTALL_NAME_DIR "@rpath"
+  )
+  if(APPLE)
+    set_target_properties(npl_runtime_shared PROPERTIES
+      INSTALL_RPATH "@loader_path")
+  else()
+    set_target_properties(npl_runtime_shared PROPERTIES
+      INSTALL_RPATH "$ORIGIN")
+  endif()
+  install(TARGETS npl_runtime_shared LIBRARY DESTINATION lib/npl)
 endif()
-install(TARGETS npl_runtime_shared LIBRARY DESTINATION lib/npl)
 
 # C-only harnesses have no generated IL, so they must supply the two data
 # slots the generated executable normally defines.  Do NOT link this into

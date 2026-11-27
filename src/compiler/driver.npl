@@ -229,14 +229,19 @@ Options:
                               "NPL_STDLIB_ROOT" "share/npl/lib")))
     (if root root "lib/")))
 
+(define (driver-windows?)
+  (npl_platform_feature "windows"))
+
 (define (driver-qbe config)
-  (let ((qbe (driver-resolve config DRIVER-QBE "NPL_QBE" "libexec/npl/qbe")))
+  (let ((qbe (driver-resolve config DRIVER-QBE "NPL_QBE"
+               (if (driver-windows?) "libexec/npl/qbe.exe" "libexec/npl/qbe"))))
     (if qbe qbe "qbe")))
 
 (define (driver-cc config)
   (let ((cc (driver-resolve config DRIVER-CC "NPL_CC" #f)))
     (if cc cc (let ((fallback (driver-environment "CC")))
-                (if fallback fallback "cc")))))
+                (if fallback fallback
+                    (if (driver-windows?) "clang" "cc"))))))
 
 ; Directory of npl.h for compiling define-c-function stubs: NPL_INCLUDE,
 ; then the install layout (the build tree mirrors it).
@@ -280,7 +285,7 @@ Options:
       (explicit explicit)
       ((string=? kind "asm") (string-append stem ".s"))
       ((string=? kind "obj") (string-append stem ".o"))
-      (else stem))))
+      (else (if (driver-windows?) (string-append stem ".exe") stem)))))
 
 ; ---------------- stage pipeline ----------------
 
@@ -373,16 +378,7 @@ Options:
             layout
             #f))))
 
-(define (driver-runtime-shared config)
-  (let ((explicit (driver-environment "NPL_RUNTIME_SHARED")))
-    (if explicit explicit
-        (let ((directory (path-dir (driver-runtime config))))
-          (if (file-exists? (string-append directory "libnpl_runtime.dylib"))
-              (string-append directory "libnpl_runtime.dylib")
-              (if (file-exists? (string-append directory "libnpl_runtime.so"))
-                  (string-append directory "libnpl_runtime.so")
-                  (driver-error
-                    "shared runtime not found; build npl_runtime_shared")))))))
+; driver-runtime-shared and driver-runtime-slots live in driver-shared.npl.
 
 (define (driver-native-meta-forms path)
   (let ((forms (parse-source-file path)))
@@ -465,14 +461,15 @@ Options:
           (driver-native-entry name (cdr entries)))))
 
 (define (driver-split-colon text)
-  (let loop ((start 0) (index 0) (parts ()))
-    (cond
-      ((= index (string-length text))
-       (rev (cons (substring text start index) parts)))
-      ((= (string-byte-ref text index) 58)
-       (loop (+ index 1) (+ index 1)
-             (cons (substring text start index) parts)))
-      (else (loop start (+ index 1) parts)))))
+  (let ((sep (if (driver-windows?) 59 58)))
+    (let loop ((start 0) (index 0) (parts ()))
+      (cond
+        ((= index (string-length text))
+         (rev (cons (substring text start index) parts)))
+        ((= (string-byte-ref text index) sep)
+         (loop (+ index 1) (+ index 1)
+               (cons (substring text start index) parts)))
+        (else (loop start (+ index 1) parts))))))
 
 (define (driver-native-search-directories config)
   (let ((configured (get-environment-variable "NPL_NATIVE_PATH"))
@@ -518,20 +515,17 @@ Options:
                            " has no static archive (" file ")"))))))
 
 (define (driver-native-shared-file config entry name)
-  (let ((directories (driver-native-search-directories config)))
-    (let ((file (driver-native-shared-name entry name)))
-      (let ((path (driver-file-in-directories directories file)))
-        (if path path
-            (if (string=? file (string-append "lib" name ".dylib"))
-                (let ((fallback (driver-file-in-directories
-                                  directories (string-append "lib" name ".so"))))
-                  (if fallback fallback
-                      (driver-error
-                        (string-append "native package " name
-                                       " has no shared object"))))
-                (driver-error
-                  (string-append "native package " name
-                                 " has no shared object (" file ")"))))))))
+  (let ((pair (driver-resolve-native-shared-pair config entry name)))
+    (if pair
+        (car pair)
+        (let ((file (driver-native-shared-name entry name)))
+          (if (string=? file (string-append "lib" name ".dylib"))
+              (driver-error
+                (string-append "native package " name
+                               " has no shared object"))
+              (driver-error
+                (string-append "native package " name
+                               " has no shared object (" file ")")))))))
 
 (define (driver-native-package-names directory)
   (let ((path (string-append directory "/native-packages.meta")))
@@ -565,33 +559,35 @@ Options:
           (driver-native-shared-args config (cdr names) entries)))))
 
 (define (driver-native-rpath-args config)
-  (let ((runtime (driver-runtime-shared config))
-        (native (driver-native-directory config)))
-    (let ((absolute
-            (append
-              (cons (path-dir runtime) ())
-              (if native (cons native ()) ()))))
-      (if (npl_platform_feature "darwin")
-          (append
-            (cons "-Wl,-rpath,@loader_path/../lib/npl"
-              (cons "-Wl,-rpath,@loader_path/../lib/npl/native" ()))
-            (let loop ((rest absolute) (out ()))
-              (if (null? rest)
-                  (rev out)
-                  (loop (cdr rest)
-                        (cons (string-append "-Wl,-rpath,"
-                                             (car rest))
-                              out)))))
-          (append
-            (cons "-Wl,-rpath,$ORIGIN/../lib/npl"
-              (cons "-Wl,-rpath,$ORIGIN/../lib/npl/native" ()))
-            (let loop ((rest absolute) (out ()))
-              (if (null? rest)
-                  (rev out)
-                  (loop (cdr rest)
-                        (cons (string-append "-Wl,-rpath,"
-                                             (car rest))
-                              out)))))))))
+  (if (driver-windows?)
+      ()
+      (let ((runtime (driver-runtime-shared config))
+            (native (driver-native-directory config)))
+        (let ((absolute
+                (append
+                  (cons (path-dir runtime) ())
+                  (if native (cons native ()) ()))))
+          (if (npl_platform_feature "darwin")
+              (append
+                (cons "-Wl,-rpath,@loader_path/../lib/npl"
+                  (cons "-Wl,-rpath,@loader_path/../lib/npl/native" ()))
+                (let loop ((rest absolute) (out ()))
+                  (if (null? rest)
+                      (rev out)
+                      (loop (cdr rest)
+                            (cons (string-append "-Wl,-rpath,"
+                                                 (car rest))
+                                  out)))))
+              (append
+                (cons "-Wl,-rpath,$ORIGIN/../lib/npl"
+                  (cons "-Wl,-rpath,$ORIGIN/../lib/npl/native" ()))
+                (let loop ((rest absolute) (out ()))
+                  (if (null? rest)
+                      (rev out)
+                      (loop (cdr rest)
+                            (cons (string-append "-Wl,-rpath,"
+                                                 (car rest))
+                                  out))))))))))
 
 (define (driver-native-link-args config directory)
   (let ((mode (driver-native-mode config)))
@@ -601,23 +597,31 @@ Options:
         (if (string=? mode "shared")
             (append
               (driver-native-shared-args config names entries)
-              (cons (driver-runtime-shared config)
-                    (driver-native-rpath-args config)))
+              (append
+                (driver-runtime-slots config)
+                (cons (driver-runtime-shared config)
+                      (driver-native-rpath-args config))))
             (driver-native-static-args config directory names entries))))))
 
 ; User libraries precede the native packages and the runtime: native and
 ; shared objects may call into the runtime.  Static mode links the runtime
 ; archive; shared mode links the shared runtime plus package shared objects.
+(define (driver-link-extra)
+  (cond
+    ((npl_platform_feature "darwin") (cons "-lm" ()))
+    ((driver-windows?)
+     (cons "-lm" (cons "-Wl,-Bstatic"
+       (cons "-lpthread" (cons "-Wl,-Bdynamic" (cons "-lpsapi" ()))))))
+    ;; Native programs that evaluate libraries with define-c-primitive need
+    ;; the runtime symbols in the executable's dynamic symbol table on ELF;
+    ;; -rdynamic is harmless for the other Unix linkers NPL supports.
+    (else (cons "-ldl" (cons "-rdynamic" (cons "-lm" ()))))))
+
 (define (driver-link-objects config directory assembly stubs executable)
   (let ((runtime (if (string=? (driver-native-mode config) "static")
                      (cons (driver-runtime config) ())
                      ()))
-        ;; Native programs that evaluate libraries with define-c-primitive
-        ;; need the runtime symbols in the executable's dynamic symbol table
-        ;; on ELF; npli already links -rdynamic for the same reason.
-        (extra (if (npl_platform_feature "darwin")
-                   ()
-                   (cons "-ldl" (cons "-rdynamic" ())))))
+        (extra (driver-link-extra)))
     (let ((status
             (run-process
               (cons (driver-cc config)
@@ -628,10 +632,13 @@ Options:
                         (rev-into (driver-get config DRIVER-LINK) ())
                         (append
                           (driver-native-link-args config directory)
-                          (append runtime
-                                  (append extra (cons "-lm" ()))))))))))
+                          (append runtime extra))))))))
               #f)))
-      (if (= status 0) 0 (driver-stage-failure "link" status)))))
+      (if (= status 0)
+          (begin
+            (driver-stage-windows-dlls config directory executable)
+            0)
+          (driver-stage-failure "link" status)))))
 
 (define (driver-link config directory assembly executable)
   (let ((stubs (driver-stub-objects config directory)))

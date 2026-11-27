@@ -1383,8 +1383,8 @@ segment and a barrier flag.
 - The frontend/backend segment emission changes the compiler's own SSA. The
   seed was relayed with the codegen-transient mode of
   `tools/update_current_ssa.sh`; the installed seed is gen2 with
-  gen2 == gen3 (436,774 lines, SHA-256
-  `a7ebdb960a0a33ebf386696a886cde6df176456ae48d07eb5827879e97200721`).
+  gen2 == gen3 (441,853 lines, SHA-256
+  `32ffe87c5ed356edc0ac0d4f80ed71a4d695c991d24ebba329b45b5ed434bb37`).
 
 No changes to permanent `bootstrap/bootstrap.ssa`, stage0, or
 `bootstrap/runtime/`. Frontend changes relay only `bootstrap/current.ssa`

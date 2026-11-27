@@ -233,7 +233,7 @@ Remaining T4-C+ limits:
 The frontend/backend segment emission changes the compiler's own emitted SSA,
 so `bootstrap/current.ssa` was relayed with the codegen-transient mode of
 `tools/update_current_ssa.sh`; the installed seed is gen2 with
-`gen2 == gen3` (436,774 lines, SHA-256 `a7ebdb96…`). The permanent bootstrap compiler, stage0 and
+`gen2 == gen3` (441,853 lines, SHA-256 `32ffe87c…`). The permanent bootstrap compiler, stage0 and
 `bootstrap/runtime/` are untouched.
 
 ## Verification

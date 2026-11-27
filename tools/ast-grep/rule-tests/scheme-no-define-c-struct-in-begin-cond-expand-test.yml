@@ -1,0 +1,15 @@
+id: scheme-no-define-c-struct-in-begin-cond-expand
+valid:
+  - |
+    (define-library (npl time)
+      (cond-expand
+        (windows
+          (begin
+            (define-c-struct timespec "struct timespec" (tv_sec int64))))))
+invalid:
+  - |
+    (define-library (npl time)
+      (begin
+        (cond-expand
+          (windows
+            (define-c-struct timespec "struct timespec" (tv_sec int64))))))

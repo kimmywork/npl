@@ -14,4 +14,5 @@
 - Keep the permanent bootstrap compiler, `bootstrap/bootstrap.ssa`, stage0, and their frozen runtime `bootstrap/runtime/` frozen unless explicitly authorized. Do not make the current runtime (`runtime/`) compatible with them; the permanent chain links only against `bootstrap/runtime/`.
 - Use C99 for stage0 and runtime C, and preserve canonical, reproducible QBE SSA output.
 - Run the smallest relevant acceptance checks after each increment and report their output as evidence.
+- **Codify review patterns with `ast-grep`.** Whenever a code review or bug exposes a repeatable, pattern-based mistake in C (`runtime/`, `lib/**/native/`) or Scheme/NPL (`src/`, `lib/`), add a structural rule under `tools/ast-grep/rules/` with positive/negative test cases in `tools/ast-grep/rule-tests/` to prevent regressions—and add a `fix:` rewrite to refactor existing occurrences where feasible. Run `./tools/ast-grep/lint.sh` (Linux/macOS) or `.\tools\ast-grep\lint.ps1` (Windows) when modifying C or NPL/Scheme sources.
 - Use git history and pull requests (`gh pr`) to record completed changes and project state; keep only uncommitted current focus in `.agents/focus.md` (gitignored).

@@ -1,0 +1,14 @@
+id: c-no-win32-static-char-buffer
+valid:
+  - |
+    void f(void) {
+        static const char msg[] = "ok\n";
+        char local_buf[256];
+        (void)msg; (void)local_buf;
+    }
+invalid:
+  - |
+    void f(void) {
+        static char cached_root[260];
+        (void)cached_root;
+    }

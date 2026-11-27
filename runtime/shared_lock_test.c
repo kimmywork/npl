@@ -44,7 +44,9 @@ static void *worker(void *argument)
 
 int main(void)
 {
+#ifndef _WIN32
     alarm(90);
+#endif
     npl_runtime_init();
     pthread_t threads[WORKERS];
     for (int i = 0; i < WORKERS; i++)

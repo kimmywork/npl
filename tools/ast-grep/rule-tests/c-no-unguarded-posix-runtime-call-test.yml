@@ -1,0 +1,19 @@
+id: c-no-unguarded-posix-runtime-call
+valid:
+  - |
+    void setup(void) {
+    #ifdef _WIN32
+        npl_win32_alarm(30);
+    #else
+        alarm(30);
+    #endif
+    }
+invalid:
+  - |
+    void setup(void) {
+        alarm(30);
+    }
+  - |
+    void setup(int fds[2]) {
+        pipe(fds);
+    }

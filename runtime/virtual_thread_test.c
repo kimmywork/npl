@@ -10,6 +10,9 @@
  */
 #define _POSIX_C_SOURCE 200809L
 
+#ifdef _WIN32
+#include "os-win32.h"
+#endif
 #include "npl.h"
 #include "thread.h"
 #include "thread-sched.h"
@@ -172,7 +175,11 @@ int main(int argc, char **argv)
 {
     int carriers = (argc > 1) ? atoi(argv[1]) : 1;
     if (carriers < 1) carriers = 1;
+#ifdef _WIN32
+    npl_win32_alarm(120);
+#else
     alarm(120);
+#endif
     npl_runtime_init();
 
     npl_gc_root(&g_param);

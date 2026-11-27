@@ -8,9 +8,13 @@
 #define _GNU_SOURCE
 
 #include "port.h"
+#ifdef _WIN32
+#include "os-win32.h"
+#else
 #include <poll.h>
-#include <stdio.h>
 #include <unistd.h>
+#endif
+#include <stdio.h>
 
 /* Whether reading one more byte from a stream port will not block: pushback
  * or the stdio buffer already holds data, or poll reports input (or end of
@@ -20,6 +24,9 @@
 static int stream_byte_ready(NplPort *port)
 {
     if (port->pushed) return 1;
+#if defined(_WIN32)
+    return npl_win32_stream_ready(port->stream);
+#else
 #if defined(__APPLE__)
     if (port->stream->_r > 0) return 1;
 #elif defined(__GLIBC__)
@@ -30,6 +37,7 @@ static int stream_byte_ready(NplPort *port)
     request.events = POLLIN;
     request.revents = 0;
     return poll(&request, 1, 0) > 0;
+#endif
 }
 
 /* u8-ready?: a byte (or EOF) can be read without blocking. Memory ports are

@@ -1,0 +1,18 @@
+id: scheme-no-define-c-struct-in-begin-cond-expand
+language: scheme
+severity: error
+message: "Do not place define-c-struct inside a cond-expand nested in (begin ...)."
+note: >-
+  define-c-struct is a library top-level declaration and must appear directly inside
+  define-library or a top-level library cond-expand clause, not inside a runtime
+  (begin (cond-expand ...)) expression.
+files:
+  - lib/**/*.sld
+rule:
+  pattern: (define-c-struct $$$ARGS)
+  inside:
+    pattern: (cond-expand $$$CLAUSES)
+    stopBy: end
+    inside:
+      pattern: (begin $$$FORMS)
+      stopBy: end

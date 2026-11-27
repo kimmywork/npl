@@ -1,5 +1,7 @@
 #include "all.h"
+#ifndef Deftgt
 #include "config.h"
+#endif
 #include <ctype.h>
 #include <getopt.h>
 
@@ -45,7 +47,7 @@ data(Dat *d)
 		return;
 	emitdat(d, outf);
 	if (d->type == DEnd) {
-		fputs("/* end data */\n\n", outf);
+		fputs(T.windows ? "# end data\n\n" : "/* end data */\n\n", outf);
 		freeall();
 	}
 }
@@ -115,7 +117,8 @@ func(Fn *fn)
 			fn->rpo[n]->link = fn->rpo[n+1];
 	if (!dbg) {
 		T.emitfn(fn, outf);
-		fprintf(outf, "/* end function %s */\n\n", fn->name);
+		fprintf(outf, T.windows ? "# end function %s\n\n"
+			: "/* end function %s */\n\n", fn->name);
 	} else
 		fprintf(stderr, "\n");
 	freeall();
