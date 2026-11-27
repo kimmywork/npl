@@ -1315,14 +1315,18 @@ singular aliases `(srfi 226 prompt)`, `(srfi 226 continuation)`,
   pass. `continuation?`, `non-composable-continuation?`,
   `continuation-prompt-available?`, `unwind-protect`, `reset`, `reset-at`,
   `shift` and `shift-at` are implemented.
-- The current CPS continuation is opaque. Prompts use a prompt segment record
-  and a per-thread one-shot meta-continuation override; composable invocation
-  applies the captured prefix on the same logical thread, and the prompt
-  terminal sends its values to the invoker. There is no helper native thread,
-  no cross-thread logical identity change and no carrier join. Outer winders
-  stay in their original extent. This is still a library-level prototype, not
-  the compiler-visible segmented representation required by T4-A; marks,
-  shared-prefix identity and barriers still need semantic frame metadata.
+- The current CPS continuation is opaque. Prompt frames are runtime objects in
+  `NplThreadContext`; `NplDynamicContext` captures the chain and the existing
+  wind transfer reinstates it on the invoking thread. A per-thread one-shot
+  meta-continuation override lets composable invocation apply the captured
+  prefix on the same logical thread; the prompt terminal sends its values to
+  the invoker. Non-composable invocation uses the nearest cut prompt's escape.
+  There is no helper native thread, no cross-thread logical identity change and
+  no carrier join. Outer winders stay in their original extent, prompt frames
+  survive `call/cc`, and virtual-thread save/restore carries the chain. This is
+  still not the compiler-visible segmented representation required by T4-A;
+  marks, shared-prefix identity and barriers still need semantic frame
+  metadata.
 - T4-D subset: `(npl control parameters)` and `(srfi 226 parameter)` add
   `parameter?`, first-class parameterization snapshots (`current-
   parameterization`, `parameterization?`, `call-with-parameterization`) and

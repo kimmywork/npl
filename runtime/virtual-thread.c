@@ -226,6 +226,8 @@ static void save_state(NplVirtualThread *vt)
     set_field(vt, &vt->parameter_extents, CTX->parameter_extents);
     set_field(vt, &vt->pending_extent_key, CTX->pending_extent_key);
     set_field(vt, &vt->initial_handler, CTX->initial_handler);
+    set_field(vt, &vt->prompts, CTX->current_prompts);
+    set_field(vt, &vt->prompt_overrides, CTX->prompt_overrides);
     vt->next_wind_id = CTX->next_wind_id;
     vt->carrier_context = (void *)npl_ctx();
 }
@@ -246,6 +248,8 @@ static void restore_state(NplVirtualThread *vt)
     CTX->parameter_extents = vt->parameter_extents;
     CTX->pending_extent_key = vt->pending_extent_key;
     CTX->initial_handler = vt->initial_handler;
+    CTX->current_prompts = vt->prompts;
+    CTX->prompt_overrides = vt->prompt_overrides;
     CTX->next_wind_id = vt->next_wind_id;
 }
 
@@ -257,6 +261,8 @@ static void clear_carrier_state(void)
     CTX->parameter_extents = npl_nil();
     CTX->pending_extent_key = npl_nil();
     CTX->initial_handler = npl_nil();
+    CTX->current_prompts = npl_nil();
+    CTX->prompt_overrides = npl_nil();
     CTX->next_wind_id = 1;
     CTX->logical_thread = NULL;
 }
@@ -337,6 +343,8 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
     vt->parameter_extents = npl_nil();
     vt->pending_extent_key = npl_nil();
     vt->initial_handler = npl_nil();
+    vt->prompts = npl_nil();
+    vt->prompt_overrides = npl_nil();
     vt->next_wind_id = 1;
     vt->state = NPL_VTHREAD_NEW;
     vt->park_count = 0;

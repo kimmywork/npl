@@ -94,6 +94,9 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_ATOMIC_PAIR 37
 /* T4-D: a first-class parameterization snapshot (current binding chain). */
 #define BOX_PARAMETERIZATION 38
+/* T4-A semantic prompt frame (runtime dynamic context, shared by compiler
+ * and evaluator call/cc). */
+#define BOX_PROMPT_FRAME 39
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -191,6 +194,7 @@ typedef struct {
     NplVal wind;
     NplVal handler;
     NplVal parameters;
+    NplVal prompts;
     NplVal source_initial_handler;
 } NplDynamicContext;
 
@@ -233,6 +237,7 @@ typedef struct {
      * context driving per-thunk environment restoration. */
     NplVal context;
     NplVal target_parameters;
+    NplVal target_prompts;
     /* (src-binding . localized-copy) map for this transfer. A binding shared
      * by a destination chain and a wind frame must resolve to ONE node, so a
      * parameter-set! in a before thunk is visible to the continuation body. */
@@ -288,6 +293,20 @@ typedef struct {
     NplHeader header;
     NplVal bindings;
 } NplParameterization;
+
+/* A prompt segment/frame.  The frame chain is part of the runtime dynamic
+ * context, so a captured call/cc reinstates the same semantic prompt frames
+ * on the invoking thread.  escape/return values are NPL closures; the
+ * per-thread prompt_overrides list carries a one-shot meta-continuation for
+ * a same-thread composable/non-composable invocation. */
+typedef struct {
+    NplHeader header;
+    NplVal tag;
+    NplVal handler;
+    NplVal escape;
+    NplVal return_;
+    NplVal parent;
+} NplPromptFrame;
 
 typedef struct {
     NplHeader header;
@@ -650,6 +669,24 @@ NplVal npl_parameterization_capture(void);
 NplVal npl_parameterization_p(NplVal value);
 NplVal npl_parameterization_enter(NplVal value);
 NplVal npl_parameterization_leave(NplVal value);
+/* T4-A runtime prompt frames (prompt.c). */
+NplVal npl_prompt_make(NplVal tag, NplVal handler);
+NplVal npl_prompt_p(NplVal value);
+NplVal npl_prompt_tag(NplVal value);
+NplVal npl_prompt_handler(NplVal value);
+NplVal npl_prompt_escape(NplVal value);
+NplVal npl_prompt_set_escape(NplVal value, NplVal escape);
+NplVal npl_prompt_return(NplVal value);
+NplVal npl_prompt_set_return(NplVal value, NplVal return_value);
+NplVal npl_prompt_push(NplVal value);
+NplVal npl_prompt_pop(NplVal value);
+NplVal npl_prompt_find(NplVal tag);
+NplVal npl_prompt_current(void);
+NplVal npl_prompt_list_current(void);
+NplVal npl_prompt_list_from(NplVal origin);
+NplVal npl_prompt_install_override(NplVal prompt, NplVal target);
+/* The most recent one-shot override for PROMPT, or #f after removing it. */
+NplVal npl_prompt_take_return(NplVal prompt);
 NplVal npl_parameters_enter(NplVal parameters, NplVal values, NplVal frames);
 NplVal npl_parameters_leave(NplVal frames);
 NplVal npl_promise_op(int64_t argc, NplVal *argv);

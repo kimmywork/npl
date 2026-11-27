@@ -116,25 +116,31 @@ fluid syntax. Those remain T4-D work.
 ## Implementation boundary
 
 The current CPS continuation is still an opaque closure. Prompts and
-composable invocation are implemented with a **prompt segment record plus a
-per-thread one-shot meta-continuation override**:
+composable invocation now use **runtime prompt frames** in the shared dynamic
+context plus a per-thread one-shot meta-continuation override:
 
-- a prompt record holds its tag, handler, escape/terminal continuation and
-  outer return continuation;
+- a prompt frame holds its tag, handler, escape/terminal continuation and outer
+  return continuation; the frame chain lives in `NplThreadContext`, is captured
+  by `NplDynamicContext`, and is reinstated by the existing wind/context
+  transfer;
 - invoking a composable continuation installs the invoker's continuation as a
-  one-shot override on the origin prompt, then applies the captured prefix on
-  the **same logical thread**;
+  one-shot override in the invoking thread's runtime context, then applies the
+  captured prefix on the **same logical thread**;
 - when the prefix reaches the prompt terminal, it consumes the override and
   returns its values to the invoker; the invoker's later return through the
   same prompt uses the ordinary terminal;
 - non-composable invocation installs the nearest cut prompt's escape as the
-  override, so the prefix is reinstated at that cut point.
+  override, so the prefix is reinstated at that cut point;
+- virtual-thread save/restore carries the prompt chain and overrides with its
+  other dynamic state.
 
-This removes the earlier helper-native-thread re-entry. Logical thread identity
-is preserved, virtual workers are not blocked by a carrier join, outer winders
-are not re-entered by a cross-thread transfer, and multiple values/multi-shot
-composition use the same path. `tests/unit/control-virtual.npl` exercises
-990/6930 and `reset`/`shift` inside virtual threads on M=1 and M=4 carriers.
+This removes the earlier helper-native-thread re-entry and the user-visible
+`thread-specific` override. Logical thread identity is preserved, virtual
+workers are not blocked by a carrier join, outer winders are not re-entered by
+a cross-thread transfer, and multiple values/multi-shot composition use the
+same path. Prompt frames survive a captured `call/cc`, and
+`tests/unit/control-virtual.npl` exercises 990/6930 and `reset`/`shift` inside
+virtual threads on M=1 and M=4 carriers.
 
 This is still not the compiler-visible segmented-continuation representation
 required by T4-A. In particular:
@@ -142,8 +148,6 @@ required by T4-A. In particular:
 - the captured prefix remains a full CPS closure; there is no compiler/evaluator
   segment or semantic-frame metadata for marks, shared-prefix identity or
   barriers;
-- the override lives in `thread-specific`, so the implementation temporarily
-  occupies that user-visible slot during composition;
 - continuation barriers are not implemented;
 - `call-in-continuation` / `call-in` / `return-to` are not implemented;
 - there is no initial default prompt/continuation boundary, so omitted-tag
@@ -168,9 +172,9 @@ until that inventory is complete.
 ## Verification
 
 - `src/compiler/tests/control.npl` — all current exports, prompt/abort,
-  custom/default handlers, missing tags, `reset`/`shift`, multi-shot
-  composition, 990/6930, predicates, multiple values, `dynamic-wind` and
-  `unwind-protect`.
+  custom/default handlers, missing tags, prompt frames captured by `call/cc`,
+  `reset`/`shift`, multi-shot composition, 990/6930, predicates, multiple
+  values, `dynamic-wind` and `unwind-protect`.
 - `src/compiler/tests/control-parameters.npl` — parameter snapshots,
   `call-with-parameterization`, `temporarily`, restoration on raise and
   continuation exit.

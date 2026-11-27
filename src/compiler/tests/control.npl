@@ -169,6 +169,25 @@
                                        inner k)))))
                        inner))
                    outer)))
+  (test-assert "prompt frames are captured by call/cc"
+               (let ((tag (make-continuation-prompt-tag))
+                     (k #f)
+                     (inside #f)
+                     (outside #f))
+                 (call-with-continuation-prompt
+                   (lambda ()
+                     (call/cc (lambda (continuation)
+                                (set! k continuation)))
+                     (set! inside (continuation-prompt-available? tag))
+                     'done)
+                   tag)
+                 (set! outside (continuation-prompt-available? tag))
+                 (if k
+                     (let ((continuation k))
+                       (set! k #f)
+                       (continuation 'again))
+                     #f)
+                 (equal? (list outside inside) '(#f #t))))
   (test-assert "multiple values cross a composable prompt"
                (let ((tag (make-continuation-prompt-tag)))
                  (equal? (call-with-continuation-prompt

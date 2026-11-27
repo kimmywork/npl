@@ -37,8 +37,7 @@
           (rename (only (scheme base)
                         call/cc call-with-current-continuation)
                   (call/cc core-call/cc)
-                  (call-with-current-continuation core-call/cc2))
-          (npl thread))
+                  (call-with-current-continuation core-call/cc2)))
   (begin
     (define-record-type prompt-tag-record
       (make-prompt-tag name)
@@ -57,14 +56,6 @@
 
     (define (continuation-prompt-tag? object)
       (prompt-tag? object))
-
-    (define-record-type prompt
-      (make-prompt tag handler escape return)
-      prompt?
-      (tag prompt-tag)
-      (handler prompt-handler)
-      (escape prompt-escape set-prompt-escape!)
-      (return prompt-return set-prompt-return!))
 
     (define-record-type abort-packet
       (make-abort-packet arguments)
@@ -85,14 +76,30 @@
     ;; for cond-expand/printing; the record predicate carries the behavior.
     (define &continuation '&continuation)
 
-    (define prompt-stack (make-parameter '()))
-    (define continuations '())
+    (define-c-primitive (%prompt-make (tag any) (handler any)) any
+      "npl_prompt_make")
+    (define-c-primitive (%prompt? (value any)) any "npl_prompt_p")
+    (define-c-primitive (%prompt-tag (value any)) any "npl_prompt_tag")
+    (define-c-primitive (%prompt-handler (value any)) any
+      "npl_prompt_handler")
+    (define-c-primitive (%prompt-escape (value any)) any "npl_prompt_escape")
+    (define-c-primitive (%prompt-set-escape! (value any) (escape any)) any
+      "npl_prompt_set_escape")
+    (define-c-primitive (%prompt-return (value any)) any "npl_prompt_return")
+    (define-c-primitive (%prompt-set-return! (value any) (return any)) any
+      "npl_prompt_set_return")
+    (define-c-primitive (%prompt-push! (value any)) any "npl_prompt_push")
+    (define-c-primitive (%prompt-pop! (value any)) any "npl_prompt_pop")
+    (define-c-primitive (%prompt-find (tag any)) any "npl_prompt_find")
+    (define-c-primitive (%prompt-list-current) any "npl_prompt_list_current")
+    (define-c-primitive (%prompt-list-from (origin any)) any
+      "npl_prompt_list_from")
+    (define-c-primitive (%prompt-install-override! (prompt any) (target any))
+      any "npl_prompt_install_override")
+    (define-c-primitive (%prompt-take-return! (prompt any)) any
+      "npl_prompt_take_return")
 
-    (define (find-prompt tag stack)
-      (cond
-        ((null? stack) #f)
-        ((eq? (prompt-tag (car stack)) tag) (car stack))
-        (else (find-prompt tag (cdr stack)))))
+    (define continuations '())
 
     (define (raise-continuation-violation tag)
       (raise (make-continuation-violation tag)))
@@ -103,12 +110,6 @@
             (call-with-continuation-prompt thunk tag
                                            (default-handler tag))
             (error "default prompt handler expected a thunk" thunk))))
-
-    (define (prompt-prefix origin stack)
-      (cond
-        ((null? stack) '())
-        ((eq? (car stack) origin) (list origin))
-        (else (cons (car stack) (prompt-prefix origin (cdr stack))))))
 
     (define (register-continuation! procedure kind origin tag stack)
       (set! continuations
@@ -130,32 +131,9 @@
       (let ((info (continuation-info object)))
         (if (if info (eq? (car (cdr info)) 'non-composable) #f) #t #f)))
 
-    (define (remove-prompt-override prompt entries)
-      (cond
-        ((null? entries) '())
-        ((eq? (car (car entries)) prompt) (cdr entries))
-        (else (cons (car entries)
-                    (remove-prompt-override prompt (cdr entries))))))
-
     (define (prompt-finish prompt values)
-      (let* ((self (current-thread))
-             (specific (thread-specific self))
-             (entry (if (pair? specific) (assq prompt specific) #f)))
-        (if entry
-            (begin
-              ;; One-shot meta-continuation: remove it before resuming so the
-              ;; invoker's later return through this prompt uses its own
-              ;; terminal.
-              (thread-specific-set! self
-                                    (remove-prompt-override prompt specific))
-              (apply (cdr entry) values))
-            (apply (prompt-return prompt) values))))
-
-    (define (install-prompt-return! prompt target)
-      (let* ((self (current-thread))
-             (old (thread-specific self))
-             (entries (if (pair? old) old '())))
-        (thread-specific-set! self (cons (cons prompt target) entries))))
+      (let ((target (%prompt-take-return! prompt)))
+        (apply (if target target (%prompt-return prompt)) values)))
 
     (define (call-with-continuation-prompt thunk . rest)
       (let* ((tag (if (pair? rest) (car rest)
@@ -167,26 +145,26 @@
              (handler (if supplied-handler
                           supplied-handler
                           (default-handler tag)))
-             (prompt (make-prompt tag handler #f #f)))
+             (prompt (%prompt-make tag handler)))
         (call-with-values
           (lambda ()
             (core-call/cc
               (lambda (escape)
-                (set-prompt-escape! prompt escape)
-                (set-prompt-return! prompt
-                                    (lambda vals (apply escape vals)))
-                (parameterize ((prompt-stack
-                                 (cons prompt (prompt-stack))))
-                  (call-with-values
-                    (lambda () (thunk))
-                    (lambda vals
-                      (prompt-finish prompt vals)))))))
+                (%prompt-set-escape! prompt escape)
+                (%prompt-set-return! prompt
+                                     (lambda vals (apply escape vals)))
+                (%prompt-push! prompt)
+                (call-with-values
+                  (lambda () (thunk))
+                  (lambda vals
+                    (%prompt-pop! prompt)
+                    (prompt-finish prompt vals))))))
           (lambda results
             (cond
               ((if (= (length results) 1)
                    (abort-packet? (car results))
                    #f)
-               (apply (prompt-handler prompt)
+               (apply (%prompt-handler prompt)
                       (abort-packet-arguments (car results))))
               ((if (= (length results) 1)
                    (transfer-packet? (car results))
@@ -197,15 +175,15 @@
               (else (apply values results)))))))
 
     (define (abort-current-continuation tag . objects)
-      (let ((prompt (find-prompt tag (prompt-stack))))
+      (let ((prompt (%prompt-find tag)))
         (if prompt
-            ((prompt-escape prompt) (make-abort-packet objects))
+            ((%prompt-escape prompt) (make-abort-packet objects))
             (raise-continuation-violation tag))))
 
     (define (call-with-composable-continuation proc . rest)
       (let* ((tag (if (pair? rest) (car rest)
                       default-prompt-tag))
-             (origin (find-prompt tag (prompt-stack))))
+             (origin (%prompt-find tag)))
         (if (not origin)
             (raise-continuation-violation tag)
             (core-call/cc
@@ -214,33 +192,31 @@
                        (lambda args
                          (core-call/cc
                            (lambda (return-k)
-                             (install-prompt-return! origin return-k)
+                             (%prompt-install-override! origin return-k)
                              (apply continuation args))))))
                   (register-continuation! wrapped 'composable origin tag
-                                          (prompt-prefix origin
-                                                         (prompt-stack)))
+                                          (%prompt-list-from origin))
                   (proc wrapped)))))))
 
     (define (call-with-non-composable-continuation proc . rest)
       (let* ((tag (if (pair? rest) (car rest)
                       default-prompt-tag))
-             (origin (find-prompt tag (prompt-stack))))
+             (origin (%prompt-find tag)))
         (if (not origin)
             (raise-continuation-violation tag)
             (core-call/cc
               (lambda (continuation)
                 (let ((wrapped
                        (lambda args
-                         (let ((cut (find-prompt tag (prompt-stack))))
+                         (let ((cut (%prompt-find tag)))
                            (if cut
                                (begin
-                                 (install-prompt-return!
-                                   origin (prompt-escape cut))
+                                 (%prompt-install-override!
+                                   origin (%prompt-escape cut))
                                  (apply continuation args))
                                (raise-continuation-violation tag))))))
                   (register-continuation! wrapped 'non-composable origin tag
-                                          (prompt-prefix origin
-                                                         (prompt-stack)))
+                                          (%prompt-list-from origin))
                   (proc wrapped)))))))
 
     (define (call-with-current-continuation proc)
@@ -249,10 +225,16 @@
           (let ((wrapped (lambda args (apply continuation args))))
             (register-continuation! wrapped 'non-composable #f
                                     default-prompt-tag
-                                    (prompt-stack))
+                                    (%prompt-list-current))
             (proc wrapped)))))
 
     (define call/cc call-with-current-continuation)
+
+    (define (prompt-tag-in-list? tag prompts)
+      (cond
+        ((null? prompts) #f)
+        ((eq? (%prompt-tag (car prompts)) tag) #t)
+        (else (prompt-tag-in-list? tag (cdr prompts)))))
 
     (define (continuation-prompt-available? tag . maybe-continuation)
       (if (pair? maybe-continuation)
@@ -264,9 +246,9 @@
             (cond
               ((not info) #f)
               ((if (eq? kind 'composable) (eq? tag captured-tag) #f) #f)
-              ((find-prompt tag stack) #t)
+              ((prompt-tag-in-list? tag stack) #t)
               (else #f)))
-          (if (find-prompt tag (prompt-stack)) #t #f)))
+          (if (%prompt-find tag) #t #f)))
 
     (define-syntax unwind-protect
       (syntax-rules ()

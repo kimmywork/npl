@@ -94,6 +94,8 @@ typedef struct NplVirtualThread {
     NplVal parameter_extents;
     NplVal pending_extent_key;
     NplVal initial_handler;
+    NplVal prompts;
+    NplVal prompt_overrides;
     uint64_t next_wind_id;
     /* Native state (not GC-scanned). */
     int state;

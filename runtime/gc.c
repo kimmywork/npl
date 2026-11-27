@@ -116,7 +116,17 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(context->wind);
             visit(context->handler);
             visit(context->parameters);
+            visit(context->prompts);
             visit(context->source_initial_handler);
+            break;
+        }
+        case BOX_PROMPT_FRAME: {
+            NplPromptFrame *frame = (NplPromptFrame *)header;
+            visit(frame->tag);
+            visit(frame->handler);
+            visit(frame->escape);
+            visit(frame->return_);
+            visit(frame->parent);
             break;
         }
         case BOX_VIRTUAL_THREAD: {
@@ -135,6 +145,8 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(vt->parameter_extents);
             visit(vt->pending_extent_key);
             visit(vt->initial_handler);
+            visit(vt->prompts);
+            visit(vt->prompt_overrides);
             break;
         }
         case BOX_WIND_TRANSITION: {
@@ -146,6 +158,7 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(transition->entering);
             visit(transition->context);
             visit(transition->target_parameters);
+            visit(transition->target_prompts);
             visit(transition->cache);
             uint32_t count = transition->exit_count + transition->entry_count;
             for (uint32_t i = 0; i < count; i++)

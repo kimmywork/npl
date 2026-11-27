@@ -23,6 +23,7 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/platform.c
   ${RUNTIME_SRC_DIR}/port.c
   ${RUNTIME_SRC_DIR}/port-ready.c
+  ${RUNTIME_SRC_DIR}/prompt.c
   ${RUNTIME_SRC_DIR}/read.c
   ${RUNTIME_SRC_DIR}/read-buffer.c
   ${RUNTIME_SRC_DIR}/shared-lock.c
@@ -79,6 +80,7 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/platform.c
   ${RUNTIME_SRC_DIR}/port.c
   ${RUNTIME_SRC_DIR}/port-ready.c
+  ${RUNTIME_SRC_DIR}/prompt.c
   ${RUNTIME_SRC_DIR}/read.c
   ${RUNTIME_SRC_DIR}/read-buffer.c
   ${RUNTIME_SRC_DIR}/shared-lock.c

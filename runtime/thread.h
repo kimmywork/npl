@@ -118,6 +118,9 @@ typedef struct NplThreadContext {
     NplVal parameter_extents;
     NplVal pending_extent_key;
     NplVal initial_handler;
+    /* T4-A: runtime prompt frame chain and same-thread one-shot overrides. */
+    NplVal current_prompts;
+    NplVal prompt_overrides;
     uint64_t next_wind_id;
 
     /* Trampoline / escape / synchronous-call context. */
