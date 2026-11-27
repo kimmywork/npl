@@ -1,0 +1,12 @@
+id: scheme-no-noop-assume
+language: scheme
+severity: error
+message: "Do not stub (assume ...) as a no-op returning #t; include lib/npl/data/assume.scm."
+note: >-
+  No-op (define (assume . args) #t) stubs silently disable SRFI precondition and
+  bounds checks (historical SRFI 189/196 review fix in 40168ef).
+files:
+  - lib/**/*.sld
+  - lib/**/*.scm
+rule:
+  pattern: "(define (assume . $ARGS) #t)"

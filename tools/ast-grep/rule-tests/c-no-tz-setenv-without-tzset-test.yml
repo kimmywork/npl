@@ -1,0 +1,17 @@
+id: c-no-tz-setenv-without-tzset
+valid:
+  - |
+    int set_env(const char *name, const char *val) {
+        int rc = setenv(name, val, 1);
+        if (rc == 0 && strcmp(name, "TZ") == 0) tzset();
+        return rc;
+    }
+invalid:
+  - |
+    int set_env(const char *name, const char *val) {
+        return setenv(name, val, 1);
+    }
+  - |
+    int del_env(const char *name) {
+        return unsetenv(name);
+    }

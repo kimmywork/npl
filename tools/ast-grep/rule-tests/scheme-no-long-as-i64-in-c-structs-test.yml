@@ -5,9 +5,14 @@ valid:
       (cond
         ((string=? name "i64") 7)
         ((string=? name "int64") 7)
+        ((string=? name "size_t") 3)
         ((string=? name "long") (if (npl_platform_feature "windows") 6 7))))
 invalid:
   - |
     (define (c-struct-type-code name)
       (cond
         ((string=? name "long") 7)))
+  - |
+    (define (c-struct-type-code name)
+      (cond
+        ((string=? name "unsigned long") 3)))

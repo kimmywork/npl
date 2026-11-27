@@ -1,0 +1,17 @@
+id: c-no-narrow-win32-path-api
+language: c
+severity: error
+message: "Do not call narrow Win32/CRT path APIs; convert UTF-8 to UTF-16 and use *W/_w* helpers."
+note: >-
+  Narrow Win32 (*A) and MSVCRT (_rmdir/_mkdir/_unlink/_chmod/_stat) path calls
+  decode UTF-8 using the active ANSI code page and fail on non-ASCII paths
+  (e.g. café). Route through UTF-16 helpers in runtime/os-win32.c.
+files:
+  - runtime/**/*.c
+  - lib/**/*.c
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    regex: ^(_rmdir|_mkdir|_unlink|_chmod|_stat|CreateFileA|CreateProcessA|CreateDirectoryA|RemoveDirectoryA|DeleteFileA|LoadLibraryA|GetModuleFileNameA|GetTempPathA)$

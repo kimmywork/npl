@@ -1,0 +1,23 @@
+id: c-no-narrow-win32-path-api
+valid:
+  - |
+    int remove_dir(const char *path) {
+        return npl_win32_rmdir(path);
+    }
+  - |
+    HANDLE open_it(const wchar_t *wpath) {
+        return CreateFileW(wpath, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+    }
+invalid:
+  - |
+    int remove_dir(const char *path) {
+        return _rmdir(path);
+    }
+  - |
+    HMODULE load_it(const char *path) {
+        return LoadLibraryA(path);
+    }
+  - |
+    BOOL mk_it(const char *path) {
+        return CreateDirectoryA(path, NULL);
+    }

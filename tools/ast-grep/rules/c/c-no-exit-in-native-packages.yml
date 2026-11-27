@@ -1,0 +1,16 @@
+id: c-no-exit-in-native-packages
+language: c
+severity: error
+message: "Do not call exit() in native packages; raise a catchable NPL error or return a status code."
+note: >-
+  Native packages under lib/**/native/ must never terminate the host process on
+  invalid arguments or OS errors (historical catchable-error contract in 5e65213
+  and docs/native-packages.md).
+files:
+  - lib/**/*.c
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    regex: ^(exit|_Exit)$

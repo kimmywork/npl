@@ -1,0 +1,18 @@
+id: scheme-no-redefine-shared-util
+valid:
+  - |
+    (define (path-separator-byte? byte)
+      (= byte 47))
+  - |
+    (define (custom-join left right)
+      (path-join left right))
+invalid:
+  - |
+    (define (path-separator? ch)
+      (char=? ch #\/))
+  - |
+    (define (path-directory path)
+      path)
+  - |
+    (define (read-text-file path)
+      path)

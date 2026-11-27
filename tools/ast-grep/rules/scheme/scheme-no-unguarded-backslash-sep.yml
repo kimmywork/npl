@@ -4,15 +4,17 @@ severity: error
 message: "Recognize backslash (byte 92 or #\\\\) as a path separator only on Windows."
 note: >-
   On Linux, '\\' is a legal filename character, not a directory separator. Gate
-  backslash separator checks behind (npl_platform_feature \"windows\"),
+  backslash checks behind (npl_platform_feature \"windows\"),
   (platform-feature? 'windows), or (cond-expand (windows ...)).
 files:
-  - src/compiler/driver*.npl
-  - src/compiler/frontend/source.npl
-  - src/compiler/frontend/library.npl
-  - src/repl/main.npl
-  - lib/npl/native.sld
-  - lib/npl/util.sld
+  - src/**/*.npl
+  - lib/**/*.sld
+  - lib/**/*.scm
+ignores:
+  - src/compiler/reader/lexer.npl
+  - src/compiler/backend/c-stubs.npl
+  - src/compiler/tests/**
+  - tests/**
 rule:
   any:
     - pattern: (= $BYTE 92)

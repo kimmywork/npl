@@ -1,0 +1,19 @@
+id: c-no-raw-64bit-fixnum-decode
+valid:
+  - |
+    time_t decode_time(NplVal v) {
+        return (time_t)npl_ffi_to_int64(v, "time");
+    }
+invalid:
+  - |
+    time_t decode_time(NplVal v) {
+        return (time_t)npl_fixnum_value(v);
+    }
+  - |
+    off_t decode_off(NplVal v) {
+        return (off_t)npl_fixnum_value(v);
+    }
+  - |
+    size_t decode_size(NplVal v) {
+        return (size_t)npl_fixnum_value(v);
+    }

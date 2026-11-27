@@ -1,0 +1,34 @@
+id: scheme-no-redefine-shared-util
+language: scheme
+severity: error
+message: "Do not redefine shared helpers from (npl util) or (npl test util); import and reuse them."
+note: >-
+  Re-defining shared utility helpers (path-separator?, path-join, path-directory,
+  path-normalize, exact-natural?, read-text-file, write-text, text-lines,
+  file-size, file-empty?, file-equal?, trim-newline, remove-tree) violates
+  reuse-before-reinvention and breaks the duplicate-definitions CI gate. Import
+  them from (npl util) / (npl test util), or give distinct low-level compiler
+  helpers an explicit name (e.g. path-separator-byte?).
+files:
+  - lib/**/*.sld
+  - lib/**/*.scm
+  - src/**/*.npl
+ignores:
+  - lib/npl/util.sld
+  - lib/npl/test/util.sld
+  - src/compiler/tests/**
+  - tests/**
+rule:
+  kind: list
+  all:
+    - has:
+        kind: symbol
+        regex: ^define$
+        nthChild: 1
+    - has:
+        kind: list
+        nthChild: 2
+        has:
+          kind: symbol
+          nthChild: 1
+          regex: ^(path-separator\?|path-join|path-directory|path-normalize|exact-natural\?|read-text-file|write-text|text-lines|file-size|file-empty\?|file-equal\?|trim-newline|remove-tree)$

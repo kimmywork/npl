@@ -1,0 +1,53 @@
+id: c-no-c-bool-on-tagged-predicate
+language: c
+severity: error
+message: "Do not test tagged NplVal predicates (npl_*_p) as C booleans; compare with npl_true()/npl_is_false()."
+note: >-
+  Tagged NplVal booleans are non-zero for BOTH #t (npl_true()) and #f (npl_false()),
+  so !npl_*_p(x) is always false and if (npl_*_p(x)) is always true (historical bug
+  in 5e65213 and live crash in lib/npl/unix/native/unix.c). Use npl_is_false(...)
+  or == npl_true() / != npl_true().
+files:
+  - runtime/**/*.c
+  - lib/**/*.c
+rule:
+  any:
+    - kind: unary_expression
+      all:
+        - has:
+            regex: ^!$
+        - has:
+            field: argument
+            kind: call_expression
+            has:
+              field: function
+              kind: identifier
+              regex: ^npl_[a-z0-9_]+_p$
+    - kind: call_expression
+      has:
+        field: function
+        kind: identifier
+        regex: ^npl_[a-z0-9_]+_p$
+      inside:
+        kind: conditional_expression
+        field: condition
+    - kind: call_expression
+      has:
+        field: function
+        kind: identifier
+        regex: ^npl_[a-z0-9_]+_p$
+      inside:
+        any:
+          - kind: parenthesized_expression
+            inside:
+              any:
+                - kind: if_statement
+                - kind: while_statement
+          - kind: binary_expression
+            has:
+              regex: ^(&&|\|\|)$
+      not:
+        inside:
+          kind: binary_expression
+          has:
+            regex: ^(==|!=)$

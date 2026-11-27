@@ -1,0 +1,13 @@
+id: c-no-exit-in-native-packages
+valid:
+  - |
+    NplVal bad_arg(NplVal v) {
+        npl_primitive_error("demo", "invalid argument", v);
+        return npl_false();
+    }
+invalid:
+  - |
+    NplVal bad_arg(NplVal v) {
+        (void)v;
+        exit(1);
+    }
