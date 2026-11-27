@@ -103,23 +103,34 @@
             (cons steps ())))
     CONTROL-PROGRAM-TARGET ()))
 
-; (define (_npl_entry) (_npl_program (lambda (value) 0))): not converted,
-; the backend emits it as main, whose result is the exit status.
+; (define (_npl_entry)
+;   (npl_program_run _npl_program
+;                    (lambda (value) (npl_default_prompt_finish value)))):
+; not converted, the backend emits it as main.  npl_program_run keeps a C
+; landing pad around the whole program so a root abort (including one inside
+; a synchronous library callback) can unwind after the shared wind transfer
+; and return the exit status.
 (define (control-entry)
   (let ((value-name (control-fresh-name "_npl_halt_value_")))
-    (cons 211
-      (cons
-        (cons (control-symbol CONTROL-ENTRY-NAME) ())
-        (cons
+    (let ((halt-body
+            (cons
+              (cons (control-symbol "npl_default_prompt_finish")
+                (cons (control-symbol value-name) ()))
+              ())))
+      (let ((halt
+              (cons 212
+                (cons (cons (control-symbol value-name) ())
+                  (cons halt-body ())))))
+        (cons 211
           (cons
-            (cons (control-symbol CONTROL-PROGRAM-TARGET)
+            (cons (control-symbol CONTROL-ENTRY-NAME) ())
+            (cons
               (cons
-                (cons 212
-                  (cons (cons (control-symbol value-name) ())
-                    (cons (cons 0 ()) ())))
-                ()))
-            ())
-          ())))))
+                (control-application "npl_program_run"
+                  (cons (control-symbol CONTROL-PROGRAM-TARGET)
+                    (cons halt ())))
+                ())
+              ())))))))
 
 (define (control-program forms)
   (cell-set! CONTROL-NEXT-NAME 0)

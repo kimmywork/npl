@@ -612,7 +612,10 @@ Options:
     ((driver-windows?)
      (cons "-lm" (cons "-Wl,-Bstatic"
        (cons "-lpthread" (cons "-Wl,-Bdynamic" (cons "-lpsapi" ()))))))
-    (else (cons "-ldl" (cons "-lm" ())))))
+    ;; Native programs that evaluate libraries with define-c-primitive need
+    ;; the runtime symbols in the executable's dynamic symbol table on ELF;
+    ;; -rdynamic is harmless for the other Unix linkers NPL supports.
+    (else (cons "-ldl" (cons "-rdynamic" (cons "-lm" ()))))))
 
 (define (driver-link-objects config directory assembly stubs executable)
   (let ((runtime (if (string=? (driver-native-mode config) "static")

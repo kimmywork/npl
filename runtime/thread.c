@@ -66,9 +66,19 @@ static void init_context(NplThreadContext *context, uintptr_t stack_bottom)
     context->parameter_extents = npl_nil();
     context->pending_extent_key = npl_nil();
     context->initial_handler = npl_nil();
+    context->current_prompts = npl_nil();
+    context->prompt_overrides = npl_nil();
+    context->prompt_splices = npl_nil();
+    context->current_parameterization = npl_nil();
+    context->default_prompt = npl_nil();
+    context->current_segment = npl_nil();
+    context->program_jump = NULL;
+    context->program_result = npl_nil();
+    context->mount_jump = NULL;
     context->current_thread_object = npl_nil();
     context->cleanup = NULL;
     context->cleanup_depth = 0;
+    context->next_segment_id = 1;
     context->next_wind_id = 1;
     context->next_escape_id = 1;
     context->next_sync_id = 1;
@@ -91,6 +101,13 @@ static NplThreadContext *attach_context(uintptr_t stack_bottom)
     npl_gc_root(&context->parameter_extents);
     npl_gc_root(&context->pending_extent_key);
     npl_gc_root(&context->initial_handler);
+    npl_gc_root(&context->current_prompts);
+    npl_gc_root(&context->prompt_overrides);
+    npl_gc_root(&context->prompt_splices);
+    npl_gc_root(&context->current_parameterization);
+    npl_gc_root(&context->default_prompt);
+    npl_gc_root(&context->current_segment);
+    npl_gc_root(&context->program_result);
     npl_gc_root(&context->current_thread_object);
 
     lock_registry();
@@ -171,6 +188,15 @@ void npl_thread_detach(void)
     context->parameter_extents = npl_nil();
     context->pending_extent_key = npl_nil();
     context->initial_handler = npl_nil();
+    context->current_prompts = npl_nil();
+    context->prompt_overrides = npl_nil();
+    context->prompt_splices = npl_nil();
+    context->current_parameterization = npl_nil();
+    context->default_prompt = npl_nil();
+    context->current_segment = npl_nil();
+    context->program_jump = NULL;
+    context->program_result = npl_nil();
+    context->mount_jump = NULL;
     /* A detached foreign thread must not leave scratch buffers behind. */
     npl_cleanup_release_all();
     context->tail_context = NULL;

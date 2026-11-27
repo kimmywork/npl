@@ -180,6 +180,30 @@ static NplVal thread_boot(NplVal environment, int64_t argc, NplVal *argv)
     return npl_nil();
 }
 
+/* The thread's initial continuation also closes the default prompt: a
+ * composable invocation that reaches the thread root returns through its
+ * one-shot override, and an abort to the default prompt ends the thread with
+ * the handler's values. */
+static NplVal thread_root_return(NplVal environment, int64_t argc,
+                                 NplVal *argv)
+{
+    NplVal result = argc > 1 ? argv[0] : npl_nil();
+    npl_tail_request_closure(environment, 1, &result);
+    return npl_nil();
+}
+
+static NplVal thread_root_finish(NplVal environment, int64_t argc,
+                                 NplVal *argv)
+{
+    if (argc != 1) {
+        fprintf(stderr, "thread: invalid root result\n");
+        exit(1);
+    }
+    NplVal result = npl_default_prompt_finish_value(argv[0]);
+    npl_tail_request_closure(environment, 1, &result);
+    return npl_nil();
+}
+
 static void *thread_entry(void *argument)
 {
     NplThread *thread = (NplThread *)argument;
@@ -227,7 +251,16 @@ static void *thread_entry(void *argument)
         npl_sched_lock_leave();
         if (cancelled) npl_safepoint_cancelled();
         NplVal continuation = npl_make_closure(thread_done, npl_nil(), 1);
-        NplVal arguments[1] = { continuation };
+        npl_default_prompt_begin();
+        npl_default_prompt_set_root(self, NPL_PROMPT_ROOT_NATIVE);
+        NplVal prompt = npl_default_prompt_current();
+        NplVal root_return =
+            npl_make_closure(thread_root_return, continuation, -1);
+        npl_prompt_set_escape(prompt, root_return);
+        npl_prompt_set_return(prompt, root_return);
+        NplVal root_finish =
+            npl_make_closure(thread_root_finish, continuation, 1);
+        NplVal arguments[1] = { root_finish };
         (void)npl_trampoline(thread_boot, thread->thunk, 1, arguments);
     }
 

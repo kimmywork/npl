@@ -13,7 +13,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts thread_test safepoint_test thread_object_test thread_lifecycle_test shared_lock_test blocking_io_test virtual_thread_test >/dev/null
+ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts thread_test safepoint_test thread_object_test thread_lifecycle_test shared_lock_test blocking_io_test virtual_thread_test atomic_test atomic_bench >/dev/null
 # zlib is optional; the target exists only when CMake found the library.
 ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
 
@@ -35,6 +35,14 @@ ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
 # carrier, then cross-carrier migration with M carriers.
 "$BUILD/runtime/virtual_thread_test" 1
 "$BUILD/runtime/virtual_thread_test" 4
+# T3 acceptance: SRFI 230 identity, old-value histories, publication, GC
+# barriers and concurrent collector races.
+"$BUILD/runtime/atomic_test"
+NPL_GC_NURSERY_BYTES=65536 NPL_GC_VERIFY=100 \
+    "$BUILD/runtime/atomic_test"
+NPL_ATOMIC_FORCE_LOCKED=1 "$BUILD/runtime/atomic_test"
+NPL_ATOMIC_FORCE_LOCKED=1 NPL_GC_NURSERY_BYTES=65536 NPL_GC_VERIFY=100 \
+    "$BUILD/runtime/atomic_test"
 
 EXTRA_NATIVE=()
 EXTRA_LIBS=()
@@ -68,11 +76,22 @@ build_ssa "$ROOT/bootstrap/current.ssa" "$WORK/compiler"
 # internally and exits non-zero on failure.
 for name in cross-thread-terminal cross-thread-continuation \
             cross-thread-wind-parameters virtual-threads virtual-thread-edge \
-            thread-timeouts review-fixes sync-nested-recovery; do
+            thread-timeouts review-fixes sync-nested-recovery atomic-threads \
+            control-virtual control-default-prompt control-b0; do
     emit "$WORK/compiler" "$ROOT/tests/unit/$name.npl" "$WORK/$name.ssa"
     build_ssa "$WORK/$name.ssa" "$WORK/$name"
     "$WORK/$name" > "$WORK/$name.out" 2>&1
     printf 'PASS: %s (native-only thread increment)\n' "$name"
+done
+# T3 C: native and virtual workers share the same atomic objects on one and
+# four carriers, under a small nursery with barrier verification.
+for carriers in 1 4; do
+    NPL_VTHREAD_CARRIERS=$carriers NPL_GC_NURSERY_BYTES=65536 \
+        NPL_GC_VERIFY=10 "$WORK/atomic-threads" > "$WORK/atomic-threads.out"
+    NPL_VTHREAD_CARRIERS=$carriers NPL_GC_NURSERY_BYTES=65536 \
+        NPL_GC_VERIFY=10 "$WORK/control-virtual" > "$WORK/control-virtual.out"
+    NPL_VTHREAD_CARRIERS=$carriers NPL_GC_NURSERY_BYTES=65536 \
+        NPL_GC_VERIFY=10 "$WORK/control-b0" > "$WORK/control-b0.out"
 done
 
 run_suite() {
@@ -198,6 +217,9 @@ run_suite fold-case "PASS fold-case 5"
 run_suite directive-parameters "PASS directive-parameters 3"
 run_suite reader-directive-errors "PASS reader-directive-errors 11"
 run_suite thread "PASS thread 26"
+run_suite srfi-230 "PASS srfi-230 19"
+run_suite control "PASS control 47"
+run_suite control-parameters "PASS control-parameters 10"
 run_suite srfi-170 "PASS srfi-170 132"
 run_suite platform "PASS platform 5"
 run_suite native-crc32 "PASS native-crc32 4"
@@ -609,6 +631,12 @@ reject_compile contracts/c-primitive-nested.npl \
     c-primitive-nested "define-c-primitive is valid at top level only"
 reject_compile contracts/c-primitive-type.npl \
     c-primitive-type "unknown C primitive type: pear"
+reject_compile contracts/atomic-order-invalid.npl \
+    atomic-order-invalid "memory-order: invalid memory order"
+reject_compile contracts/atomic-order-extra.npl \
+    atomic-order-extra "memory-order: expected one identifier"
+reject_compile contracts/atomic-order-missing.npl \
+    atomic-order-missing "memory-order: expected one identifier"
 reject_compile contracts/c-primitive-conflict.npl \
     c-primitive-conflict "C primitive declaration conflicts with registered npl_car"
 reject_compile contracts/c-primitive-values-conflict.npl \

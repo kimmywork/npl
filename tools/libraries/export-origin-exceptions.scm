@@ -11,6 +11,8 @@
 ; no longer conflicts, so this list can only shrink.  A non-standard name is
 ; never allowed here: rename one of the definitions instead.
 (bag? npl/data/bag npl/data/collection)
+(call/cc npl/control primitive)
+(call-with-current-continuation npl/control primitive)
 (current-time npl/thread npl/time)
 (time? npl/thread npl/time)
 (list->string npl/string/immutable scheme/base)

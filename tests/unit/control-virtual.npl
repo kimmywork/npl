@@ -1,0 +1,79 @@
+; T4 control in virtual threads.  The same-thread prompt/meta-continuation
+; implementation does not create a helper native thread, so composable
+; invocation does not block a carrier.  Native-only in effect: npli has the
+; APIs, but this asserts virtual-thread execution and carrier migration.
+(import (except (scheme base) call/cc call-with-current-continuation)
+        (scheme write)
+        (scheme process-context)
+        (npl control)
+        (npl thread virtual))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+(define (worker index)
+  (let ((tag (make-continuation-prompt-tag)))
+    (let ((composed
+           (* 2
+              (call-with-continuation-prompt
+                (lambda ()
+                  (* 3
+                     (call-with-composable-continuation
+                       (lambda (k)
+                         (* 5
+                            (call-with-continuation-prompt
+                              (lambda () (* 7 (k 11)))
+                              tag)))
+                       tag)))
+                tag))))
+      (virtual-thread-yield!)
+      (let ((call-in-tag (make-continuation-prompt-tag))
+            (saved #f))
+        (let ((first
+               (call-with-continuation-prompt
+                 (lambda ()
+                   (call-with-non-composable-continuation
+                     (lambda (continuation)
+                       (set! saved continuation)
+                       'first)
+                     call-in-tag))
+                 call-in-tag)))
+          (let ((second
+                 (call-with-continuation-prompt
+                   (lambda ()
+                     (call-in-continuation
+                       saved
+                       (lambda (x)
+                         (virtual-thread-yield!)
+                         (* x 10))
+                       4))
+                   call-in-tag)))
+            (list index
+                  composed
+                  (+ 1 (reset (* 2 (shift k (k 4)))))
+                  (+ 1 (reset (* 2 (shift k (k (k 4))))))
+                  first
+                  second
+                  (guard (e ((continuation-violation? e) #t))
+                    ((call-with-continuation-barrier
+                       (lambda () (call/cc values)))))
+                  (virtual-thread? (current-virtual-thread)))))))))
+
+(define threads
+  (map (lambda (index) (make-virtual-thread (lambda () (worker index))))
+       (list 0 1 2)))
+(for-each virtual-thread-start! threads)
+(check 'virtual-control-results
+       '((0 6930 9 17 first 40 #t #t)
+         (1 6930 9 17 first 40 #t #t)
+         (2 6930 9 17 first 40 #t #t))
+       (map virtual-thread-join! threads))
+
+(if (= failures 0)
+    (begin (display "control-virtual: PASS") (newline) (exit 0))
+    (begin (display "control-virtual: FAIL") (newline) (exit 1)))

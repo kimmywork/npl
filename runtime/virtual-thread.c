@@ -30,6 +30,8 @@
 #include "npl.h"
 #include "thread.h"
 #include "thread-sched.h"
+#include "virtual-thread-internal.h"
+#include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -71,6 +73,7 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
 static int g_shutdown;
 static int g_carrier_count = 2;
+static int g_carrier_count_explicit;
 static pthread_t *g_carrier_handles;
 static pthread_once_t g_carrier_once = PTHREAD_ONCE_INIT;
 static int g_defer_start;       /* harness-only: batch before starting carriers */
@@ -131,11 +134,28 @@ static void registry_remove(NplVirtualThread *vt)
     }
 }
 
+/* Test/tuning override read once while the queues are created.  An explicit
+ * npl_virtual_thread_set_carriers call takes precedence.  Called under
+ * g_lock before the queue count is frozen. */
+static void carrier_count_from_environment(void)
+{
+    if (g_carrier_count_explicit) return;
+    const char *text = getenv("NPL_VTHREAD_CARRIERS");
+    if (!text || !*text) return;
+    char *end = NULL;
+    errno = 0;
+    long count = strtol(text, &end, 10);
+    if (errno == 0 && end != text && *end == '\0' &&
+        count > 0 && count <= 256)
+        g_carrier_count = (int)count;
+}
+
 /* Called under g_lock. The queue count is frozen at the first enqueue so a
  * late set_carriers() cannot invalidate indices already handed to carriers. */
 static void ensure_queues(void)
 {
     if (g_queues) return;
+    carrier_count_from_environment();
     g_queues_count = g_carrier_count;
     g_queues = (VThreadQueue *)calloc(
         (size_t)g_queues_count, sizeof(VThreadQueue));
@@ -190,58 +210,6 @@ static NplVirtualThread *require_vthread(NplVal value, const char *who)
     return (NplVirtualThread *)npl_header(value);
 }
 
-/* Stores into an existing (possibly old) heap object need a barrier. */
-static void set_field(NplVirtualThread *vt, NplVal *field, NplVal value)
-{
-    *field = value;
-    npl_gc_write_barrier(vt, value);
-}
-
-/* ---- dynamic state: save the virtual thread, restore it on mount ---- */
-
-static void save_state(NplVirtualThread *vt)
-{
-    set_field(vt, &vt->wind, CTX->current_wind);
-    set_field(vt, &vt->handler, CTX->current_handler);
-    set_field(vt, &vt->parameters, CTX->current_parameters);
-    set_field(vt, &vt->parameter_extents, CTX->parameter_extents);
-    set_field(vt, &vt->pending_extent_key, CTX->pending_extent_key);
-    set_field(vt, &vt->initial_handler, CTX->initial_handler);
-    vt->next_wind_id = CTX->next_wind_id;
-    vt->carrier_context = (void *)npl_ctx();
-}
-
-static void restore_state(NplVirtualThread *vt)
-{
-    /* Establish the logical-thread identity FIRST: parameter binding owners
-     * are per-virtual-thread, so any re-stamping must use this vt, not the
-     * carrier's context id. The owner is migration-stable, so re-stamping is
-     * only needed when a chain came from a different logical thread. */
-    CTX->logical_thread = vt;
-    if (vt->carrier_context != (void *)npl_ctx())
-        npl_relocalize_parameter_bindings(vt->parameters,
-                                          (uintptr_t)vt);
-    CTX->current_wind = vt->wind;
-    CTX->current_handler = vt->handler;
-    CTX->current_parameters = vt->parameters;
-    CTX->parameter_extents = vt->parameter_extents;
-    CTX->pending_extent_key = vt->pending_extent_key;
-    CTX->initial_handler = vt->initial_handler;
-    CTX->next_wind_id = vt->next_wind_id;
-}
-
-static void clear_carrier_state(void)
-{
-    CTX->current_wind = npl_nil();
-    CTX->current_handler = npl_nil();
-    CTX->current_parameters = npl_nil();
-    CTX->parameter_extents = npl_nil();
-    CTX->pending_extent_key = npl_nil();
-    CTX->initial_handler = npl_nil();
-    CTX->next_wind_id = 1;
-    CTX->logical_thread = NULL;
-}
-
 /* ---- private CPS root and virtual-thread uncaught handler ----
  *
  * Both return npl_nil() without setting pending, so npl_trampoline breaks
@@ -251,13 +219,21 @@ static void clear_carrier_state(void)
 static void finish_vt(NplVirtualThread *vt, NplVal result, NplVal exception)
 {
     pthread_mutex_lock(&g_lock);
-    set_field(vt, &vt->end_result, result);
-    set_field(vt, &vt->end_exception, exception);
+    npl_vthread_set_field(vt, &vt->end_result, result);
+    npl_vthread_set_field(vt, &vt->end_exception, exception);
     vt->state = NPL_VTHREAD_TERMINATED;
     vt->continuation = npl_nil();
     registry_remove(vt);
     pthread_cond_broadcast(&g_cond);
     pthread_mutex_unlock(&g_lock);
+}
+
+/* The saved-state/root module publishes a completed virtual thread without
+ * owning the registry lock. */
+void npl_vthread_finish_record(NplVirtualThread *vt, NplVal result,
+                               NplVal exception)
+{
+    finish_vt(vt, result, exception);
 }
 
 static NplVal vthread_done(NplVal environment, int64_t argc, NplVal *argv)
@@ -268,7 +244,7 @@ static NplVal vthread_done(NplVal environment, int64_t argc, NplVal *argv)
     return npl_nil();
 }
 
-static NplVal vthread_uncaught(NplVal environment, int64_t argc, NplVal *argv)
+NplVal npl_vthread_uncaught(NplVal environment, int64_t argc, NplVal *argv)
 {
     (void)argc;
     NplVirtualThread *vt = (NplVirtualThread *)npl_header(environment);
@@ -284,8 +260,8 @@ static NplVal helper_done(NplVal environment, int64_t argc, NplVal *argv)
 {
     (void)argc;
     NplVirtualThread *vt = (NplVirtualThread *)npl_header(environment);
-    set_field(vt, &vt->resume_value, argv[0]);
-    set_field(vt, &vt->work, npl_nil());
+    npl_vthread_set_field(vt, &vt->resume_value, argv[0]);
+    npl_vthread_set_field(vt, &vt->work, npl_nil());
     pthread_mutex_lock(&g_lock);
     enqueue_to(vt, (vt->carrier_index + 1) % g_queues_count);
     pthread_cond_broadcast(&g_cond);
@@ -318,6 +294,13 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
     vt->parameter_extents = npl_nil();
     vt->pending_extent_key = npl_nil();
     vt->initial_handler = npl_nil();
+    vt->prompts = npl_nil();
+    vt->prompt_overrides = npl_nil();
+    vt->prompt_splices = npl_nil();
+    vt->parameterization = npl_nil();
+    vt->default_prompt = npl_nil();
+    vt->segment = npl_nil();
+    vt->next_segment_id = 1;
     vt->next_wind_id = 1;
     vt->state = NPL_VTHREAD_NEW;
     vt->park_count = 0;
@@ -329,7 +312,7 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
 
     NplVal value = boxed(vt);
     NplVal root = npl_make_closure(vthread_done, value, 1);
-    set_field(vt, &vt->root, root);
+    npl_vthread_set_field(vt, &vt->root, root);
     npl_gc_write_barrier(vt, parameters);
     npl_gc_write_barrier(vt, vt->name);
     npl_gc_write_barrier(vt, thunk);
@@ -392,8 +375,18 @@ int npl_vthread_migration_count(NplVal value)
 /* Capture the raw CPS continuation. The emitted control-transfer form does
  * `call $npl_vthread_park(l K)` followed by `ret 2` and no tail request, so
  * returning here ends the current trampoline. */
+static NplVal raw_continuation(NplVal continuation)
+{
+    while (npl_is_ptr(continuation) &&
+           npl_header(continuation)->tag == BOX_CONTINUATION_SEGMENT)
+        continuation = ((NplContinuationSegment *)
+                            npl_header(continuation))->closure;
+    return continuation;
+}
+
 void npl_vthread_park(NplVal continuation)
 {
+    continuation = raw_continuation(continuation);
     NplVirtualThread *vt = (NplVirtualThread *)CTX->logical_thread;
     if (!vt || vt->state != NPL_VTHREAD_RUNNING)
         npl_primitive_error("virtual-thread-yield!",
@@ -406,9 +399,9 @@ void npl_vthread_park(NplVal continuation)
         npl_primitive_error("virtual-thread-yield!",
                             "invalid scheduler continuation", continuation);
 
-    set_field(vt, &vt->continuation, continuation);
-    set_field(vt, &vt->resume_value, npl_unspecified());
-    save_state(vt);
+    npl_vthread_set_field(vt, &vt->continuation, continuation);
+    npl_vthread_set_field(vt, &vt->resume_value, npl_unspecified());
+    npl_vthread_save_state(vt);
     pthread_mutex_lock(&g_lock);
     vt->state = NPL_VTHREAD_SUSPENDED;
     vt->park_count++;
@@ -442,14 +435,15 @@ void npl_vthread_await(NplVal work, NplVal continuation)
     if (!tagged(work, BOX_CLOSURE))
         npl_primitive_error("virtual-thread-block!", "expected a procedure",
                             work);
+    continuation = raw_continuation(continuation);
     if (!tagged(continuation, BOX_CLOSURE))
         npl_primitive_error("virtual-thread-block!",
                             "invalid scheduler continuation", continuation);
 
-    set_field(vt, &vt->continuation, continuation);
-    set_field(vt, &vt->work, work);
-    set_field(vt, &vt->resume_value, npl_unspecified());
-    save_state(vt);
+    npl_vthread_set_field(vt, &vt->continuation, continuation);
+    npl_vthread_set_field(vt, &vt->work, work);
+    npl_vthread_set_field(vt, &vt->resume_value, npl_unspecified());
+    npl_vthread_save_state(vt);
     pthread_mutex_lock(&g_lock);
     vt->state = NPL_VTHREAD_SUSPENDED;
     vt->park_count++;
@@ -579,9 +573,15 @@ NplVal npl_vthread_join(NplVal value)
 void npl_virtual_thread_set_carriers(int count)
 {
     /* Only effective before any thread has been enqueued and before carriers
-     * start; otherwise queue indices already in flight would be invalid. */
-    if (count > 0 && !g_queues && !g_carrier_handles)
+     * start; otherwise queue indices already in flight would be invalid.
+     * Serialize with the first npl_vthread_start / start_carriers path, which
+     * reads these fields under g_lock. */
+    pthread_mutex_lock(&g_lock);
+    if (count > 0 && !g_queues && !g_carrier_handles) {
         g_carrier_count = count;
+        g_carrier_count_explicit = 1;
+    }
+    pthread_mutex_unlock(&g_lock);
 }
 
 void npl_virtual_thread_shutdown(void)
@@ -657,7 +657,7 @@ static void *helper_entry(void *argument)
         /* A raise inside the blocking thunk must terminate the virtual thread
          * with an uncaught exception (and wake joiners), not exit the process.
          * The helper's fresh context has an empty handler chain otherwise. */
-        NplVal handler = npl_make_closure(vthread_uncaught, boxed(vt), 2);
+        NplVal handler = npl_make_closure(npl_vthread_uncaught, boxed(vt), 2);
         CTX->current_handler = npl_nil();
         CTX->initial_handler = npl_handler_push_initial(handler);
         NplVal done = npl_make_closure(helper_done, boxed(vt), 1);
@@ -680,25 +680,13 @@ static void *helper_entry(void *argument)
 
 /* ---- the carrier loop ---- */
 
-static void mount_new(NplVirtualThread *vt)
-{
-    clear_carrier_state();
-    /* The clone stamps bindings with the LOGICAL thread owner, so publish
-     * the vt identity before cloning (clear_carrier_state reset it). */
-    CTX->logical_thread = vt;
-    CTX->current_parameters = npl_clone_parameter_bindings(vt->parameters);
-    NplVal handler = npl_make_closure(vthread_uncaught, boxed(vt), 2);
-    CTX->initial_handler = npl_handler_push_initial(handler);
-    save_state(vt);
-}
-
 static void *carrier_entry(void *argument)
 {
     int index = (int)(intptr_t)argument;
     uintptr_t marker = 0;
     (void)npl_thread_attach_exact(
         (uintptr_t)(void *)&marker + sizeof(marker));
-    clear_carrier_state();
+    npl_vthread_clear_carrier_state();
 
     for (;;) {
         /* An idle carrier has no virtual thread mounted, so parking it for
@@ -731,26 +719,42 @@ static void *carrier_entry(void *argument)
             exit(1);
         }
 
-        NplVal argv[1];
-        if (first) {
-            mount_new(vt);
-            argv[0] = vt->root;
-            (void)npl_apply(vt->thunk, 1, argv);
+        /* A root abort may happen inside a synchronous library callback,
+         * where a tail call cannot leave the nested trampoline.  The mount
+         * landing pad unwinds that C stack; the root finisher has already
+         * published the virtual thread's result. */
+        jmp_buf mount_jump;
+        int saved_root_count = npl_gc_root_count_internal();
+        uintptr_t saved_stack_bottom = npl_gc_stack_bottom_internal();
+        CTX->mount_jump = &mount_jump;
+        if (setjmp(mount_jump) == 0) {
+            NplVal argv[1];
+            if (first) {
+                npl_vthread_mount_new(vt);
+                argv[0] = npl_vthread_root_finish_closure(vt->root);
+                (void)npl_apply(vt->thunk, 1, argv);
+            } else {
+                NplVal token = vt->continuation;
+                vt->continuation = npl_nil();
+                vt->resume_count++;
+                npl_vthread_restore_state(vt);
+                /* A yield resumes with an unspecified value; an await resumes
+                 * with the helper's work result. */
+                argv[0] = vt->resume_value;
+                vt->resume_value = npl_nil();
+                (void)npl_apply(token, 1, argv);
+            }
         } else {
-            NplVal token = vt->continuation;
-            vt->continuation = npl_nil();
-            vt->resume_count++;
-            restore_state(vt);
-            /* A yield resumes with an unspecified value; an await resumes
-             * with the helper's work result. */
-            argv[0] = vt->resume_value;
-            vt->resume_value = npl_nil();
-            (void)npl_apply(token, 1, argv);
+            npl_shared_release_all();
+            npl_trampoline_release_abandoned();
+            npl_gc_restore_root_count_internal(saved_root_count);
+            (void)npl_gc_swap_stack_bottom(saved_stack_bottom);
         }
+        CTX->mount_jump = NULL;
         /* npl_apply returned: either a yield (park saved the state) or the
          * private root/uncaught handler finished the thread. Clear the
          * carrier so the next virtual thread starts from its own state. */
-        clear_carrier_state();
+        npl_vthread_clear_carrier_state();
     }
 
     npl_thread_detach();

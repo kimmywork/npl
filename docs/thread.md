@@ -201,3 +201,11 @@ state (pass values explicitly); a parameter extent that is entered and left
 in a long loop retains one mapping per iteration until a GC-driven weak-prune
 is added; a process-wide shared lock still serializes port I/O, so one thread
 blocked on a pipe can stall other threads' port operations.
+
+## Shared state
+
+Use [`(npl atomic)` / `(srfi 230)`](atomic.md) for a counter, flag, box or
+two-field snapshot shared between native and virtual threads. Its locked T3
+baseline provides sequentially-consistent behavior for every memory order.
+Unsynchronized mutation of ordinary shared Scheme objects remains outside the
+contract.

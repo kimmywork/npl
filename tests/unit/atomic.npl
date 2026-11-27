@@ -1,0 +1,191 @@
+; SRFI 230 / (npl atomic) unit surface.
+;
+; The differential tests/fixtures/atomic fixture covers the same public API on
+; npli.  This unit test adds the fixnum boundary policy, every memory order,
+; renamed/shadowed syntax, wrong-type and extra-argument errors, and all
+; exports for the library coverage ratchet.
+(import (scheme base) (scheme write) (scheme process-context)
+        (npl atomic)
+        (rename (only (npl atomic) memory-order) (memory-order order)))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+(define (caught thunk)
+  (guard (condition (#t #t)) (thunk) #f))
+
+(define (two-values thunk)
+  (call-with-values thunk list))
+
+; ---- memory-order syntax ----
+(define acquire 'lexically-shadowed)
+(check 'memory-order-relaxed
+       'relaxed (order relaxed))
+(check 'memory-order-acquire
+       'acquire (memory-order acquire))
+(check 'memory-order-renamed #t
+       (eq? (order acquire) (memory-order acquire)))
+(check 'memory-order-release
+       'release (order release))
+(check 'memory-order-acquire-release
+       'acquire-release (order acquire-release))
+(check 'memory-order-sequentially-consistent
+       'sequentially-consistent (order sequentially-consistent))
+(check 'memory-order? #t
+       (and (memory-order? 'relaxed)
+            (memory-order? 'acquire)
+            (memory-order? 'release)
+            (memory-order? 'acquire-release)
+            (memory-order? 'sequentially-consistent)))
+(check 'memory-order?-invalid #f (memory-order? 'bogus))
+(check 'memory-order?-ordinary-symbol-needed #f (memory-order? "acquire"))
+
+(let ((relaxed 'shadowed))
+  (check 'memory-order-shadowed #t (eq? (order relaxed) 'relaxed)))
+
+; A renamed exported order symbol still has the ordinary symbol value.
+(check 'renamed-order-symbol 'sequentially-consistent sequentially-consistent)
+
+; ---- flags ----
+(define flag (make-atomic-flag))
+(check 'make-atomic-flag #t (atomic-flag? flag))
+(check 'atomic-flag?-rejects #f (atomic-flag? 1))
+(check 'atomic-flag-start-clear #f (atomic-flag-test-and-set! flag))
+(check 'atomic-flag-test-and-set! #t
+       (atomic-flag-test-and-set! flag (order acquire)))
+(check 'atomic-flag-clear! #t
+       (begin (atomic-flag-clear! flag (order release)) #t))
+(check 'atomic-flag-clear-state #f (atomic-flag-test-and-set! flag))
+(check 'atomic-flag-extra-argument-error #t
+       (caught (lambda ()
+                 (atomic-flag-clear! flag (memory-order release) 'extra))))
+
+; ---- arbitrary-value boxes ----
+(define first (list 1 2))
+(define equal-not-eq (list 1 2))
+(define box (make-atomic-box first))
+(check 'make-atomic-box #t (atomic-box? box))
+(check 'atomic-box?-rejects #f (atomic-box? 2))
+(check 'atomic-box-ref #t (eq? (atomic-box-ref box) first))
+(check 'atomic-box-ref-order #t
+       (eq? (atomic-box-ref box (memory-order acquire)) first))
+(check 'atomic-box-swap! #t
+       (eq? (atomic-box-swap! box equal-not-eq (memory-order release))
+            first))
+(check 'atomic-box-identity #t
+       (eq? (atomic-box-ref box) equal-not-eq))
+(check 'atomic-box-cas-failure #t
+       (eq? (atomic-box-compare-and-swap! box first 'unused)
+            equal-not-eq))
+(check 'atomic-box-cas-success #t
+       (eq? (atomic-box-compare-and-swap! box equal-not-eq first)
+            equal-not-eq))
+(check 'atomic-box-cas-stored #t (eq? (atomic-box-ref box) first))
+(check 'atomic-box-set! #t
+       (begin (atomic-box-set! box equal-not-eq (memory-order release))
+              (eq? (atomic-box-ref box) equal-not-eq)))
+(check 'atomic-box-identity-distinct-from-equal? #f
+       (equal? (make-atomic-box (list 1 2))
+               (make-atomic-box (list 1 2))))
+(check 'atomic-box-wrong-type #t
+       (caught (lambda () (atomic-box-ref 'not-a-box))))
+(check 'atomic-box-bad-order #t
+       (caught (lambda () (atomic-box-ref box 'not-an-order))))
+(check 'atomic-box-extra-argument #t
+       (caught (lambda () (atomic-box-ref box (memory-order relaxed) 1))))
+
+; ---- fixnum boxes ----
+(define fx (make-atomic-fxbox 10))
+(check 'make-atomic-fxbox #t (atomic-fxbox? fx))
+(check 'atomic-fxbox?-rejects #f (atomic-fxbox? 3))
+(check 'atomic-fxbox-ref 10 (atomic-fxbox-ref fx))
+(check 'atomic-fxbox-set! #t
+       (begin (atomic-fxbox-set! fx 20 (memory-order relaxed))
+              (= (atomic-fxbox-ref fx) 20)))
+(check 'atomic-fxbox-swap! 20
+       (atomic-fxbox-swap! fx 30 (memory-order release)))
+(check 'atomic-fxbox-cas-failure 30
+       (atomic-fxbox-compare-and-swap! fx 20 40))
+(check 'atomic-fxbox-cas-success 30
+       (atomic-fxbox-compare-and-swap! fx 30 40))
+(check 'atomic-fxbox-add 40 (atomic-fxbox+/fetch! fx 2))
+(check 'atomic-fxbox-sub 42 (atomic-fxbox-/fetch! fx 2))
+(check 'atomic-fxbox-and 40 (atomic-fxbox-and/fetch! fx 15))
+(check 'atomic-fxbox-ior 8 (atomic-fxbox-ior/fetch! fx 6))
+(check 'atomic-fxbox-xor 14 (atomic-fxbox-xor/fetch! fx 3))
+(check 'atomic-fxbox-final 13 (atomic-fxbox-ref fx))
+(check 'atomic-fxbox-make-validates #t
+       (caught (lambda () (make-atomic-fxbox 'not-a-fixnum))))
+
+; NPL policy: reject before changing the box at both fixnum boundaries.
+(define max-fx 2305843009213693951)
+(define min-fx -2305843009213693952)
+(define high (make-atomic-fxbox max-fx))
+(check 'fxbox-max-accepted max-fx (atomic-fxbox-ref high))
+(check 'fxbox-max-overflow #t
+       (caught (lambda () (atomic-fxbox+/fetch! high 1))))
+(check 'fxbox-max-unchanged max-fx (atomic-fxbox-ref high))
+(check 'fxbox-max-sub-ok max-fx
+       (atomic-fxbox-/fetch! high 1))
+(check 'fxbox-max-sub-stored (- max-fx 1) (atomic-fxbox-ref high))
+(define low (make-atomic-fxbox min-fx))
+(check 'fxbox-min-accepted min-fx (atomic-fxbox-ref low))
+(check 'fxbox-min-overflow #t
+       (caught (lambda () (atomic-fxbox-/fetch! low 1))))
+(check 'fxbox-min-unchanged min-fx (atomic-fxbox-ref low))
+
+; ---- pairs ----
+(define pair (make-atomic-pair 'a 'b))
+(check 'make-atomic-pair #t (atomic-pair? pair))
+(check 'atomic-pair?-rejects #f (atomic-pair? (cons 1 2)))
+(check 'atomic-pair-identity-distinct-from-equal? #f
+       (equal? (make-atomic-pair 1 2) (make-atomic-pair 1 2)))
+(check 'atomic-pair-ref
+       '(a b) (two-values (lambda () (atomic-pair-ref pair))))
+(check 'atomic-pair-ref-order
+       '(a b) (two-values
+                (lambda () (atomic-pair-ref pair (memory-order acquire)))))
+(check 'atomic-pair-set! #t
+       (begin (atomic-pair-set! pair 'c 'd (memory-order release)) #t))
+(check 'atomic-pair-ref-after-set
+       '(c d) (two-values (lambda () (atomic-pair-ref pair))))
+(check 'atomic-pair-swap
+       '(c d) (two-values
+                (lambda () (atomic-pair-swap! pair 'e 'f))))
+(check 'atomic-pair-after-swap
+       '(e f) (two-values (lambda () (atomic-pair-ref pair))))
+(check 'atomic-pair-cas-failure
+       '(e f) (two-values
+                (lambda ()
+                  (atomic-pair-compare-and-swap! pair 'c 'd 'g 'h))))
+(check 'atomic-pair-cas-success
+       '(e f) (two-values
+                (lambda ()
+                  (atomic-pair-compare-and-swap! pair 'e 'f 'g 'h))))
+(check 'atomic-pair-after-cas
+       '(g h) (two-values (lambda () (atomic-pair-ref pair))))
+(check 'atomic-pair-cas-extra-argument #t
+       (caught (lambda ()
+                 (atomic-pair-compare-and-swap!
+                   pair 'g 'h 'i 'j (memory-order relaxed) 'extra))))
+
+; ---- fence ----
+(check 'atomic-fence #t
+       (begin
+         (atomic-fence (memory-order relaxed))
+         (atomic-fence (memory-order acquire))
+         (atomic-fence (memory-order release))
+         (atomic-fence (memory-order acquire-release))
+         (atomic-fence (memory-order sequentially-consistent))
+         #t))
+(check 'atomic-fence-invalid #t
+       (caught (lambda () (atomic-fence 'bogus))))
+
+(if (= failures 0)
+    (begin (display "atomic: PASS") (newline) (exit 0))
+    (begin (display "atomic: FAIL") (newline) (exit 1)))

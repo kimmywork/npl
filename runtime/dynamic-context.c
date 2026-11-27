@@ -324,6 +324,11 @@ NplVal npl_capture_dynamic_context(void)
     context->wind = CTX->current_wind;
     context->handler = CTX->current_handler;
     context->parameters = CTX->current_parameters;
+    context->prompts = CTX->current_prompts;
+    context->prompt_overrides = CTX->prompt_overrides;
+    context->prompt_splices = CTX->prompt_splices;
+    context->parameterization = CTX->current_parameterization;
+    context->segment = CTX->current_segment;
     context->source_initial_handler =
         find_initial_handler(CTX->current_handler);
     return boxed(context);
@@ -434,6 +439,13 @@ static void install_frame_environment(NplWindTransition *transition,
 {
     if (npl_is_nil(transition->context)) return;
     CTX->current_handler = frame->handler;
+    /* T4-B0: a before/after thunk runs in the extent's own prompt and
+     * segment environment.  Without this an outer after thunk still sees a
+     * prompt that the transfer has already left. */
+    CTX->current_prompts = frame->prompts;
+    CTX->prompt_splices = frame->prompt_splices;
+    CTX->current_parameterization = frame->parameterization;
+    CTX->current_segment = frame->segment;
     NplVal key = frame->extent_key;
     uint32_t count = 0;
     if (npl_is_ptr(key) && npl_header(key)->tag == BOX_VECTOR)
@@ -448,6 +460,18 @@ static void install_frame_environment(NplWindTransition *transition,
     CTX->current_parameters = local;
     if (!npl_is_nil(key))
         extent_register(key, local, baseline);
+}
+
+/* A composable graft carries the invoking continuation's prompt chain.  It is
+ * installed after the captured environment has been reinstated, so the
+ * captured prefix continues into the caller's prompts without replacing the
+ * captured winds/parameters/handlers. */
+static void install_graft_splice(NplVal value)
+{
+    if (npl_is_false(npl_graft_p(value))) return;
+    NplVal splice = npl_graft_splice(value);
+    if (npl_is_false(splice)) return;
+    npl_prompt_install_splice(npl_graft_prompt(value), splice);
 }
 
 static void schedule_wind_transition(NplVal transition_value)
@@ -485,8 +509,16 @@ static void schedule_wind_transition(NplVal transition_value)
     } else {
         CTX->current_wind = transition->target;
         CTX->current_handler = transition->target_handler;
-        if (!npl_is_nil(transition->context))
+        if (!npl_is_nil(transition->context)) {
             CTX->current_parameters = transition->target_parameters;
+            CTX->current_prompts = transition->target_prompts;
+            CTX->prompt_overrides = transition->target_prompt_overrides;
+            CTX->current_segment = transition->target_segment;
+            CTX->prompt_splices = transition->target_prompt_splices;
+            CTX->current_parameterization =
+                transition->target_parameterization;
+        }
+        install_graft_splice(transition->value);
         NplVal argument = transition->value;
         npl_tail_request_closure(transition->continuation, 1, &argument);
         return;
@@ -513,7 +545,11 @@ static NplVal wind_transition_resume(NplVal environment, int64_t argc,
 static NplVal make_transition(NplVal target, NplVal target_handler,
                               NplVal continuation, NplVal value,
                               NplVal context, NplVal target_parameters,
-                              NplVal cache)
+                              NplVal target_prompts,
+                              NplVal target_prompt_overrides,
+                              NplVal target_prompt_splices,
+                              NplVal target_parameterization,
+                              NplVal target_segment, NplVal cache)
 {
     NplVal common = wind_common_ancestor(CTX->current_wind, target);
     uint32_t exit_count = 0;
@@ -541,6 +577,11 @@ static NplVal make_transition(NplVal target, NplVal target_handler,
     transition->entering = npl_nil();
     transition->context = context;
     transition->target_parameters = target_parameters;
+    transition->target_prompts = target_prompts;
+    transition->target_prompt_overrides = target_prompt_overrides;
+    transition->target_prompt_splices = target_prompt_splices;
+    transition->target_parameterization = target_parameterization;
+    transition->target_segment = target_segment;
     transition->cache = cache;
 
     size_t index = 0;
@@ -571,7 +612,8 @@ static void transfer_legacy(NplVal target, NplVal target_handler,
     }
     schedule_wind_transition(make_transition(
         target, target_handler, continuation, value,
-        npl_nil(), npl_nil(), npl_nil()));
+        npl_nil(), npl_nil(), npl_nil(), npl_nil(), npl_nil(), npl_nil(),
+        npl_nil(), npl_nil()));
 }
 
 static void transfer_with_context(NplVal context_value,
@@ -599,15 +641,28 @@ static void transfer_with_context(NplVal context_value,
         0, &ignored_baseline);
     NplVal target_handler = localize_handler(context->handler);
 
+    NplVal target_prompts = context->prompts;
+    NplVal target_prompt_overrides = context->prompt_overrides;
+    NplVal target_prompt_splices = context->prompt_splices;
+    NplVal target_parameterization = context->parameterization;
+    NplVal target_segment = context->segment;
     if (CTX->current_wind == target) {
         CTX->current_handler = target_handler;
         CTX->current_parameters = target_parameters;
+        CTX->current_prompts = target_prompts;
+        CTX->prompt_overrides = target_prompt_overrides;
+        CTX->prompt_splices = target_prompt_splices;
+        CTX->current_parameterization = target_parameterization;
+        CTX->current_segment = target_segment;
+        install_graft_splice(value);
         npl_tail_request_closure(continuation, 1, &value);
         return;
     }
     schedule_wind_transition(make_transition(
         target, target_handler, continuation, value,
-        context_value, target_parameters, cache));
+        context_value, target_parameters, target_prompts,
+        target_prompt_overrides, target_prompt_splices,
+        target_parameterization, target_segment, cache));
 }
 
 /* The first argument is a BOX_DYNAMIC_CONTEXT for a compiler emitted after

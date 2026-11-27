@@ -87,6 +87,8 @@ NplVal npl_platform_feature(NplVal name_value)
      * because cond-expand consults this bootstrap hook at compile time. */
     if (platform_name_is(bytes, length, "srfi-18"))
         return npl_true();
+    if (platform_name_is(bytes, length, "srfi-230"))
+        return npl_true();
     if (platform_name_is(bytes, length, "virtual-threads"))
         return npl_true();
     return npl_false();

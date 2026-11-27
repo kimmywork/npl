@@ -191,6 +191,10 @@
     ((204) (walk-datum (car (cdr e))))
     ((212) (emit-lambda e env))
     ((219) (emit-direct-lambda e env))
+    ; (224 lambda) (frontend control-segment): wrap the local CPS
+    ; continuation in a runtime semantic frame.  The runtime returns the
+    ; closure unchanged when no prompt is active.
+    ((224) (emit-segment e env))
     ((213) (emit-if e env))
     ((214) (emit-let e env))
     ((216) (emit-body (cdr e) env))
@@ -212,6 +216,15 @@
                                      (cdr e) env)
                   (route-call (cdr head) (cdr e) env))))
         (emit-closure-call (emit-expr head env) (cdr e) env))))
+
+(define (emit-segment e env)
+  (check-arity (cdr e) 1 1)
+  (let ((closure (emit-expr (car (cdr e)) env)))
+    (let ((segment (new-tmp)))
+      (func-line
+        (string-append segment
+                       " =l call $npl_segment_make(l " closure ")"))
+      segment)))
 
 (define (store-argv ops base index)
   (if (null? ops)

@@ -296,7 +296,8 @@
       (if (control-closure-call-site? head continuation)
           (cons 223 (cons head (cons values (cons continuation ()))))
           (cons head
-                (control-append-one values continuation))))))
+                (control-append-one values
+                                    (control-segment continuation)))))))
 
 (define (control-values-call values)
   (cons (control-symbol "npl_make_values") values))
@@ -325,7 +326,7 @@
     (cdr application) ()
     (lambda (values)
       (cons (control-symbol "_npl_apply")
-        (cons continuation values)))))
+        (cons (control-segment continuation) values)))))
 
 (define (control-cps-call-with-values application continuation)
   (if (not (= (count-up (cdr application) 0) 2))
@@ -333,67 +334,16 @@
   (control-evaluate-list
     (cdr application) ()
     (lambda (procedures)
-      (cons (car procedures)
-        (cons
-          (control-values-collector
-            (car (cdr procedures)) continuation)
-          ())))))
-
-; The first capture is a runtime NplDynamicContext (wind, handler,
-; parameters and the source thread's initial handler). npl_wind_transfer
-; reinstates it on the invoking thread, which may be a different thread.
-(define (control-captured-continuation
-          continuation dynamic-context target-handler)
-  (let ((values-name (control-fresh-name "_npl_jump_values_")))
-    (let ((ignored-name (control-fresh-name "_npl_abandoned_")))
-      (cons 212
-        (cons
-          (cons 230
-            (cons ()
-              (cons (control-symbol values-name)
-                (cons (control-symbol ignored-name) ()))))
-          (cons
+      (let ((segment-name (control-fresh-name "_npl_values_k_")))
+        (core-single-let
+          (cons (control-symbol segment-name)
+                (control-segment continuation))
+          (cons (car procedures)
             (cons
-              (cons (control-symbol "_npl_wind_transfer")
-                (cons dynamic-context
-                  (cons target-handler
-                    (cons continuation
-                      (cons
-                        (cons (control-symbol "npl_list_to_values")
-                          (cons (control-symbol values-name) ()))
-                        ())))))
-              ())
-            ()))))))
-
-(define (control-cps-call-cc application continuation)
-  (if (not (= (count-up (cdr application) 0) 1))
-      (fatal "call/cc needs one procedure"))
-  (control-evaluate-list
-    (cdr application) ()
-    (lambda (procedures)
-      (let ((target-name (control-fresh-name "_npl_dynamic_context_")))
-        (let ((handler-name
-                (control-fresh-name "_npl_target_handler_")))
-          (core-single-let
-            (cons (control-symbol target-name)
-                  (cons (control-symbol "npl_capture_dynamic_context") ()))
-            (core-single-let
-              (cons (control-symbol handler-name)
-                    (cons (control-symbol "npl_current_handler") ()))
-              (cons (control-procedure-value (car procedures))
-                (cons
-                  (control-captured-continuation
-                    continuation
-                    (control-symbol target-name)
-                    (control-symbol handler-name))
-                  (cons continuation ()))))))))))
-
-(define (control-call-cc-name? head)
-  (if (not (sym-atom? head))
-      #f
-      (if (string=? (cdr head) "call/cc")
-          #t
-          (string=? (cdr head) "call-with-current-continuation"))))
+              (control-segment
+                (control-values-collector
+                  (car (cdr procedures)) (control-symbol segment-name)))
+              ())))))))
 
 ; T2b: virtual-thread-yield! is a scheduler safepoint, not a call/cc. It
 ; hands the RAW current CPS continuation to the runtime and stops the current
@@ -460,7 +410,9 @@
                                       (cons (control-symbol frame-name) ()))
                                     (cons
                                       (cons after
-                                        (cons after-continuation ()))
+                                        (cons (control-segment
+                                                after-continuation)
+                                              ()))
                                       ()))))))
                         (let ((before-continuation
                                 (control-raw-continuation
@@ -470,9 +422,12 @@
                                       (cons (control-symbol "npl_wind_push")
                                         (cons before (cons after ()))))
                                     (cons thunk
-                                      (cons body-continuation ()))))))
+                                      (cons (control-segment
+                                              body-continuation)
+                                            ()))))))
                           (cons before
-                            (cons before-continuation ())))))))))))))))
+                            (cons (control-segment before-continuation)
+                                  ())))))))))))))))
 
 (define (control-dynamic-wind-name? head)
   (if (sym-atom? head)
@@ -504,7 +459,9 @@
                   (cons (control-symbol frame-name)
                     (cons (control-symbol "npl_handler_push")
                       (cons handler ())))
-                  (cons thunk (cons body-continuation ())))))))))))
+                  (cons thunk
+                        (cons (control-segment body-continuation)
+                              ())))))))))))
 
 (define (control-cps-raise application continuation continuable)
   (if (not (= (count-up (cdr application) 0) 1))
@@ -691,7 +648,9 @@
               (cons (cons (control-cps-body body continuation) ()) ())))
       (let ((name (control-fresh-name "_npl_let_k_")))
         (cons 214
-          (cons (cons (cons (control-symbol name) continuation) ())
+          (cons (cons (cons (control-symbol name)
+                            (control-segment continuation))
+                      ())
                 (cons (cons (control-cps-simple-let
                               bindings body (control-symbol name))
                             ())

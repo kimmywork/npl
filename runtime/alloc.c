@@ -558,17 +558,12 @@ void npl_gc_write_barrier_value(NplVal holder, NplVal value)
     npl_gc_write_barrier(npl_header(holder), value);
 }
 
-void npl_gc_remember_internal(NplHeader *object)
+/* Caller holds the heap lock.  Two mutators can pass an unlocked flag check
+ * for the same object; re-check here so it is enqueued at most once. */
+static void remember_locked(NplHeader *object)
 {
-    /* Remembered-set writes are process-wide heap metadata.  The lock is
-     * only taken on the slow barrier path, never while a poll parks. Two
-     * mutators can pass the unlocked flag check for the same object; re-check
-     * under the lock so it is enqueued at most once. */
-    npl_heap_lock();
-    if (object->flags & NPL_FLAG_REMEMBERED) {
-        npl_heap_unlock();
+    if (object->flags & NPL_FLAG_REMEMBERED)
         return;
-    }
     if (g_remembered_count == g_remembered_capacity) {
         size_t capacity = g_remembered_capacity ? g_remembered_capacity * 2
                                                 : 1024;
@@ -580,6 +575,30 @@ void npl_gc_remember_internal(NplHeader *object)
     }
     object->flags |= NPL_FLAG_REMEMBERED;
     g_remembered[g_remembered_count++] = object;
+}
+
+void npl_gc_remember_internal(NplHeader *object)
+{
+    /* Remembered-set writes are process-wide heap metadata.  The lock is
+     * only taken on the slow barrier path, never while a poll parks. */
+    npl_heap_lock();
+    remember_locked(object);
+    npl_heap_unlock();
+}
+
+/* Multi-writer atomic stores cannot copy the inline barrier's unlocked
+ * header-flag precheck: heap generation flags and the remembered set are
+ * heap metadata.  Take the heap lock and decide under it.  The atomic-domain
+ * lock (atomic.c) is always held before this one; no path takes them in the
+ * other order or polls while either is held. */
+void npl_gc_write_barrier_atomic(void *object, NplVal value)
+{
+    if (!npl_is_ptr(value)) return;
+    NplHeader *holder = (NplHeader *)object;
+    npl_heap_lock();
+    if ((holder->flags & NPL_FLAG_OLD) &&
+        !(npl_header(value)->flags & NPL_FLAG_OLD))
+        remember_locked(holder);
     npl_heap_unlock();
 }
 

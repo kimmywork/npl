@@ -57,5 +57,5 @@
     (list 'r7rs 'npl 'full-unicode 'ratios 'exact-closed 'exact-complex
           'ieee-float 'posix 'unix 'srfi-18 'srfi-46 'srfi-48 'srfi-88
           'srfi-89 'srfi-105 'srfi-149 'srfi-149-compatible
-          'virtual-threads)
+          'srfi-230 'virtual-threads)
     (npl_platform_features)))

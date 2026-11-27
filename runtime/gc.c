@@ -111,6 +111,10 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(frame->after);
             visit(frame->handler);
             visit(frame->parameters);
+            visit(frame->prompts);
+            visit(frame->prompt_splices);
+            visit(frame->parameterization);
+            visit(frame->segment);
             visit(frame->extent_key);
             break;
         }
@@ -119,7 +123,58 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(context->wind);
             visit(context->handler);
             visit(context->parameters);
+            visit(context->prompts);
+            visit(context->prompt_overrides);
+            visit(context->prompt_splices);
+            visit(context->parameterization);
+            visit(context->segment);
             visit(context->source_initial_handler);
+            break;
+        }
+        case BOX_PROMPT_FRAME: {
+            NplPromptFrame *frame = (NplPromptFrame *)header;
+            visit(frame->tag);
+            visit(frame->handler);
+            visit(frame->escape);
+            visit(frame->return_);
+            visit(frame->parent);
+            visit(frame->origin);
+            visit(frame->root_context);
+            visit(frame->root_target);
+            break;
+        }
+        case BOX_CONTINUATION_SEGMENT: {
+            NplContinuationSegment *segment =
+                (NplContinuationSegment *)header;
+            visit(segment->closure);
+            visit(segment->parent);
+            visit(segment->origin_prompt);
+            break;
+        }
+        case BOX_CONTINUATION_GRAFT: {
+            NplContinuationGraft *graft = (NplContinuationGraft *)header;
+            visit(graft->procedure);
+            visit(graft->arguments);
+            visit(graft->prompt);
+            visit(graft->target);
+            visit(graft->splice);
+            break;
+        }
+        case BOX_ROOT_ABORT: {
+            NplRootAbort *abort = (NplRootAbort *)header;
+            visit(abort->prompt);
+            visit(abort->handler);
+            visit(abort->arguments);
+            break;
+        }
+        case BOX_CONTINUATION: {
+            NplContinuation *continuation = (NplContinuation *)header;
+            visit(continuation->procedure);
+            visit(continuation->kind);
+            visit(continuation->origin);
+            visit(continuation->tag);
+            visit(continuation->prompts);
+            visit(continuation->graft);
             break;
         }
         case BOX_VIRTUAL_THREAD: {
@@ -138,6 +193,12 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(vt->parameter_extents);
             visit(vt->pending_extent_key);
             visit(vt->initial_handler);
+            visit(vt->prompts);
+            visit(vt->prompt_overrides);
+            visit(vt->prompt_splices);
+            visit(vt->parameterization);
+            visit(vt->default_prompt);
+            visit(vt->segment);
             break;
         }
         case BOX_WIND_TRANSITION: {
@@ -149,6 +210,11 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(transition->entering);
             visit(transition->context);
             visit(transition->target_parameters);
+            visit(transition->target_prompts);
+            visit(transition->target_prompt_overrides);
+            visit(transition->target_prompt_splices);
+            visit(transition->target_parameterization);
+            visit(transition->target_segment);
             visit(transition->cache);
             uint32_t count = transition->exit_count + transition->entry_count;
             for (uint32_t i = 0; i < count; i++)
@@ -185,6 +251,13 @@ void npl_gc_visit_children_internal(NplHeader *header,
             NplParameterContext *context = (NplParameterContext *)header;
             visit(context->parameter);
             visit(context->continuation);
+            break;
+        }
+        case BOX_PARAMETERIZATION: {
+            NplParameterization *parameterization =
+                (NplParameterization *)header;
+            visit(parameterization->bindings);
+            visit(parameterization->previous);
             break;
         }
         case BOX_PROMISE: {
@@ -249,6 +322,20 @@ void npl_gc_visit_children_internal(NplHeader *header,
         }
         case BOX_TIME:
             break;
+        case BOX_ATOMIC_FLAG:
+        case BOX_ATOMIC_FXBOX:
+            break;
+        case BOX_ATOMIC_BOX: {
+            NplAtomicBox *box = (NplAtomicBox *)header;
+            visit(box->value);
+            break;
+        }
+        case BOX_ATOMIC_PAIR: {
+            NplAtomicPair *pair = (NplAtomicPair *)header;
+            visit(pair->first);
+            visit(pair->second);
+            break;
+        }
         default:
             break;
         }

@@ -188,11 +188,12 @@ NplVal npl_parameter_ref(NplVal parameter_value)
  * parameter object's shared default is never mutated. */
 static NplVal new_parameter_binding(NplVal parameter, NplVal value)
 {
+    NplVal previous_head = CTX->current_parameters;
     NplParameterBinding *binding = (NplParameterBinding *)
         npl_alloc_object(sizeof(NplParameterBinding));
     binding->header.tag = BOX_PARAMETER_BINDING;
     binding->header.flags = 0;
-    binding->parent = CTX->current_parameters;
+    binding->parent = previous_head;
     binding->parameter = parameter;
     binding->value = value;
     /* Owner is the stable monotonic context id, not the context address: a
@@ -201,6 +202,17 @@ static NplVal new_parameter_binding(NplVal parameter, NplVal value)
     binding->owner = npl_binding_owner();
     NplVal boxed = (NplVal)(uintptr_t)binding | TAG_PTR;
     CTX->current_parameters = boxed;
+    /* T4-B0: a set! at the top level of an installed parameterization must
+     * extend that snapshot's chain, not just the thread chain, or a fresh
+     * parameter's first binding is lost on the next installation. */
+    NplVal snapshot = CTX->current_parameterization;
+    if (npl_is_ptr(snapshot) &&
+        npl_header(snapshot)->tag == BOX_PARAMETERIZATION &&
+        ((NplParameterization *)npl_header(snapshot))->bindings ==
+            previous_head) {
+        ((NplParameterization *)npl_header(snapshot))->bindings = boxed;
+        npl_gc_write_barrier(npl_header(snapshot), boxed);
+    }
     return boxed;
 }
 
@@ -237,6 +249,80 @@ NplVal npl_parameter_converter(NplVal parameter_value)
     NplVal converter = require_parameter(
         parameter_value, "parameterize")->converter;
     return npl_is_nil(converter) ? npl_false() : converter;
+}
+
+NplVal npl_parameter_p(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_PARAMETER
+               ? npl_true()
+               : npl_false();
+}
+
+static NplParameterization *require_parameterization(NplVal value,
+                                                     const char *who)
+{
+    if (!npl_is_ptr(value) ||
+        npl_header(value)->tag != BOX_PARAMETERIZATION)
+        npl_primitive_error(who, "not a parameterization", value);
+    return (NplParameterization *)npl_header(value);
+}
+
+static NplVal make_parameterization(NplVal bindings, NplVal previous)
+{
+    NplParameterization *parameterization = (NplParameterization *)
+        npl_alloc_object(sizeof(NplParameterization));
+    parameterization->header.tag = BOX_PARAMETERIZATION;
+    parameterization->header.flags = 0;
+    parameterization->bindings = bindings;
+    parameterization->previous = previous;
+    return (NplVal)(uintptr_t)parameterization | TAG_PTR;
+}
+
+/* A parameterization maps parameter objects to mutable cells, so capture
+ * shares the current binding chain instead of cloning it.  Reinstalling the
+ * same snapshot therefore preserves cell identity, and a parameter-set!
+ * through that parameterization is visible on the next installation.  The
+ * unbound-parameter case extends the snapshot's own head (new_parameter_binding). */
+NplVal npl_parameterization_capture(void)
+{
+    return make_parameterization(CTX->current_parameters, npl_nil());
+}
+
+NplVal npl_parameterization_p(NplVal value)
+{
+    return npl_is_ptr(value) &&
+                   npl_header(value)->tag == BOX_PARAMETERIZATION
+               ? npl_true()
+               : npl_false();
+}
+
+/* Install a snapshot and return the previous parameterization.  The caller
+ * restores the previous one on exit (call-with-parameterization). */
+NplVal npl_parameterization_enter(NplVal value)
+{
+    (void)require_parameterization(value, "call-with-parameterization");
+    npl_gc_root(&value);
+    /* Save the exact caller chain, not a clone: continuation re-entry inside
+     * the surrounding wind frame must see mutations made after the call. */
+    NplVal old = make_parameterization(
+        CTX->current_parameters, CTX->current_parameterization);
+    npl_gc_root(&old);
+    NplParameterization *parameterization =
+        (NplParameterization *)npl_header(value);
+    CTX->current_parameters = parameterization->bindings;
+    CTX->current_parameterization = value;
+    npl_gc_unroot(&old);
+    npl_gc_unroot(&value);
+    return old;
+}
+
+NplVal npl_parameterization_leave(NplVal value)
+{
+    NplParameterization *parameterization =
+        require_parameterization(value, "call-with-parameterization");
+    CTX->current_parameters = parameterization->bindings;
+    CTX->current_parameterization = parameterization->previous;
+    return npl_unspecified();
 }
 
 /* npl_parameters_enter / npl_parameters_leave and the wind transfer live in
@@ -569,6 +655,9 @@ NplVal npl_wind_push(NplVal before, NplVal after)
      * was published by npl_parameters_enter in the before thunk. */
     frame->handler = CTX->current_handler;
     frame->parameters = CTX->current_parameters;
+    frame->prompts = CTX->current_prompts;
+    frame->prompt_splices = CTX->prompt_splices;
+    frame->parameterization = CTX->current_parameterization;
     frame->extent_key = CTX->pending_extent_key;
     CTX->pending_extent_key = npl_nil();
     frame->id = CTX->next_wind_id++;

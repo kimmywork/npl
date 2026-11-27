@@ -68,6 +68,8 @@
             ((101 102 103 104 108 109 110 204) acc)
             ((200) (core-names (car (cdr (cdr e))) refs acc))
             ((211 212) (core-names-list (car (cdr (cdr e))) refs acc))
+            ; (224 lambda): the wrapped continuation lambda's names.
+            ((224) (core-names (car (cdr e)) refs acc))
             ; (219 cps-lambda params body): the CPS lambda's names.
             ((219) (core-names (car (cdr e)) refs acc))
             ; (223 head arguments continuation): a closure call site.

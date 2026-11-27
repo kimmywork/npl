@@ -1,0 +1,12 @@
+id: c-no-negated-npl-predicate
+valid:
+  - |
+    void f(NplVal v) {
+        if (npl_is_false(npl_graft_p(v))) return;
+        if (!npl_is_ptr(v)) return;
+    }
+invalid:
+  - |
+    void f(NplVal v) {
+        if (!npl_graft_p(v)) return;
+    }

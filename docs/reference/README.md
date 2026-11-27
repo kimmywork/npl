@@ -47,6 +47,7 @@
 | **189** | ✅ [Maybe and Either](srfi-189.html) | `(npl data option)`（`lib/npl/data/option.sld`） | 完整接口；`(npl data maybe)` / `(npl data either)` 是两个子集 |
 | **195** | ✅ [Multiple-value boxes](srfi-195.html) | `(npl data multiple-value-box)`（`lib/npl/data/multiple-value-box.sld`） | 多值箱 |
 | **196** | ✅ [Range Objects](srfi-196.html) | `(npl data range)`（`lib/npl/data/range.sld`） | 区间对象 |
+| **230** | ✅ [Atomic Operations](srfi-230.html) | `(npl atomic)`（`lib/npl/atomic.sld`） | 原子标志、箱、定长数箱与原子对；T3 锁定基线 |
 | **252** | ✅ [Property Testing](srfi-252.html) | `(npl test property)`（`lib/npl/test/property.sld`） | 属性测试 |
 
 所有上表条目均可使用对应的 `(srfi N)` 别名导入，例如：
@@ -141,8 +142,7 @@ SRFI 149 的模板扩展同样在语言核心中实现，并提供 `srfi-149`、
 | **121** | [Generators](srfi-121.html) | 未提供 `(srfi 121)` 别名；生成器 API 由 SRFI 158 扩展覆盖，见 `(npl data generator)` / `(srfi 158)` |
 | **145** | [Assumptions](srfi-145.html) | 未提供公开库；部分实现内部使用私有的 `assume` 辅助函数 |
 | **194** | [Random data generators](srfi-194.html) | 未提供 |
-| **226** | [Control Features](srfi-226.html) | 未提供；仅具备 R7RS 及 NPL 自身的控制功能 |
-| **230** | [Atomic Operations](srfi-230.html) | 未提供 |
+| **226** | [Control Features](srfi-226.html) | 部分实现：`(npl control)` 及 `(srfi 226 prompt)` / `(srfi 226 continuation)` / `(srfi 226 shift-reset)` / `(srfi 226 inspection)` / `(srfi 226 parameter)` 原型；普通 parameterization 与 `temporarily` 已提供，thread parameter、fluids、marks、promises、threads/interrupts、conditions 和 composite `(srfi 226)` 尚未实现；continuation barrier、root abort 展开与 composable 调用方 prompt 链已实现 |
 | **269** | [Portable Test Definitions](srfi-269.html) | 未提供；测试使用 SRFI 64 / SRFI 252 对应的 `(npl test ...)` 库 |
 
 ## 说明

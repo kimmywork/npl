@@ -44,6 +44,10 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define TAG_PTR     1   /* pointer to boxed NplVal */
 #define TAG_IMM     2   /* immediate (nil, bool, char) */
 
+/* Signed 62-bit fixnum range (the tag occupies the low two bits). */
+#define NPL_FIXNUM_MIN (-(INT64_C(1) << 61))
+#define NPL_FIXNUM_MAX ((INT64_C(1) << 61) - 1)
+
 /* ---- Boxed value tags ---- */
 #define BOX_PAIR    0
 #define BOX_STRING  1
@@ -84,6 +88,39 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_VIRTUAL_THREAD 33
 /* SRFI 88 keyword objects; NplString layout, interned separately from symbols. */
 #define BOX_KEYWORD 34
+/* T3 (SRFI 230): opaque atomic-domain objects.  Flags and fixnum boxes
+ * carry no managed edges; plain boxes have one and pairs two. */
+#define BOX_ATOMIC_FLAG 35
+#define BOX_ATOMIC_BOX 36
+#define BOX_ATOMIC_FXBOX 37
+#define BOX_ATOMIC_PAIR 38
+/* T4-D: a first-class parameterization snapshot (current binding chain). */
+#define BOX_PARAMETERIZATION 39
+/* T4-A semantic prompt frame (runtime dynamic context, shared by compiler
+ * and evaluator call/cc). */
+#define BOX_PROMPT_FRAME 40
+/* T4-A compiler-emitted continuation segment.  A segment wraps the local CPS
+ * continuation closure and records its semantic parent frame.  The frontend
+ * emits one at every non-direct user procedure call boundary; the chain is
+ * captured by NplDynamicContext and is the shared representation for prompt
+ * delimiters, barrier identity and continuation marks. */
+#define BOX_CONTINUATION_SEGMENT 41
+/* T4-B graft packet: invoke a continuation's prefix by calling a procedure
+ * instead of delivering the transferred values. */
+#define BOX_CONTINUATION_GRAFT 42
+/* T4-A user-visible continuation object.  Its metadata lives in the runtime,
+ * so continuations created by the compiled program and by an evaluated
+ * library instance are shareable and inspectable across that boundary. */
+#define BOX_CONTINUATION 43
+/* T4-A default prompt tag singleton (runtime-installed root prompt). */
+#define BOX_PROMPT_TAG 44
+/* T4-B0 pending root-abort activation: prompt, default handler and objects. */
+#define BOX_ROOT_ABORT 45
+/* Root completion protocol selected by npl_default_prompt_set_root. */
+#define NPL_PROMPT_ROOT_NONE 0
+#define NPL_PROMPT_ROOT_PROGRAM 1
+#define NPL_PROMPT_ROOT_NATIVE 2
+#define NPL_PROMPT_ROOT_VIRTUAL 3
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -169,11 +206,19 @@ typedef struct {
      * dynamic-wind; it is the key into the per-thread extent mapping. */
     NplVal handler;
     NplVal parameters;
+    /* T4-B0: the prompt chain and semantic segment of this extent.  A wind
+     * transfer reinstalls them before each before/after thunk, so a thunk
+     * that captures or aborts observes the extent's own prompt environment. */
+    NplVal prompts;
+    NplVal prompt_splices;
+    NplVal parameterization;
+    NplVal segment;
     NplVal extent_key;
     uint64_t id;
 } NplWindFrame;
 
-/* Saved dynamic environment of a captured continuation (SRFI 18). The
+/* Saved dynamic environment of a captured continuation (SRFI 18/T4).  It
+ * carries wind, handler, parameter, prompt and current-segment chains.  The
  * source thread's initial handler frame is recorded so a transfer can
  * resolve it against the invoking thread instead of reusing a jmp_buf. */
 typedef struct {
@@ -181,8 +226,39 @@ typedef struct {
     NplVal wind;
     NplVal handler;
     NplVal parameters;
+    NplVal prompts;
+    NplVal prompt_overrides;
+    /* T4-B0: activation-local composable prompt splices and the installed
+     * parameterization snapshot.  Both are part of the dynamic environment. */
+    NplVal prompt_splices;
+    NplVal parameterization;
+    NplVal segment;
     NplVal source_initial_handler;
 } NplDynamicContext;
+
+/* SRFI 230 atomic objects.  The atomic-domain lock in atomic.c makes the
+ * updates indivisible; the fields are ordinary NplVal storage so the
+ * collector visits pointer contents. */
+typedef struct {
+    NplHeader header;
+    int value;                 /* 0 = clear, nonzero = set */
+} NplAtomicFlag;
+
+typedef struct {
+    NplHeader header;
+    NplVal value;
+} NplAtomicBox;
+
+typedef struct {
+    NplHeader header;
+    int64_t value;             /* raw fixnum value, always in NPL fixnum range */
+} NplAtomicFxbox;
+
+typedef struct {
+    NplHeader header;
+    NplVal first;
+    NplVal second;
+} NplAtomicPair;
 
 typedef struct {
     NplHeader header;
@@ -199,6 +275,11 @@ typedef struct {
      * context driving per-thunk environment restoration. */
     NplVal context;
     NplVal target_parameters;
+    NplVal target_prompts;
+    NplVal target_prompt_overrides;
+    NplVal target_prompt_splices;
+    NplVal target_parameterization;
+    NplVal target_segment;
     /* (src-binding . localized-copy) map for this transfer. A binding shared
      * by a destination chain and a wind frame must resolve to ONE node, so a
      * parameter-set! in a before thunk is visible to the continuation body. */
@@ -246,6 +327,102 @@ typedef struct {
     uint32_t update;
     uint32_t reserved;
 } NplParameterContext;
+
+/* A T4-D parameterization snapshot.  The binding chain is cloned when
+ * installed so a snapshot shared by a continuation or another thread is never
+ * mutated in place. */
+typedef struct {
+    NplHeader header;
+    NplVal bindings;
+    /* Snapshot of the enclosing installed parameterization, restored when a
+     * call-with-parameterization extent exits. */
+    NplVal previous;
+} NplParameterization;
+
+/* A prompt segment/frame.  The frame chain is part of the runtime dynamic
+ * context, so a captured call/cc reinstates the same semantic prompt frames
+ * on the invoking thread.  escape/return values are NPL closures; the
+ * per-thread prompt_overrides list carries a one-shot meta-continuation for
+ * a same-thread composable/non-composable invocation. */
+typedef struct {
+    NplHeader header;
+    NplVal tag;
+    NplVal handler;
+    NplVal escape;
+    NplVal return_;
+    NplVal parent;
+    /* Synchronization point where the prompt was installed.  The captured
+     * prefix is an end segment at this frame; barrier frames use identity in
+     * the captured/current prompt chain to reject inward jumps. */
+    NplVal origin;
+    /* T4-B0: captured root environment for the runtime default prompt.  The
+     * root abort path transfers here before running the default handler, so
+     * the handler observes the root parameters/handlers/prompts and every
+     * intervening dynamic-wind has already been unwound. */
+    NplVal root_context;
+    NplVal root_target;
+    uint32_t barrier;
+    uint32_t root;
+    uint32_t root_kind;
+} NplPromptFrame;
+
+/* Local CPS continuation plus persistent semantic frame.  closure is the
+ * ordinary CPS continuation; parent is the segment of the continuation that
+ * receives this frame's result.  Segments are immutable: multi-shot and
+ * concurrent invocations share them.  origin_prompt snapshots the nearest
+ * enclosing prompt at creation. */
+typedef struct {
+    NplHeader header;
+    NplVal closure;
+    NplVal parent;
+    NplVal origin_prompt;
+    uint64_t id;
+} NplContinuationSegment;
+
+/* A graft carries a procedure and its argument list through the ordinary
+ * continuation-transfer path.  The captured continuation calls the procedure
+ * with its saved successor as the continuation. */
+typedef struct {
+    NplHeader header;
+    /* procedure == nil means "deliver arguments as values to the captured
+     * successor"; otherwise call procedure with arguments there. */
+    NplVal procedure;
+    NplVal arguments;
+    /* When prompt is non-nil, install an one-shot override after the wind
+     * transfer has reinstated the target dynamic environment. */
+    NplVal prompt;
+    NplVal target;
+    /* T4-B0: invoking continuation's prompt chain, spliced onto the captured
+     * prefix for a composable call-in; nil for non-composable. */
+    NplVal splice;
+} NplContinuationGraft;
+
+/* T4-B0: state carried through the root wind transfer.  The handler runs
+ * after the transfer has installed the captured root dynamic environment. */
+typedef struct {
+    NplHeader header;
+    NplVal prompt;
+    NplVal handler;
+    NplVal arguments;
+} NplRootAbort;
+
+/* A callable continuation wrapper shared by every library instance.  The
+ * procedure field is the ordinary Scheme wrapper; graft is the call-in entry;
+ * prompts is the captured prompt prefix and kind is 'composable or
+ * 'non-composable. */
+typedef struct {
+    NplHeader header;
+} NplPromptTag;
+
+typedef struct {
+    NplHeader header;
+    NplVal procedure;
+    NplVal kind;
+    NplVal origin;
+    NplVal tag;
+    NplVal prompts;
+    NplVal graft;
+} NplContinuation;
 
 typedef struct {
     NplHeader header;
@@ -441,6 +618,11 @@ static inline NplHeader *npl_header(NplVal v) {
 
 void npl_gc_remember_internal(NplHeader *object);
 void npl_gc_write_barrier_value(NplVal holder, NplVal value);
+/* Pointer store from a multi-writer atomic critical section.  The flag
+ * checks and remembered-set insertion happen under the heap mutex, unlike the
+ * inline fast-path barrier's unlocked precheck.  Lock order is always
+ * atomic-domain lock -> heap lock; no poll may run while either is held. */
+void npl_gc_write_barrier_atomic(void *object, NplVal value);
 /* Every NplVal field of a heap object, for marking and verification. */
 typedef void (*NplChildVisitor)(NplVal value);
 void npl_gc_visit_children_internal(NplHeader *header, NplChildVisitor visit);
@@ -603,6 +785,84 @@ NplVal npl_make_parameter(NplVal converter, NplVal value);
 NplVal npl_parameter_ref(NplVal parameter);
 NplVal npl_parameter_set(NplVal parameter, NplVal value);
 NplVal npl_parameter_converter(NplVal parameter);
+/* T4-D parameterization objects (control.c). */
+NplVal npl_parameter_p(NplVal value);
+NplVal npl_parameterization_capture(void);
+NplVal npl_parameterization_p(NplVal value);
+NplVal npl_parameterization_enter(NplVal value);
+NplVal npl_parameterization_leave(NplVal value);
+/* T4-A runtime prompt frames (prompt.c). */
+NplVal npl_prompt_make(NplVal tag, NplVal handler);
+NplVal npl_prompt_p(NplVal value);
+NplVal npl_prompt_tag(NplVal value);
+NplVal npl_prompt_handler(NplVal value);
+NplVal npl_prompt_escape(NplVal value);
+NplVal npl_prompt_set_escape(NplVal value, NplVal escape);
+NplVal npl_prompt_return(NplVal value);
+NplVal npl_prompt_set_return(NplVal value, NplVal return_value);
+NplVal npl_prompt_push(NplVal value);
+NplVal npl_prompt_pop(NplVal value);
+NplVal npl_prompt_find(NplVal tag);
+NplVal npl_prompt_current(void);
+NplVal npl_prompt_list_current(void);
+NplVal npl_prompt_list_from(NplVal origin);
+NplVal npl_prompt_install_override(NplVal prompt, NplVal target);
+/* T4-B0 activation-local prompt splice: while a composable invocation runs
+ * the captured prefix, the delimiter frame continues into the invoking
+ * continuation's prompt chain instead of the captured outer chain. */
+NplVal npl_prompt_install_splice(NplVal origin, NplVal tail);
+NplVal npl_prompt_remove_splice(NplVal origin);
+NplVal npl_prompt_splice_next(NplVal frame);
+/* Diagnostic/cleanup support: number of pending one-shot overrides. */
+NplVal npl_prompt_override_total(void);
+/* The most recent one-shot override for PROMPT, or #f after removing it. */
+NplVal npl_prompt_take_return(NplVal prompt);
+NplVal npl_prompt_origin(NplVal value);
+NplVal npl_prompt_set_barrier(NplVal value, NplVal flag);
+NplVal npl_prompt_barrier_p(NplVal value);
+NplVal npl_prompt_root_p(NplVal value);
+NplVal npl_default_prompt_tag(void);
+NplVal npl_default_prompt_run(NplVal body, NplVal halt);
+void npl_default_prompt_mark_roots(void);
+NplVal npl_default_prompt_begin(void);
+NplVal npl_default_prompt_finish(NplVal value);
+NplVal npl_default_prompt_finish_value(NplVal value);
+/* T4-B0: tag the runtime default prompt with the root kind whose completion
+ * protocol %root-finish must use (see prompt.c). */
+void npl_default_prompt_set_root(NplVal target, uint32_t kind);
+NplVal npl_prompt_root_kind(NplVal value);
+/* Abort path: transfer to the prompt's captured root environment and then
+ * run the default handler there. */
+NplVal npl_prompt_root_abort(NplVal prompt, NplVal handler);
+NplVal npl_prompt_root_finish(NplVal prompt, NplVal values);
+/* Program entry wrapper installed by generated main. */
+NplVal npl_program_run(NplVal body, NplVal halt);
+NplVal npl_program_exit_value(void);
+NplVal npl_default_prompt_current(void);
+/* T4-A continuation segments (segment.c). */
+NplVal npl_segment_make(NplVal closure);
+NplVal npl_segment_p(NplVal value);
+NplVal npl_segment_current(void);
+NplVal npl_segment_parent(NplVal value);
+NplVal npl_segment_closure(NplVal value);
+NplVal npl_segment_depth(NplVal value);
+NplVal npl_graft_make(NplVal procedure, NplVal arguments,
+                      NplVal prompt, NplVal target, NplVal splice);
+NplVal npl_graft_p(NplVal value);
+NplVal npl_graft_procedure(NplVal value);
+NplVal npl_graft_arguments(NplVal value);
+NplVal npl_graft_prompt(NplVal value);
+NplVal npl_graft_target(NplVal value);
+NplVal npl_graft_splice(NplVal value);
+/* T4-A shared continuation objects (segment.c). */
+NplVal npl_continuation_make(NplVal procedure, NplVal kind, NplVal origin,
+                             NplVal tag, NplVal prompts, NplVal graft);
+NplVal npl_continuation_p(NplVal value);
+NplVal npl_continuation_kind(NplVal value);
+NplVal npl_continuation_origin(NplVal value);
+NplVal npl_continuation_tag(NplVal value);
+NplVal npl_continuation_prompts(NplVal value);
+NplVal npl_continuation_graft(NplVal value);
 NplVal npl_parameters_enter(NplVal parameters, NplVal values, NplVal frames);
 NplVal npl_parameters_leave(NplVal frames);
 NplVal npl_promise_op(int64_t argc, NplVal *argv);
@@ -914,6 +1174,46 @@ NplVal npl_char_full_case(NplVal character, NplVal kind);
 NplVal npl_string_full_case(NplVal string, NplVal kind);
 NplVal npl_little_endian_p(void);
 void npl_raise_record(NplVal object);
+/* SRFI 230 (atomic.c).  Orders are 0=relaxed, 1=acquire, 2=release,
+ * 3=acquire-release, 4=sequentially-consistent; the NPL wrapper validates
+ * and maps the public symbols.  Nevertheless every entry validates its order
+ * before taking the atomic-domain lock.  CAS returns the observed old value
+ * (or pair) on success and failure. */
+NplVal npl_atomic_flag_make(void);
+NplVal npl_atomic_flag_p(NplVal value);
+NplVal npl_atomic_flag_test_and_set(NplVal value, NplVal order);
+NplVal npl_atomic_flag_clear(NplVal value, NplVal order);
+NplVal npl_atomic_box_make(NplVal value);
+NplVal npl_atomic_box_p(NplVal value);
+NplVal npl_atomic_box_ref(NplVal value, NplVal order);
+NplVal npl_atomic_box_set(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_box_swap(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_box_compare_and_swap(NplVal value, NplVal expected,
+                                       NplVal desired, NplVal order);
+NplVal npl_atomic_fxbox_make(NplVal value);
+NplVal npl_atomic_fxbox_p(NplVal value);
+NplVal npl_atomic_fxbox_ref(NplVal value, NplVal order);
+NplVal npl_atomic_fxbox_set(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_swap(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_compare_and_swap(NplVal value, NplVal expected,
+                                         NplVal desired, NplVal order);
+NplVal npl_atomic_fxbox_add_fetch(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_sub_fetch(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_and_fetch(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_ior_fetch(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_fxbox_xor_fetch(NplVal value, NplVal object, NplVal order);
+NplVal npl_atomic_pair_make(NplVal first, NplVal second);
+NplVal npl_atomic_pair_p(NplVal value);
+NplVal npl_atomic_pair_ref(NplVal value, NplVal order);
+NplVal npl_atomic_pair_set(NplVal value, NplVal first, NplVal second,
+                           NplVal order);
+NplVal npl_atomic_pair_swap(NplVal value, NplVal first, NplVal second,
+                            NplVal order);
+NplVal npl_atomic_pair_compare_and_swap(NplVal value, NplVal expected_first,
+                                        NplVal expected_second,
+                                        NplVal desired_first,
+                                        NplVal desired_second, NplVal order);
+NplVal npl_atomic_fence(NplVal order);
 NplVal npl_platform_feature(NplVal name);
 NplVal npl_platform_features(void);
 NplVal npl_platform_triple(void);

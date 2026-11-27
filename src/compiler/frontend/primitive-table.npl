@@ -238,6 +238,21 @@
     ("npl_current_wind" fixed 0 0)
     ; SRFI 18: call/cc captures the full dynamic environment in one record.
     ("npl_capture_dynamic_context" fixed 0 0)
+    ; T4-A: internal segment/graft introspection used by the control
+    ; conversion and the (npl control) adapter.
+    ("npl_segment_p" fixed 1 0)
+    ("npl_segment_depth" fixed 1 0)
+    ("npl_segment_parent" fixed 1 0)
+    ("npl_segment_closure" fixed 1 0)
+    ("npl_segment_current" fixed 0 0)
+    ("npl_graft_p" fixed 1 0)
+    ("npl_graft_procedure" fixed 1 0)
+    ("npl_graft_arguments" fixed 1 0)
+    ("npl_graft_prompt" fixed 1 0)
+    ("npl_graft_target" fixed 1 0)
+    ("npl_prompt_install_override" fixed 2 0)
+    ("npl_default_prompt_finish" fixed 1 0)
+    ("npl_program_run" fixed 2 0)
     ("npl_wind_push" fixed 2 0)
     ("npl_wind_pop" fixed 1 0)
     ("npl_wind_exit_step" fixed 0 0)

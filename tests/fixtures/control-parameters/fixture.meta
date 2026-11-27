@@ -1,0 +1,8 @@
+name=control-parameters
+native=native.npl
+repl=repl.in
+repl-body=behavior.scm
+oracle=none
+expected-out=expected.out
+expected-err=expected.err
+expected-status=0

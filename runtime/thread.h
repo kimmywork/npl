@@ -51,6 +51,9 @@ typedef struct NplTailContext {
     int escape_depth;
     /* npl_stack_limit (stack.c) when the trampoline started. */
     uintptr_t stack_limit;
+    /* T4-A: the caller's current segment, restored when the trampoline
+     * returns or a primitive error unwinds to it. */
+    NplVal saved_segment;
 } NplTailContext;
 
 /* Heap-owned argument buffers for active trampolines. Unlike
@@ -80,6 +83,7 @@ typedef struct NplSyncFrame {
     int saved_escape_depth;
     int saved_root_count;
     uintptr_t saved_stack_bottom;
+    NplVal saved_segment;
 } NplSyncFrame;
 
 /* ---- Per-thread context ----
@@ -118,7 +122,25 @@ typedef struct NplThreadContext {
     NplVal parameter_extents;
     NplVal pending_extent_key;
     NplVal initial_handler;
+    /* T4-A: runtime prompt frame chain, same-thread one-shot overrides and
+     * the current compiler-emitted continuation segment. */
+    NplVal current_prompts;
+    NplVal prompt_overrides;
+    /* T4-B0: activation-local prompt splices and the installed
+     * parameterization snapshot. */
+    NplVal prompt_splices;
+    NplVal current_parameterization;
+    NplVal default_prompt;
+    NplVal current_segment;
+    uint64_t next_segment_id;
     uint64_t next_wind_id;
+
+    /* Root completion protocol.  program_jump is non-NULL while generated
+     * main runs the program body through npl_program_run; mount_jump is the
+     * carrier landing pad for a virtual-thread root abort. */
+    jmp_buf *program_jump;
+    NplVal program_result;
+    jmp_buf *mount_jump;
 
     /* Trampoline / escape / synchronous-call context. */
     NplTailContext *tail_context;

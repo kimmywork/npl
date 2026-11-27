@@ -129,6 +129,8 @@ supported, and there is no cross-compilation path at this stage.
 - [Time and SRFI 19](docs/time.md)
 - [POSIX and SRFI 170](docs/posix.md)
 - [Threads and SRFI 18](docs/thread.md)
+- [Atomic operations and SRFI 230](docs/atomic.md)
+- [Control features and the SRFI 226 prototype](docs/control.md)
 - [R7RS-small reference](docs/reference/r7rs.html) and
   [SRFI 125 reference](docs/reference/srfi-125.html)
 
