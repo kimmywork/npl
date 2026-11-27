@@ -1,11 +1,11 @@
 id: scheme-no-unguarded-backslash-sep
 language: scheme
 severity: error
-message: "Recognize backslash (byte 92) as a path separator only on Windows."
+message: "Recognize backslash (byte 92 or #\\\\) as a path separator only on Windows."
 note: >-
   On Linux, '\\' is a legal filename character, not a directory separator. Gate
-  backslash separator checks behind (npl_platform_feature \"windows\") or
-  (platform-feature? 'windows).
+  backslash separator checks behind (npl_platform_feature \"windows\"),
+  (platform-feature? 'windows), or (cond-expand (windows ...)).
 files:
   - src/compiler/driver*.npl
   - src/compiler/frontend/source.npl
@@ -13,12 +13,19 @@ files:
   - src/repl/main.npl
   - lib/npl/native.sld
 rule:
-  pattern: (= $BYTE 92)
+  any:
+    - pattern: (= $BYTE 92)
+    - all:
+        - pattern: (char=? $CH $LIT)
+        - has:
+            kind: character
+            regex: '^#\\\\$'
+            stopBy: end
   not:
     inside:
       kind: list
       has:
         kind: symbol
-        regex: ^(npl_platform_feature|platform-feature\?)$
+        regex: ^(npl_platform_feature|platform-feature\?|cond-expand)$
         stopBy: end
       stopBy: end

@@ -514,30 +514,15 @@ Options:
             (string-append "native package " name
                            " has no static archive (" file ")"))))))
 
-(define (driver-native-shared-link directories file)
-  (let ((import (if (driver-windows?)
-                    (driver-file-in-directories
-                      directories (string-append file ".a"))
-                    #f)))
-    (if import import (driver-file-in-directories directories file))))
-
 (define (driver-native-shared-file config entry name)
-  (let ((directories (driver-native-search-directories config))
-        (file (driver-native-shared-name entry name)))
-    (let ((path (driver-native-shared-link directories file)))
-      (if path
-          path
+  (let ((pair (driver-resolve-native-shared-pair config entry name)))
+    (if pair
+        (car pair)
+        (let ((file (driver-native-shared-name entry name)))
           (if (string=? file (string-append "lib" name ".dylib"))
-              (let ((fallback
-                      (driver-native-shared-link
-                        directories
-                        (string-append "lib" name
-                          (if (driver-windows?) ".dll" ".so")))))
-                (if fallback
-                    fallback
-                    (driver-error
-                      (string-append "native package " name
-                                     " has no shared object"))))
+              (driver-error
+                (string-append "native package " name
+                               " has no shared object"))
               (driver-error
                 (string-append "native package " name
                                " has no shared object (" file ")")))))))

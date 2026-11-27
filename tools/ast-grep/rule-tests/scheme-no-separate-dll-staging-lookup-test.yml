@@ -1,0 +1,11 @@
+id: scheme-no-separate-dll-staging-lookup
+valid:
+  - |
+    (define (driver-windows-package-dll config entry name)
+      (let ((pair (driver-resolve-native-shared-pair config entry name)))
+        (if pair (cdr pair) #f)))
+invalid:
+  - |
+    (define (driver-windows-package-dll config entry name)
+      (driver-file-in-directories (driver-native-search-directories config)
+                                  (driver-native-shared-name entry name)))

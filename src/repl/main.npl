@@ -235,12 +235,16 @@ Options:
                             #f)))
             (if (if layout (file-exists? layout) #f) layout REPL-STDLIB))))))
 
+(define (npli-path-separator? ch)
+  (cond-expand
+    (windows (or (char=? ch #\/) (char=? ch #\\)))
+    (else (char=? ch #\/))))
+
 (define (npli-directory path)
   (let loop ((index (- (string-length path) 1)))
     (cond
       ((< index 0) "")
-      ((or (char=? (string-ref path index) #\/)
-           (char=? (string-ref path index) #\\))
+      ((npli-path-separator? (string-ref path index))
        (substring path 0 (+ index 1)))
       (else (loop (- index 1))))))
 

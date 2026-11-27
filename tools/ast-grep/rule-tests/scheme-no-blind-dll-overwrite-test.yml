@@ -1,0 +1,17 @@
+id: scheme-no-blind-dll-overwrite
+valid:
+  - |
+    (define (driver-copy-binary-file source destination)
+      (let ((chunks (driver-read-binary-chunks source)))
+        (if (if (file-exists? destination)
+                (driver-chunks=? chunks (driver-read-binary-chunks destination))
+                #f)
+            #f
+            (let ((out (open-binary-output-file destination)))
+              (close-port out)))))
+invalid:
+  - |
+    (define (driver-copy-binary-file source destination)
+      (let ((chunks (driver-read-binary-chunks source)))
+        (let ((out (open-binary-output-file destination)))
+          (close-port out))))

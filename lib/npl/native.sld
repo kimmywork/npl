@@ -30,6 +30,10 @@
           (file-exists? path)
           #f))
 
+    (define (path-separator? ch)
+      (or (char=? ch #\/)
+          (and (platform-feature? 'windows) (char=? ch #\\))))
+
     (define (explicit-native-path? name)
       (if (string-suffix? ".dylib" name) #t
           (if (string-suffix? ".so" name) #t
@@ -37,8 +41,7 @@
                   (let loop ((index 0))
                     (if (= index (string-length name))
                         #f
-                        (if (or (char=? (string-ref name index) #\/)
-                                (char=? (string-ref name index) #\\))
+                        (if (path-separator? (string-ref name index))
                             #t
                             (loop (+ index 1)))))))))
 
@@ -55,9 +58,9 @@
       (map (lambda (file)
              (if (if (string=? directory "")
                      #t
-                     (let ((last (string-ref directory
-                                             (- (string-length directory) 1))))
-                       (or (char=? last #\/) (char=? last #\\))))
+                     (path-separator?
+                       (string-ref directory
+                                   (- (string-length directory) 1))))
                  (string-append directory file)
                  (string-append directory "/" file)))
            (native-file-names name)))
