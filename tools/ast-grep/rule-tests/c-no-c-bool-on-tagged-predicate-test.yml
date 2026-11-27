@@ -1,0 +1,23 @@
+id: c-no-c-bool-on-tagged-predicate
+valid:
+  - |
+    NplVal f(NplVal x) {
+        if (npl_is_false(npl_unix_posix_error_p(x))) return npl_false();
+        if (npl_number_p(x) != npl_true()) return npl_false();
+        return npl_is_inexact(x) ? npl_true() : npl_number_p(x);
+    }
+invalid:
+  - |
+    NplVal f(NplVal x) {
+        if (!npl_unix_posix_error_p(x)) return npl_false();
+        return x;
+    }
+  - |
+    NplVal f(NplVal x) {
+        if (npl_number_p(x)) return x;
+        return npl_false();
+    }
+  - |
+    NplVal f(NplVal x, NplVal y) {
+        return npl_number_p(x) ? x : y;
+    }

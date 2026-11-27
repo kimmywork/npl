@@ -1,15 +1,18 @@
 id: scheme-no-long-as-i64-in-c-structs
 language: scheme
 severity: error
-message: "Do not hardcode C 'long' as 64-bit type code 7 in c-struct-type-code."
+message: "Do not hardcode C 'long'/'unsigned long' to 64-bit type codes (7/3) in c-struct-type-code."
 note: >-
-  On Windows (LLP64), C 'long' is 32 bits (type code 6), whereas on LP64 Unix it is
-  64 bits (type code 7). Dispatch on (npl_platform_feature \"windows\").
+  On Windows (LLP64), C 'long' is 32 bits (signed 6, unsigned 2), whereas on
+  LP64 Unix it is 64 bits (signed 7, unsigned 3). Dispatch on
+  (npl_platform_feature \"windows\").
 files:
   - src/compiler/frontend/c-structs.npl
 rule:
-  pattern: ((string=? $NAME $TYPE) 7)
+  any:
+    - pattern: ((string=? $NAME $TYPE) 7)
+    - pattern: ((string=? $NAME $TYPE) 3)
   has:
     kind: string
-    regex: '^"long"$'
+    regex: '^"(unsigned )?long"$'
     stopBy: end

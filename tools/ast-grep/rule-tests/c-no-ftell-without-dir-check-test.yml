@@ -1,0 +1,15 @@
+id: c-no-ftell-without-dir-check
+valid:
+  - |
+    long file_len(FILE *fp) {
+        struct stat st;
+        if (fstat(fileno(fp), &st) != 0 || S_ISDIR(st.st_mode)) return -1;
+        fseek(fp, 0, SEEK_END);
+        return ftell(fp);
+    }
+invalid:
+  - |
+    long file_len(FILE *fp) {
+        fseek(fp, 0, SEEK_END);
+        return ftell(fp);
+    }

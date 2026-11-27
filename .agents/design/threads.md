@@ -1384,7 +1384,7 @@ segment and a barrier flag.
   seed was relayed with the codegen-transient mode of
   `tools/update_current_ssa.sh`; the installed seed is gen2 with
   gen2 == gen3 (441,853 lines, SHA-256
-  `32ffe87c5ed356edc0ac0d4f80ed71a4d695c991d24ebba329b45b5ed434bb37`).
+  `c3dd9ec55460638dae2d1b8656e658a486f9c1c5b8f97efad2f4a0994dda018d`).
 
 No changes to permanent `bootstrap/bootstrap.ssa`, stage0, or
 `bootstrap/runtime/`. Frontend changes relay only `bootstrap/current.ssa`

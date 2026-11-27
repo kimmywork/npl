@@ -1,0 +1,29 @@
+id: c-no-mutable-static-array
+language: c
+severity: error
+message: "Avoid function-local mutable static arrays in runtime/; use stack buffers or caller-owned storage."
+note: >-
+  Runtime functions can execute concurrently across SRFI 18 threads. A mutable
+  function-local static array (e.g. static char cached_root[...]) creates a data
+  race. Use const tables, stack arrays, or caller-supplied buffers instead.
+files:
+  - runtime/**/*.c
+ignores:
+  - runtime/*_test.c
+  - runtime/*_stress.c
+rule:
+  kind: declaration
+  all:
+    - has:
+        kind: storage_class_specifier
+        regex: ^static$
+    - has:
+        kind: array_declarator
+        stopBy: end
+  not:
+    has:
+      kind: type_qualifier
+      regex: ^const$
+  inside:
+    kind: compound_statement
+    stopBy: end

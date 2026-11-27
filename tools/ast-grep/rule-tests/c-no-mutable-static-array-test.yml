@@ -1,4 +1,4 @@
-id: c-no-win32-static-char-buffer
+id: c-no-mutable-static-array
 valid:
   - |
     void f(void) {
@@ -11,4 +11,9 @@ invalid:
     void f(void) {
         static char cached_root[260];
         (void)cached_root;
+    }
+  - |
+    void g(void) {
+        static int scratch[32];
+        (void)scratch;
     }

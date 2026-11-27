@@ -12,6 +12,11 @@
 
 ; ---- (npl util) ----
 
+(test-identity "path-separator? slash" (lambda () (path-separator? #\/)) #t)
+(test-identity "path-separator? letter" (lambda () (path-separator? #\a)) #f)
+(test-identity "path-separator? backslash"
+               (lambda () (path-separator? #\\))
+               (cond-expand (windows #t) (else #f)))
 (test-equal "path-join" (lambda () (path-join "a" "b")) "a/b")
 (test-equal "path-join keeps one slash" (lambda () (path-join "a/" "b")) "a/b")
 (test-equal "path-join empty left" (lambda () (path-join "" "b")) "b")
@@ -30,6 +35,18 @@
             (lambda () (path-normalize "../a/b/.."))
             "../a")
 (test-equal "path-normalize empty result" (lambda () (path-normalize "a/..")) ".")
+(cond-expand
+  (windows
+    (test-equal "path-normalize drive root"
+                (lambda () (path-normalize "C:\\")) "C:/")
+    (test-equal "path-normalize drive root fold"
+                (lambda () (path-normalize "C:\\dir\\..")) "C:/")
+    (test-equal "path-normalize drive relative"
+                (lambda () (path-normalize "C:dir\\a\\..")) "C:dir")
+    (test-equal "path-normalize UNC root"
+                (lambda () (path-normalize "\\\\server\\share\\a\\..\\file.scm"))
+                "//server/share/file.scm"))
+  (else #t))
 (test-identity "exact-natural? zero" (lambda () (exact-natural? 0)) #t)
 (test-identity "exact-natural? negative" (lambda () (exact-natural? -1)) #f)
 (test-identity "exact-natural? inexact" (lambda () (exact-natural? 2.0)) #f)

@@ -13,3 +13,7 @@ invalid:
         if (context->stack_high && stack_bottom > context->stack_high)
             stack_bottom = context->stack_high;
     }
+  - |
+    void g(Ctx *context, uintptr_t end) {
+        if (context->stack_high <= end) end = context->stack_high;
+    }

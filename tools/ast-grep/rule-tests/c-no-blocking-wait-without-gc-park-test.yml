@@ -1,0 +1,37 @@
+id: c-no-blocking-wait-without-gc-park
+valid:
+  - |
+    void join_worker(pthread_t t) {
+        npl_gc_exclude();
+        pthread_join(t, NULL);
+        npl_gc_include();
+    }
+  - |
+    void wait_ready(pthread_cond_t *c, pthread_mutex_t *m) {
+        npl_gc_block_begin();
+        pthread_cond_wait(c, m);
+        npl_gc_block_end();
+    }
+  - |
+    int poll_handle(HANDLE h) {
+        return WaitForSingleObject(h, 0) == WAIT_OBJECT_0;
+    }
+  - |
+    void wait_child(HANDLE h) {
+        npl_gc_block_begin();
+        WaitForSingleObject(h, INFINITE);
+        npl_gc_block_end();
+    }
+invalid:
+  - |
+    void join_worker(pthread_t t) {
+        pthread_join(t, NULL);
+    }
+  - |
+    void wait_ready(pthread_cond_t *c, pthread_mutex_t *m) {
+        pthread_cond_wait(c, m);
+    }
+  - |
+    void wait_child(HANDLE h) {
+        WaitForSingleObject(h, INFINITE);
+    }
