@@ -230,23 +230,10 @@ Options:
         environment
         (let ((self (executable-path)))
           (let ((layout (if self
-                            (string-append (npli-directory self)
+                            (string-append (path-directory self)
                                            "../share/npl/lib")
                             #f)))
             (if (if layout (file-exists? layout) #f) layout REPL-STDLIB))))))
-
-(define (npli-path-separator? ch)
-  (cond-expand
-    (windows (or (char=? ch #\/) (char=? ch #\\)))
-    (else (char=? ch #\/))))
-
-(define (npli-directory path)
-  (let loop ((index (- (string-length path) 1)))
-    (cond
-      ((< index 0) "")
-      ((npli-path-separator? (string-ref path index))
-       (substring path 0 (+ index 1)))
-      (else (loop (- index 1))))))
 
 (define (main)
   (set-eval-standard-root! (npli-default-stdlib))

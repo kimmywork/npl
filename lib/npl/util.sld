@@ -3,24 +3,30 @@
 ; only when no existing library already provides the behavior, and give it a
 ; name that no SRFI uses for something else.
 (define-library (npl util)
-  (export path-join path-directory path-normalize exact-natural?)
+  (export path-separator? path-join path-directory path-normalize exact-natural?)
   (import (scheme base))
   (begin
-    ; LEFT/RIGHT with exactly one "/" between them; an empty LEFT or one
-    ; ending in "/" is not doubled.
+    ; Directory separator predicate: "/" everywhere, plus "\" on Windows.
+    (define (path-separator? ch)
+      (cond-expand
+        (windows (or (char=? ch #\/) (char=? ch #\\)))
+        (else (char=? ch #\/))))
+
+    ; LEFT/RIGHT with exactly one separator between them; an empty LEFT or one
+    ; ending in a separator is not doubled.
     (define (path-join left right)
       (if (if (= (string-length left) 0)
               #t
-              (char=? (string-ref left (- (string-length left) 1)) #\/))
+              (path-separator? (string-ref left (- (string-length left) 1))))
           (string-append left right)
           (string-append left "/" right)))
 
-    ; Everything up to and including the last "/", or "" without one.
+    ; Everything up to and including the last separator, or "" without one.
     (define (path-directory path)
       (let loop ((index (- (string-length path) 1)))
         (cond
           ((< index 0) "")
-          ((char=? (string-ref path index) #\/)
+          ((path-separator? (string-ref path index))
            (substring path 0 (+ index 1)))
           (else (loop (- index 1))))))
 
@@ -29,14 +35,14 @@
     ; A leading ".." that has nothing to fold is kept.
     (define (path-normalize path)
       (let* ((absolute (if (> (string-length path) 0)
-                           (char=? (string-ref path 0) #\/)
+                           (path-separator? (string-ref path 0))
                            #f))
              (segments
                (let loop ((start 0) (index 0) (out '()))
                  (cond
                    ((= index (string-length path))
                     (reverse (cons (substring path start index) out)))
-                   ((char=? (string-ref path index) #\/)
+                   ((path-separator? (string-ref path index))
                     (loop (+ index 1) (+ index 1)
                           (cons (substring path start index) out)))
                    (else (loop start (+ index 1) out)))))

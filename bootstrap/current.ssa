@@ -232415,7 +232415,7 @@ jmp @L28161
 ret %t122112
 }
 data $s_28173 = { w 1, w 1, w 7, w 8, b 119, b 105, b 110, b 100, b 111, b 119, b 115, b 0 }
-function l $_npl_fn_path_2dseparator_3f(l %npl_env, l %npl_argc, l %npl_argv) {
+function l $_npl_fn_path_2dseparator_2dbyte_3f(l %npl_env, l %npl_argc, l %npl_argv) {
 @start
 %t122113 =l loadl %npl_argv
 %t122114 =l add %npl_argv, 8
@@ -232477,7 +232477,7 @@ call $npl_tail_request_closure(l %t122115, l 1, l %t122143)
 ret 2
 }
 data $s_28188 = { w 1, w 1, w 7, w 8, b 119, b 105, b 110, b 100, b 111, b 119, b 115, b 0 }
-function l $_npl_dfn_path_2dseparator_3f(l %npl_p0) {
+function l $_npl_dfn_path_2dseparator_2dbyte_3f(l %npl_p0) {
 @start
 %t122144 =l alloc8 8
 %t122149 =l loadl $npl_gc_stop_requested
@@ -232490,7 +232490,7 @@ call $npl_safepoint_poll()
 jnz %t122147, @L28174, @L28175
 @L28174
 storel %npl_p0, %t122144
-%t122148 =l call $npl_direct_fallback(l $_npl_fn_path_2dseparator_3f, l 2, l 1, l %t122144)
+%t122148 =l call $npl_direct_fallback(l $_npl_fn_path_2dseparator_2dbyte_3f, l 2, l 1, l %t122144)
 ret %t122148
 @L28175
 %t122145 =l copy %npl_p0
@@ -232653,7 +232653,7 @@ storel %t122175, %t122233
 storel %t122193, %t122235
 %t122236 =l add %t122235, 8
 storel %t122234, %t122236
-call $npl_tail_request(l $_npl_fn_path_2dseparator_3f, l 2, l 2, l %t122235)
+call $npl_tail_request(l $_npl_fn_path_2dseparator_2dbyte_3f, l 2, l 2, l %t122235)
 ret 2
 }
 data $s_28214 = { w 1, w 1, w 0, w 1, b 0 }
@@ -232702,7 +232702,7 @@ jnz %t122254, @L28209, @L28210
 ret %t122256
 @L28210
 %t122257 =l call $npl_string_ref(l %t122238, l %t122239)
-%t122258 =l call $_npl_dfn_path_2dseparator_3f(l %t122257)
+%t122258 =l call $_npl_dfn_path_2dseparator_2dbyte_3f(l %t122257)
 %t122259 =w cnel %t122258, 10
 jnz %t122259, @L28215, @L28216
 @L28215
@@ -232905,7 +232905,7 @@ jnz %t122382, @L28255, @L28256
 storel %t122384, %t122385
 %t122386 =l add %t122385, 8
 storel %t122349, %t122386
-call $npl_tail_request(l $_npl_fn_path_2dseparator_3f, l 2, l 2, l %t122385)
+call $npl_tail_request(l $_npl_fn_path_2dseparator_2dbyte_3f, l 2, l 2, l %t122385)
 ret 2
 @L28256
 %t122387 =l copy 10
@@ -232970,7 +232970,7 @@ storel %t122327, %t122395
 storel %t122345, %t122397
 %t122398 =l add %t122397, 8
 storel %t122396, %t122398
-call $npl_tail_request(l $_npl_fn_path_2dseparator_3f, l 2, l 2, l %t122397)
+call $npl_tail_request(l $_npl_fn_path_2dseparator_2dbyte_3f, l 2, l 2, l %t122397)
 ret 2
 }
 data $s_28273 = { w 1, w 1, w 7, w 8, b 119, b 105, b 110, b 100, b 111, b 119, b 115, b 0 }
@@ -233016,7 +233016,7 @@ ret %t122417
 @L28265
 %t122418 =l copy 0
 %t122419 =l call $npl_string_ref(l %t122400, l %t122418)
-%t122420 =l call $_npl_dfn_path_2dseparator_3f(l %t122419)
+%t122420 =l call $_npl_dfn_path_2dseparator_2dbyte_3f(l %t122419)
 %t122421 =w cnel %t122420, 10
 jnz %t122421, @L28269, @L28270
 @L28269
@@ -233069,7 +233069,7 @@ jnz %t122448, @L28279, @L28280
 @L28279
 %t122449 =l copy 8
 %t122450 =l call $npl_string_ref(l %t122400, l %t122449)
-%t122451 =l call $_npl_dfn_path_2dseparator_3f(l %t122450)
+%t122451 =l call $_npl_dfn_path_2dseparator_2dbyte_3f(l %t122450)
 ret %t122451
 @L28280
 %t122452 =l copy 10
@@ -267933,7 +267933,7 @@ jmp @L32698
 %t140929 =l call $npl_number_sub(l %t140927, l %t140928)
 @L32698
 %t140939 =l call $npl_string_ref(l %t140924, l %t140929)
-%t140940 =l call $_npl_dfn_path_2dseparator_3f(l %t140939)
+%t140940 =l call $_npl_dfn_path_2dseparator_2dbyte_3f(l %t140939)
 %t140941 =w cnel %t140940, 10
 jnz %t140941, @L32695, @L32696
 @L32695
@@ -268023,7 +268023,7 @@ jmp @L32705
 %t140964 =l call $npl_number_sub(l %t140962, l %t140963)
 @L32705
 %t140974 =l call $npl_string_ref(l %t140904, l %t140964)
-%t140975 =l call $_npl_dfn_path_2dseparator_3f(l %t140974)
+%t140975 =l call $_npl_dfn_path_2dseparator_2dbyte_3f(l %t140974)
 %t140976 =w cnel %t140975, 10
 jnz %t140976, @L32702, @L32703
 @L32702

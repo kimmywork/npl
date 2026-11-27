@@ -12,6 +12,7 @@ files:
   - src/compiler/frontend/library.npl
   - src/repl/main.npl
   - lib/npl/native.sld
+  - lib/npl/util.sld
 rule:
   any:
     - pattern: (= $BYTE 92)

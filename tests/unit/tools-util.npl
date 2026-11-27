@@ -12,6 +12,11 @@
 
 ; ---- (npl util) ----
 
+(test-identity "path-separator? slash" (lambda () (path-separator? #\/)) #t)
+(test-identity "path-separator? letter" (lambda () (path-separator? #\a)) #f)
+(test-identity "path-separator? backslash"
+               (lambda () (path-separator? #\\))
+               (cond-expand (windows #t) (else #f)))
 (test-equal "path-join" (lambda () (path-join "a" "b")) "a/b")
 (test-equal "path-join keeps one slash" (lambda () (path-join "a/" "b")) "a/b")
 (test-equal "path-join empty left" (lambda () (path-join "" "b")) "b")
