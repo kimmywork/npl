@@ -30,7 +30,7 @@
           (file-exists? path)
           #f))
 
-    (define (path-separator? ch)
+    (define (native-path-separator? ch)
       (or (char=? ch #\/)
           (and (platform-feature? 'windows) (char=? ch #\\))))
 
@@ -41,7 +41,7 @@
                   (let loop ((index 0))
                     (if (= index (string-length name))
                         #f
-                        (if (path-separator? (string-ref name index))
+                        (if (native-path-separator? (string-ref name index))
                             #t
                             (loop (+ index 1)))))))))
 
@@ -58,7 +58,7 @@
       (map (lambda (file)
              (if (if (string=? directory "")
                      #t
-                     (path-separator?
+                     (native-path-separator?
                        (string-ref directory
                                    (- (string-length directory) 1))))
                  (string-append directory file)
