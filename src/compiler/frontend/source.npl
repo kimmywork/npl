@@ -21,7 +21,9 @@
       (cons (car left) (append-forms (cdr left) right))))
 
 (define (path-separator? byte)
-  (if (= byte 47) #t (= byte 92)))
+  (if (= byte 47)
+      #t
+      (if (= byte 92) (npl_platform_feature "windows") #f)))
 
 (define (path-dir-at path index)
   (if (< index 0)
@@ -39,9 +41,11 @@
         #f
         (if (path-separator? (string-byte-ref path 0))
             #t
-            (if (>= len 3)
-                (if (= (string-byte-ref path 1) 58)
-                    (path-separator? (string-byte-ref path 2))
+            (if (npl_platform_feature "windows")
+                (if (>= len 3)
+                    (if (= (string-byte-ref path 1) 58)
+                        (path-separator? (string-byte-ref path 2))
+                        #f)
                     #f)
                 #f)))))
 

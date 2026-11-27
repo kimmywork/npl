@@ -3,9 +3,14 @@
  */
 #ifdef _WIN32
 
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#endif
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <psapi.h>
+#include <direct.h>
+#include <errno.h>
 #include <io.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -79,7 +84,8 @@ static int needs_quoting(const char *arg)
 {
     if (arg[0] == '\0') return 1;
     for (const char *p = arg; *p; p++) {
-        if (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\v' || *p == '"')
+        if (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' ||
+            *p == '\v' || *p == '\f' || *p == '"')
             return 1;
     }
     return 0;
@@ -168,10 +174,11 @@ static HANDLE open_redirect_handle(const char *path, int for_write)
     return h;
 }
 
-static HANDLE inheritable_std_handle(DWORD which, int *must_close)
+static HANDLE inheritable_std_handle(DWORD which, int *must_close, int *failed)
 {
     HANDLE orig = GetStdHandle(which);
     *must_close = 0;
+    *failed = 0;
     if (!orig || orig == INVALID_HANDLE_VALUE) return orig;
     HANDLE dup = INVALID_HANDLE_VALUE;
     if (DuplicateHandle(GetCurrentProcess(), orig, GetCurrentProcess(), &dup,
@@ -179,7 +186,8 @@ static HANDLE inheritable_std_handle(DWORD which, int *must_close)
         *must_close = 1;
         return dup;
     }
-    return orig;
+    *failed = 1;
+    return INVALID_HANDLE_VALUE;
 }
 
 int npl_win32_spawn_wait(char *const *argv,
@@ -194,49 +202,89 @@ int npl_win32_spawn_wait(char *const *argv,
     free(cmdline);
     if (!wcmd) return -2;
 
-    int redirect = (input_path != NULL || output_path != NULL ||
-                    error_path != NULL);
     HANDLE h_in = INVALID_HANDLE_VALUE;
     HANDLE h_out = INVALID_HANDLE_VALUE;
     HANDLE h_err = INVALID_HANDLE_VALUE;
     int close_in = 0, close_out = 0, close_err = 0;
+    int dup_failed = 0;
 
-    STARTUPINFOW si;
-    memset(&si, 0, sizeof(si));
-    si.cb = sizeof(si);
+    if (input_path) {
+        h_in = open_redirect_handle(input_path, 0);
+        if (h_in == INVALID_HANDLE_VALUE) goto redirect_fail;
+        close_in = 1;
+    } else {
+        h_in = inheritable_std_handle(STD_INPUT_HANDLE, &close_in, &dup_failed);
+        if (dup_failed) goto redirect_fail;
+    }
+    if (output_path) {
+        h_out = open_redirect_handle(output_path, 1);
+        if (h_out == INVALID_HANDLE_VALUE) goto redirect_fail;
+        close_out = 1;
+    } else {
+        h_out = inheritable_std_handle(STD_OUTPUT_HANDLE, &close_out, &dup_failed);
+        if (dup_failed) goto redirect_fail;
+    }
+    if (error_path) {
+        h_err = open_redirect_handle(error_path, 1);
+        if (h_err == INVALID_HANDLE_VALUE) goto redirect_fail;
+        close_err = 1;
+    } else {
+        h_err = inheritable_std_handle(STD_ERROR_HANDLE, &close_err, &dup_failed);
+        if (dup_failed) goto redirect_fail;
+    }
 
-    if (redirect) {
-        if (input_path) {
-            h_in = open_redirect_handle(input_path, 0);
-            if (h_in == INVALID_HANDLE_VALUE) goto redirect_fail;
-            close_in = 1;
-        } else {
-            h_in = inheritable_std_handle(STD_INPUT_HANDLE, &close_in);
+    HANDLE inherit_list[3];
+    DWORD inherit_count = 0;
+    if (h_in && h_in != INVALID_HANDLE_VALUE) inherit_list[inherit_count++] = h_in;
+    if (h_out && h_out != INVALID_HANDLE_VALUE) inherit_list[inherit_count++] = h_out;
+    if (h_err && h_err != INVALID_HANDLE_VALUE) inherit_list[inherit_count++] = h_err;
+
+    STARTUPINFOEXW siex;
+    memset(&siex, 0, sizeof(siex));
+    siex.StartupInfo.cb = sizeof(siex.StartupInfo);
+    siex.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    siex.StartupInfo.hStdInput = h_in;
+    siex.StartupInfo.hStdOutput = h_out;
+    siex.StartupInfo.hStdError = h_err;
+
+    LPPROC_THREAD_ATTRIBUTE_LIST attr_list = NULL;
+    DWORD creation_flags = 0;
+    if (inherit_count > 0) {
+        SIZE_T attr_size = 0;
+        InitializeProcThreadAttributeList(NULL, 1, 0, &attr_size);
+        if (attr_size > 0) {
+            attr_list = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(attr_size);
+            if (attr_list &&
+                InitializeProcThreadAttributeList(attr_list, 1, 0, &attr_size)) {
+                if (UpdateProcThreadAttribute(
+                        attr_list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                        inherit_list, inherit_count * sizeof(HANDLE),
+                        NULL, NULL)) {
+                    siex.StartupInfo.cb = sizeof(siex);
+                    siex.lpAttributeList = attr_list;
+                    creation_flags = EXTENDED_STARTUPINFO_PRESENT;
+                } else {
+                    DeleteProcThreadAttributeList(attr_list);
+                    free(attr_list);
+                    attr_list = NULL;
+                }
+            } else {
+                free(attr_list);
+                attr_list = NULL;
+            }
         }
-        if (output_path) {
-            h_out = open_redirect_handle(output_path, 1);
-            if (h_out == INVALID_HANDLE_VALUE) goto redirect_fail;
-            close_out = 1;
-        } else {
-            h_out = inheritable_std_handle(STD_OUTPUT_HANDLE, &close_out);
-        }
-        if (error_path) {
-            h_err = open_redirect_handle(error_path, 1);
-            if (h_err == INVALID_HANDLE_VALUE) goto redirect_fail;
-            close_err = 1;
-        } else {
-            h_err = inheritable_std_handle(STD_ERROR_HANDLE, &close_err);
-        }
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdInput = h_in;
-        si.hStdOutput = h_out;
-        si.hStdError = h_err;
     }
 
     PROCESS_INFORMATION pi;
     memset(&pi, 0, sizeof(pi));
     BOOL ok = CreateProcessW(NULL, wcmd, NULL, NULL,
-                             redirect ? TRUE : FALSE, 0, NULL, NULL, &si, &pi);
+                             inherit_count > 0 ? TRUE : FALSE,
+                             creation_flags, NULL, NULL,
+                             &siex.StartupInfo, &pi);
+    if (attr_list) {
+        DeleteProcThreadAttributeList(attr_list);
+        free(attr_list);
+    }
     free(wcmd);
     if (close_in && h_in != INVALID_HANDLE_VALUE) CloseHandle(h_in);
     if (close_out && h_out != INVALID_HANDLE_VALUE) CloseHandle(h_out);
@@ -254,7 +302,7 @@ int npl_win32_spawn_wait(char *const *argv,
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     if (wait_res != WAIT_OBJECT_0) return -3;
-    *exit_code = (int)(code & 0xFF);
+    *exit_code = (int)code;
     return 0;
 
 redirect_fail:
@@ -267,9 +315,9 @@ redirect_fail:
 
 /* ---- Temporary directory & executable path ---- */
 
-char *npl_win32_make_temp_dir(const char **root_out)
+char *npl_win32_make_temp_dir(char *root_buf, size_t root_cap)
 {
-    static char cached_root[MAX_PATH * 3];
+    char temp_root[MAX_PATH * 3];
     const char *root = getenv("TMPDIR");
     if (!root || root[0] == '\0') root = getenv("TEMP");
     if (!root || root[0] == '\0') root = getenv("TMP");
@@ -279,15 +327,18 @@ char *npl_win32_make_temp_dir(const char **root_out)
         if (n > 0 && n <= MAX_PATH) {
             char *u = wide_to_utf8(wtmp);
             if (u) {
-                strncpy(cached_root, u, sizeof(cached_root) - 1);
-                cached_root[sizeof(cached_root) - 1] = '\0';
+                strncpy(temp_root, u, sizeof(temp_root) - 1);
+                temp_root[sizeof(temp_root) - 1] = '\0';
                 free(u);
-                root = cached_root;
+                root = temp_root;
             }
         }
     }
     if (!root || root[0] == '\0') root = ".";
-    if (root_out) *root_out = root;
+    if (root_buf && root_cap > 0) {
+        strncpy(root_buf, root, root_cap - 1);
+        root_buf[root_cap - 1] = '\0';
+    }
 
     size_t rlen = strlen(root);
     while (rlen > 1 && (root[rlen - 1] == '/' || root[rlen - 1] == '\\'))
@@ -318,6 +369,20 @@ char *npl_win32_make_temp_dir(const char **root_out)
         if (err != ERROR_ALREADY_EXISTS) return NULL;
     }
     return NULL;
+}
+
+int npl_win32_rmdir(const char *path)
+{
+    wchar_t *wpath = utf8_to_wide(path);
+    if (!wpath) {
+        errno = EINVAL;
+        return -1;
+    }
+    int rc = _wrmdir(wpath);
+    int saved = errno;
+    free(wpath);
+    errno = saved;
+    return rc;
 }
 
 char *npl_win32_executable_path(void)
@@ -389,7 +454,52 @@ void *npl_win32_dlsym_default(const char *symbol)
     return NULL;
 }
 
-/* ---- Stream readiness ---- */
+/* ---- Stream readiness & watchdog ---- */
+
+void npl_win32_prepare_input_stream(FILE *stream)
+{
+    int fd = _fileno(stream);
+    if (fd < 0) return;
+    intptr_t raw = _get_osfhandle(fd);
+    if (raw == -1) return;
+    DWORD type = GetFileType((HANDLE)raw);
+    if (type == FILE_TYPE_PIPE || type == FILE_TYPE_CHAR)
+        (void)setvbuf(stream, NULL, _IONBF, 0);
+}
+
+static int console_has_readable_input(HANDLE h, DWORD mode)
+{
+    DWORD count = 0;
+    if (!GetNumberOfConsoleInputEvents(h, &count) || count == 0)
+        return 0;
+    INPUT_RECORD stack_buf[64];
+    INPUT_RECORD *records = stack_buf;
+    if (count > 64) {
+        records = (INPUT_RECORD *)malloc((size_t)count * sizeof(INPUT_RECORD));
+        if (!records) return 0;
+    }
+    DWORD got = 0;
+    int ready = 0;
+    if (PeekConsoleInputW(h, records, count, &got)) {
+        int line_mode = (mode & ENABLE_LINE_INPUT) != 0;
+        for (DWORD i = 0; i < got; i++) {
+            if (records[i].EventType != KEY_EVENT) continue;
+            if (!records[i].Event.KeyEvent.bKeyDown) continue;
+            wchar_t ch = records[i].Event.KeyEvent.uChar.UnicodeChar;
+            if (line_mode) {
+                if (ch == L'\r' || ch == L'\n' || ch == 0x1A) {
+                    ready = 1;
+                    break;
+                }
+            } else if (ch != 0) {
+                ready = 1;
+                break;
+            }
+        }
+    }
+    if (records != stack_buf) free(records);
+    return ready;
+}
 
 int npl_win32_stream_ready(FILE *stream)
 {
@@ -406,9 +516,31 @@ int npl_win32_stream_ready(FILE *stream)
         return avail > 0 ? 1 : 0;
     }
     if (type == FILE_TYPE_CHAR) {
+        DWORD mode = 0;
+        if (GetConsoleMode(h, &mode))
+            return console_has_readable_input(h, mode);
         return WaitForSingleObject(h, 0) == WAIT_OBJECT_0 ? 1 : 0;
     }
     return 1;
+}
+
+static DWORD WINAPI alarm_watchdog_thread(LPVOID param)
+{
+    DWORD millis = (DWORD)(uintptr_t)param;
+    Sleep(millis);
+    static const char msg[] = "npl: watchdog alarm expired\n";
+    npl_win32_write_stderr(msg, sizeof(msg) - 1);
+    TerminateProcess(GetCurrentProcess(), 124);
+    return 124;
+}
+
+void npl_win32_alarm(unsigned seconds)
+{
+    if (seconds == 0) return;
+    DWORD millis = seconds > 4000000u ? 4000000000u : (DWORD)(seconds * 1000u);
+    HANDLE thread = CreateThread(NULL, 0, alarm_watchdog_thread,
+                                 (LPVOID)(uintptr_t)millis, 0, NULL);
+    if (thread) CloseHandle(thread);
 }
 
 /* ---- Shared-DLL executable slot indirection ---- */

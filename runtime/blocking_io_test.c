@@ -14,6 +14,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #ifdef _WIN32
+#include "os-win32.h"
 #include <fcntl.h>
 #include <io.h>
 #endif
@@ -55,7 +56,9 @@ static void *reader(void *argument)
 
 int main(void)
 {
-#ifndef _WIN32
+#ifdef _WIN32
+    npl_win32_alarm(60);
+#else
     alarm(60);
 #endif
     npl_runtime_init();

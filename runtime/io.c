@@ -388,8 +388,10 @@ NplVal npl_delete_file(NplVal path_value)
 NplVal npl_make_temporary_directory(void)
 {
 #ifdef _WIN32
-    const char *root = ".";
-    char *path = npl_win32_make_temp_dir(&root);
+    char root[512];
+    root[0] = '.';
+    root[1] = '\0';
+    char *path = npl_win32_make_temp_dir(root, sizeof(root));
     if (!path) {
         npl_primitive_file_error("make-temporary-directory",
                                  "cannot create directory",
@@ -421,7 +423,7 @@ NplVal npl_delete_directory(NplVal path_value)
 {
     char *path = npl_c_string_internal(process_string(path_value, "delete-directory"));
 #ifdef _WIN32
-    int failed = _rmdir(path) != 0;
+    int failed = npl_win32_rmdir(path) != 0;
 #else
     int failed = rmdir(path) != 0;
 #endif

@@ -58,7 +58,7 @@ if(WIN32)
     ${CMAKE_BINARY_DIR}/share/npl/lib/scheme/base.sld)
   add_custom_command(
     OUTPUT ${NPL_TREE_LINKS}
-    DEPENDS qbe_build npl_runtime npl_runtime_shared npl_runtime_win_slots
+    DEPENDS ${QBE_BIN} qbe_build npl_runtime npl_runtime_shared npl_runtime_win_slots
             ${NPLI_SOURCES}
     COMMAND ${CMAKE_COMMAND} -E make_directory
             ${CMAKE_BINARY_DIR}/bin ${CMAKE_BINARY_DIR}/libexec/npl

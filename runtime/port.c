@@ -5,6 +5,9 @@
  * split. */
 
 #include "port.h"
+#ifdef _WIN32
+#include "os-win32.h"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +20,10 @@ static NplVal g_eof_object = 2;
 
 static NplVal make_port(FILE *stream, uint32_t mode)
 {
+#ifdef _WIN32
+    if (stream && (mode & NPL_PORT_INPUT) != 0)
+        npl_win32_prepare_input_stream(stream);
+#endif
     NplPort *port = (NplPort *)npl_alloc_object(sizeof(NplPort));
     port->header.tag = BOX_PORT;
     port->stream = stream;

@@ -86,8 +86,10 @@
           (if configured (non-empty (split-colon configured)) '())
           (if executable
               (let ((directory (path-directory executable)))
-                (list (string-append directory "../lib/npl/native/")
-                      (string-append directory "../lib/npl/")))
+                (append
+                  (if (platform-feature? 'windows) (list directory) '())
+                  (list (string-append directory "../lib/npl/native/")
+                        (string-append directory "../lib/npl/"))))
               '())
           (list "lib/npl/native/"))))
 

@@ -791,8 +791,13 @@ uintptr_t npl_gc_swap_stack_bottom(uintptr_t stack_bottom)
 {
     NplThreadContext *context = CTX;
     uintptr_t previous = context->stack_bottom;
+#ifdef _WIN32
+    /* On Windows, stack_high is the authoritative OS stack limit from
+     * GetCurrentThreadStackLimits. On Unix, stack_high is only the init
+     * marker and older host frames (e.g. trampoline re-entry) may lie above. */
     if (context->stack_high && stack_bottom > context->stack_high)
         stack_bottom = context->stack_high;
+#endif
     context->stack_bottom = stack_bottom;
     return previous;
 }

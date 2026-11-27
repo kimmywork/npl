@@ -6,6 +6,9 @@
  */
 #define _POSIX_C_SOURCE 200809L
 
+#ifdef _WIN32
+#include "os-win32.h"
+#endif
 #include "npl.h"
 #include "thread-sched.h"
 #include <stdio.h>
@@ -56,7 +59,9 @@ static NplVal make_started(NplGenericFunction function, NplVal *thread_out)
 int main(void)
 {
     /* Watchdog: if a wait never completes, do not hang the acceptance gate. */
-#ifndef _WIN32
+#ifdef _WIN32
+    npl_win32_alarm(30);
+#else
     alarm(30);
 #endif
     npl_runtime_init();

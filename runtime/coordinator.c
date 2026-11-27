@@ -225,8 +225,10 @@ static void mark_one_stack(NplThreadContext *context, void *data)
     if (!context->attached || !context->parked || !context->snapshot_valid)
         return;
     uintptr_t stack_end = context->stack_bottom;
+#ifdef _WIN32
     if (context->stack_high && stack_end > context->stack_high)
         stack_end = context->stack_high;
+#endif
     npl_gc_mark_words_internal(context->saved_stack_pointer, stack_end);
     uintptr_t begin = (uintptr_t)(void *)&context->registers;
     npl_gc_mark_words_internal(begin, begin + sizeof(context->registers));

@@ -75,10 +75,29 @@
           (tm_yday int)
           (tm_isdst int))
         (define (local-tm-zone-offset tm-value utc-seconds)
-          (with-resource (gm-value (make-c-struct timespec) free-c-struct)
-            (if (not (= (npl_time_timegm_prim tm-value gm-value) 0))
-                0
-                (- (c-struct-ref gm-value 'tv_sec) utc-seconds))))))
+          (with-resource (ts-value (make-c-struct timespec) free-c-struct)
+            (with-resource (utc-tm (make-c-struct tm) free-c-struct)
+              (c-struct-set! ts-value 'tv_sec utc-seconds)
+              (c-struct-set! ts-value 'tv_nsec 0)
+              (if (not (= (npl_time_gmtime_prim ts-value utc-tm) 0))
+                  0
+                  (let* ((ly (c-struct-ref tm-value 'tm_year))
+                         (uy (c-struct-ref utc-tm 'tm_year))
+                         (lm (c-struct-ref tm-value 'tm_mon))
+                         (um (c-struct-ref utc-tm 'tm_mon))
+                         (ld (c-struct-ref tm-value 'tm_mday))
+                         (ud (c-struct-ref utc-tm 'tm_mday))
+                         (day-diff (cond ((not (= ly uy)) (if (> ly uy) 1 -1))
+                                         ((not (= lm um)) (if (> lm um) 1 -1))
+                                         ((not (= ld ud)) (if (> ld ud) 1 -1))
+                                         (else 0))))
+                    (+ (* day-diff 86400)
+                       (* (- (c-struct-ref tm-value 'tm_hour)
+                             (c-struct-ref utc-tm 'tm_hour)) 3600)
+                       (* (- (c-struct-ref tm-value 'tm_min)
+                             (c-struct-ref utc-tm 'tm_min)) 60)
+                       (- (c-struct-ref tm-value 'tm_sec)
+                          (c-struct-ref utc-tm 'tm_sec))))))))))
     (else
       (begin
         (define-c-struct timespec

@@ -45,4 +45,5 @@
   "backend/bindings.npl"
   "backend/c-stubs.npl"
   "backend/program.npl"
+  "driver-shared.npl"
   "driver.npl")

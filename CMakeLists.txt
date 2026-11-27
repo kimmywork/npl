@@ -34,7 +34,6 @@ set(QBE_BIN ${CMAKE_BINARY_DIR}/qbe/qbe${CMAKE_EXECUTABLE_SUFFIX})
 if(WIN32)
   # Build vendored QBE directly via CMake on Windows (no GNU make/uname needed).
   file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/qbe)
-  file(WRITE ${CMAKE_BINARY_DIR}/qbe/config.h "#define Deftgt T_amd64_win\n")
   add_executable(qbe_native
     ${QBE_SOURCE_DIR}/main.c
     ${QBE_SOURCE_DIR}/util.c
@@ -74,7 +73,7 @@ if(WIN32)
   target_compile_options(qbe_native PRIVATE -std=c99)
   set_target_properties(qbe_native PROPERTIES
     OUTPUT_NAME qbe
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/qbe
+    RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/qbe>"
   )
   add_custom_target(qbe_build DEPENDS qbe_native)
 else()

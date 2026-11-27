@@ -28,8 +28,12 @@ int npl_win32_spawn_wait(char *const *argv,
                          int *exit_code);
 
 /* Newly created temporary directory path (malloc'd UTF-8 with '/' separators),
- * or NULL on failure. */
-char *npl_win32_make_temp_dir(const char **root_out);
+ * or NULL on failure. When root_buf is non-NULL, the chosen temp root is
+ * copied into it for diagnostics without shared mutable state. */
+char *npl_win32_make_temp_dir(char *root_buf, size_t root_cap);
+
+/* UTF-8 directory removal via _wrmdir (preserves errno on failure). */
+int npl_win32_rmdir(const char *path);
 
 /* Absolute executable path (malloc'd UTF-8 with '/' separators), or NULL. */
 char *npl_win32_executable_path(void);
@@ -38,8 +42,15 @@ char *npl_win32_executable_path(void);
 int npl_win32_dlopen(const char *path, char *error_buffer, size_t error_size);
 void *npl_win32_dlsym_default(const char *symbol);
 
+/* Configure non-seekable input streams (pipes/consoles) unbuffered so
+ * npl_win32_stream_ready observes all unread bytes accurately. */
+void npl_win32_prepare_input_stream(FILE *stream);
+
 /* Non-blocking readiness probe for FILE* backed by a Win32 handle. */
 int npl_win32_stream_ready(FILE *stream);
+
+/* Process-wide watchdog timer for runtime tests (analog of POSIX alarm()). */
+void npl_win32_alarm(unsigned seconds);
 
 #endif /* _WIN32 */
 #endif /* NPL_OS_WIN32_H */

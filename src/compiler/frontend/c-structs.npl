@@ -75,7 +75,7 @@
       ((string=? name "double") 9)
       ((string=? name "pointer") 10)
       ((string=? name "int") 6)
-      ((string=? name "long") 7)
+      ((string=? name "long") (if (npl_platform_feature "windows") 6 7))
       ((string=? name "int64") 7)
       ((string=? name "size_t") 3)
       ((string=? name "bool") 11)

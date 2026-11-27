@@ -378,31 +378,7 @@ Options:
             layout
             #f))))
 
-(define (driver-runtime-shared config)
-  (let ((explicit (driver-environment "NPL_RUNTIME_SHARED")))
-    (if explicit explicit
-        (let ((directory (path-dir (driver-runtime config))))
-          (cond
-            ((if (driver-windows?)
-                 (file-exists? (string-append directory "libnpl_runtime.dll.a"))
-                 #f)
-             (string-append directory "libnpl_runtime.dll.a"))
-            ((file-exists? (string-append directory "libnpl_runtime.dll"))
-             (string-append directory "libnpl_runtime.dll"))
-            ((file-exists? (string-append directory "libnpl_runtime.dylib"))
-             (string-append directory "libnpl_runtime.dylib"))
-            ((file-exists? (string-append directory "libnpl_runtime.so"))
-             (string-append directory "libnpl_runtime.so"))
-            (else
-             (driver-error
-               "shared runtime not found; build npl_runtime_shared")))))))
-
-(define (driver-runtime-slots config)
-  (if (driver-windows?)
-      (let ((path (string-append (path-dir (driver-runtime-shared config))
-                                 "npl_runtime_slots.o")))
-        (if (file-exists? path) (cons path ()) ()))
-      ()))
+; driver-runtime-shared and driver-runtime-slots live in driver-shared.npl.
 
 (define (driver-native-meta-forms path)
   (let ((forms (parse-source-file path)))
@@ -670,7 +646,11 @@ Options:
                           (driver-native-link-args config directory)
                           (append runtime extra))))))))
               #f)))
-      (if (= status 0) 0 (driver-stage-failure "link" status)))))
+      (if (= status 0)
+          (begin
+            (driver-stage-windows-dlls config directory executable)
+            0)
+          (driver-stage-failure "link" status)))))
 
 (define (driver-link config directory assembly executable)
   (let ((stubs (driver-stub-objects config directory)))
