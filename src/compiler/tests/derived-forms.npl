@@ -1,3 +1,5 @@
+(import (scheme base) (scheme write) (scheme process-context))
+
 (include "framework.npl")
 
 (define derived-probes 0)
@@ -99,5 +101,26 @@
                       (loop 1))
                   (+ (+ (or #f value) loop) 2)))
               42)
+  (test-equal "quasiquote dotted-tail unquote"
+              (lambda ()
+                (let ((b 42)) (cdr `(a . ,b))))
+              42)
+  (test-equal "quasiquote dotted-tail expression"
+              (lambda ()
+                (let ((b 40)) (cdr `(a . ,(+ b 2)))))
+              42)
+  (test-identity "quasiquote vector keeps unquote symbol"
+                 (lambda ()
+                   (let ((x 42))
+                     (equal? `#(unquote ,x) (vector 'unquote 42))))
+                 #t)
+  (test-identity "quasiquote vector trailing unquote"
+                 (lambda ()
+                   (equal? `#(a unquote b) (vector 'a 'unquote 'b)))
+                 #t)
+  (test-identity "quasiquote vector splicing"
+                 (lambda ()
+                   (equal? `#(1 ,@(list 2 3)) (vector 1 2 3)))
+                 #t)
   (finish-tests "derived-forms"))
 (main)

@@ -12,6 +12,7 @@
   "frontend/syntax-eval-syntax.npl"
   "frontend/syntax-primitives.npl"
   "frontend/expand.npl"
+  "frontend/keyword-args.npl"
   "frontend/expand-values.npl"
   "frontend/expand-record.npl"
   "frontend/expand-match.npl"

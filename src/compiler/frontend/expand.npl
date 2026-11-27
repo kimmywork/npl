@@ -5,9 +5,11 @@
 
 (define (fresh-value-name identifier)
   (cell-set! EXPAND-NEXT-VALUE (+ 1 (cell-get EXPAND-NEXT-VALUE)))
-  (string-append "_npl_h_"
-    (string-append (number->string (cell-get EXPAND-NEXT-VALUE))
-      (string-append "_" (sanitize (datum-symbol-name identifier) 0 "")))))
+  (record-display-name
+    (string-append "_npl_h_"
+      (string-append (number->string (cell-get EXPAND-NEXT-VALUE))
+        (string-append "_" (sanitize (datum-symbol-name identifier) 0 ""))))
+    (datum-symbol-name identifier)))
 
 (define (resolve-identifier identifier environment)
   (let ((binding (lookup-value-binding identifier environment)))
@@ -26,6 +28,7 @@
   (cond
     ((datum-symbol? expression)
      (resolve-identifier expression value-env))
+    ((datum-keyword? expression) expression)
     ((datum-string? expression) expression)
     ((datum-char? expression) expression)
     ((datum-bytevector? expression) expression)
@@ -40,7 +43,7 @@
     (else expression)))
 
 (define (definition-form? form)
-  (if (raw-form? form "define")
+  (if (if (raw-form? form "define") #t (raw-form? form "define*"))
       #t
       (if (raw-form? form "define-values")
           #t
@@ -198,7 +201,9 @@
     ((string=? name "quasiquote")
      (expand-quasiquote-form form value-env macro-env))
     ((string=? name "lambda") (expand-lambda form value-env macro-env))
+    ((string=? name "lambda*") (expand-lambda-star form value-env macro-env))
     ((string=? name "define") (expand-define form value-env macro-env))
+    ((string=? name "define*") (expand-define-star form value-env macro-env))
     ((string=? name "if") (expand-if form value-env macro-env))
     ((string=? name "begin")
      (cons (car form)
@@ -727,9 +732,10 @@
          ())))
     ((datum-vector? value)
      (datum-vector
-       (expand-quasiquote-list (datum-vector-items value) depth
-                               value-env macro-env)))
+       (expand-quasiquote-vector-items (datum-vector-items value) depth
+                                       value-env macro-env)))
     ((datum-symbol? value) value)
+    ((datum-keyword? value) value)
     ((datum-string? value) value)
     ((datum-char? value) value)
     ((datum-bytevector? value) value)
@@ -739,13 +745,30 @@
      (expand-quasiquote-list value depth value-env macro-env))
     (else value)))
 
-(define (expand-quasiquote-list values depth value-env macro-env)
+; Vectors have no dotted tail: every element is a separate element.
+(define (expand-quasiquote-vector-items values depth value-env macro-env)
   (if (null? values)
       ()
       (if (pair? values)
           (cons (expand-quasiquote (car values) depth value-env macro-env)
-                (expand-quasiquote-list (cdr values) depth
-                                        value-env macro-env))
+                (expand-quasiquote-vector-items
+                  (cdr values) depth value-env macro-env))
+          (fatal "vector quasiquote elements must be a proper list"))))
+
+(define (expand-quasiquote-list values depth value-env macro-env)
+  (if (null? values)
+      ()
+      (if (pair? values)
+          ; `(a . ,b) reads as the proper list (a unquote b).  The cdr that
+          ; starts with unquote is the dotted-tail case, not two elements.
+          (if (raw-form? values "unquote")
+              (expand-quasiquote values depth value-env macro-env)
+              (if (raw-form? values "unquote-splicing")
+                  (fatal "unquote-splicing in dotted tail")
+                  (cons (expand-quasiquote (car values) depth
+                                           value-env macro-env)
+                        (expand-quasiquote-list (cdr values) depth
+                                                value-env macro-env))))
           (expand-quasiquote values depth value-env macro-env))))
 
 (define (expand-syntax-error form)

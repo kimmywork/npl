@@ -42,6 +42,9 @@
                      (number->string
                        (primitive-closure-arity (primitive-row name)))
                      ")"))
+    (func-line
+      (string-append "call $npl_closure_set_name(l " result ", l "
+                     (label-ref-op (intern-sym name)) ")"))
     result))
 
 ; Operand temporaries for argv[0..count-1] as core symbol references.

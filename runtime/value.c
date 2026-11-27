@@ -399,7 +399,8 @@ NplVal npl_rest_arguments(int64_t argc, NplVal *argv, int64_t fixed,
 NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
                         int64_t arity)
 {
-    NplClosure *closure = (NplClosure *)npl_alloc_object(sizeof(NplClosure));
+    NplClosure *closure = (NplClosure *)npl_alloc_object(
+        sizeof(NplClosure) + sizeof(NplVal));
     closure->header.tag = BOX_CLOSURE;
     closure->header.flags = 0;
     closure->function = function;
@@ -407,6 +408,9 @@ NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
     closure->arity = arity;
     closure->capture_count = 0;
     closure->direct = NULL;
+    /* One trailing slot holds an optional display name; see
+     * npl_closure_set_name. */
+    closure->captures[0] = npl_false();
     return (NplVal)(uintptr_t)closure | TAG_PTR;
 }
 
@@ -416,13 +420,13 @@ NplVal npl_make_closure(NplGenericFunction function, NplVal environment,
 NplVal npl_make_flat_closure(NplGenericFunction function, int64_t arity,
                              int64_t count, NplVal *captures)
 {
-    if (count < 0 || (uint64_t)count > UINT32_MAX) {
+    if (count < 0 || (uint64_t)count >= UINT32_MAX) {
         fprintf(stderr, "npl_make_flat_closure: unsupported size %lld\n",
                 (long long)count);
         exit(1);
     }
     NplClosure *closure = (NplClosure *)npl_alloc_object(
-        sizeof(NplClosure) + (size_t)count * sizeof(NplVal));
+        sizeof(NplClosure) + (size_t)(count + 1) * sizeof(NplVal));
     closure->header.tag = BOX_CLOSURE;
     closure->header.flags = 0;
     closure->function = function;
@@ -430,8 +434,22 @@ NplVal npl_make_flat_closure(NplGenericFunction function, int64_t arity,
     closure->capture_count = count;
     closure->direct = NULL;
     for (int64_t i = 0; i < count; i++) closure->captures[i] = captures[i];
+    /* The trailing slot is an optional display name; captures still begin
+     * at byte 48, so previously compiled code keeps its capture offsets. */
+    closure->captures[count] = npl_false();
     NplVal value = (NplVal)(uintptr_t)closure | TAG_PTR;
     closure->environment = value;
+    return value;
+}
+
+NplVal npl_closure_set_name(NplVal value, NplVal name)
+{
+    /* Parameters and other callable non-closures have no name slot. */
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CLOSURE)
+        return value;
+    NplClosure *closure = (NplClosure *)npl_header(value);
+    closure->captures[closure->capture_count] = name;
+    npl_gc_write_barrier(closure, name);
     return value;
 }
 
@@ -750,6 +768,19 @@ NplVal npl_symbol_predicate(NplVal value)
 {
     return npl_is_ptr(value) && npl_header(value)->tag == BOX_SYMBOL
         ? npl_true() : npl_false();
+}
+
+NplVal npl_keyword_predicate(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_KEYWORD
+        ? npl_true() : npl_false();
+}
+
+NplVal npl_keyword_to_string(NplVal keyword)
+{
+    if (!npl_is_ptr(keyword) || npl_header(keyword)->tag != BOX_KEYWORD)
+        npl_primitive_error("keyword->string", "expected a keyword", keyword);
+    return retag_box(keyword, BOX_STRING);
 }
 
 NplVal npl_substring(NplVal s, NplVal i, NplVal j)

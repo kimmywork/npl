@@ -517,6 +517,7 @@ void npl_gc_mark_roots_internal(void)
     npl_virtual_thread_mark_roots();
     npl_pending_thread_mark_roots();
     npl_symbol_mark_roots();
+    npl_keyword_mark_roots();
     if (g_minor)
         for (size_t i = 0; i < g_remembered_count; i++)
             npl_gc_visit_children_internal(g_remembered[i],

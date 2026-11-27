@@ -13,7 +13,8 @@
           frontend-bytevector-items->runtime
           frontend-set-native-hook!
           frontend-set-c-primitive-hook!
-          frontend-numeric-alias-suffixes)
+          frontend-numeric-alias-suffixes
+          display-name-of)
   (import (npl internal primitive))
   (include "../../../src/compiler/common/base.npl")
   (include "../../../src/compiler/reader/lexer.npl")
@@ -27,6 +28,7 @@
   (include "../../../src/compiler/frontend/syntax-eval-syntax.npl")
   (include "../../../src/compiler/frontend/syntax-primitives.npl")
   (include "../../../src/compiler/frontend/expand.npl")
+  (include "../../../src/compiler/frontend/keyword-args.npl")
   (include "../../../src/compiler/frontend/expand-values.npl")
   (include "../../../src/compiler/frontend/expand-record.npl")
   (include "../../../src/compiler/frontend/expand-match.npl")
@@ -275,6 +277,8 @@
         ((null? datum) ())
         ((datum-symbol? datum)
          (frontend-runtime-symbol (datum-symbol-name datum)))
+        ((datum-keyword? datum)
+         (string->keyword (datum-keyword-name datum)))
         ; A copy: the evaluator marks constants immutable
         ; (evaluator-compile.scm eval-literal), and the datum's text belongs
         ; to the frontend.

@@ -123,8 +123,10 @@ status:
 | Area | Status | Route, if wanted |
 |---|---|---|
 | Object system, classes, generic methods | absent | no mainstream SRFI; SRFI 20 is dormant; NPL route is records + dispatch (see [extending](extending.md)) |
-| Keyword arguments (`#:key`) | absent | SRFI 88 (keyword objects), SRFI 89 (named/optional parameters), SRFI 177 (portable keyword arguments) |
-| Default-valued optional parameters | absent (rest args and `case-lambda` exist) | SRFI 89, or `case-lambda` |
+| Keyword arguments | **implemented** as NPL extensions: SRFI 88 keyword objects, SRFI 89 `define*`/`lambda*`, and Guile-style `#:optional`/`#:key`/`#:allow-other-keys` aliases. `#:foo` is always available; the trailing-colon `foo:` spelling is enabled by `#!colon-keyword` (`#!srfi-88` is an alias). | SRFI 88 / SRFI 89 |
+| Default-valued optional parameters | **implemented** by SRFI 89 `define*`/`lambda*`; `case-lambda` remains available | — |
+| Curly-infix expressions | **implemented** core `{...}`, dotted curly lists, and the neoteric `f(x)`, `f[x]`, `f{x}`, and `f(. rest)` forms in both readers under `#!curly-infix`. Mixed expressions map to the application-defined `$nfx$` hook, as SRFI 105 specifies. | SRFI 105 |
+| Procedure display names | **implemented** for top-level, library, primitive, parameter, and direct local lambda bindings; aliases keep the original name | NPL extension |
 | Records: inheritance, `#:guard`, opaque, prefab | absent (all records transparent, generative) | SRFI 99 / SRFI 256 |
 | `filter`, `fold`, `partition`, `sort` | **implemented** in `(npl list)` / `(srfi 1)` and `(npl sort)` / `(srfi 132)` / `(srfi 95)` | — |
 | `string-split`, `string-join`, `string-trim` | **implemented** in `(npl string)` / `(srfi 13)`, `(npl string cursor)` / `(srfi 130)`, and `(npl string immutable)` / `(srfi 140)` | SRFI 152 (`string-split` is also in SRFI 130) |
@@ -137,6 +139,47 @@ status:
 
 Adding any of these follows [extending](extending.md); most need no compiler
 change and no seed relay.
+
+### Reader directives
+
+Both readers accept R7RS `#!fold-case` / `#!no-fold-case` (identifiers and
+character names fold), plus NPL's `#!curly-infix`, `#!colon-keyword`, and
+the `#!srfi-88` alias. Parenthesized `#!(name args...)` forms are
+accepted, including `#!(curly-infix neoteric)`. Directives adjust reader
+options; they do not select a language. Unknown directives are errors. Directives may be
+consecutive and apply from their position onward; compiler adjacencies are
+captured per token, so a mid-file directive does not rewrite earlier data.
+
+### SRFI 89 note
+
+Positional parameters consume only non-keyword arguments, so named
+arguments may appear before later positional parameters. This is a
+Guile-compatible extension; strict SRFI 89 positionals consume the next
+argument unconditionally.
+
+### SRFI 105 note
+
+Both readers implement curly-infix, neoteric, and dotted forms. A mixed
+expression such as `{a + b * c}` becomes `($nfx$ a + b * c)`, and a dotted
+curly list remains improper: `{a + b . c}` becomes
+`($nfx$ a + b . c)`. `f(. rest)` becomes `(f . rest)`.
+`(npl infix)` defines `$nfx$` as a clear error and `$bracket-apply$` for
+vectors, strings, bytevectors, and lists; applications may supply their own
+`$nfx$` handler. Precedence is intentionally not built into the reader.
+
+### SRFI 88 lexical note
+
+`#:foo` keyword syntax is always available. The trailing-colon spelling is
+opt-in: after `#!colon-keyword` (with `#!srfi-88` retained as an alias), a
+token ending in `:` (except `:`) is a keyword object, not a symbol, and
+R7RS code that uses such an identifier as a symbol must spell it with bars,
+`|foo:|`. The former `#!no-srfi-88` spelling is gone; use a fresh
+source/port for the default. This keeps existing R7RS identifiers such as
+import prefixes (`b:`) working by default while supporting SRFI 88 source
+when requested. `write` emits `#:name` for ordinary names and `#:|...|`
+for names containing delimiters or whitespace, and for the empty name; both
+readers accept the barred spelling. Under `#!fold-case`, plain `#:Name` and
+`Name:` fold, while `#:|Name|` preserves case like a barred symbol.
 
 ## What "frozen" means
 

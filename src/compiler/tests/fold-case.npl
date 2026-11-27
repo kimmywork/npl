@@ -1,0 +1,31 @@
+#!fold-case
+
+(import (scheme base)
+        (scheme write)
+        (scheme process-context))
+
+(include "framework.npl")
+
+(define folded-value 1)
+(define folded-space #\SPACE)
+(define (folded-reference) FOLDED-VALUE)
+
+#!no-fold-case
+
+(define Mixed 2)
+(define mixed 3)
+
+(define (main)
+  (test-equal "folded definition and reference"
+              (lambda () (folded-reference))
+              1)
+  (test-equal "folded character name"
+              (lambda () (char=? folded-space #\space))
+              #t)
+  (test-equal "Mixed stays distinct" (lambda () Mixed) 2)
+  (test-equal "mixed stays distinct" (lambda () mixed) 3)
+  (test-equal "no-fold-case symbols are distinct"
+              (lambda () (eq? 'Mixed 'mixed))
+              #f)
+  (finish-tests "fold-case"))
+(main)

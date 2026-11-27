@@ -1,0 +1,8 @@
+(import (except (scheme base) car npl_keyword_parse)
+        (scheme write))
+
+(define (car x) #f)
+(define (npl_keyword_parse x y) #f)
+
+(write (let ((car (lambda (x) #f))) (car 7))) (newline)
+(write ((lambda* (x) x) 42)) (newline)

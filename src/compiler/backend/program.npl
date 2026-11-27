@@ -85,6 +85,11 @@
                     (data-line (string-append slot " = { l "
                                               (intern-sym (cdr init))
                                               "+1 }"))
+                    (if (datum-keyword? init)
+                        (data-line
+                          (string-append slot " = { l "
+                            (intern-keyword (datum-keyword-name init))
+                            "+1 }"))
                     ; runtime-computed initializer: placeholder slot now,
                     ; real value stored by $npl_global_inits at startup
                     (begin
@@ -94,7 +99,7 @@
                       (let ((v (emit-expr init ())))
                         (func-line (string-append "storel " v ", " slot)))
                       (cell-set! CURBUF "F")
-                      0)))))))
+                      0))))))))
 
 ; declares just the box at the *current* DATAN id, matching fresh-string-op
 (define (declare-string-box init k)
@@ -421,6 +426,18 @@
         (newline)
         (print-static-symbols (cdr entries)))))
 
+(define (print-static-keywords entries)
+  (if (null? entries)
+      0
+      (begin
+        (display "%static_keyword =l add ")
+        (display (cdr (car entries)))
+        (display ", 1")
+        (newline)
+        (display "call $npl_intern_static_keyword(l %static_keyword)")
+        (newline)
+        (print-static-keywords (cdr entries)))))
+
 (define (dump-and-print)
   ; Top-level forms are flushed incrementally. Only symbol and root
   ; registration and runtime initializer code remain until their function
@@ -432,6 +449,7 @@
   (display "@start")
   (newline)
   (print-static-symbols (rev (cell-get SYMS)))
+  (print-static-keywords (rev (cell-get KEYWORDS)))
   (print-global-roots (rev (cell-get GLOBAL-ROOTS)))
   (if (= (cell-get HAS-INIT) 7)
       (print-lines (rev (cell-get INIT-BUF)))

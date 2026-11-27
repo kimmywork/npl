@@ -1,0 +1,13 @@
+#!(curly-infix neoteric)
+#!(colon-keyword)
+
+(import (scheme base) (scheme write) (npl infix) (npl keyword))
+
+(define (increment x) (+ x 1))
+
+(write increment(41)) (newline)
+(write (keyword? 'foo:)) (newline)
+(write {1 + 2 + 3}) (newline)
+(write '{1 + 2 . 3}) (newline)
+(write 'read(. options)) (newline)
+(write '{a () b () c}) (newline)

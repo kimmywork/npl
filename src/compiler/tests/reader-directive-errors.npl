@@ -1,0 +1,54 @@
+(import (scheme base)
+        (scheme read)
+        (scheme write)
+        (scheme process-context))
+
+(include "framework.npl")
+
+(define (read-error? text)
+  (guard (condition (#t #t))
+    (read (open-input-string text))
+    #f))
+
+(define (main)
+  (test-assert "unknown parameterized directive"
+               (read-error? "#!(bogus)\n1"))
+  (test-assert "directive arity"
+               (read-error? "#!(fold-case extra)\n1"))
+  (test-assert "curly-infix option"
+               (read-error? "#!(curly-infix bogus)\n1"))
+  (test-assert "nested directive"
+               (read-error? "#!(curly-infix #!fold-case)\n1"))
+  (test-assert "directive option persists across reads"
+               (let ((port (open-input-string
+                             "#!(curly-infix neoteric)\nf(1)")))
+                 (equal? (read port) '(f 1))))
+  (test-assert "fresh port starts clean"
+               (let* ((first (open-input-string "#!(curly-infix neoteric)\n1"))
+                      (second (open-input-string "f(1)")))
+                 (read first)
+                 (let* ((head (read second))
+                        (tail (read second)))
+                   (if (eq? head 'f) (equal? tail '(1)) #f))))
+  (test-assert "cyclic directive arguments"
+               (read-error? "#!(fold-case . #1=(x . #1#))"))
+  (test-assert "cyclic curly operator terminates"
+               (let ((operator
+                       (car (read (open-input-string
+                                    "{0 #1=(x . #1#) 1 #1# 2}")))))
+                 (eq? (cdr (cdr operator)) operator)))
+  (test-assert "dot-led neoteric suffix"
+               (let ((port (open-input-string
+                             "#!(curly-infix neoteric)\n.foo(1)")))
+                 (equal? (read port) '(.foo 1))))
+  (test-assert "dot-led neoteric in curly"
+               (let ((port (open-input-string
+                             "#!(curly-infix neoteric)\n{.foo(1)}")))
+                 (equal? (read port) '(.foo 1))))
+  (test-assert "distinct cyclic operators are structurally equal"
+               (let ((result
+                       (read (open-input-string
+                               "{0 #1=(x . #1#) 1 #2=(x . #2#) 2}"))))
+                 (eq? (car (car result)) 'x)))
+  (finish-tests "reader-directive-errors"))
+(main)

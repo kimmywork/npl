@@ -42,17 +42,19 @@
 (define (syntax-atomic? value)
   (if (datum-symbol? value)
       #t
-      (if (datum-string? value)
+      (if (datum-keyword? value)
           #t
-          (if (datum-char? value)
-              #t
-              (if (datum-vector? value)
+              (if (datum-string? value)
                   #t
-                  (if (datum-bytevector? value)
+                  (if (datum-char? value)
                       #t
-                      (if (datum-true? value)
+                      (if (datum-vector? value)
                           #t
-                          (datum-false? value))))))))
+                          (if (datum-bytevector? value)
+                              #t
+                              (if (datum-true? value)
+                                  #t
+                                  (datum-false? value)))))))))
 
 (define (identifier-mark identifier)
   (npl_hash_table_ref (cell-get SYNTAX-MARKS) identifier 0))

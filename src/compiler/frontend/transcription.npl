@@ -6,7 +6,7 @@
   (cond
     ((raw-form? form "begin")
      (begin-defined-list (cdr form) acc))
-    ((raw-form? form "define")
+    ((if (raw-form? form "define") #t (raw-form? form "define*"))
      (let ((single (direct-defined-identifier form)))
        (if (null? single) acc (cons single acc))))
     ((raw-form? form "define-values")

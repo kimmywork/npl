@@ -50,7 +50,9 @@ Current extensions include `(npl hashtable)` / `(srfi 125)`,
 `(npl lambda)` (`λ` and `fn`),
 `(npl data unifiable-box)` / `(srfi 161)`,
 `(npl data multiple-value-box)` / `(srfi 195)`, `(npl data box)` / `(srfi 111)`,
-`(npl data range)` / `(srfi 196)`, and the SRFI 189 family:
+`(npl data range)` / `(srfi 196)`, `(npl format)` / `(srfi 48)`,
+`(npl keyword)` / `(srfi 88)` and SRFI 89 syntax, `(npl infix)` / `(srfi 105)`,
+and the SRFI 189 family:
 `(npl data maybe)` and `(npl data either)` are disjoint subsets, while
 `(npl data option)` or `(srfi 189)` provides the complete surface. Canonical
 libraries re-export shared bindings rather than redefining them, so they can
@@ -117,6 +119,7 @@ supported, and there is no cross-compilation path at this stage.
 
 ## Documentation
 
+- [An NPL Primer](docs/guide/npl-primer.md)
 - [Toolchain and install layout](docs/toolchain.md)
 - [Verification and the gate](docs/testing.md)
 - [R7RS-small conformance](docs/r7rs-conformance.md)
@@ -131,8 +134,8 @@ supported, and there is no cross-compilation path at this stage.
 - [R7RS-small reference](docs/reference/r7rs.html) and
   [SRFI 125 reference](docs/reference/srfi-125.html)
 
-Deliberate omissions (R7RS-large features, keyword arguments, record
-inheritance, and separate compilation) are listed in
+Deliberate omissions (R7RS-large features, record inheritance, and
+separate compilation) and the SRFI 88/89 keyword extensions are listed in
 the [conformance statement](docs/r7rs-conformance.md#deliberately-outside-the-language-stage).
 
 ## Testing
