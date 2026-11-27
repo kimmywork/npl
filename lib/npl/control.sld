@@ -36,13 +36,16 @@
                   (call/cc core-call/cc)
                   (call-with-current-continuation core-call/cc2)))
   (begin
+    (define-c-primitive (%default-prompt-tag) any
+      "npl_default_prompt_tag")
+
     (define-record-type prompt-tag-record
       (make-prompt-tag name)
       prompt-tag?
       (name prompt-tag-name))
 
     (define default-prompt-tag
-      (make-prompt-tag 'default))
+      (%default-prompt-tag))
 
     (define barrier-prompt-tag
       (make-prompt-tag 'continuation-barrier))
@@ -55,7 +58,9 @@
         (if (null? maybe-name) (if #f #f) (car maybe-name))))
 
     (define (continuation-prompt-tag? object)
-      (prompt-tag? object))
+      (if (prompt-tag? object)
+          #t
+          (eq? object default-prompt-tag)))
 
     (define-record-type abort-packet
       (make-abort-packet arguments)
@@ -104,20 +109,27 @@
       "npl_prompt_set_barrier")
     (define-c-primitive (%prompt-barrier? (prompt any)) any
       "npl_prompt_barrier_p")
-    (define-c-primitive (%graft (procedure any) (arguments any)) any
+    (define-c-primitive (%graft (procedure any) (arguments any)
+                                (prompt any) (target any)) any
       "npl_graft_make")
-
-    (define-record-type continuation-record
-      (make-continuation-record procedure kind origin tag prompts graft)
-      continuation-record?
-      (procedure continuation-record-procedure)
-      (kind continuation-record-kind)
-      (origin continuation-record-origin)
-      (tag continuation-record-tag)
-      (prompts continuation-record-prompts)
-      (graft continuation-record-graft))
-
-    (define continuations '())
+    (define-c-primitive (%continuation-make (procedure any) (kind any)
+                                            (origin any) (tag any)
+                                            (prompts any) (graft any)) any
+      "npl_continuation_make")
+    (define-c-primitive (%continuation? (value any)) any
+      "npl_continuation_p")
+    (define-c-primitive (%continuation-kind (value any)) any
+      "npl_continuation_kind")
+    (define-c-primitive (%continuation-origin (value any)) any
+      "npl_continuation_origin")
+    (define-c-primitive (%continuation-tag (value any)) any
+      "npl_continuation_tag")
+    (define-c-primitive (%continuation-prompts (value any)) any
+      "npl_continuation_prompts")
+    (define-c-primitive (%continuation-graft (value any)) any
+      "npl_continuation_graft")
+    (define-c-primitive (%prompt-root? (value any)) any
+      "npl_prompt_root_p")
 
     (define (raise-continuation-violation tag)
       (raise (make-continuation-violation tag)))
@@ -130,30 +142,15 @@
             (error "default prompt handler expected a thunk" thunk))))
 
     (define (register-continuation! procedure kind origin tag prompts graft)
-      (set! continuations
-            (cons (make-continuation-record procedure kind origin tag
-                                            prompts graft)
-                  continuations))
-      procedure)
-
-    (define (continuation-info object)
-      (let loop ((rest continuations))
-        (if (null? rest)
-            #f
-            (if (eq? (continuation-record-procedure (car rest)) object)
-                (car rest)
-                (loop (cdr rest))))))
+      (%continuation-make procedure kind origin tag prompts graft))
 
     (define (continuation? object)
-      (if (continuation-info object) #t #f))
+      (%continuation? object))
 
     (define (non-composable-continuation? object)
-      (let ((info (continuation-info object)))
-        (if (if info
-                (eq? (continuation-record-kind info) 'non-composable)
-                #f)
-            #t
-            #f)))
+      (if (%continuation? object)
+          (eq? (%continuation-kind object) 'non-composable)
+          #f))
 
     (define (list-memq object values)
       (cond
@@ -186,22 +183,35 @@
          #t)
         (else (barrier-crossed? (cdr captured) current))))
 
-    (define (check-barrier! info)
-      (if (barrier-crossed? (continuation-record-prompts info)
+    (define (check-barrier! continuation)
+      (if (barrier-crossed? (%continuation-prompts continuation)
                             (%prompt-list-current))
-          (raise-continuation-violation (continuation-record-tag info))
+          (raise-continuation-violation (%continuation-tag continuation))
           #f))
 
+    ;; The packet carries the return relation into the target dynamic
+    ;; environment.  The generated continuation installs the one-shot
+    ;; override after its wind transfer, so a non-local exit before the
+    ;; terminal cannot leave stale state in this thread's context.
     (define (make-continuation-graft continuation origin tag)
       (lambda (procedure arguments)
         (if origin
             (let ((cut (%prompt-find tag)))
               (if cut
-                  (begin
-                    (%prompt-install-override! origin (%prompt-escape cut))
-                    (continuation (%graft procedure arguments)))
+                  (continuation
+                    (%graft procedure arguments origin (%prompt-escape cut)))
                   (raise-continuation-violation tag)))
-            (continuation (%graft procedure arguments)))))
+            (continuation (%graft procedure arguments #f #f)))))
+
+    ;; A composable call-in keeps the captured prefix's normal terminal: the
+    ;; invocation's continuation is the composed result, so the prompt
+    ;; terminal returns to this activation.  Each invocation gets its own
+    ;; return-k; the captured continuation description is not mutated.
+    (define (make-composable-graft continuation origin)
+      (lambda (procedure arguments)
+        (core-call/cc
+          (lambda (return-k)
+            (continuation (%graft procedure arguments origin return-k))))))
 
     (define (prompt-finish prompt values)
       (let ((target (%prompt-take-return! prompt)))
@@ -254,7 +264,15 @@
     (define (abort-current-continuation tag . objects)
       (let ((prompt (%prompt-find tag)))
         (if prompt
-            ((%prompt-escape prompt) (make-abort-packet objects))
+            (if (%prompt-root? prompt)
+                ;; The root prompt is the initial continuation, so an abort
+                ;; to it runs the default handler and delivers its values to
+                ;; the root continuation instead of re-entering the abort.
+                (call-with-values
+                  (lambda () (apply (default-handler tag) objects))
+                  (lambda results
+                    (apply (%prompt-return prompt) results)))
+                ((%prompt-escape prompt) (make-abort-packet objects)))
             (raise-continuation-violation tag))))
 
     (define (call-with-composable-continuation proc . rest)
@@ -272,12 +290,15 @@
                                (lambda args
                                  (core-call/cc
                                    (lambda (return-k)
-                                     (%prompt-install-override! origin return-k)
-                                     (apply continuation args)))))
+                                     (continuation
+                                       (%graft '() args origin return-k))))))
                              (registered
                                (register-continuation! wrapped 'composable
-                                                       origin tag prompts #f)))
-                        (proc wrapped)))))))))
+                                                       origin tag prompts
+                                                       (make-composable-graft
+                                                         continuation
+                                                         origin))))
+                        (proc registered)))))))))
 
     (define (call-with-non-composable-continuation proc . rest)
       (let* ((tag (if (pair? rest) (car rest)
@@ -296,16 +317,16 @@
                                #f)
                            (let ((cut (%prompt-find tag)))
                              (if cut
-                                 (begin
-                                   (%prompt-install-override!
-                                     origin (%prompt-escape cut))
-                                   (apply continuation args))
+                                 (continuation
+                                   (%graft '() args origin
+                                           (%prompt-escape cut)))
                                  (raise-continuation-violation tag))))))
-                    (register-continuation! wrapped 'non-composable origin tag
-                                            prompts
-                                            (make-continuation-graft
-                                              continuation origin tag))
-                    (proc wrapped))))))))
+                    (let ((registered
+                           (register-continuation! wrapped 'non-composable
+                                                   origin tag prompts
+                                                   (make-continuation-graft
+                                                     continuation origin tag))))
+                      (proc registered)))))))))
 
     (define (call-with-current-continuation proc)
       (let ((prompts (%prompt-list-current)))
@@ -324,34 +345,31 @@
                                              default-prompt-tag prompts
                                              (make-continuation-graft
                                                continuation #f #f))))
-              (proc wrapped))))))
+              (proc registered))))))
 
     (define call/cc call-with-current-continuation)
 
     (define (call-in-continuation continuation procedure . objects)
-      (let ((info (continuation-info continuation)))
-        (if (not info)
-            (error "call-in-continuation: not a continuation"
-                   continuation))
-        (if (eq? (continuation-record-kind info) 'composable)
-            (error "call-in-continuation: composable continuation is not supported yet"
-                   continuation)
-            (begin
-              (check-barrier! info)
-              (let ((graft (continuation-record-graft info)))
-                (if graft
-                    (graft procedure objects)
-                    (error "call-in-continuation: no graft entry"
-                           continuation)))))))
+      (if (not (%continuation? continuation))
+          (error "call-in-continuation: not a continuation"
+                 continuation))
+      (if (not (procedure? procedure))
+          (error "call-in-continuation: expected a procedure" procedure)
+          (begin
+            (check-barrier! continuation)
+            (let ((graft (%continuation-graft continuation)))
+              (if graft
+                  (graft procedure objects)
+                  (error "call-in-continuation: no graft entry"
+                         continuation))))))
 
     (define (call-in continuation procedure . objects)
-      (let ((info (continuation-info continuation)))
-        (if (not info)
-            (error "call-in: not a continuation" continuation))
-        (if (eq? (continuation-record-kind info) 'composable)
-            (error "call-in: expected a non-composable continuation"
-                   continuation)
-            (apply call-in-continuation continuation procedure objects))))
+      (if (not (%continuation? continuation))
+          (error "call-in: not a continuation" continuation))
+      (if (eq? (%continuation-kind continuation) 'composable)
+          (error "call-in: expected a non-composable continuation"
+                 continuation)
+          (apply call-in-continuation continuation procedure objects)))
 
     (define (return-to continuation . objects)
       (apply call-in continuation values objects))
@@ -377,16 +395,19 @@
 
     (define (continuation-prompt-available? tag . maybe-continuation)
       (if (pair? maybe-continuation)
-          (let* ((info (continuation-info (car maybe-continuation)))
-                 (kind (if info (continuation-record-kind info) #f))
-                 (captured-tag (if info (continuation-record-tag info) #f))
-                 (stack (if info (continuation-record-prompts info)
-                            '())))
-            (cond
-              ((not info) #f)
-              ((if (eq? kind 'composable) (eq? tag captured-tag) #f) #f)
-              ((prompt-tag-in-list? tag stack) #t)
-              (else #f)))
+          (let ((continuation (car maybe-continuation)))
+            (if (not (%continuation? continuation))
+                #f
+                (let ((kind (%continuation-kind continuation))
+                      (captured-tag (%continuation-tag continuation))
+                      (stack (%continuation-prompts continuation)))
+                  (cond
+                    ((if (eq? kind 'composable)
+                         (eq? tag captured-tag)
+                         #f)
+                     #f)
+                    ((prompt-tag-in-list? tag stack) #t)
+                    (else #f)))))
           (if (%prompt-find tag) #t #f)))
 
     (define-syntax unwind-protect
@@ -437,4 +458,5 @@
                    prompt-tag
                    (lambda () expression ...))))
              prompt-tag))))))
+
 )

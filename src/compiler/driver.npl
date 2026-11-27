@@ -612,7 +612,12 @@ Options:
   (let ((runtime (if (string=? (driver-native-mode config) "static")
                      (cons (driver-runtime config) ())
                      ()))
-        (extra (if (npl_platform_feature "darwin") () (cons "-ldl" ()))))
+        ;; Native programs that evaluate libraries with define-c-primitive
+        ;; need the runtime symbols in the executable's dynamic symbol table
+        ;; on ELF; npli already links -rdynamic for the same reason.
+        (extra (if (npl_platform_feature "darwin")
+                   ()
+                   (cons "-ldl" (cons "-rdynamic" ())))))
     (let ((status
             (run-process
               (cons (driver-cc config)

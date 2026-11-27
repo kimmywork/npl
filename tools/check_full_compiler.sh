@@ -77,7 +77,7 @@ build_ssa "$ROOT/bootstrap/current.ssa" "$WORK/compiler"
 for name in cross-thread-terminal cross-thread-continuation \
             cross-thread-wind-parameters virtual-threads virtual-thread-edge \
             thread-timeouts review-fixes sync-nested-recovery atomic-threads \
-            control-virtual; do
+            control-virtual control-default-prompt; do
     emit "$WORK/compiler" "$ROOT/tests/unit/$name.npl" "$WORK/$name.ssa"
     build_ssa "$WORK/$name.ssa" "$WORK/$name"
     "$WORK/$name" > "$WORK/$name.out" 2>&1
@@ -207,7 +207,7 @@ NPL_C_STRUCT_LAYOUTS="$WORK/package-layouts.meta:$NATIVE/c-struct-layouts.meta" 
 run_suite srfi-19 "PASS srfi-19 52"
 run_suite thread "PASS thread 26"
 run_suite srfi-230 "PASS srfi-230 19"
-run_suite control "PASS control 33"
+run_suite control "PASS control 44"
 run_suite control-parameters "PASS control-parameters 10"
 run_suite srfi-170 "PASS srfi-170 132"
 run_suite platform "PASS platform 5"

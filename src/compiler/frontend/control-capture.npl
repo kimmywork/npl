@@ -29,33 +29,67 @@
         (cons (cons (control-symbol second-name) second-value) ()))
       (cons (cons body ()) ()))))
 
-; Graft in the captured continuation: after the wind transfer has reinstated
-; the target dynamic environment, call the procedure with the saved local
-; continuation as its successor.  A normal invocation delivers its values
-; through the same transfer path.
+; Control packet in the captured continuation: after the wind transfer has
+; reinstated the target dynamic environment, install the one-shot prompt
+; override (if any) and then either deliver the packet's values to the saved
+; successor or call its procedure with the successor as the continuation.
 (define (control-graft-branch continuation dynamic-context target-handler
                                graft-expression)
   (let ((procedure-name (control-fresh-name "_npl_graft_procedure_")))
     (let ((arguments-name (control-fresh-name "_npl_graft_arguments_")))
-      (let ((resume-name (control-fresh-name "_npl_graft_resume_")))
-        (control-let-two
-          procedure-name
-          (control-application "npl_graft_procedure"
-            (cons graft-expression ()))
-          arguments-name
-          (control-application "npl_graft_arguments"
-            (cons graft-expression ()))
-          (control-application "_npl_wind_transfer"
-            (cons dynamic-context
-              (cons target-handler
-                (cons
-                  (control-raw-continuation
-                    resume-name
-                    (control-application "_npl_apply"
-                      (cons continuation
-                        (cons (control-symbol procedure-name)
-                          (cons (control-symbol arguments-name) ())))))
-                  (cons () ()))))))))))
+      (let ((prompt-name (control-fresh-name "_npl_graft_prompt_")))
+        (let ((target-name (control-fresh-name "_npl_graft_target_")))
+          (let ((resume-name (control-fresh-name "_npl_graft_resume_")))
+            (control-let-two
+              procedure-name
+              (control-application "npl_graft_procedure"
+                (cons graft-expression ()))
+              arguments-name
+              (control-application "npl_graft_arguments"
+                (cons graft-expression ()))
+              (control-let-two
+                prompt-name
+                (control-application "npl_graft_prompt"
+                  (cons graft-expression ()))
+                target-name
+                (control-application "npl_graft_target"
+                  (cons graft-expression ()))
+                (control-application "_npl_wind_transfer"
+                  (cons dynamic-context
+                    (cons target-handler
+                      (cons
+                        (control-raw-continuation
+                          resume-name
+                          (cons 216
+                            (cons
+                              (cons 213
+                                (cons (control-symbol prompt-name)
+                                  (cons
+                                    (control-application
+                                      "npl_prompt_install_override"
+                                      (cons (control-symbol prompt-name)
+                                        (cons (control-symbol target-name) ())))
+                                    (cons (cons 109 ()) ()))))
+                              (cons
+                                (cons 213
+                                  (cons
+                                    (control-application "null?"
+                                      (cons (control-symbol procedure-name) ()))
+                                    (cons
+                                      (cons continuation
+                                        (cons
+                                          (control-application
+                                            "npl_list_to_values"
+                                            (cons (control-symbol arguments-name) ()))
+                                          ()))
+                                      (cons
+                                        (control-application "_npl_apply"
+                                          (cons continuation
+                                            (cons (control-symbol procedure-name)
+                                              (cons (control-symbol arguments-name) ()))))
+                                        ()))))
+                                ()))))
+                        (cons () ())))))))))))))
 
 (define (control-call-cc-name? head)
   (if (not (sym-atom? head))

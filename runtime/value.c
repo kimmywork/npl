@@ -741,8 +741,9 @@ NplVal npl_procedure_p(NplVal value)
 {
     if (!npl_is_ptr(value)) return npl_false();
     uint32_t tag = npl_header(value)->tag;
-    return tag == BOX_CLOSURE || tag == BOX_PARAMETER
-        ? npl_true() : npl_false();
+    return tag == BOX_CLOSURE || tag == BOX_PARAMETER ||
+                   tag == BOX_CONTINUATION
+               ? npl_true() : npl_false();
 }
 
 NplVal npl_symbol_predicate(NplVal value)

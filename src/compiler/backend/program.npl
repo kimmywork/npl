@@ -362,6 +362,7 @@
   (func-line "call $npl_runtime_init()")
   (func-line "call $npl_store_args(l %argc, l %argv)")
   (func-line "call $npl_global_inits()")
+  (func-line "call $npl_default_prompt_begin()")
   (let ((result (emit-body body ())))
     (func-line (string-append "ret " result)))
   (func-line "}"))

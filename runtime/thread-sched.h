@@ -96,6 +96,7 @@ typedef struct NplVirtualThread {
     NplVal initial_handler;
     NplVal prompts;
     NplVal prompt_overrides;
+    NplVal default_prompt;
     NplVal segment;
     uint64_t next_segment_id;
     uint64_t next_wind_id;

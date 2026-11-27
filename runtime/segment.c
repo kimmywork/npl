@@ -78,7 +78,8 @@ NplVal npl_segment_depth(NplVal value)
     return npl_fixnum((int64_t)depth);
 }
 
-NplVal npl_graft_make(NplVal procedure, NplVal arguments)
+NplVal npl_graft_make(NplVal procedure, NplVal arguments,
+                      NplVal prompt, NplVal target)
 {
     NplContinuationGraft *graft = (NplContinuationGraft *)
         npl_alloc_object(sizeof(NplContinuationGraft));
@@ -86,6 +87,8 @@ NplVal npl_graft_make(NplVal procedure, NplVal arguments)
     graft->header.flags = 0;
     graft->procedure = procedure;
     graft->arguments = arguments;
+    graft->prompt = prompt;
+    graft->target = target;
     return (NplVal)(uintptr_t)graft | TAG_PTR;
 }
 
@@ -113,4 +116,69 @@ NplVal npl_graft_procedure(NplVal value)
 NplVal npl_graft_arguments(NplVal value)
 {
     return require_graft(value, "graft-arguments")->arguments;
+}
+
+NplVal npl_graft_prompt(NplVal value)
+{
+    return require_graft(value, "graft-prompt")->prompt;
+}
+
+NplVal npl_graft_target(NplVal value)
+{
+    return require_graft(value, "graft-target")->target;
+}
+
+NplVal npl_continuation_make(NplVal procedure, NplVal kind, NplVal origin,
+                             NplVal tag, NplVal prompts, NplVal graft)
+{
+    NplContinuation *continuation = (NplContinuation *)
+        npl_alloc_object(sizeof(NplContinuation));
+    continuation->header.tag = BOX_CONTINUATION;
+    continuation->header.flags = 0;
+    continuation->procedure = procedure;
+    continuation->kind = kind;
+    continuation->origin = origin;
+    continuation->tag = tag;
+    continuation->prompts = prompts;
+    continuation->graft = graft;
+    return (NplVal)(uintptr_t)continuation | TAG_PTR;
+}
+
+static NplContinuation *require_continuation(NplVal value, const char *who)
+{
+    if (!npl_is_ptr(value) || npl_header(value)->tag != BOX_CONTINUATION)
+        npl_primitive_error(who, "not a continuation", value);
+    return (NplContinuation *)npl_header(value);
+}
+
+NplVal npl_continuation_p(NplVal value)
+{
+    return npl_is_ptr(value) && npl_header(value)->tag == BOX_CONTINUATION
+               ? npl_true()
+               : npl_false();
+}
+
+NplVal npl_continuation_kind(NplVal value)
+{
+    return require_continuation(value, "continuation-kind")->kind;
+}
+
+NplVal npl_continuation_origin(NplVal value)
+{
+    return require_continuation(value, "continuation-origin")->origin;
+}
+
+NplVal npl_continuation_tag(NplVal value)
+{
+    return require_continuation(value, "continuation-tag")->tag;
+}
+
+NplVal npl_continuation_prompts(NplVal value)
+{
+    return require_continuation(value, "continuation-prompts")->prompts;
+}
+
+NplVal npl_continuation_graft(NplVal value)
+{
+    return require_continuation(value, "continuation-graft")->graft;
 }

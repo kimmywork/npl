@@ -14,6 +14,7 @@
  */
 #include "npl.h"
 #include "thread.h"
+#include <stdlib.h>
 
 #define CTX npl_ctx()
 
@@ -37,7 +38,7 @@ NplVal npl_prompt_make(NplVal tag, NplVal handler)
     frame->parent = npl_nil();
     frame->origin = npl_nil();
     frame->barrier = 0;
-    frame->reserved = 0;
+    frame->root = 0;
     return (NplVal)(uintptr_t)frame | TAG_PTR;
 }
 
@@ -161,6 +162,23 @@ NplVal npl_prompt_barrier_p(NplVal value)
                : npl_false();
 }
 
+NplVal npl_prompt_root_p(NplVal value)
+{
+    return require_prompt(value, "prompt-root?")->root
+               ? npl_true()
+               : npl_false();
+}
+
+NplVal npl_prompt_override_total(void)
+{
+    int64_t count = 0;
+    for (NplVal rest = CTX->prompt_overrides;
+         npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PAIR;
+         rest = npl_cdr(rest))
+        count++;
+    return npl_fixnum(count);
+}
+
 NplVal npl_prompt_install_override(NplVal prompt, NplVal target)
 {
     (void)require_prompt(prompt, "prompt-install-override!");
@@ -189,4 +207,102 @@ NplVal npl_prompt_take_return(NplVal prompt)
         rest = next;
     }
     return npl_false();
+}
+
+/* ---- default prompt root (T4-A) ---- */
+
+static NplVal g_default_prompt_tag = 0;
+
+NplVal npl_default_prompt_tag(void)
+{
+    if (g_default_prompt_tag == 0) {
+        NplPromptTag *tag =
+            (NplPromptTag *)npl_alloc_object(sizeof(NplPromptTag));
+        tag->header.tag = BOX_PROMPT_TAG;
+        tag->header.flags = NPL_FLAG_LITERAL;
+        g_default_prompt_tag = (NplVal)(uintptr_t)tag | TAG_PTR;
+    }
+    return g_default_prompt_tag;
+}
+
+static NplVal default_root_return(NplVal environment, int64_t argc,
+                                  NplVal *argv)
+{
+    if (argc != 1 || !npl_is_ptr(environment) ||
+        npl_header(environment)->tag != BOX_PROMPT_FRAME) {
+        fprintf(stderr, "default prompt: invalid root return\n");
+        exit(1);
+    }
+    NplPromptFrame *prompt = (NplPromptFrame *)npl_header(environment);
+    NplVal target = npl_prompt_take_return(environment);
+    if (CTX->current_prompts == environment)
+        CTX->current_prompts = prompt->parent;
+    NplVal continuation = npl_is_false(target) ? prompt->return_ : target;
+    npl_tail_request_closure(continuation, 1, &argv[0]);
+    return npl_nil();
+}
+
+void npl_default_prompt_mark_roots(void)
+{
+    if (g_default_prompt_tag != 0)
+        npl_gc_mark_candidate_internal(g_default_prompt_tag);
+}
+
+NplVal npl_default_prompt_run(NplVal body, NplVal halt)
+{
+    NplVal prompt = npl_prompt_make(npl_default_prompt_tag(), npl_nil());
+    NplPromptFrame *frame = (NplPromptFrame *)npl_header(prompt);
+    frame->root = 1;
+    frame->escape = halt;
+    frame->return_ = halt;
+    npl_gc_write_barrier(frame, halt);
+    npl_prompt_push(prompt);
+    NplVal continuation = npl_make_closure(default_root_return, prompt, 1);
+    NplVal arguments[1] = { continuation };
+    return npl_apply(body, 1, arguments);
+}
+
+static NplVal program_root_exit(NplVal environment, int64_t argc,
+                                NplVal *argv)
+{
+    (void)environment;
+    (void)argc;
+    (void)argv;
+    return npl_fixnum(0);
+}
+
+NplVal npl_default_prompt_begin(void)
+{
+    if (!npl_is_nil(CTX->default_prompt)) return npl_unspecified();
+    NplVal prompt = npl_prompt_make(npl_default_prompt_tag(), npl_nil());
+    NplPromptFrame *frame = (NplPromptFrame *)npl_header(prompt);
+    frame->root = 1;
+    frame->escape = npl_make_closure(program_root_exit, npl_nil(), -1);
+    frame->return_ = frame->escape;
+    npl_prompt_push(prompt);
+    CTX->default_prompt = prompt;
+    return npl_unspecified();
+}
+
+NplVal npl_default_prompt_current(void)
+{
+    return CTX->default_prompt;
+}
+
+NplVal npl_default_prompt_finish_value(NplVal value)
+{
+    if (npl_is_nil(CTX->default_prompt)) return value;
+    NplVal target = npl_prompt_take_return(CTX->default_prompt);
+    if (npl_is_false(target)) return value;
+    NplVal argument = value;
+    return npl_apply(target, 1, &argument);
+}
+
+NplVal npl_default_prompt_finish(NplVal value)
+{
+    if (npl_is_nil(CTX->default_prompt)) return npl_fixnum(0);
+    NplVal target = npl_prompt_take_return(CTX->default_prompt);
+    if (npl_is_false(target)) return npl_fixnum(0);
+    NplVal argument = value;
+    return npl_apply(target, 1, &argument);
 }

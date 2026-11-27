@@ -51,6 +51,7 @@ void npl_control_mark_roots(void)
 {
     /* Every thread's active trampoline frames are roots; a collection on one
      * thread must keep another thread's in-flight arguments alive. */
+    npl_default_prompt_mark_roots();
     npl_thread_foreach(mark_context_tails, NULL);
 }
 
@@ -147,6 +148,9 @@ static void report_closure_arity(const char *who, const NplClosure *closure,
 
 void npl_tail_request_closure(NplVal value, int64_t argc, NplVal *argv)
 {
+    while (npl_is_ptr(value) &&
+           npl_header(value)->tag == BOX_CONTINUATION)
+        value = ((NplContinuation *)npl_header(value))->procedure;
     if (npl_is_ptr(value) &&
         npl_header(value)->tag == BOX_CONTINUATION_SEGMENT) {
         NplContinuationSegment *segment =
@@ -284,6 +288,9 @@ void npl_trampoline_release_abandoned(void)
 
 NplVal npl_apply(NplVal value, int64_t argc, NplVal *argv)
 {
+    while (npl_is_ptr(value) &&
+           npl_header(value)->tag == BOX_CONTINUATION)
+        value = ((NplContinuation *)npl_header(value))->procedure;
     if (npl_is_ptr(value) &&
         npl_header(value)->tag == BOX_CONTINUATION_SEGMENT) {
         NplContinuationSegment *segment =

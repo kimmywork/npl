@@ -154,6 +154,53 @@
                         continuation (lambda () (values 1 2))))))
                 prompt))
             list)))
+
+;; Cross the compiled/evaluated boundary in both directions.  The runtime
+;; continuation object is shared, so the host's predicates and call-in see
+;; the same continuation the evaluated library produced (and vice versa).
+(define interop-environment
+  (environment '(except (scheme base) call/cc call-with-current-continuation)
+               '(npl control)))
+(define interop-tag (make-continuation-prompt-tag 'interop))
+(define interop-box (vector #f))
+
+(report 'evaluated-capture
+        (call-with-continuation-prompt
+          (lambda ()
+            (let ((proc
+                   (eval
+                     '(lambda (box tag)
+                        (call-with-composable-continuation
+                          (lambda (k) (vector-set! box 0 k) 0)
+                          tag))
+                     interop-environment)))
+              (proc interop-box interop-tag)))
+          interop-tag))
+(report 'evaluated-capture-kind
+        (continuation? (vector-ref interop-box 0)))
+(report 'native-invokes-evaluated-capture
+        (call-with-continuation-prompt
+          (lambda ()
+            (call-in-continuation
+              (vector-ref interop-box 0) (lambda (x) x) 10))
+          interop-tag))
+
+(define interop-native-k #f)
+(report 'native-capture
+        (call-with-continuation-prompt
+          (lambda ()
+            (+ 1 (call-with-composable-continuation
+                   (lambda (k) (set! interop-native-k k) 0)
+                   interop-tag)))
+          interop-tag))
+(report 'evaluated-invokes-native-capture
+        ((eval
+           '(lambda (k tag)
+              (call-with-continuation-prompt
+                (lambda () (call-in-continuation k (lambda (x) x) 10))
+                tag))
+           interop-environment)
+         interop-native-k interop-tag))
 (report 'missing-prompt
         (guard (e ((continuation-violation? e)
                    (eq? (continuation-violation-prompt-tag e) tag)))

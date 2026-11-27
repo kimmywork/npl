@@ -107,19 +107,24 @@
 ; the backend emits it as main, whose result is the exit status.
 (define (control-entry)
   (let ((value-name (control-fresh-name "_npl_halt_value_")))
-    (cons 211
-      (cons
-        (cons (control-symbol CONTROL-ENTRY-NAME) ())
-        (cons
+    (let ((halt-body
+            (cons
+              (cons (control-symbol "npl_default_prompt_finish")
+                (cons (control-symbol value-name) ()))
+              ())))
+      (let ((halt
+              (cons 212
+                (cons (cons (control-symbol value-name) ())
+                  (cons halt-body ())))))
+        (cons 211
           (cons
-            (cons (control-symbol CONTROL-PROGRAM-TARGET)
+            (cons (control-symbol CONTROL-ENTRY-NAME) ())
+            (cons
               (cons
-                (cons 212
-                  (cons (cons (control-symbol value-name) ())
-                    (cons (cons 0 ()) ())))
-                ()))
-            ())
-          ())))))
+                (cons (control-symbol CONTROL-PROGRAM-TARGET)
+                  (cons halt ()))
+                ())
+              ())))))))
 
 (define (control-program forms)
   (cell-set! CONTROL-NEXT-NAME 0)

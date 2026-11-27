@@ -126,6 +126,7 @@ typedef struct NplThreadContext {
      * the current compiler-emitted continuation segment. */
     NplVal current_prompts;
     NplVal prompt_overrides;
+    NplVal default_prompt;
     NplVal current_segment;
     uint64_t next_segment_id;
     uint64_t next_wind_id;

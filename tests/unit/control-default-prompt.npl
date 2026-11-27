@@ -1,0 +1,62 @@
+; T4-A/B default prompt roots: program, native thread and virtual thread.
+; Native-only because it asserts scheduler/thread roots as well as the
+; compiled program entry.
+(import (except (scheme base) call/cc call-with-current-continuation)
+        (scheme write)
+        (scheme process-context)
+        (npl control)
+        (npl thread)
+        (npl thread virtual))
+
+(define failures 0)
+(define (check name expected actual)
+  (if (equal? expected actual)
+      (begin (display name) (display " PASS") (newline))
+      (begin (display name) (display " FAIL expected ")
+             (write expected) (display " got ") (write actual) (newline)
+             (set! failures (+ failures 1)))))
+
+(define default-tag (default-continuation-prompt-tag))
+
+(check 'default-tag #t (continuation-prompt-tag? default-tag))
+(check 'program-available #t (continuation-prompt-available? default-tag))
+(check 'program-composable #t
+       (continuation?
+         (call-with-composable-continuation (lambda (k) k))))
+(check 'program-non-composable #t
+       (non-composable-continuation?
+         (call-with-non-composable-continuation (lambda (k) k))))
+
+(define thread-capture
+  (make-thread
+    (lambda ()
+      (continuation?
+        (call-with-composable-continuation (lambda (k) k))))))
+(thread-start! thread-capture)
+(check 'thread-composable #t (thread-join! thread-capture))
+
+(define thread-abort
+  (make-thread
+    (lambda ()
+      (abort-current-continuation default-tag (lambda () 43)))))
+(thread-start! thread-abort)
+(check 'thread-default-abort 43 (thread-join! thread-abort))
+
+(define vt-capture
+  (make-virtual-thread
+    (lambda ()
+      (continuation?
+        (call-with-composable-continuation (lambda (k) k))))))
+(virtual-thread-start! vt-capture)
+(check 'virtual-thread-composable #t (virtual-thread-join! vt-capture))
+
+(define vt-abort
+  (make-virtual-thread
+    (lambda ()
+      (abort-current-continuation default-tag (lambda () 44)))))
+(virtual-thread-start! vt-abort)
+(check 'virtual-thread-default-abort 44 (virtual-thread-join! vt-abort))
+
+(if (= failures 0)
+    (begin (display "control-default-prompt: PASS") (newline) (exit 0))
+    (begin (display "control-default-prompt: FAIL") (newline) (exit 1)))

@@ -22,9 +22,12 @@ behavior).
   non-composable and composable continuations, continuation barriers,
   `call-in-continuation`/`call-in`/`return-to`, predicates, `unwind-protect`,
   `reset`/`shift`, ordinary parameterization snapshots, and `temporarily` are
-  implemented over compiler-emitted continuation segments and runtime prompt
-  frames; the composite `(srfi 226)` feature remains unadvertised. Composable
-  `call-in` and continuation marks remain future increments.
+  implemented over compiler-emitted continuation segments, shared runtime
+  continuation objects and runtime prompt frames. Default prompts delimit
+  omitted-tag captures at program, native-thread and virtual-thread roots;
+  full R7RS `call/cc` remains undelimited. The composite `(srfi 226)` feature
+  remains unadvertised. Continuation marks and the evaluator mark-frame
+  adapter remain future increments.
 - SRFI 1 lists as `(npl list)` / `(srfi 1)`.
 - SRFI 13 strings as `(npl string)` / `(srfi 13)`, with a shared string
   kernel; character-set criteria are not supported because NPL has no

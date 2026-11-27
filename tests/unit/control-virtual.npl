@@ -47,7 +47,11 @@
                  (call-with-continuation-prompt
                    (lambda ()
                      (call-in-continuation
-                       saved (lambda (x) (* x 10)) 4))
+                       saved
+                       (lambda (x)
+                         (virtual-thread-yield!)
+                         (* x 10))
+                       4))
                    call-in-tag)))
             (list index
                   composed

@@ -106,6 +106,12 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 /* T4-B graft packet: invoke a continuation's prefix by calling a procedure
  * instead of delivering the transferred values. */
 #define BOX_CONTINUATION_GRAFT 41
+/* T4-A user-visible continuation object.  Its metadata lives in the runtime,
+ * so continuations created by the compiled program and by an evaluated
+ * library instance are shareable and inspectable across that boundary. */
+#define BOX_CONTINUATION 42
+/* T4-A default prompt tag singleton (runtime-installed root prompt). */
+#define BOX_PROMPT_TAG 43
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -205,6 +211,7 @@ typedef struct {
     NplVal handler;
     NplVal parameters;
     NplVal prompts;
+    NplVal prompt_overrides;
     NplVal segment;
     NplVal source_initial_handler;
 } NplDynamicContext;
@@ -249,6 +256,7 @@ typedef struct {
     NplVal context;
     NplVal target_parameters;
     NplVal target_prompts;
+    NplVal target_prompt_overrides;
     NplVal target_segment;
     /* (src-binding . localized-copy) map for this transfer. A binding shared
      * by a destination chain and a wind frame must resolve to ONE node, so a
@@ -323,7 +331,7 @@ typedef struct {
      * the captured/current prompt chain to reject inward jumps. */
     NplVal origin;
     uint32_t barrier;
-    uint32_t reserved;
+    uint32_t root;
 } NplPromptFrame;
 
 /* Local CPS continuation plus persistent semantic frame.  closure is the
@@ -344,9 +352,33 @@ typedef struct {
  * with its saved successor as the continuation. */
 typedef struct {
     NplHeader header;
+    /* procedure == nil means "deliver arguments as values to the captured
+     * successor"; otherwise call procedure with arguments there. */
     NplVal procedure;
     NplVal arguments;
+    /* When prompt is non-nil, install an one-shot override after the wind
+     * transfer has reinstated the target dynamic environment. */
+    NplVal prompt;
+    NplVal target;
 } NplContinuationGraft;
+
+/* A callable continuation wrapper shared by every library instance.  The
+ * procedure field is the ordinary Scheme wrapper; graft is the call-in entry;
+ * prompts is the captured prompt prefix and kind is 'composable or
+ * 'non-composable. */
+typedef struct {
+    NplHeader header;
+} NplPromptTag;
+
+typedef struct {
+    NplHeader header;
+    NplVal procedure;
+    NplVal kind;
+    NplVal origin;
+    NplVal tag;
+    NplVal prompts;
+    NplVal graft;
+} NplContinuation;
 
 typedef struct {
     NplHeader header;
@@ -725,11 +757,21 @@ NplVal npl_prompt_current(void);
 NplVal npl_prompt_list_current(void);
 NplVal npl_prompt_list_from(NplVal origin);
 NplVal npl_prompt_install_override(NplVal prompt, NplVal target);
+/* Diagnostic/cleanup support: number of pending one-shot overrides. */
+NplVal npl_prompt_override_total(void);
 /* The most recent one-shot override for PROMPT, or #f after removing it. */
 NplVal npl_prompt_take_return(NplVal prompt);
 NplVal npl_prompt_origin(NplVal value);
 NplVal npl_prompt_set_barrier(NplVal value, NplVal flag);
 NplVal npl_prompt_barrier_p(NplVal value);
+NplVal npl_prompt_root_p(NplVal value);
+NplVal npl_default_prompt_tag(void);
+NplVal npl_default_prompt_run(NplVal body, NplVal halt);
+void npl_default_prompt_mark_roots(void);
+NplVal npl_default_prompt_begin(void);
+NplVal npl_default_prompt_finish(NplVal value);
+NplVal npl_default_prompt_finish_value(NplVal value);
+NplVal npl_default_prompt_current(void);
 /* T4-A continuation segments (segment.c). */
 NplVal npl_segment_make(NplVal closure);
 NplVal npl_segment_p(NplVal value);
@@ -737,10 +779,22 @@ NplVal npl_segment_current(void);
 NplVal npl_segment_parent(NplVal value);
 NplVal npl_segment_closure(NplVal value);
 NplVal npl_segment_depth(NplVal value);
-NplVal npl_graft_make(NplVal procedure, NplVal arguments);
+NplVal npl_graft_make(NplVal procedure, NplVal arguments,
+                      NplVal prompt, NplVal target);
 NplVal npl_graft_p(NplVal value);
 NplVal npl_graft_procedure(NplVal value);
 NplVal npl_graft_arguments(NplVal value);
+NplVal npl_graft_prompt(NplVal value);
+NplVal npl_graft_target(NplVal value);
+/* T4-A shared continuation objects (segment.c). */
+NplVal npl_continuation_make(NplVal procedure, NplVal kind, NplVal origin,
+                             NplVal tag, NplVal prompts, NplVal graft);
+NplVal npl_continuation_p(NplVal value);
+NplVal npl_continuation_kind(NplVal value);
+NplVal npl_continuation_origin(NplVal value);
+NplVal npl_continuation_tag(NplVal value);
+NplVal npl_continuation_prompts(NplVal value);
+NplVal npl_continuation_graft(NplVal value);
 NplVal npl_parameters_enter(NplVal parameters, NplVal values, NplVal frames);
 NplVal npl_parameters_leave(NplVal frames);
 NplVal npl_promise_op(int64_t argc, NplVal *argv);

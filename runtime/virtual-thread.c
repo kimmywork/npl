@@ -228,6 +228,7 @@ static void save_state(NplVirtualThread *vt)
     set_field(vt, &vt->initial_handler, CTX->initial_handler);
     set_field(vt, &vt->prompts, CTX->current_prompts);
     set_field(vt, &vt->prompt_overrides, CTX->prompt_overrides);
+    set_field(vt, &vt->default_prompt, CTX->default_prompt);
     set_field(vt, &vt->segment, CTX->current_segment);
     vt->next_segment_id = CTX->next_segment_id;
     vt->next_wind_id = CTX->next_wind_id;
@@ -252,6 +253,7 @@ static void restore_state(NplVirtualThread *vt)
     CTX->initial_handler = vt->initial_handler;
     CTX->current_prompts = vt->prompts;
     CTX->prompt_overrides = vt->prompt_overrides;
+    CTX->default_prompt = vt->default_prompt;
     CTX->current_segment = vt->segment;
     CTX->next_segment_id = vt->next_segment_id;
     CTX->next_wind_id = vt->next_wind_id;
@@ -267,6 +269,7 @@ static void clear_carrier_state(void)
     CTX->initial_handler = npl_nil();
     CTX->current_prompts = npl_nil();
     CTX->prompt_overrides = npl_nil();
+    CTX->default_prompt = npl_nil();
     CTX->current_segment = npl_nil();
     CTX->next_segment_id = 1;
     CTX->next_wind_id = 1;
@@ -351,6 +354,7 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
     vt->initial_handler = npl_nil();
     vt->prompts = npl_nil();
     vt->prompt_overrides = npl_nil();
+    vt->default_prompt = npl_nil();
     vt->segment = npl_nil();
     vt->next_segment_id = 1;
     vt->next_wind_id = 1;
@@ -427,8 +431,18 @@ int npl_vthread_migration_count(NplVal value)
 /* Capture the raw CPS continuation. The emitted control-transfer form does
  * `call $npl_vthread_park(l K)` followed by `ret 2` and no tail request, so
  * returning here ends the current trampoline. */
+static NplVal raw_continuation(NplVal continuation)
+{
+    while (npl_is_ptr(continuation) &&
+           npl_header(continuation)->tag == BOX_CONTINUATION_SEGMENT)
+        continuation = ((NplContinuationSegment *)
+                            npl_header(continuation))->closure;
+    return continuation;
+}
+
 void npl_vthread_park(NplVal continuation)
 {
+    continuation = raw_continuation(continuation);
     NplVirtualThread *vt = (NplVirtualThread *)CTX->logical_thread;
     if (!vt || vt->state != NPL_VTHREAD_RUNNING)
         npl_primitive_error("virtual-thread-yield!",
@@ -477,6 +491,7 @@ void npl_vthread_await(NplVal work, NplVal continuation)
     if (!tagged(work, BOX_CLOSURE))
         npl_primitive_error("virtual-thread-block!", "expected a procedure",
                             work);
+    continuation = raw_continuation(continuation);
     if (!tagged(continuation, BOX_CLOSURE))
         npl_primitive_error("virtual-thread-block!",
                             "invalid scheduler continuation", continuation);
@@ -721,6 +736,26 @@ static void *helper_entry(void *argument)
 
 /* ---- the carrier loop ---- */
 
+static NplVal vthread_root_return(NplVal environment, int64_t argc,
+                                  NplVal *argv)
+{
+    NplVal result = argc > 1 ? argv[0] : npl_nil();
+    npl_tail_request_closure(environment, 1, &result);
+    return npl_nil();
+}
+
+static NplVal vthread_root_finish(NplVal environment, int64_t argc,
+                                  NplVal *argv)
+{
+    if (argc != 1) {
+        fprintf(stderr, "virtual thread: invalid root result\n");
+        exit(1);
+    }
+    NplVal result = npl_default_prompt_finish_value(argv[0]);
+    npl_tail_request_closure(environment, 1, &result);
+    return npl_nil();
+}
+
 static void mount_new(NplVirtualThread *vt)
 {
     clear_carrier_state();
@@ -730,6 +765,12 @@ static void mount_new(NplVirtualThread *vt)
     CTX->current_parameters = npl_clone_parameter_bindings(vt->parameters);
     NplVal handler = npl_make_closure(vthread_uncaught, boxed(vt), 2);
     CTX->initial_handler = npl_handler_push_initial(handler);
+    npl_default_prompt_begin();
+    NplVal prompt = npl_default_prompt_current();
+    NplVal root_return =
+        npl_make_closure(vthread_root_return, vt->root, -1);
+    npl_prompt_set_escape(prompt, root_return);
+    npl_prompt_set_return(prompt, root_return);
     save_state(vt);
 }
 
@@ -775,7 +816,7 @@ static void *carrier_entry(void *argument)
         NplVal argv[1];
         if (first) {
             mount_new(vt);
-            argv[0] = vt->root;
+            argv[0] = npl_make_closure(vthread_root_finish, vt->root, 1);
             (void)npl_apply(vt->thunk, 1, argv);
         } else {
             NplVal token = vt->continuation;

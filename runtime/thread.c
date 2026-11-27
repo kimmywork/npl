@@ -60,6 +60,7 @@ static void init_context(NplThreadContext *context, uintptr_t stack_bottom)
     context->initial_handler = npl_nil();
     context->current_prompts = npl_nil();
     context->prompt_overrides = npl_nil();
+    context->default_prompt = npl_nil();
     context->current_segment = npl_nil();
     context->current_thread_object = npl_nil();
     context->cleanup = NULL;
@@ -89,6 +90,7 @@ static NplThreadContext *attach_context(uintptr_t stack_bottom)
     npl_gc_root(&context->initial_handler);
     npl_gc_root(&context->current_prompts);
     npl_gc_root(&context->prompt_overrides);
+    npl_gc_root(&context->default_prompt);
     npl_gc_root(&context->current_segment);
     npl_gc_root(&context->current_thread_object);
 
@@ -172,6 +174,7 @@ void npl_thread_detach(void)
     context->initial_handler = npl_nil();
     context->current_prompts = npl_nil();
     context->prompt_overrides = npl_nil();
+    context->default_prompt = npl_nil();
     context->current_segment = npl_nil();
     /* A detached foreign thread must not leave scratch buffers behind. */
     npl_cleanup_release_all();
