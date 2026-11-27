@@ -686,6 +686,25 @@ extern uintptr_t npl_opaque_zero;
  * single-copy atomic, preserving the one-load common poll path. */
 extern uintptr_t npl_gc_stop_requested;
 
+#if defined(_WIN32)
+void npl_win_register_slots(uintptr_t *gc_stop_ptr,
+                            uintptr_t (*get_stack_limit)(void),
+                            void (*set_stack_limit)(uintptr_t));
+#endif
+
+#if defined(_WIN32) && defined(NPL_RUNTIME_SHARED_DLL)
+uintptr_t npl_win_get_stack_limit(void);
+void npl_win_set_stack_limit(uintptr_t value);
+uintptr_t *npl_win_gc_stop_ptr(void);
+#define NPL_STACK_LIMIT_GET() npl_win_get_stack_limit()
+#define NPL_STACK_LIMIT_SET(v) npl_win_set_stack_limit((v))
+#define NPL_GC_STOP_PTR() npl_win_gc_stop_ptr()
+#else
+#define NPL_STACK_LIMIT_GET() (npl_stack_limit)
+#define NPL_STACK_LIMIT_SET(v) (npl_stack_limit = (v))
+#define NPL_GC_STOP_PTR() (&npl_gc_stop_requested)
+#endif
+
 /* Garbage collection */
 void npl_gc_collect(void);
 void npl_gc_maybe_collect(void);

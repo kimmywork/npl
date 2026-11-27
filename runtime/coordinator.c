@@ -50,7 +50,7 @@ static int g_cancel_pending = 0;
 
 static void refresh_stop_flag(void)
 {
-    __atomic_store_n(&npl_gc_stop_requested,
+    __atomic_store_n(NPL_GC_STOP_PTR(),
                      (g_stop_requested || g_cancel_pending > 0) ? 1 : 0,
                      __ATOMIC_RELAXED);
 }
@@ -151,7 +151,7 @@ void npl_safepoint_poll(void)
          * No coordinator lock is held here. */
         npl_safepoint_cancelled();
     }
-    if (!__atomic_load_n(&npl_gc_stop_requested, __ATOMIC_RELAXED))
+    if (!__atomic_load_n(NPL_GC_STOP_PTR(), __ATOMIC_RELAXED))
         return;
 
     /* marker lives in this frame, which stays live across the condvar wait,
@@ -224,8 +224,10 @@ static void mark_one_stack(NplThreadContext *context, void *data)
     (void)data;
     if (!context->attached || !context->parked || !context->snapshot_valid)
         return;
-    npl_gc_mark_words_internal(context->saved_stack_pointer,
-                               context->stack_bottom);
+    uintptr_t stack_end = context->stack_bottom;
+    if (context->stack_high && stack_end > context->stack_high)
+        stack_end = context->stack_high;
+    npl_gc_mark_words_internal(context->saved_stack_pointer, stack_end);
     uintptr_t begin = (uintptr_t)(void *)&context->registers;
     npl_gc_mark_words_internal(begin, begin + sizeof(context->registers));
 }

@@ -20,7 +20,11 @@
 #include "npl.h"
 #include "thread.h"
 #include <stdlib.h>
+#ifdef _WIN32
+#include "os-win32.h"
+#else
 #include <sys/resource.h>
+#endif
 
 #define CTX npl_ctx()
 
@@ -51,11 +55,18 @@
 /* base is an address near the top (oldest end) of the stack. */
 void npl_stack_init_internal(uintptr_t base)
 {
+#ifdef _WIN32
+    uintptr_t low = 0, high = 0;
+    npl_win32_stack_bounds(&low, &high);
+    uintptr_t size = (high > low) ? (high - low) : NPL_STACK_FALLBACK_BYTES;
+    if (high > base) base = high;
+#else
     struct rlimit limit;
     uintptr_t size = NPL_STACK_FALLBACK_BYTES;
     if (getrlimit(RLIMIT_STACK, &limit) == 0 &&
         limit.rlim_cur != RLIM_INFINITY && limit.rlim_cur > 0)
         size = (uintptr_t)limit.rlim_cur;
+#endif
     if (size > NPL_STACK_MAX_BYTES) size = NPL_STACK_MAX_BYTES;
     uintptr_t usable = size - size / 4;
     CTX->window_bytes = usable < NPL_DIRECT_STACK_BYTES ? usable
@@ -65,8 +76,8 @@ void npl_stack_init_internal(uintptr_t base)
      * replaces this with the platform's exact stack query at registration. */
     CTX->stack_high = base;
     CTX->stack_low = base > size ? base - size : 0;
-    npl_stack_limit = base > CTX->window_bytes
-                          ? base - CTX->window_bytes : 0;
+    NPL_STACK_LIMIT_SET(base > CTX->window_bytes
+                            ? base - CTX->window_bytes : 0);
 }
 
 /* A direct entry below the limit: run the CPS entry on a nested trampoline,
@@ -82,12 +93,12 @@ NplVal npl_direct_fallback(NplGenericFunction function, NplVal environment,
 {
     uintptr_t marker = 0;
     uintptr_t here = (uintptr_t)(void *)&marker;
-    uintptr_t saved = npl_stack_limit;
+    uintptr_t saved = NPL_STACK_LIMIT_GET();
     uintptr_t window = here > CTX->window_bytes
                            ? here - CTX->window_bytes : 0;
-    npl_stack_limit = window > CTX->stack_floor ? window : CTX->stack_floor;
+    NPL_STACK_LIMIT_SET(window > CTX->stack_floor ? window : CTX->stack_floor);
     NplVal result = npl_call_sync(function, environment, argc, argv);
-    npl_stack_limit = saved;
+    NPL_STACK_LIMIT_SET(saved);
     return result;
 }
 

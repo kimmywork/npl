@@ -13,6 +13,10 @@
 #include "thread.h"
 #include <pthread.h>
 #include <stdio.h>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 #include <unistd.h>
 
 static int failures = 0;
@@ -51,10 +55,16 @@ static void *reader(void *argument)
 
 int main(void)
 {
+#ifndef _WIN32
     alarm(60);
+#endif
     npl_runtime_init();
     int fds[2];
+#ifdef _WIN32
+    if (_pipe(fds, 4096, _O_BINARY) != 0) {
+#else
     if (pipe(fds) != 0) {
+#endif
         fprintf(stderr, "FAIL: pipe\n");
         return 1;
     }

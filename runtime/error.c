@@ -142,7 +142,16 @@ static const char *posix_error_name(int code)
         CASE(EACCES); CASE(EEXIST); CASE(EINVAL); CASE(EISDIR);
         CASE(ENOENT); CASE(ENOTDIR); CASE(ENOTEMPTY); CASE(EPERM);
         CASE(ENOSPC); CASE(EROFS); CASE(EMFILE); CASE(ENFILE);
-        CASE(ELOOP); CASE(ENAMETOOLONG); CASE(ENOTSUP); CASE(EBADF);
+#ifdef ELOOP
+        CASE(ELOOP);
+#endif
+#ifdef ENAMETOOLONG
+        CASE(ENAMETOOLONG);
+#endif
+#ifdef ENOTSUP
+        CASE(ENOTSUP);
+#endif
+        CASE(EBADF);
         CASE(EAGAIN); CASE(EINTR); CASE(ENOMEM); CASE(EXDEV);
         CASE(ESRCH); CASE(ECHILD); CASE(ENOSYS);
 #undef CASE

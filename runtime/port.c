@@ -5,7 +5,6 @@
  * split. */
 
 #include "port.h"
-#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

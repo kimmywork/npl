@@ -106,8 +106,14 @@ static NplVal ffi_alloc_block(size_t size, size_t alignment)
 {
     void *memory = NULL;
     size_t actual = size == 0 ? 1 : size;
+#ifdef _WIN32
+    memory = _aligned_malloc(actual, alignment);
+    if (!memory)
+        npl_runtime_oom_internal();
+#else
     if (posix_memalign(&memory, alignment, actual) != 0)
         npl_runtime_oom_internal();
+#endif
     memset(memory, 0, actual);
     {
         NplVal value = npl_pointer(memory);
@@ -147,7 +153,11 @@ NplVal npl_ffi_foreign_free(NplVal value)
         NplFfiBlock *block = ffi_block(pointer);
         if (block) block->live = 0;
     }
+#ifdef _WIN32
+    _aligned_free(pointer->base);
+#else
     free(pointer->base);
+#endif
     pointer->address = NULL;
     pointer->base = NULL;
     pointer->size = 0;

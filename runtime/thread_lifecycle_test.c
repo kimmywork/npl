@@ -56,7 +56,9 @@ static NplVal make_started(NplGenericFunction function, NplVal *thread_out)
 int main(void)
 {
     /* Watchdog: if a wait never completes, do not hang the acceptance gate. */
+#ifndef _WIN32
     alarm(30);
+#endif
     npl_runtime_init();
 
     /* Normal join result. */

@@ -13,7 +13,11 @@
 #define _GNU_SOURCE
 
 #include "port.h"
+#ifdef _WIN32
+#include "os-win32.h"
+#else
 #include <dlfcn.h>
+#endif
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -338,12 +342,20 @@ NplVal npl_ffi_load_library(NplVal path_value)
 {
     char *path = npl_c_string_internal(
         npl_require_bytes_internal(path_value, "ffi-load-library"));
+#ifdef _WIN32
+    char message[256];
+    int ok = npl_win32_dlopen(path, message, sizeof(message));
+    free(path);
+    if (ok) return npl_true();
+    return npl_string(message, (uint32_t)strlen(message));
+#else
     void *handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
     free(path);
     if (handle) return npl_true();
     const char *message = dlerror();
     if (!message) message = "cannot load library";
     return npl_string(message, (uint32_t)strlen(message));
+#endif
 }
 
 typedef NplVal (*FfiFunction0)(void);
@@ -415,7 +427,11 @@ NplVal npl_ffi_procedure(NplVal symbol_value, NplVal count_value)
                             count_value);
     char *symbol = npl_c_string_internal(
         npl_require_bytes_internal(symbol_value, "ffi-procedure"));
+#ifdef _WIN32
+    void *address = npl_win32_dlsym_default(symbol);
+#else
     void *address = dlsym(RTLD_DEFAULT, symbol);
+#endif
     free(symbol);
     if (!address) return npl_false();
     NplVal environment = npl_fixnum((int64_t)(uintptr_t)address);

@@ -122,28 +122,61 @@ fixarg(Ref *r, int k, Ins *i, Fn *fn)
 	}
 	else if (op != Ocall && hascon(r0, &c, fn)
 	&& c->type == CAddr && ((c->sym.type & SExt)
-	 || (T.apple && c->sym.type == SThr))) {
+	 || ((T.apple || T.windows) && c->sym.type == SThr))) {
+		Con c0 = *c;
 		r1 = newtmp("isel", Kl, fn);
-		if (c->bits.i) {
+		if (c0.bits.i) {
 			r2 = newtmp("isel", Kl, fn);
 			cc = (Con){.type = CBits};
-			cc.bits.i = c->bits.i;
+			cc.bits.i = c0.bits.i;
 			r3 = newcon(&cc, fn);
 			emit(Oadd, Kl, r1, r2, r3);
 		} else
 			r2 = r1;
-		if (T.apple && (c->sym.type & SThr)) {
-			emit(Ocopy, Kl, r2, TMP(RAX), R);
-			r2 = newtmp("isel", Kl, fn);
-			r3 = newtmp("isel", Kl, fn);
-			emit(Ocall, 0, R, r3, CALL(17));
-			emit(Ocopy, Kl, TMP(RDI), r2, R);
-			emit(Oload, Kl, r3, r2, R);
+		if (T.windows && (c0.sym.type & SThr)) {
+			Ref rblk = newtmp("isel", Kl, fn);
+			Ref rgs = newtmp("isel", Kl, fn);
+			Ref ridx = newtmp("isel", Kl, fn);
+			memset(&a, 0, sizeof a);
+			a.offset = c0;
+			a.offset.bits.i = 0;
+			a.offset.sym.type = SThr;
+			a.base = rblk;
+			vgrow(&fn->mem, ++fn->nmem);
+			fn->mem[fn->nmem-1] = a;
+			emit(Oaddr, Kl, r2, MEM(fn->nmem-1), R);
+			memset(&a, 0, sizeof a);
+			a.offset.type = CUndef;
+			a.base = rgs;
+			a.index = ridx;
+			a.scale = 8;
+			vgrow(&fn->mem, ++fn->nmem);
+			fn->mem[fn->nmem-1] = a;
+			emit(Oload, Kl, rblk, MEM(fn->nmem-1), R);
+			cc = (Con){.type = CAddr};
+			cc.sym.type = SGlo;
+			cc.sym.id = intern("_tls_index");
+			r3 = newcon(&cc, fn);
+			emit(Oloaduw, Kl, ridx, r3, R);
+			cc = (Con){.type = CAddr};
+			cc.sym.type = SThr;
+			cc.sym.id = intern("");
+			r3 = newcon(&cc, fn);
+			emit(Oaddr, Kl, rgs, r3, R);
+		} else {
+			if (T.apple && (c0.sym.type & SThr)) {
+				emit(Ocopy, Kl, r2, TMP(RAX), R);
+				r2 = newtmp("isel", Kl, fn);
+				r3 = newtmp("isel", Kl, fn);
+				emit(Ocall, 0, R, r3, CALL(17));
+				emit(Ocopy, Kl, TMP(RDI), r2, R);
+				emit(Oload, Kl, r3, r2, R);
+			}
+			cc = c0;
+			cc.bits.i = 0;
+			r3 = newcon(&cc, fn);
+			emit(Oaddr, Kl, r2, r3, R);
 		}
-		cc = *c;
-		cc.bits.i = 0;
-		r3 = newcon(&cc, fn);
-		emit(Oaddr, Kl, r2, r3, R);
 		if (rtype(r0) == RMem) {
 			m = &fn->mem[r0.val];
 			m->offset.type = CUndef;

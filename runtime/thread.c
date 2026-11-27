@@ -15,6 +15,9 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "thread.h"
+#ifdef _WIN32
+#include "os-win32.h"
+#endif
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,6 +53,11 @@ static void init_context(NplThreadContext *context, uintptr_t stack_bottom)
     context->native_handle = (uintptr_t)pthread_self();
     context->id = __sync_fetch_and_add(&g_next_thread_id, 1);
     context->attached = 1;
+#ifdef _WIN32
+    npl_win32_stack_bounds(&context->stack_low, &context->stack_high);
+    if (context->stack_high && stack_bottom > context->stack_high)
+        stack_bottom = context->stack_high;
+#endif
     context->stack_bottom = stack_bottom;
     /* Dynamic chains start empty; each thread owns its own bindings. */
     context->current_wind = npl_nil();

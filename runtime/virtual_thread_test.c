@@ -172,7 +172,9 @@ int main(int argc, char **argv)
 {
     int carriers = (argc > 1) ? atoi(argv[1]) : 1;
     if (carriers < 1) carriers = 1;
+#ifndef _WIN32
     alarm(120);
+#endif
     npl_runtime_init();
 
     npl_gc_root(&g_param);
