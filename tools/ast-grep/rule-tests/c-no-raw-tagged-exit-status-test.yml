@@ -1,0 +1,14 @@
+id: c-no-raw-tagged-exit-status
+valid:
+  - |
+    void npl_exit(NplVal code) {
+        int status = 1;
+        if (code == npl_true()) status = 0;
+        else if (npl_is_fixnum(code)) status = (int)(npl_fixnum_value(code) & 255);
+        _Exit(status);
+    }
+invalid:
+  - |
+    void npl_exit(NplVal code) {
+        _Exit((int)code);
+    }

@@ -29,6 +29,7 @@ npl_escape() {
         '        (scheme process-context)' \
         '        (scheme file)' \
         '        (npl process)' \
+        '        (only (npl util) path-directory)' \
         '        (scheme repl)' \
         '        (scheme internal evaluator)' \
         '        (npl internal repl-io)' \

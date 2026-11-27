@@ -20,7 +20,7 @@
       right
       (cons (car left) (append-forms (cdr left) right))))
 
-(define (path-separator? byte)
+(define (path-separator-byte? byte)
   (if (= byte 47)
       #t
       (if (= byte 92) (npl_platform_feature "windows") #f)))
@@ -28,7 +28,7 @@
 (define (path-dir-at path index)
   (if (< index 0)
       ""
-      (if (path-separator? (string-byte-ref path index))
+      (if (path-separator-byte? (string-byte-ref path index))
           (substring path 0 (+ index 1))
           (path-dir-at path (- index 1)))))
 
@@ -39,12 +39,12 @@
   (let ((len (string-length path)))
     (if (= len 0)
         #f
-        (if (path-separator? (string-byte-ref path 0))
+        (if (path-separator-byte? (string-byte-ref path 0))
             #t
             (if (npl_platform_feature "windows")
                 (if (>= len 3)
                     (if (= (string-byte-ref path 1) 58)
-                        (path-separator? (string-byte-ref path 2))
+                        (path-separator-byte? (string-byte-ref path 2))
                         #f)
                     #f)
                 #f)))))

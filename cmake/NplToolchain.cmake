@@ -102,6 +102,7 @@ if(WIN32)
     "        (scheme process-context)\n"
     "        (scheme file)\n"
     "        (npl process)\n"
+    "        (only (npl util) path-directory)\n"
     "        (scheme repl)\n"
     "        (scheme internal evaluator)\n"
     "        (npl internal repl-io)\n"

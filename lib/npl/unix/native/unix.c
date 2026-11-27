@@ -99,7 +99,7 @@ NplVal npl_unix_posix_error_p(NplVal value)
 NplVal npl_unix_posix_error_name(NplVal value)
 {
     NplVector *record;
-    if (!npl_unix_posix_error_p(value)) return npl_false();
+    if (npl_is_false(npl_unix_posix_error_p(value))) return npl_false();
     record = (NplVector *)npl_header(value);
     if (npl_is_nil(record->data[3]) || !npl_is_ptr(record->data[3]))
         return npl_false();
@@ -109,7 +109,7 @@ NplVal npl_unix_posix_error_name(NplVal value)
 NplVal npl_unix_posix_error_message(NplVal value)
 {
     NplVector *record;
-    if (!npl_unix_posix_error_p(value)) return npl_false();
+    if (npl_is_false(npl_unix_posix_error_p(value))) return npl_false();
     record = (NplVector *)npl_header(value);
     return record->data[2];
 }

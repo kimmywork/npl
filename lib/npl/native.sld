@@ -18,7 +18,7 @@
           (scheme file)
           (scheme process-context)
           (only (npl string) string-suffix?)
-          (only (npl util) path-directory)
+          (only (npl util) path-directory path-join path-separator?)
           (npl platform)
           (npl process)
           (npl ffi))
@@ -29,10 +29,6 @@
                   (string-suffix? ".dll" path)))
           (file-exists? path)
           #f))
-
-    (define (path-separator? ch)
-      (or (char=? ch #\/)
-          (and (platform-feature? 'windows) (char=? ch #\\))))
 
     (define (explicit-native-path? name)
       (if (string-suffix? ".dylib" name) #t
@@ -55,14 +51,7 @@
                 (string-append name ".so"))))
 
     (define (native-files-in directory name)
-      (map (lambda (file)
-             (if (if (string=? directory "")
-                     #t
-                     (path-separator?
-                       (string-ref directory
-                                   (- (string-length directory) 1))))
-                 (string-append directory file)
-                 (string-append directory "/" file)))
+      (map (lambda (file) (path-join directory file))
            (native-file-names name)))
 
     (define (split-colon text)

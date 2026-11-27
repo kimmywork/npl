@@ -1,0 +1,30 @@
+id: c-no-ftell-without-dir-check
+language: c
+severity: error
+message: "Reject directories with S_ISDIR() before calling ftell() on an opened stream."
+note: >-
+  On Linux, fopen() succeeds on directories and fseek(..., SEEK_END) + ftell()
+  reports LONG_MAX, triggering an OOM abort (historical Linux CI fix in ce2ff42).
+files:
+  - runtime/**/*.c
+  - lib/**/*.c
+ignores:
+  - runtime/*_test.c
+  - runtime/*_stress.c
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    regex: ^ftell$
+  inside:
+    kind: function_definition
+    stopBy: end
+    not:
+      has:
+        kind: call_expression
+        stopBy: end
+        has:
+          field: function
+          kind: identifier
+          regex: ^S_ISDIR$

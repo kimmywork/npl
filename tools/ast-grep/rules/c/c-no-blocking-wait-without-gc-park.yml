@@ -1,0 +1,45 @@
+id: c-no-blocking-wait-without-gc-park
+language: c
+severity: error
+message: "Park or exclude the thread from STW GC before blocking in pthread or Win32 waits."
+note: >-
+  Unwrapped blocking waits (pthread_join, pthread_cond_wait, pthread_cond_timedwait,
+  WaitForMultipleObjects, WaitForSingleObject(..., INFINITE)) have no safepoint poll
+  and deadlock stop-the-world GC (historical PR #8 fix in bf6d497). Wrap them with
+  npl_gc_block_begin()/end() or npl_gc_exclude()/include().
+files:
+  - runtime/**/*.c
+ignores:
+  - runtime/coordinator.c
+  - runtime/*_test.c
+  - runtime/*_stress.c
+rule:
+  any:
+    - kind: call_expression
+      has:
+        field: function
+        kind: identifier
+        regex: ^(pthread_join|pthread_cond_wait|pthread_cond_timedwait|WaitForMultipleObjects)$
+    - kind: call_expression
+      all:
+        - has:
+            field: function
+            kind: identifier
+            regex: ^WaitForSingleObject$
+        - has:
+            field: arguments
+            has:
+              kind: identifier
+              regex: ^INFINITE$
+              stopBy: end
+  inside:
+    kind: function_definition
+    stopBy: end
+    not:
+      has:
+        kind: call_expression
+        stopBy: end
+        has:
+          field: function
+          kind: identifier
+          regex: ^(npl_gc_block_begin|npl_gc_exclude)$

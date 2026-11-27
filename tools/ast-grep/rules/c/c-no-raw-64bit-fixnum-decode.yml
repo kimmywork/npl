@@ -1,0 +1,28 @@
+id: c-no-raw-64bit-fixnum-decode
+language: c
+severity: error
+message: "Decode 64-bit/OS-width integers with npl_ffi_to_int64()/npl_ffi_to_uint64(), not npl_fixnum_value()."
+note: >-
+  OS-width integers (time_t, off_t, ino_t, dev_t, blkcnt_t, rlim_t, size_t,
+  ssize_t, int64_t, uint64_t) can exceed NPL's 62-bit fixnum range and arrive as
+  bignums (historical 0.1.3 review fix R24 in 63912b8).
+files:
+  - lib/**/*.c
+rule:
+  kind: cast_expression
+  all:
+    - has:
+        field: type
+        has:
+          any:
+            - kind: type_identifier
+            - kind: primitive_type
+          regex: ^(time_t|off_t|ino_t|dev_t|blkcnt_t|rlim_t|uint64_t|int64_t|size_t|ssize_t)$
+          stopBy: end
+    - has:
+        field: value
+        kind: call_expression
+        has:
+          field: function
+          kind: identifier
+          regex: ^npl_fixnum_value$

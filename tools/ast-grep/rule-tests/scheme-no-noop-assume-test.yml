@@ -1,0 +1,8 @@
+id: scheme-no-noop-assume
+valid:
+  - |
+    (define (assume expression . message)
+      (if expression #t (error "assumption failed")))
+invalid:
+  - |
+    (define (assume . args) #t)

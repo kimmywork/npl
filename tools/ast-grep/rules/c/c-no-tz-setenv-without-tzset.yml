@@ -1,0 +1,30 @@
+id: c-no-tz-setenv-without-tzset
+language: c
+severity: error
+message: "Call tzset() after modifying TZ via setenv()/unsetenv()."
+note: >-
+  libc caches the TZ database until tzset() is called, causing SRFI 19 time
+  conversions to miss timezone changes (historical Linux CI fix in ce2ff42).
+files:
+  - runtime/**/*.c
+  - lib/**/*.c
+ignores:
+  - runtime/*_test.c
+  - runtime/*_stress.c
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    regex: ^(setenv|unsetenv)$
+  inside:
+    kind: function_definition
+    stopBy: end
+    not:
+      has:
+        kind: call_expression
+        stopBy: end
+        has:
+          field: function
+          kind: identifier
+          regex: ^tzset$

@@ -1,0 +1,31 @@
+id: c-no-raw-tagged-exit-status
+language: c
+severity: error
+message: "Decode NplVal exit code (#t -> 0, #f -> 1, fixnum -> low byte) instead of passing raw NplVal to _Exit()/exit()."
+note: >-
+  Passing a raw tagged NplVal directly to _Exit()/exit() makes (exit #t) return 1
+  and (exit #f) return 3 (historical R7RS 6.14 fix in 5611b1f).
+files:
+  - runtime/**/*.c
+rule:
+  kind: call_expression
+  all:
+    - has:
+        field: function
+        kind: identifier
+        regex: ^(exit|_Exit)$
+    - has:
+        field: arguments
+        has:
+          kind: identifier
+          regex: ^code$
+          stopBy: end
+  inside:
+    kind: function_definition
+    stopBy: end
+    has:
+      field: declarator
+      has:
+        kind: identifier
+        regex: ^npl_exit$
+        stopBy: end
