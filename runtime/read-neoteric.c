@@ -1,12 +1,28 @@
 #include "read-internal.h"
 
-/* Cyclic operators cannot be compared structurally forever; fall back to
- * treating excessively deep comparisons as unequal ($nfx$). */
-#define CURLY_EQUAL_MAX_DEPTH 1024
-
-static int curly_equal_depth(NplVal left, NplVal right, int depth)
+/* Structural comparison with pair/vector identity tracking, so distinct
+ * cyclic operators compare like the compiler reader instead of looping. */
+static int curly_seen_pair(NplVal left, NplVal right, NplVal seen)
 {
-    if (depth > CURLY_EQUAL_MAX_DEPTH) return 0;
+    while (!npl_is_nil(seen)) {
+        NplVal entry = npl_car(seen);
+        if (npl_car(entry) == left && npl_cdr(entry) == right) return 1;
+        seen = npl_cdr(seen);
+    }
+    return 0;
+}
+
+static NplVal curly_seen_push(NplVal left, NplVal right, NplVal seen)
+{
+    NplVal entry = npl_cons(left, right);
+    npl_gc_root(&entry);
+    NplVal next = npl_cons(entry, seen);
+    npl_gc_unroot(&entry);
+    return next;
+}
+
+static int curly_equal_seen(NplVal left, NplVal right, NplVal seen)
+{
     if (left == right) return 1;
     if (!npl_is_ptr(left) || !npl_is_ptr(right))
         return npl_eqv(left, right) == npl_true();
@@ -14,17 +30,32 @@ static int curly_equal_depth(NplVal left, NplVal right, int depth)
     NplHeader *b = npl_header(right);
     if (a->tag != b->tag) return 0;
     switch (a->tag) {
-    case BOX_PAIR:
-        return curly_equal_depth(npl_car(left), npl_car(right), depth + 1) &&
-               curly_equal_depth(npl_cdr(left), npl_cdr(right), depth + 1);
+    case BOX_PAIR: {
+        if (curly_seen_pair(left, right, seen)) return 1;
+        NplVal next = curly_seen_push(left, right, seen);
+        npl_gc_root(&next);
+        int result =
+            curly_equal_seen(npl_car(left), npl_car(right), next) &&
+            curly_equal_seen(npl_cdr(left), npl_cdr(right), next);
+        npl_gc_unroot(&next);
+        return result;
+    }
     case BOX_VECTOR: {
         NplVector *va = (NplVector *)a;
         NplVector *vb = (NplVector *)b;
         if (va->length != vb->length) return 0;
-        for (uint32_t i = 0; i < va->length; i++)
-            if (!curly_equal_depth(va->data[i], vb->data[i], depth + 1))
-                return 0;
-        return 1;
+        if (curly_seen_pair(left, right, seen)) return 1;
+        NplVal next = curly_seen_push(left, right, seen);
+        npl_gc_root(&next);
+        int result = 1;
+        for (uint32_t i = 0; i < va->length; i++) {
+            if (!curly_equal_seen(va->data[i], vb->data[i], next)) {
+                result = 0;
+                break;
+            }
+        }
+        npl_gc_unroot(&next);
+        return result;
     }
     case BOX_STRING:
     case BOX_SYMBOL:
@@ -38,7 +69,11 @@ static int curly_equal_depth(NplVal left, NplVal right, int depth)
 
 static int curly_equal(NplVal left, NplVal right)
 {
-    return curly_equal_depth(left, right, 0);
+    NplVal seen = npl_nil();
+    npl_gc_root(&seen);
+    int result = curly_equal_seen(left, right, seen);
+    npl_gc_unroot(&seen);
+    return result;
 }
 
 static NplVal neoteric_suffix(NplDatumReader *reader, NplVal value);

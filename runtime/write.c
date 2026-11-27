@@ -472,7 +472,10 @@ static void print_datum(NplPrinter *printer, NplVal value)
             break;
         case BOX_KEYWORD:
             output_text(port, "#:");
-            output_string(port, (const NplString *)header);
+            if (printer->write)
+                write_symbol(port, (const NplString *)header);
+            else
+                output_string(port, (const NplString *)header);
             break;
         case BOX_FLOAT:
         case BOX_BIGNUM:

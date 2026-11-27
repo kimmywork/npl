@@ -119,7 +119,7 @@
          (lex-loop s (+ i 2) (cons (token 12 ()) acc))
          (lex-loop s (+ i 1) (cons (token 11 ()) acc))))
     ((lex-cls? (string-byte-ref s i) 6) (push-number s i acc))
-    ((= (string-byte-ref s i) 124) (lex-bar-symbol s (+ i 1) () acc))
+    ((= (string-byte-ref s i) 124) (lex-bar-symbol s (+ i 1) () acc 19))
     ((sym-or-neg s i)
      (if (lex-cls? (string-byte-ref s i) 7)
          (push-symbol s i acc)
@@ -259,9 +259,17 @@
     ((40) (lex-loop s (+ j 1) (cons (token 14 ()) acc)))
     ((117) (lex-bytevector-open s j acc))
     ((58)
-     (let ((end (sym-run-end s (+ j 1))))
-       (if (= end (+ j 1)) (fatal "keyword name is empty"))
-       (lex-loop s end (cons (token 23 (substring s (+ j 1) end)) acc))))
+     (if (if (< (+ j 1) (string-length s))
+             (= (string-byte-ref s (+ j 1)) 124)
+             #f)
+         (lex-bar-symbol s (+ j 2) () acc 23)
+         (let ((end (sym-run-end s (+ j 1))))
+           (if (= end (+ j 1)) (fatal "keyword name is empty"))
+           (let ((name (substring s (+ j 1) end)))
+             (let ((name (if (cell-get LEX-FOLD-CASE)
+                             (npl_string_full_case name 2)
+                             name)))
+               (lex-loop s end (cons (token 23 name) acc)))))))
     ((33) (cell-set! LEX-PENDING-SPACE #t)
      (lex-hash-directive s (+ j 1) acc))
     (else
@@ -454,13 +462,13 @@
 
 ;; |...| symbols (R7RS 2.1): characters up to the closing bar, with the
 ;; string escapes \x..; \| \\ \n \t \r \a \b.
-(define (lex-bar-symbol s j out acc)
+(define (lex-bar-symbol s j out acc kind)
   (if (not (< j (string-length s))) (fatal "unterminated |symbol|"))
   (let ((code (string-byte-ref s j)))
     (cond
       ; token 19: a |...| symbol, which is never the dot of a pair
       ((= code 124)
-       (lex-loop s (+ j 1) (cons (token 19 (concat-pieces out)) acc)))
+       (lex-loop s (+ j 1) (cons (token kind (concat-pieces out)) acc)))
       ((= code 92)
        (if (not (< (+ j 1) (string-length s))) (fatal "unterminated |symbol|"))
        (let ((escaped (string-byte-ref s (+ j 1))))
@@ -470,7 +478,7 @@
                (lex-bar-symbol s (+ end 1)
                  (cons (int->string (scalar-value (hex-value s (+ j 2) end 0)))
                        out)
-                 acc))
+                 acc kind))
              (lex-bar-symbol s (+ j 2)
                (cons
                  (int->string
@@ -479,9 +487,9 @@
                      ((124 92 34) escaped)
                      (else (fatal "unknown escape in |symbol|"))))
                  out)
-               acc))))
+               acc kind))))
       (else
-       (lex-bar-symbol s (+ j 1) (cons (int->string code) out) acc)))))
+       (lex-bar-symbol s (+ j 1) (cons (int->string code) out) acc kind)))))
 
 (define (lex-string s j out acc)
   (if (not (< j (string-length s))) (fatal "unterminated string literal"))

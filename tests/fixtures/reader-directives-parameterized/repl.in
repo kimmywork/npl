@@ -10,4 +10,5 @@
 (write {1 + 2 + 3}) (newline)
 (write '{1 + 2 . 3}) (newline)
 (write 'read(. options)) (newline)
+(write '{a () b () c}) (newline)
 (exit)

@@ -243,6 +243,22 @@ static void read_bar_symbol_part(NplDatumReader *reader, NplReadBuffer *buffer)
     }
 }
 
+static NplVal keyword_from_bytes(NplDatumReader *reader, const char *data,
+                                  uint32_t length)
+{
+    NplVal text = npl_string_from_utf8((const uint8_t *)data, length,
+                                       BOX_STRING);
+    npl_gc_root(&text);
+    NplVal folded = reader->fold_case
+        ? npl_string_full_case(text, npl_fixnum(2))
+        : text;
+    npl_gc_root(&folded);
+    NplVal keyword = npl_string_to_keyword(folded);
+    npl_gc_unroot(&folded);
+    npl_gc_unroot(&text);
+    return keyword;
+}
+
 NplVal npl_read_token_datum(NplDatumReader *reader, int first)
 {
     NplReadBuffer *buffer = npl_read_buffer_new();
@@ -283,8 +299,8 @@ NplVal npl_read_token_datum(NplDatumReader *reader, int first)
     /* SRFI 88 trailing-colon keywords are opt-in; #:foo is always on. */
     if (reader->keyword_colon && buffer->length > 2 &&
         buffer->data[buffer->length - 2] == ':') {
-        NplVal keyword = npl_keyword(
-            buffer->data, (uint32_t)(buffer->length - 2));
+        NplVal keyword = keyword_from_bytes(
+            reader, buffer->data, (uint32_t)(buffer->length - 2));
         npl_read_buffer_finish(buffer);
         return keyword;
     }
@@ -629,11 +645,17 @@ static NplVal read_label_after_digits(NplDatumReader *reader, int64_t label,
 static NplVal read_hash_keyword_datum(NplDatumReader *reader)
 {
     NplReadBuffer *buffer = npl_read_buffer_new();
-    while (!npl_datum_delimiter(npl_reader_peek(reader)))
-        npl_read_buffer_push(buffer, npl_reader_get(reader));
-    if (buffer->length == 0)
-        read_buffer_error(buffer, "keyword name is empty");
-    NplVal keyword = npl_keyword(buffer->data, (uint32_t)buffer->length);
+    if (npl_reader_peek(reader) == '|') {
+        (void)npl_reader_get(reader);
+        read_bar_symbol_part(reader, buffer);
+    } else {
+        while (!npl_datum_delimiter(npl_reader_peek(reader)))
+            npl_read_buffer_push(buffer, npl_reader_get(reader));
+        if (buffer->length == 0)
+            read_buffer_error(buffer, "keyword name is empty");
+    }
+    NplVal keyword = keyword_from_bytes(
+        reader, buffer->data, (uint32_t)buffer->length);
     npl_read_buffer_finish(buffer);
     return keyword;
 }

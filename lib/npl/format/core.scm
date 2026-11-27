@@ -230,7 +230,7 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
                (error "FORMAT: too few arguments" ))
          )
 
-         (define (format-help format-strg arglist)
+         (define (format-help format-strg arglist initial-was-newline)
 
           (letrec (
              (length-of-format-string (string-length format-strg))
@@ -266,7 +266,7 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
                 (cond
                  ((>= pos length-of-format-string)
                   (write-char #\~ port) ; tilde at end of string is just output
-                  (cons arglist last-was-newline)
+                  (cons arglist #f)
                   )
                  (else
                   (case (char-upcase (string-ref format-strg pos))
@@ -406,7 +406,9 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
                         (format #f "FORMAT: ~~? requires a string: ~s" (car arglist)))
                        )
                       (else
-                       (let ((nested (format-help (car arglist) (cadr arglist))))
+                       (let ((nested (format-help
+                                       (car arglist) (cadr arglist)
+                                       last-was-newline)))
                          (anychar-dispatch (+ pos 1) (cddr arglist)
                                            (cdr nested)))
                      )))
@@ -422,11 +424,11 @@ OPTION  [MNEMONIC]      DESCRIPTION     -- Implementation Assumes ASCII Text Enc
              ) ; end letrec
 
              ; format-help main
-             (anychar-dispatch 0 arglist #f)
+             (anychar-dispatch 0 arglist initial-was-newline)
             )) ; end format-help
 
         ; format main
-        (let ( (result (format-help format-string args)) )
+        (let ( (result (format-help format-string args #f)) )
           (let ( (unused-args (car result)) )
           (if (not (null? unused-args))
               (error

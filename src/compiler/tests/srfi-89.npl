@@ -42,6 +42,9 @@
     (+ y z))
   (+ (helper x) (helper x 2)))
 
+(define (raise-default)
+  (error "default evaluated"))
+
 (define (main)
   (test-equal "guile optional defaults"
               (lambda () (equal? (f 10) '(10 1 2 3 4)))
@@ -124,6 +127,45 @@
   (test-equal "internal define* is prebound"
               (lambda () (inner-star 10))
               23)
+  (test-equal "provided optional skips default"
+              (lambda () ((lambda* ((x (raise-default))) x) 42))
+              42)
+  (test-equal "provided keyword skips default"
+              (lambda ()
+                ((lambda* (#:key (x (raise-default))) x) #:x 7))
+              7)
+  (test-equal "missing optional evaluates default once"
+              (lambda ()
+                (equal?
+                  (let ((count 0))
+                    (let ((value
+                            ((lambda* ((x (begin
+                                            (set! count (+ count 1))
+                                            count)))
+                               x))))
+                      (list value count)))
+                  '(1 1)))
+              #t)
+  (test-equal "outer car does not capture generated plumbing"
+              (lambda ()
+                (let ((car (lambda (x) #f)))
+                  ((lambda* (x) x) 42)))
+              42)
+  (test-equal "outer vector-ref does not capture generated plumbing"
+              (lambda ()
+                (let ((vector-ref (lambda (x y) #f)))
+                  ((lambda* (x) x) 42)))
+              42)
+  (test-equal "outer error does not capture generated plumbing"
+              (lambda ()
+                (let ((error (lambda args 0)))
+                  ((lambda* (x) x) 42)))
+              42)
+  (test-equal "outer if does not capture generated plumbing"
+              (lambda ()
+                (let ((if (lambda args 0)))
+                  ((lambda* (x) x) 42)))
+              42)
   (test-equal "lambda*"
               (lambda ()
                 (equal? ((lambda* (a (b 2) (c: c 3))

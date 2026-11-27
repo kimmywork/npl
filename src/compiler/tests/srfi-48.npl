@@ -53,5 +53,17 @@
   (test-equal "freshline after nested format"
               (lambda () (format "~?~&" "x\n" '()))
               "x\n")
+  (test-equal "nested format starts at current newline state"
+              (lambda () (format "~%~?" "~&" '()))
+              "\n")
+  (test-equal "empty nested format keeps newline state"
+              (lambda () (format "~%~?~&" "" '()))
+              "\n")
+  (test-equal "trailing tilde is not a newline"
+              (lambda () (format "~?~&" "~%~" '()))
+              "\n~\n")
+  (test-equal "~K nested newline state"
+              (lambda () (format "~K~&" "~%" '()))
+              "\n")
   (finish-tests "srfi-48"))
 (main)

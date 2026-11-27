@@ -9,6 +9,12 @@
 
 (include "framework.npl")
 
+(define (keyword-roundtrip name)
+  (let ((port (open-output-string)))
+    (write (string->keyword name) port)
+    (keyword->string
+      (read (open-input-string (get-output-string port))))))
+
 (define (main)
   (test-identity "keyword predicate" (lambda () (keyword? 'foo:)) #t)
   (test-identity "keyword is not a symbol" (lambda () (symbol? 'foo:)) #f)
@@ -33,5 +39,25 @@
                (guard (condition (#t #t))
                  (read (open-input-string "#!no-srfi-88 1"))
                  #f))
+  (test-equal "keyword roundtrip spaces"
+              (lambda ()
+                (keyword-roundtrip "a b"))
+              "a b")
+  (test-equal "keyword roundtrip empty"
+              (lambda () (keyword-roundtrip ""))
+              "")
+  (test-equal "keyword roundtrip delimiters and escapes"
+              (lambda () (keyword-roundtrip "a|b\\c(d)"))
+              "a|b\\c(d)")
+  (test-assert "fold-case folds keyword names"
+               (let ((port (open-input-string
+                             "#!fold-case #!colon-keyword\nFoo:")))
+                 (string=? (keyword->string (read port)) "foo")))
+  (test-equal "barred keyword literal"
+              (lambda () (keyword->string #:|a b|))
+              "a b")
+  (test-equal "empty barred keyword literal"
+              (lambda () (keyword->string #:||))
+              "")
   (finish-tests "srfi-88"))
 (main)

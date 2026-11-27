@@ -3,3 +3,4 @@
 6
 ($nfx$ 1 + 2 . 3)
 (read . options)
+(() a b c)

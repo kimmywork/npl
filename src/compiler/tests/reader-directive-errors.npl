@@ -45,5 +45,10 @@
                (let ((port (open-input-string
                              "#!(curly-infix neoteric)\n{.foo(1)}")))
                  (equal? (read port) '(.foo 1))))
+  (test-assert "distinct cyclic operators are structurally equal"
+               (let ((result
+                       (read (open-input-string
+                               "{0 #1=(x . #1#) 1 #2=(x . #2#) 2}"))))
+                 (eq? (car (car result)) 'x)))
   (finish-tests "reader-directive-errors"))
 (main)

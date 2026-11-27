@@ -1,4 +1,5 @@
 #!fold-case
+#!colon-keyword
 (import (scheme base) (scheme write))
 
 (define folded-name 7)
@@ -6,6 +7,8 @@
 
 (write FOLDED-NAME) (newline)
 (write (char=? FOLDED-SPACE #\space)) (newline)
+(write (eq? 'Foo: 'foo:)) (newline)
+(write (eq? #:Foo #:foo)) (newline)
 
 #!no-fold-case
 (define Mixed 8)
@@ -14,3 +17,5 @@
 (write Mixed) (newline)
 (write mixed) (newline)
 (write (eq? 'Mixed 'mixed)) (newline)
+(write (eq? 'Foo: 'foo:)) (newline)
+(write (eq? #:Foo #:foo)) (newline)
