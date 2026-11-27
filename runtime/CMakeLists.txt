@@ -42,6 +42,7 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c
   ${RUNTIME_SRC_DIR}/virtual-thread.c
+  ${RUNTIME_SRC_DIR}/virtual-thread-root.c
   ${RUNTIME_SRC_DIR}/write.c
 )
 
@@ -103,6 +104,7 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/unicode.c
   ${RUNTIME_SRC_DIR}/value.c
   ${RUNTIME_SRC_DIR}/virtual-thread.c
+  ${RUNTIME_SRC_DIR}/virtual-thread-root.c
   ${RUNTIME_SRC_DIR}/write.c
 )
 target_include_directories(npl_runtime_shared_objects PUBLIC ${RUNTIME_SRC_DIR})

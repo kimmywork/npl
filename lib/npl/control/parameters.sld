@@ -30,8 +30,9 @@
     (define (parameterization? object)
       (%parameterization? object))
 
-    ;; The snapshot owns a clone of the binding chain.  Install another clone
-    ;; so mutations inside the thunk never leak back into the snapshot.
+    ;; A snapshot shares its binding chain; new bindings created through it
+    ;; extend the snapshot's own head, while an enclosing extent keeps the
+    ;; cells it already shares (the D0 shared-cell limitation).
     (define (call-with-parameterization parameterization thunk)
       (let ((saved (%parameterization-enter parameterization)))
         (dynamic-wind

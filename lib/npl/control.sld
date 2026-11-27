@@ -10,9 +10,11 @@
 ;; A prompt frame records its origin segment and a barrier flag in the shared
 ;; runtime dynamic context.  Capture stores the prompt prefix; barriers are
 ;; enforced by frame identity, and a graft packet implements
-;; call-in-continuation/call-in/return-to.  Composable call-in still needs a
-;; terminal splice, so it is not supported yet.  See docs/control.md and
-;; .agents/design/threads.md for the remaining T4-A/C boundary.
+;; call-in-continuation/call-in/return-to.  A composable invocation splices
+;; the captured prefix's delimiter into the invoking prompt chain and keeps
+;; its own one-shot return relation, so multi-shot activations are
+;; independent.  See docs/control.md and .agents/design/threads.md for the
+;; remaining T4-C boundary.
 (define-library (npl control)
   (export &continuation
           make-continuation-violation continuation-violation?
@@ -99,6 +101,9 @@
     (define-c-primitive (%prompt-list-current) any "npl_prompt_list_current")
     (define-c-primitive (%prompt-list-from (origin any)) any
       "npl_prompt_list_from")
+    (define-c-primitive (%prompt-current) any "npl_prompt_current")
+    (define-c-primitive (%prompt-install-splice (origin any) (tail any)) any
+      "npl_prompt_install_splice")
     (define-c-primitive (%prompt-install-override! (prompt any) (target any))
       any "npl_prompt_install_override")
     (define-c-primitive (%prompt-take-return! (prompt any)) any
@@ -110,7 +115,7 @@
     (define-c-primitive (%prompt-barrier? (prompt any)) any
       "npl_prompt_barrier_p")
     (define-c-primitive (%graft (procedure any) (arguments any)
-                                (prompt any) (target any)) any
+                                (prompt any) (target any) (splice any)) any
       "npl_graft_make")
     (define-c-primitive (%continuation-make (procedure any) (kind any)
                                             (origin any) (tag any)
@@ -130,6 +135,10 @@
       "npl_continuation_graft")
     (define-c-primitive (%prompt-root? (value any)) any
       "npl_prompt_root_p")
+    (define-c-primitive (%prompt-root-kind (value any)) any
+      "npl_prompt_root_kind")
+    (define-c-primitive (%root-abort (prompt any) (handler any)) any
+      "npl_prompt_root_abort")
 
     (define (raise-continuation-violation tag)
       (raise (make-continuation-violation tag)))
@@ -199,9 +208,12 @@
             (let ((cut (%prompt-find tag)))
               (if cut
                   (continuation
-                    (%graft procedure arguments origin (%prompt-escape cut)))
+                    (%graft procedure arguments origin
+                            (%prompt-escape cut) #f))
                   (raise-continuation-violation tag)))
-            (continuation (%graft procedure arguments #f #f)))))
+            ;; A non-composable continuation has no invoking prompt suffix to
+            ;; compose with the captured prefix.
+            (continuation (%graft procedure arguments #f #f #f)))))
 
     ;; A composable call-in keeps the captured prefix's normal terminal: the
     ;; invocation's continuation is the composed result, so the prompt
@@ -211,7 +223,13 @@
       (lambda (procedure arguments)
         (core-call/cc
           (lambda (return-k)
-            (continuation (%graft procedure arguments origin return-k))))))
+            ;; The invoking prompt chain is the outer half of the composed
+            ;; continuation.  The runtime installs it after the captured
+            ;; environment transfer, so availability and aborts see the
+            ;; caller's prompts (SRFI 226 delimited, not captured, prompt).
+            (continuation
+              (%graft procedure arguments origin return-k
+                      (%prompt-current)))))))
 
     (define (prompt-finish prompt values)
       (let ((target (%prompt-take-return! prompt)))
@@ -265,13 +283,19 @@
       (let ((prompt (%prompt-find tag)))
         (if prompt
             (if (%prompt-root? prompt)
-                ;; The root prompt is the initial continuation, so an abort
-                ;; to it runs the default handler and delivers its values to
-                ;; the root continuation instead of re-entering the abort.
-                (call-with-values
-                  (lambda () (apply (default-handler tag) objects))
-                  (lambda results
-                    (apply (%prompt-return prompt) results)))
+                (if (= (%prompt-root-kind prompt) 0)
+                    ;; A legacy seed installed only the plain runtime root.
+                    ;; It has no landing pad for a nested trampoline, so keep
+                    ;; the old best-effort path; current generated entries use
+                    ;; npl_program_run and the transfer-based branch below.
+                    (call-with-values
+                      (lambda () (apply (default-handler tag) objects))
+                      (lambda results
+                        (apply (%prompt-return prompt) results)))
+                    ;; T4-B0: transfer to the captured root environment first,
+                    ;; then run the handler there.  The root finisher unwinds
+                    ;; to the program/thread/virtual-thread landing pad.
+                    ((%root-abort prompt (default-handler tag)) objects))
                 ((%prompt-escape prompt) (make-abort-packet objects)))
             (raise-continuation-violation tag))))
 
@@ -291,7 +315,8 @@
                                  (core-call/cc
                                    (lambda (return-k)
                                      (continuation
-                                       (%graft '() args origin return-k))))))
+                                       (%graft '() args origin return-k
+                                               (%prompt-current)))))))
                              (registered
                                (register-continuation! wrapped 'composable
                                                        origin tag prompts
@@ -319,7 +344,7 @@
                              (if cut
                                  (continuation
                                    (%graft '() args origin
-                                           (%prompt-escape cut)))
+                                           (%prompt-escape cut) #f))
                                  (raise-continuation-violation tag))))))
                     (let ((registered
                            (register-continuation! wrapped 'non-composable

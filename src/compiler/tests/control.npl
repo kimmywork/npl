@@ -575,6 +575,57 @@
                    (caught
                      (lambda ()
                        (call-in-continuation saved values 1))))))
+  (test-assert "composable call-in keeps the invoking prompt chain"
+               (let ((tag (make-continuation-prompt-tag))
+                     (saved #f))
+                 (call-with-continuation-prompt
+                   (lambda ()
+                     (call-with-composable-continuation
+                       (lambda (continuation)
+                         (set! saved continuation)
+                         0))
+                     (continuation-prompt-available? tag))
+                   (default-continuation-prompt-tag))
+                 (eq? #t
+                      (call-with-continuation-prompt
+                        (lambda () (saved 0))
+                        tag))))
+  (test-assert "composable abort reaches the invoking prompt handler"
+               (let ((origin (make-continuation-prompt-tag))
+                     (caller (make-continuation-prompt-tag))
+                     (saved #f)
+                     (first #t))
+                 (call-with-continuation-prompt
+                   (lambda ()
+                     (call-with-composable-continuation
+                       (lambda (continuation)
+                         (set! saved continuation)
+                         0)
+                       origin)
+                     (if first
+                         (begin (set! first #f) 'initial)
+                         (abort-current-continuation
+                           caller (lambda () 'prefix-abort))))
+                   origin)
+                 (eq? 'caller
+                      (call-with-continuation-prompt
+                        (lambda () (saved 0))
+                        caller
+                        (lambda objects 'caller)))))
+  (test-assert "wind after thunk sees its own prompt environment"
+               (let ((tag (make-continuation-prompt-tag))
+                     (available #t))
+                 (call/cc
+                   (lambda (out)
+                     (dynamic-wind
+                       (lambda () #f)
+                       (lambda ()
+                         (call-with-continuation-prompt
+                           (lambda () (out 'done)) tag))
+                       (lambda ()
+                         (set! available
+                               (continuation-prompt-available? tag))))))
+                 (not available)))
   (finish-tests "control"))
 
 (main)

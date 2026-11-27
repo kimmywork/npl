@@ -114,6 +114,13 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_CONTINUATION 43
 /* T4-A default prompt tag singleton (runtime-installed root prompt). */
 #define BOX_PROMPT_TAG 44
+/* T4-B0 pending root-abort activation: prompt, default handler and objects. */
+#define BOX_ROOT_ABORT 45
+/* Root completion protocol selected by npl_default_prompt_set_root. */
+#define NPL_PROMPT_ROOT_NONE 0
+#define NPL_PROMPT_ROOT_PROGRAM 1
+#define NPL_PROMPT_ROOT_NATIVE 2
+#define NPL_PROMPT_ROOT_VIRTUAL 3
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -199,6 +206,13 @@ typedef struct {
      * dynamic-wind; it is the key into the per-thread extent mapping. */
     NplVal handler;
     NplVal parameters;
+    /* T4-B0: the prompt chain and semantic segment of this extent.  A wind
+     * transfer reinstalls them before each before/after thunk, so a thunk
+     * that captures or aborts observes the extent's own prompt environment. */
+    NplVal prompts;
+    NplVal prompt_splices;
+    NplVal parameterization;
+    NplVal segment;
     NplVal extent_key;
     uint64_t id;
 } NplWindFrame;
@@ -214,6 +228,10 @@ typedef struct {
     NplVal parameters;
     NplVal prompts;
     NplVal prompt_overrides;
+    /* T4-B0: activation-local composable prompt splices and the installed
+     * parameterization snapshot.  Both are part of the dynamic environment. */
+    NplVal prompt_splices;
+    NplVal parameterization;
     NplVal segment;
     NplVal source_initial_handler;
 } NplDynamicContext;
@@ -259,6 +277,8 @@ typedef struct {
     NplVal target_parameters;
     NplVal target_prompts;
     NplVal target_prompt_overrides;
+    NplVal target_prompt_splices;
+    NplVal target_parameterization;
     NplVal target_segment;
     /* (src-binding . localized-copy) map for this transfer. A binding shared
      * by a destination chain and a wind frame must resolve to ONE node, so a
@@ -314,6 +334,9 @@ typedef struct {
 typedef struct {
     NplHeader header;
     NplVal bindings;
+    /* Snapshot of the enclosing installed parameterization, restored when a
+     * call-with-parameterization extent exits. */
+    NplVal previous;
 } NplParameterization;
 
 /* A prompt segment/frame.  The frame chain is part of the runtime dynamic
@@ -332,8 +355,15 @@ typedef struct {
      * prefix is an end segment at this frame; barrier frames use identity in
      * the captured/current prompt chain to reject inward jumps. */
     NplVal origin;
+    /* T4-B0: captured root environment for the runtime default prompt.  The
+     * root abort path transfers here before running the default handler, so
+     * the handler observes the root parameters/handlers/prompts and every
+     * intervening dynamic-wind has already been unwound. */
+    NplVal root_context;
+    NplVal root_target;
     uint32_t barrier;
     uint32_t root;
+    uint32_t root_kind;
 } NplPromptFrame;
 
 /* Local CPS continuation plus persistent semantic frame.  closure is the
@@ -362,7 +392,19 @@ typedef struct {
      * transfer has reinstated the target dynamic environment. */
     NplVal prompt;
     NplVal target;
+    /* T4-B0: invoking continuation's prompt chain, spliced onto the captured
+     * prefix for a composable call-in; nil for non-composable. */
+    NplVal splice;
 } NplContinuationGraft;
+
+/* T4-B0: state carried through the root wind transfer.  The handler runs
+ * after the transfer has installed the captured root dynamic environment. */
+typedef struct {
+    NplHeader header;
+    NplVal prompt;
+    NplVal handler;
+    NplVal arguments;
+} NplRootAbort;
 
 /* A callable continuation wrapper shared by every library instance.  The
  * procedure field is the ordinary Scheme wrapper; graft is the call-in entry;
@@ -765,6 +807,12 @@ NplVal npl_prompt_current(void);
 NplVal npl_prompt_list_current(void);
 NplVal npl_prompt_list_from(NplVal origin);
 NplVal npl_prompt_install_override(NplVal prompt, NplVal target);
+/* T4-B0 activation-local prompt splice: while a composable invocation runs
+ * the captured prefix, the delimiter frame continues into the invoking
+ * continuation's prompt chain instead of the captured outer chain. */
+NplVal npl_prompt_install_splice(NplVal origin, NplVal tail);
+NplVal npl_prompt_remove_splice(NplVal origin);
+NplVal npl_prompt_splice_next(NplVal frame);
 /* Diagnostic/cleanup support: number of pending one-shot overrides. */
 NplVal npl_prompt_override_total(void);
 /* The most recent one-shot override for PROMPT, or #f after removing it. */
@@ -779,6 +827,17 @@ void npl_default_prompt_mark_roots(void);
 NplVal npl_default_prompt_begin(void);
 NplVal npl_default_prompt_finish(NplVal value);
 NplVal npl_default_prompt_finish_value(NplVal value);
+/* T4-B0: tag the runtime default prompt with the root kind whose completion
+ * protocol %root-finish must use (see prompt.c). */
+void npl_default_prompt_set_root(NplVal target, uint32_t kind);
+NplVal npl_prompt_root_kind(NplVal value);
+/* Abort path: transfer to the prompt's captured root environment and then
+ * run the default handler there. */
+NplVal npl_prompt_root_abort(NplVal prompt, NplVal handler);
+NplVal npl_prompt_root_finish(NplVal prompt, NplVal values);
+/* Program entry wrapper installed by generated main. */
+NplVal npl_program_run(NplVal body, NplVal halt);
+NplVal npl_program_exit_value(void);
 NplVal npl_default_prompt_current(void);
 /* T4-A continuation segments (segment.c). */
 NplVal npl_segment_make(NplVal closure);
@@ -788,12 +847,13 @@ NplVal npl_segment_parent(NplVal value);
 NplVal npl_segment_closure(NplVal value);
 NplVal npl_segment_depth(NplVal value);
 NplVal npl_graft_make(NplVal procedure, NplVal arguments,
-                      NplVal prompt, NplVal target);
+                      NplVal prompt, NplVal target, NplVal splice);
 NplVal npl_graft_p(NplVal value);
 NplVal npl_graft_procedure(NplVal value);
 NplVal npl_graft_arguments(NplVal value);
 NplVal npl_graft_prompt(NplVal value);
 NplVal npl_graft_target(NplVal value);
+NplVal npl_graft_splice(NplVal value);
 /* T4-A shared continuation objects (segment.c). */
 NplVal npl_continuation_make(NplVal procedure, NplVal kind, NplVal origin,
                              NplVal tag, NplVal prompts, NplVal graft);

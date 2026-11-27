@@ -252,6 +252,7 @@
     ("npl_graft_target" fixed 1 0)
     ("npl_prompt_install_override" fixed 2 0)
     ("npl_default_prompt_finish" fixed 1 0)
+    ("npl_program_run" fixed 2 0)
     ("npl_wind_push" fixed 2 0)
     ("npl_wind_pop" fixed 1 0)
     ("npl_wind_exit_step" fixed 0 0)

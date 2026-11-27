@@ -22,3 +22,6 @@
 (native-capture 1)
 (evaluated-invokes-native-capture 11)
 (missing-prompt #t)
+(composed-caller-prompt #t)
+(composed-abort-caller caller)
+(wind-after-prompt #t)

@@ -1142,12 +1142,13 @@ that machinery must gain segment-aware state, keep one transition engine
 and test legacy `call/cc` through it. Any unavoidable compiler/evaluator
 representation adapters share the same semantic operations and fixtures.
 
-`src/compiler/frontend/control.npl` keeps the CPS expression walk at 799
+`src/compiler/frontend/control.npl` keeps the CPS expression walk at 800
 lines; the segment/capture/graft lowering moved to
-`src/compiler/frontend/control-capture.npl` (145 lines). Similarly,
-`thread-lifecycle.c` is at 800 lines and `virtual-thread.c` at 758: new
-interrupt/lifecycle adapters and scheduler state belong in separate focused
-modules. Proposed NPL modules include control prompts, continuations, marks,
+`src/compiler/frontend/control-capture.npl` (178 lines). Similarly,
+`thread-lifecycle.c` is at 833 lines (one B0 line over the pre-existing 832,
+left as a follow-up extraction) and `virtual-thread.c` is at 762 after the
+saved-state/root split into `virtual-thread-root.c`; new interrupt/lifecycle
+adapters and scheduler state belong in separate focused modules. Proposed NPL modules include control prompts, continuations, marks,
 and parameters, plus a small frontend control-context module. These names
 are a layout proposal, not permission to duplicate existing facilities.
 
@@ -1311,6 +1312,13 @@ segment and a barrier flag.
   Prompt-delimited non-composable call-in uses the cut-prompt override;
   composable call-in uses the invocation's return-k. Each invocation has an
   independent activation; captured descriptions stay immutable.
+- T4-B0 composable composition: the packet also carries the invoking prompt
+  chain. The transfer installs it as an activation-local splice on the
+  delimiter frame, so the captured prefix keeps its own winds, handlers,
+  parameters and inner prompts while prompts outside the capture remain
+  visible for availability queries and abort routing. The splice is part of
+  `NplDynamicContext`, removed by the prompt terminal, and dropped on a
+  non-local exit with the abandoned activation.
 - `prompt_overrides` is captured by `NplDynamicContext` and installed after
   the transfer. A non-local exit restores the target context and drops the
   abandoned activation's overrides, so an aborted composition leaves no stale
@@ -1321,6 +1329,19 @@ segment and a barrier flag.
 - Program, native-thread and virtual-thread initial continuations install a
   runtime default prompt. Omitted-tag control captures are delimited there;
   full R7RS `call/cc` remains undelimited.
+- T4-B0 root abort: the root prompt records the dynamic environment outside
+  itself. An abort transfers there first (running wind after thunks and
+  restoring root handlers/parameters/prompts) and then runs the default
+  handler through the shared CPS path. Generated main runs the program under
+  `npl_program_run`, whose C landing pad also unwinds a root abort raised in a
+  nested synchronous callback; native threads use their termination jump and
+  virtual threads the carrier mount landing pad. A single handler value is the
+  thread result; zero/multiple values stay represented by the runtime values
+  object.
+- T4-B0 wind environments: each `NplWindFrame` records the prompt chain and
+  current segment of its extent. Before/after thunks run with that environment,
+  so a transfer out of an inner prompt no longer exposes it to an outer after
+  thunk.
 - Prompt frames and the current segment live in `NplThreadContext` and are
   captured by `NplDynamicContext`. The prompt terminal consumes a per-thread
   one-shot override. There is no helper native thread, no cross-thread logical
@@ -1334,29 +1355,36 @@ segment and a barrier flag.
   install a compiler segment, so captures inside those thunks have incomplete
   frame metadata. The interactive REPL uses the process root prompt; a
   per-evaluation REPL boundary belongs with later initial-continuation work.
-- T4-D subset: `(npl control parameters)` and `(srfi 226 parameter)` add
+- T4-D subset/D0: `(npl control parameters)` and `(srfi 226 parameter)` add
   `parameter?`, first-class parameterization snapshots (`current-
   parameterization`, `parameterization?`, `call-with-parameterization`) and
   `temporarily` over the existing parameter machinery. A parameterization
-  shares the binding chain, so reinstalling the same snapshot preserves the
-  mutable parameter cells (within one thread). Cross-thread shared cells,
-  thread parameters and the fluid syntax remain ahead because NPL's current
-  parameters use thread-owned COW bindings rather than the SRFI 226
-  shared-cell model.
+  shares the binding chain, so reinstalling the same snapshot preserves
+  in-place cell updates; a set! of a parameter with no binding extends the
+  snapshot's own chain, so the next installation sees it. A cell already
+  shared with an enclosing parameterization is mutated in place and is
+  visible outside the snapshot. D0 replaces this with an explicit
+  parameter-to-cell mapping plus synchronization; cross-thread shared cells,
+  thread parameters and the fluid syntax then follow.
 - Not implemented: continuation marks, thread parameters/fluids, promises,
   exception/condition payloads, thread/interrupt adapters, and the composite
   `(srfi 226)` / `srfi-226` feature. The component aliases are partial
   releases.
-- Acceptance: `src/compiler/tests/control.npl` (44 assertions), the
-  `tests/fixtures/control` nplc/npli differential fixture (barrier and
-  call-in cases included), `tests/unit/control-virtual.npl` on M=1/M=4
-  (composition, barriers and call-in), `tests/unit/control-default-prompt.npl`
-  for program/thread/virtual-thread roots, and the existing call/cc, parameter, wind and exception suites.
+- Acceptance: `src/compiler/tests/control.npl` (47 assertions, including
+  invoking-prompt composition, abort routing and wind-thunk prompt
+  environments), the `tests/fixtures/control` nplc/npli differential fixture
+  (barrier, call-in and composition cases included),
+  `tests/unit/control-virtual.npl` on M=1/M=4 (composition, barriers and
+  call-in), `tests/unit/control-default-prompt.npl` for
+  program/thread/virtual-thread roots, `tests/unit/control-b0.npl` for
+  root-return ABI, root abort landing pads (including synchronous callbacks)
+  and snapshot cells, and the existing call/cc, parameter, wind and exception
+  suites.
 - The frontend/backend segment emission changes the compiler's own SSA. The
   seed was relayed with the codegen-transient mode of
   `tools/update_current_ssa.sh`; the installed seed is gen2 with
-  gen2 == gen3 (436,669 lines, SHA-256
-  `e095f8e175990556251c43f407e5da358c1ff3420e0ee47dacab005460374de7`).
+  gen2 == gen3 (436,774 lines, SHA-256
+  `a7ebdb960a0a33ebf386696a886cde6df176456ae48d07eb5827879e97200721`).
 
 No changes to permanent `bootstrap/bootstrap.ssa`, stage0, or
 `bootstrap/runtime/`. Frontend changes relay only `bootstrap/current.ssa`

@@ -1,0 +1,145 @@
+; T4-B0 control correctness regressions.
+;
+; Native-only: program/thread/virtual-thread root completion and snapshot
+; cells have no evaluator surface.  The program-level root abort is the last
+; action so the process exits through the default handler with status 0.
+(import (except (scheme base) call/cc call-with-current-continuation)
+        (scheme write)
+        (scheme process-context)
+        (npl control)
+        (npl control parameters)
+        (npl thread)
+        (npl thread virtual)
+        (npl hashtable))
+
+(define failures 0)
+(define (check name ok)
+  (display name)
+  (display " ")
+  (if ok
+      (display "PASS")
+      (begin
+        (set! failures (+ failures 1))
+        (display "FAIL")))
+  (newline))
+
+;; A non-composable continuation invoked at a thread's initial continuation
+;; must deliver its single value to thread-join!, not to the root ABI's
+;; trailing continuation.
+(define (root-return-body)
+  (call-with-non-composable-continuation (lambda (k) (k 43))))
+
+(define native-thread (make-thread root-return-body))
+(thread-start! native-thread)
+(check "thread-root-single-value" (= (thread-join! native-thread) 43))
+
+(define virtual-thread (make-virtual-thread root-return-body))
+(virtual-thread-start! virtual-thread)
+(check "virtual-root-single-value" (= (virtual-thread-join! virtual-thread) 43))
+
+(define (root-procedure-body)
+  (call-with-non-composable-continuation (lambda (k) (k car))))
+
+(define procedure-thread (make-thread root-procedure-body))
+(thread-start! procedure-thread)
+(check "thread-root-procedure-value"
+       (procedure? (thread-join! procedure-thread)))
+
+(define procedure-virtual (make-virtual-thread root-procedure-body))
+(virtual-thread-start! procedure-virtual)
+(check "virtual-root-procedure-value"
+       (procedure? (virtual-thread-join! procedure-virtual)))
+
+;; Root abort must unwind dynamic-wind before the default handler runs, and
+;; the handler's value must be the thread's result.
+(define native-log '())
+(define (native-root-body)
+  (dynamic-wind
+    (lambda () (set! native-log (cons 'before native-log)))
+    (lambda ()
+      (abort-current-continuation (default-continuation-prompt-tag)
+                                  (lambda () 43)))
+    (lambda () (set! native-log (cons 'after native-log)))))
+
+(define wind-thread (make-thread native-root-body))
+(thread-start! wind-thread)
+(check "thread-root-abort-result" (= (thread-join! wind-thread) 43))
+(check "thread-root-abort-unwinds" (equal? native-log '(after before)))
+
+(define virtual-log '())
+(define (virtual-root-body)
+  (dynamic-wind
+    (lambda () (set! virtual-log (cons 'before virtual-log)))
+    (lambda ()
+      (abort-current-continuation (default-continuation-prompt-tag)
+                                  (lambda () 43)))
+    (lambda () (set! virtual-log (cons 'after virtual-log)))))
+
+(define wind-virtual (make-virtual-thread virtual-root-body))
+(virtual-thread-start! wind-virtual)
+(check "virtual-root-abort-result" (= (virtual-thread-join! wind-virtual) 43))
+(check "virtual-root-abort-unwinds" (equal? virtual-log '(after before)))
+
+;; A root abort from a synchronous library callback (the hash function runs
+;; under npl_call_sync) must leave the callback and complete the thread.
+(define (hash-root-body)
+  (define table
+    (make-hash-table (lambda (a b) (eq? a b))
+                     (lambda (key)
+                       (abort-current-continuation
+                         (default-continuation-prompt-tag)
+                         (lambda () 44)))))
+  (hash-table-set! table 'x 1)
+  'UNREACHABLE)
+
+(define hash-thread (make-thread hash-root-body))
+(thread-start! hash-thread)
+(check "thread-root-abort-across-sync-callback"
+       (= (thread-join! hash-thread) 44))
+
+(define hash-virtual (make-virtual-thread hash-root-body))
+(virtual-thread-start! hash-virtual)
+(check "virtual-root-abort-across-sync-callback"
+       (= (virtual-thread-join! hash-virtual) 44))
+
+;; A parameter with no binding in the snapshot must gain the snapshot's cell
+;; on the first set!, so reinstalling the snapshot preserves the write.
+(define snapshot-parameter (make-parameter 0))
+(define saved-parameterization (current-parameterization))
+(call-with-parameterization saved-parameterization
+  (lambda () (snapshot-parameter 1)))
+(check "parameterization-new-cell"
+       (= (call-with-parameterization saved-parameterization
+                                      snapshot-parameter)
+          1))
+(check "parameterization-surrounding-isolation"
+       (= (snapshot-parameter) 0))
+
+;; Program root: the after thunk runs before the handler, the handler sees
+;; the root environment, and control does not resume after the abort.
+(define program-log '())
+(define root-parameter (make-parameter 'outside))
+(display "control-b0: ")
+(dynamic-wind
+  (lambda () (set! program-log (cons 'before program-log)))
+  (lambda ()
+    (parameterize ((root-parameter 'inside))
+      (abort-current-continuation
+        (default-continuation-prompt-tag)
+        (lambda ()
+          (if (and (= failures 0)
+                   (equal? program-log '(after before))
+                   (eq? (root-parameter) 'outside))
+              (begin
+                (display "PASS")
+                (newline)
+                0)
+              (begin
+                (display "FAIL")
+                (newline)
+                (exit 1)))))))
+  (lambda () (set! program-log (cons 'after program-log))))
+
+;; The transfer must not return here.
+(display "UNREACHABLE")
+(exit 1)

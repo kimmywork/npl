@@ -77,7 +77,7 @@ build_ssa "$ROOT/bootstrap/current.ssa" "$WORK/compiler"
 for name in cross-thread-terminal cross-thread-continuation \
             cross-thread-wind-parameters virtual-threads virtual-thread-edge \
             thread-timeouts review-fixes sync-nested-recovery atomic-threads \
-            control-virtual control-default-prompt; do
+            control-virtual control-default-prompt control-b0; do
     emit "$WORK/compiler" "$ROOT/tests/unit/$name.npl" "$WORK/$name.ssa"
     build_ssa "$WORK/$name.ssa" "$WORK/$name"
     "$WORK/$name" > "$WORK/$name.out" 2>&1
@@ -90,6 +90,8 @@ for carriers in 1 4; do
         NPL_GC_VERIFY=10 "$WORK/atomic-threads" > "$WORK/atomic-threads.out"
     NPL_VTHREAD_CARRIERS=$carriers NPL_GC_NURSERY_BYTES=65536 \
         NPL_GC_VERIFY=10 "$WORK/control-virtual" > "$WORK/control-virtual.out"
+    NPL_VTHREAD_CARRIERS=$carriers NPL_GC_NURSERY_BYTES=65536 \
+        NPL_GC_VERIFY=10 "$WORK/control-b0" > "$WORK/control-b0.out"
 done
 
 run_suite() {
@@ -216,7 +218,7 @@ run_suite directive-parameters "PASS directive-parameters 3"
 run_suite reader-directive-errors "PASS reader-directive-errors 11"
 run_suite thread "PASS thread 26"
 run_suite srfi-230 "PASS srfi-230 19"
-run_suite control "PASS control 44"
+run_suite control "PASS control 47"
 run_suite control-parameters "PASS control-parameters 10"
 run_suite srfi-170 "PASS srfi-170 132"
 run_suite platform "PASS platform 5"

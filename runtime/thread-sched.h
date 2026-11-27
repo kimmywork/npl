@@ -96,6 +96,8 @@ typedef struct NplVirtualThread {
     NplVal initial_handler;
     NplVal prompts;
     NplVal prompt_overrides;
+    NplVal prompt_splices;
+    NplVal parameterization;
     NplVal default_prompt;
     NplVal segment;
     uint64_t next_segment_id;
@@ -233,6 +235,8 @@ NplVal npl_vthread_join(NplVal value);
 NplVal npl_vthread_current(void);
 NplVal npl_vthread_current_parameters(void);
 NplVal npl_vthread_root(void);
+/* T4-B0: complete a virtual thread from the root abort path. */
+void npl_vthread_finish_root(NplVal value, NplVal result);
 NplVal npl_vthread_end_exception(NplVal value);
 int npl_vthread_park_count(NplVal value);
 int npl_vthread_resume_count(NplVal value);

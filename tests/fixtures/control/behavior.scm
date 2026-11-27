@@ -205,3 +205,49 @@
         (guard (e ((continuation-violation? e)
                    (eq? (continuation-violation-prompt-tag e) tag)))
           (abort-current-continuation tag)))
+
+
+(define composed-tag (make-continuation-prompt-tag 'composed))
+(define composed-k #f)
+(define composed-initial
+  (call-with-continuation-prompt
+    (lambda ()
+      (call-with-composable-continuation
+        (lambda (k) (set! composed-k k) 0))
+      (continuation-prompt-available? composed-tag))
+    (default-continuation-prompt-tag)))
+(report 'composed-caller-prompt
+        (call-with-continuation-prompt
+          (lambda () (composed-k 0))
+          composed-tag))
+(define composed-origin (make-continuation-prompt-tag 'origin))
+(define composed-caller (make-continuation-prompt-tag 'caller))
+(define composed-abort-k #f)
+(define composed-first #t)
+(define composed-abort-initial
+  (call-with-continuation-prompt
+    (lambda ()
+      (call-with-composable-continuation
+        (lambda (k) (set! composed-abort-k k) 0)
+        composed-origin)
+      (if composed-first
+          (begin (set! composed-first #f) 'initial)
+          (abort-current-continuation composed-caller (lambda () 'unused))))
+    composed-origin))
+(report 'composed-abort-caller
+        (call-with-continuation-prompt
+          (lambda () (composed-abort-k 0))
+          composed-caller
+          (lambda objects 'caller)))
+(define wind-tag (make-continuation-prompt-tag 'wind))
+(define wind-available #t)
+(define wind-initial
+  (call/cc
+    (lambda (out)
+      (dynamic-wind
+        (lambda () #f)
+        (lambda ()
+          (call-with-continuation-prompt (lambda () (out 'done)) wind-tag))
+        (lambda ()
+          (set! wind-available (continuation-prompt-available? wind-tag)))))))
+(report 'wind-after-prompt (not wind-available))

@@ -23,9 +23,15 @@ behavior).
   `call-in-continuation`/`call-in`/`return-to`, predicates, `unwind-protect`,
   `reset`/`shift`, ordinary parameterization snapshots, and `temporarily` are
   implemented over compiler-emitted continuation segments, shared runtime
-  continuation objects and runtime prompt frames. Default prompts delimit
-  omitted-tag captures at program, native-thread and virtual-thread roots;
-  full R7RS `call/cc` remains undelimited. The composite `(srfi 226)` feature
+  continuation objects and runtime prompt frames. A composable invocation
+  splices the captured prefix's delimiter into the invoking prompt chain, so
+  the caller's prompts stay available for availability queries and abort
+  routing while each activation keeps its own return relation. Default
+  prompts delimit omitted-tag captures at program, native-thread and
+  virtual-thread roots; a root abort transfers to the captured root
+  environment before running the default handler, and program/native/virtual
+  completion uses a landing pad so the abort also leaves nested synchronous
+  callbacks. Full R7RS `call/cc` remains undelimited. The composite `(srfi 226)` feature
   remains unadvertised. Continuation marks and the evaluator mark-frame
   adapter remain future increments.
 - SRFI 1 lists as `(npl list)` / `(srfi 1)`.
@@ -147,6 +153,16 @@ behavior).
 
 ### Fixed
 
+- T4-B0 control semantics: composable call-in preserves the invoking prompt
+  chain (including abort routing to its handler) with independent multi-shot
+  activations; a root abort now unwinds `dynamic-wind` and runs the default
+  handler in the captured root environment, including across synchronous
+  library callbacks; wind before/after thunks see their extent's prompt and
+  segment environment; native/virtual thread root returns use a packed
+  single-value path so `(k 43)` joins as `43`; and a parameterization
+  snapshot extends its own chain when a previously unbound parameter is set.
+  Shared cells inherited from an enclosing parameterization remain a D0
+  limitation.
 - SRFI 196 `range-first`, `range-split-at`, and `range-reverse` now preserve
   a range's nonzero start offset.
 - SRFI 196/189 `assume` is a real precondition check again, shared through

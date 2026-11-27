@@ -126,10 +126,21 @@ typedef struct NplThreadContext {
      * the current compiler-emitted continuation segment. */
     NplVal current_prompts;
     NplVal prompt_overrides;
+    /* T4-B0: activation-local prompt splices and the installed
+     * parameterization snapshot. */
+    NplVal prompt_splices;
+    NplVal current_parameterization;
     NplVal default_prompt;
     NplVal current_segment;
     uint64_t next_segment_id;
     uint64_t next_wind_id;
+
+    /* Root completion protocol.  program_jump is non-NULL while generated
+     * main runs the program body through npl_program_run; mount_jump is the
+     * carrier landing pad for a virtual-thread root abort. */
+    jmp_buf *program_jump;
+    NplVal program_result;
+    jmp_buf *mount_jump;
 
     /* Trampoline / escape / synchronous-call context. */
     NplTailContext *tail_context;

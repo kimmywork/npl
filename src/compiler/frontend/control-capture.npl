@@ -89,7 +89,7 @@
                                               (cons (control-symbol arguments-name) ()))))
                                         ()))))
                                 ()))))
-                        (cons () ())))))))))))))
+                        (cons graft-expression ())))))))))))))
 
 (define (control-call-cc-name? head)
   (if (not (sym-atom? head))

@@ -252,6 +252,7 @@ static void *thread_entry(void *argument)
         if (cancelled) npl_safepoint_cancelled();
         NplVal continuation = npl_make_closure(thread_done, npl_nil(), 1);
         npl_default_prompt_begin();
+        npl_default_prompt_set_root(self, NPL_PROMPT_ROOT_NATIVE);
         NplVal prompt = npl_default_prompt_current();
         NplVal root_return =
             npl_make_closure(thread_root_return, continuation, -1);

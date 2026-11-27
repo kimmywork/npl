@@ -111,6 +111,10 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(frame->after);
             visit(frame->handler);
             visit(frame->parameters);
+            visit(frame->prompts);
+            visit(frame->prompt_splices);
+            visit(frame->parameterization);
+            visit(frame->segment);
             visit(frame->extent_key);
             break;
         }
@@ -121,6 +125,8 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(context->parameters);
             visit(context->prompts);
             visit(context->prompt_overrides);
+            visit(context->prompt_splices);
+            visit(context->parameterization);
             visit(context->segment);
             visit(context->source_initial_handler);
             break;
@@ -133,6 +139,8 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(frame->return_);
             visit(frame->parent);
             visit(frame->origin);
+            visit(frame->root_context);
+            visit(frame->root_target);
             break;
         }
         case BOX_CONTINUATION_SEGMENT: {
@@ -149,6 +157,14 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(graft->arguments);
             visit(graft->prompt);
             visit(graft->target);
+            visit(graft->splice);
+            break;
+        }
+        case BOX_ROOT_ABORT: {
+            NplRootAbort *abort = (NplRootAbort *)header;
+            visit(abort->prompt);
+            visit(abort->handler);
+            visit(abort->arguments);
             break;
         }
         case BOX_CONTINUATION: {
@@ -179,6 +195,8 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(vt->initial_handler);
             visit(vt->prompts);
             visit(vt->prompt_overrides);
+            visit(vt->prompt_splices);
+            visit(vt->parameterization);
             visit(vt->default_prompt);
             visit(vt->segment);
             break;
@@ -194,6 +212,8 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(transition->target_parameters);
             visit(transition->target_prompts);
             visit(transition->target_prompt_overrides);
+            visit(transition->target_prompt_splices);
+            visit(transition->target_parameterization);
             visit(transition->target_segment);
             visit(transition->cache);
             uint32_t count = transition->exit_count + transition->entry_count;
@@ -237,6 +257,7 @@ void npl_gc_visit_children_internal(NplHeader *header,
             NplParameterization *parameterization =
                 (NplParameterization *)header;
             visit(parameterization->bindings);
+            visit(parameterization->previous);
             break;
         }
         case BOX_PROMISE: {

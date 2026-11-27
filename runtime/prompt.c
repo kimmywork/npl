@@ -14,6 +14,7 @@
  */
 #include "npl.h"
 #include "thread.h"
+#include "thread-sched.h"
 #include <stdlib.h>
 
 #define CTX npl_ctx()
@@ -104,13 +105,66 @@ NplVal npl_prompt_pop(NplVal value)
     return npl_unspecified();
 }
 
+/* T4-B0: activation-local splice from the captured delimiter to the
+ * invoking continuation's prompt chain.  Entries are (origin . tail); the
+ * head is the innermost activation. */
+NplVal npl_prompt_splice_next(NplVal frame)
+{
+    for (NplVal rest = CTX->prompt_splices;
+         npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PAIR;
+         rest = npl_pair_ptr(rest)->cdr) {
+        NplVal entry = npl_pair_ptr(rest)->car;
+        if (npl_is_ptr(entry) && npl_header(entry)->tag == BOX_PAIR &&
+            npl_pair_ptr(entry)->car == frame)
+            return npl_pair_ptr(entry)->cdr;
+    }
+    return npl_false();
+}
+
+NplVal npl_prompt_install_splice(NplVal origin, NplVal tail)
+{
+    (void)require_prompt(origin, "prompt-install-splice!");
+    NplVal entry = npl_cons(origin, tail);
+    CTX->prompt_splices = npl_cons(entry, CTX->prompt_splices);
+    return npl_unspecified();
+}
+
+NplVal npl_prompt_remove_splice(NplVal origin)
+{
+    NplVal previous = npl_false();
+    NplVal rest = CTX->prompt_splices;
+    while (npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PAIR) {
+        NplVal entry = npl_pair_ptr(rest)->car;
+        NplVal next = npl_pair_ptr(rest)->cdr;
+        if (npl_is_ptr(entry) && npl_header(entry)->tag == BOX_PAIR &&
+            npl_pair_ptr(entry)->car == origin) {
+            if (npl_is_false(previous))
+                CTX->prompt_splices = next;
+            else
+                npl_set_cdr(previous, next);
+            return npl_unspecified();
+        }
+        previous = rest;
+        rest = next;
+    }
+    return npl_unspecified();
+}
+
+static NplVal prompt_next(NplVal frame)
+{
+    NplVal tail = npl_prompt_splice_next(frame);
+    if (npl_is_false(tail))
+        return ((NplPromptFrame *)npl_header(frame))->parent;
+    return tail;
+}
+
 NplVal npl_prompt_find(NplVal tag)
 {
-    for (NplVal rest = CTX->current_prompts;
-         npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PROMPT_FRAME;
-         rest = ((NplPromptFrame *)npl_header(rest))->parent) {
+    NplVal rest = CTX->current_prompts;
+    while (npl_is_ptr(rest) && npl_header(rest)->tag == BOX_PROMPT_FRAME) {
         if (((NplPromptFrame *)npl_header(rest))->tag == tag)
             return rest;
+        rest = prompt_next(rest);
     }
     return npl_false();
 }
@@ -124,10 +178,9 @@ static NplVal prompt_list(NplVal frame, NplVal origin)
 {
     if (!npl_is_ptr(frame) || npl_header(frame)->tag != BOX_PROMPT_FRAME)
         return npl_nil();
-    NplVal parent = ((NplPromptFrame *)npl_header(frame))->parent;
     if (frame == origin)
         return npl_cons(frame, npl_nil());
-    return npl_cons(frame, prompt_list(parent, origin));
+    return npl_cons(frame, prompt_list(prompt_next(frame), origin));
 }
 
 NplVal npl_prompt_list_current(void)
@@ -201,11 +254,15 @@ NplVal npl_prompt_take_return(NplVal prompt)
                 CTX->prompt_overrides = next;
             else
                 npl_set_cdr(previous, next);
+            /* A composable activation's splice lives exactly as long as its
+             * one-shot return relation at this prompt. */
+            npl_prompt_remove_splice(prompt);
             return npl_cdr(entry);
         }
         previous = rest;
         rest = next;
     }
+    npl_prompt_remove_splice(prompt);
     return npl_false();
 }
 
@@ -213,6 +270,10 @@ NplVal npl_prompt_take_return(NplVal prompt)
 
 static NplVal g_default_prompt_tag = 0;
 
+/* Initialized by program entry (or the first prompt in a C harness) before
+ * user threads run.  The allocation intentionally stays outside pthread_once:
+ * npl_alloc_object may poll and collect, and running that inside the once
+ * guard would invert the allocator/GC lock order. */
 NplVal npl_default_prompt_tag(void)
 {
     if (g_default_prompt_tag == 0) {
@@ -279,9 +340,28 @@ NplVal npl_default_prompt_begin(void)
     frame->root = 1;
     frame->escape = npl_make_closure(program_root_exit, npl_nil(), -1);
     frame->return_ = frame->escape;
+    /* Capture the environment outside the root prompt: a root abort
+     * transfers here, so the default handler runs with the root params,
+     * handlers and prompt chain, after every wind has been exited. */
+    frame->root_context = npl_capture_dynamic_context();
     npl_prompt_push(prompt);
     CTX->default_prompt = prompt;
     return npl_unspecified();
+}
+
+void npl_default_prompt_set_root(NplVal target, uint32_t kind)
+{
+    if (npl_is_nil(CTX->default_prompt)) return;
+    NplPromptFrame *frame =
+        (NplPromptFrame *)npl_header(CTX->default_prompt);
+    frame->root_target = target;
+    frame->root_kind = kind;
+}
+
+NplVal npl_prompt_root_kind(NplVal value)
+{
+    return npl_fixnum((int64_t)require_prompt(value, "prompt-root-kind")
+                          ->root_kind);
 }
 
 NplVal npl_default_prompt_current(void)
@@ -292,8 +372,15 @@ NplVal npl_default_prompt_current(void)
 NplVal npl_default_prompt_finish_value(NplVal value)
 {
     if (npl_is_nil(CTX->default_prompt)) return value;
+    NplPromptFrame *frame =
+        (NplPromptFrame *)npl_header(CTX->default_prompt);
     NplVal target = npl_prompt_take_return(CTX->default_prompt);
     if (npl_is_false(target)) return value;
+    /* The root escape/return closure is CPS-shaped (values plus a trailing
+     * continuation); this packed completion delivers one value.  Identity
+     * means the ordinary root return, whose caller already owns delivery. */
+    if (target == frame->return_ || target == frame->escape)
+        return value;
     NplVal argument = value;
     return npl_apply(target, 1, &argument);
 }
@@ -305,4 +392,184 @@ NplVal npl_default_prompt_finish(NplVal value)
     if (npl_is_false(target)) return npl_fixnum(0);
     NplVal argument = value;
     return npl_apply(target, 1, &argument);
+}
+
+/* ---- T4-B0 root abort and completion ---- */
+
+static NplVal root_handler_done(NplVal environment, int64_t argc,
+                                NplVal *argv)
+{
+    if (argc != 1 || !npl_is_ptr(environment) ||
+        npl_header(environment)->tag != BOX_ROOT_ABORT) {
+        fprintf(stderr, "default prompt: invalid handler completion\n");
+        exit(1);
+    }
+    NplRootAbort *abort = (NplRootAbort *)npl_header(environment);
+    return npl_prompt_root_finish(abort->prompt, argv[0]);
+}
+
+/* Runs after npl_wind_transfer has installed the root environment. */
+static NplVal root_abort_entry(NplVal environment, int64_t argc,
+                               NplVal *argv)
+{
+    (void)argc;
+    (void)argv;
+    if (!npl_is_ptr(environment) ||
+        npl_header(environment)->tag != BOX_ROOT_ABORT) {
+        fprintf(stderr, "default prompt: invalid root abort\n");
+        exit(1);
+    }
+    NplRootAbort *abort = (NplRootAbort *)npl_header(environment);
+    /* The root prompt is no longer active: a handler may install a fresh
+     * prompt with the same tag, as SRFI 226's default handler does. */
+    if (CTX->default_prompt == abort->prompt)
+        CTX->default_prompt = npl_nil();
+
+    uint32_t count = 0;
+    for (NplVal rest = abort->arguments; !npl_is_nil(rest);
+         rest = npl_cdr(rest)) {
+        if (!npl_is_ptr(rest) || npl_header(rest)->tag != BOX_PAIR) {
+            fprintf(stderr, "default prompt: arguments are not a list\n");
+            exit(1);
+        }
+        count++;
+    }
+    NplVal *arguments =
+        (NplVal *)malloc((size_t)(count + 1) * sizeof(NplVal));
+    if (!arguments) npl_runtime_oom_internal();
+    uint32_t index = 0;
+    for (NplVal rest = abort->arguments; !npl_is_nil(rest);
+         rest = npl_cdr(rest))
+        arguments[index++] = npl_car(rest);
+    NplVal continuation = npl_make_closure(root_handler_done, environment, 1);
+    arguments[count] = continuation;
+    npl_tail_request_closure(abort->handler, (int64_t)count + 1, arguments);
+    free(arguments);
+    return npl_nil();
+}
+
+/* The abort primitive returns a closure that performs the transfer.  It is
+ * applied in tail position so the transfer's tail request is not overwritten
+ * by the caller's normal return continuation. */
+static NplVal root_abort_start(NplVal environment, int64_t argc, NplVal *argv)
+{
+    if (!npl_is_ptr(environment) ||
+        npl_header(environment)->tag != BOX_ROOT_ABORT || argc < 1) {
+        fprintf(stderr, "default prompt: invalid root abort start\n");
+        exit(1);
+    }
+    NplRootAbort *abort = (NplRootAbort *)npl_header(environment);
+    abort->arguments = argv[0];
+    npl_wind_transfer(((NplPromptFrame *)npl_header(abort->prompt))->root_context,
+                      npl_nil(),
+                      npl_make_closure(root_abort_entry, environment, 1),
+                      npl_nil());
+    return npl_nil();
+}
+
+NplVal npl_prompt_root_abort(NplVal prompt, NplVal handler)
+{
+    NplPromptFrame *frame = require_prompt(prompt, "prompt-root-abort");
+    if (!frame->root) {
+        fprintf(stderr, "default prompt: root abort on a non-root prompt\n");
+        exit(1);
+    }
+    NplRootAbort *abort =
+        (NplRootAbort *)npl_alloc_object(sizeof(NplRootAbort));
+    abort->header.tag = BOX_ROOT_ABORT;
+    abort->header.flags = 0;
+    abort->prompt = prompt;
+    abort->handler = handler;
+    abort->arguments = npl_nil();
+    NplVal abort_value = (NplVal)(uintptr_t)abort | TAG_PTR;
+    npl_gc_root(&abort_value);
+    NplVal closure = npl_make_closure(root_abort_start, abort_value, 2);
+    npl_gc_unroot(&abort_value);
+    return closure;
+}
+
+NplVal npl_prompt_root_finish(NplVal prompt, NplVal values)
+{
+    NplPromptFrame *frame = require_prompt(prompt, "prompt-root-finish");
+    if (!frame->root) {
+        fprintf(stderr, "default prompt: finish on a non-root prompt\n");
+        exit(1);
+    }
+    switch (frame->root_kind) {
+    case NPL_PROMPT_ROOT_PROGRAM:
+        if (!CTX->program_jump) {
+            fprintf(stderr, "default prompt: no program root\n");
+            exit(1);
+        }
+        CTX->program_result = npl_fixnum(0);
+        longjmp(*CTX->program_jump, 1);
+        break;
+    case NPL_PROMPT_ROOT_NATIVE: {
+        NplThread *thread =
+            (NplThread *)npl_header(npl_thread_current_object());
+        thread->end_result = values;
+        npl_gc_write_barrier(thread, values);
+        if (!thread->armed) {
+            fprintf(stderr, "default prompt: native root is not armed\n");
+            exit(1);
+        }
+        longjmp(thread->terminate_jump, 1);
+        break;
+    }
+    case NPL_PROMPT_ROOT_VIRTUAL:
+        if (!frame->root_target || npl_is_nil(frame->root_target)) {
+            fprintf(stderr, "default prompt: no virtual root\n");
+            exit(1);
+        }
+        npl_vthread_finish_root(frame->root_target, values);
+        if (!CTX->mount_jump) {
+            fprintf(stderr, "default prompt: no virtual mount root\n");
+            exit(1);
+        }
+        longjmp(*CTX->mount_jump, 1);
+        break;
+    default:
+        fprintf(stderr, "default prompt: unset root kind\n");
+        exit(1);
+    }
+    return npl_nil();
+}
+
+/* Generated main runs the program body here so a root completion can unwind
+ * nested trampolines (including synchronous library callbacks) to one C
+ * landing pad. */
+NplVal npl_program_run(NplVal body, NplVal halt)
+{
+    jmp_buf jump;
+    jmp_buf *previous_jump = CTX->program_jump;
+    NplVal previous_result = CTX->program_result;
+    NplVal previous_prompts = CTX->current_prompts;
+    NplVal previous_default = CTX->default_prompt;
+    int saved_root_count = npl_gc_root_count_internal();
+    uintptr_t saved_stack_bottom = npl_gc_stack_bottom_internal();
+    NplVal result;
+
+    CTX->program_jump = &jump;
+    CTX->program_result = npl_nil();
+    if (setjmp(jump) == 0) {
+        npl_default_prompt_begin();
+        npl_default_prompt_set_root(npl_nil(), NPL_PROMPT_ROOT_PROGRAM);
+        result = npl_apply(body, 1, &halt);
+    } else {
+        npl_shared_release_all();
+        npl_trampoline_release_abandoned();
+        npl_gc_restore_root_count_internal(saved_root_count);
+        (void)npl_gc_swap_stack_bottom(saved_stack_bottom);
+        result = CTX->program_result;
+    }
+    CTX->program_jump = previous_jump;
+    CTX->program_result = previous_result;
+    CTX->current_prompts = previous_prompts;
+    CTX->default_prompt = previous_default;
+    return result;
+}
+
+NplVal npl_program_exit_value(void)
+{
+    return CTX->program_result;
 }

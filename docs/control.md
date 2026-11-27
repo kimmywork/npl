@@ -97,12 +97,17 @@ parameterization snapshots:
 
 `parameter?` recognizes existing parameter objects. A parameterization maps
 parameter objects to mutable cells: capturing shares the current binding
-chain, and installing the same parameterization again preserves those cells.
-A `parameter-set!` made through a snapshot persists in that parameterization,
-while the surrounding parameterization keeps its own cells. Cross-thread
-installation still follows NPL's existing thread-owned copy-on-write rules,
-so ordinary shared-cell behavior across threads and the separate inheritable
-thread-local kind remain T4-D work. `temporarily` accepts any parameter-like
+chain, and installing the same parameterization again preserves in-place
+updates to cells already in that chain. A `parameter-set!` for a parameter
+with no binding in the snapshot extends the snapshot's own chain, so the next
+installation sees it. New cells are isolated from the surrounding
+parameterization. A cell already shared with an enclosing parameterization is
+still mutated in place and is visible outside the snapshot; that shared-cell
+behavior and the copy-on-write race are the D0 replacement work, not a claim
+of full SRFI 226 parameter semantics. Cross-thread installation follows NPL's
+existing thread-owned copy-on-write rules, so ordinary shared-cell behavior
+across threads and the separate inheritable thread-local kind remain T4-D
+work. `temporarily` accepts any parameter-like
 procedure and swaps its saved values
 with the current values on every entry and exit through `dynamic-wind`. Because
 the values are installed through the parameter's setter, a non-idempotent
@@ -143,9 +148,15 @@ per-thread one-shot meta-continuation override:
 - invoking a composable continuation installs the invoker's continuation as a
   one-shot override in the invoking thread's runtime context, then applies the
   captured prefix on the **same logical thread**;
-- when the prefix reaches the prompt terminal, it consumes the override and
-  returns its values to the invoker; the invoker's later return through the
-  same prompt uses the ordinary terminal;
+- the delimiter's outer prompt link is spliced to the invoking prompt chain
+  for the duration of the activation. The captured prefix keeps its own winds,
+  handlers, parameters and inner prompts, while the invoking continuation's
+  prompts remain visible: `continuation-prompt-available?` sees them, aborts
+  to their tags reach their handlers, and the delimiter remains the nearest
+  same-tag prompt;
+- when the prefix reaches the prompt terminal, it consumes the override,
+  removes the splice and returns its values to the invoker; the invoker's
+  later return through the same prompt uses the ordinary terminal;
 - non-composable invocation installs the nearest cut prompt's escape as the
   override, so the prefix is reinstated at that cut point;
 - virtual-thread save/restore carries the prompt chain and overrides with its
@@ -189,11 +200,18 @@ predicates; there is no per-library strong registry retaining discarded
 wrappers.
 
 Each program, native thread and virtual thread installs a runtime default
-prompt at its initial continuation. Omitted-tag captures are delimited there,
-`continuation-prompt-tag?` accepts the default tag, and an abort to the default
-root ends the program/thread with the handler's result. Full R7RS `call/cc`
-remains undelimited: installing the default prompt does not silently change
-existing `call/cc` behavior.
+prompt at its initial continuation. The root prompt stores the dynamic
+environment outside itself. An abort to the default root performs the normal
+wind/context transfer first, so intervening `dynamic-wind` after thunks run
+and the default handler sees the root parameters, handlers and prompt chain;
+the handler's result then completes the program or thread. Generated main runs
+under `npl_program_run`, whose C landing pad also unwinds a root abort raised
+inside a nested synchronous callback (for example a hash/equivalence
+procedure). Native threads complete through their termination jump and virtual
+threads through the carrier's mount landing pad; a single value is the join
+result and zero/multiple values arrive as the runtime values object. Full R7RS
+`call/cc` remains undelimited: installing the default prompt does not silently
+change existing `call/cc` behavior.
 
 Remaining T4-A/T4-B limits:
 
@@ -214,8 +232,8 @@ Remaining T4-A/T4-B limits:
 
 The frontend/backend segment emission changes the compiler's own emitted SSA,
 so `bootstrap/current.ssa` was relayed with the codegen-transient mode of
-`tools/update_current_ssa.sh`; the installed seed is the first self-emitted
-compiler (`gen2 == gen3`, 436,669 lines, SHA-256 `e095f8e…`). The permanent bootstrap compiler, stage0 and
+`tools/update_current_ssa.sh`; the installed seed is gen2 with
+`gen2 == gen3` (436,774 lines, SHA-256 `a7ebdb96…`). The permanent bootstrap compiler, stage0 and
 `bootstrap/runtime/` are untouched.
 
 ## Verification
@@ -234,6 +252,10 @@ compiler (`gen2 == gen3`, 436,669 lines, SHA-256 `e095f8e…`). The permanent bo
 - `tests/unit/control-default-prompt.npl` — program, native-thread and
   virtual-thread default prompt roots, omitted-tag captures and default
   handler aborts.
+- `tests/unit/control-b0.npl` — single-value root return, root abort unwind and
+  handler result for native/virtual threads, root abort across a synchronous
+  hash callback, parameterization cell persistence, and the program-level root
+  landing pad.
 - `tests/fixtures/control` and `tests/fixtures/control-parameters` —
   deterministic nplc/npli surface through all component aliases, including
   barrier and call-in cases.

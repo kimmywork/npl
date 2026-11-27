@@ -79,7 +79,7 @@ NplVal npl_segment_depth(NplVal value)
 }
 
 NplVal npl_graft_make(NplVal procedure, NplVal arguments,
-                      NplVal prompt, NplVal target)
+                      NplVal prompt, NplVal target, NplVal splice)
 {
     NplContinuationGraft *graft = (NplContinuationGraft *)
         npl_alloc_object(sizeof(NplContinuationGraft));
@@ -89,6 +89,7 @@ NplVal npl_graft_make(NplVal procedure, NplVal arguments,
     graft->arguments = arguments;
     graft->prompt = prompt;
     graft->target = target;
+    graft->splice = splice;
     return (NplVal)(uintptr_t)graft | TAG_PTR;
 }
 
@@ -126,6 +127,11 @@ NplVal npl_graft_prompt(NplVal value)
 NplVal npl_graft_target(NplVal value)
 {
     return require_graft(value, "graft-target")->target;
+}
+
+NplVal npl_graft_splice(NplVal value)
+{
+    return require_graft(value, "graft-splice")->splice;
 }
 
 NplVal npl_continuation_make(NplVal procedure, NplVal kind, NplVal origin,

@@ -45,13 +45,18 @@
                       (call-with-parameterization
                         saved
                         (lambda () (= (p) 3))))))
-  (test-assert "call-with-parameterization restores after a raise"
-               (let ((p (make-parameter 1)))
-                 (call-with-parameterization
-                   (parameterize ((p 2)) (current-parameterization))
-                   (lambda ()
-                     (caught (lambda () (raise 'boom)))))
-                 (= (p) 1)))
+  (test-assert "call-with-parameterization restores after an outer raise"
+               (let ((p (make-parameter 1))
+                     (saved #f))
+                 (parameterize ((p 2))
+                   (set! saved (current-parameterization)))
+                 (let ((condition
+                        (caught
+                          (lambda ()
+                            (call-with-parameterization
+                              saved
+                              (lambda () (p 3) (raise 'boom)))))))
+                   (and (eq? condition 'boom) (= (p) 1)))))
   (test-assert "temporarily converter and restoration"
                (let ((p (make-parameter 1 (lambda (x) (+ x 1)))))
                  (temporarily ((p 4))
@@ -82,19 +87,25 @@
   (test-assert "leave restores the caller's exact chain for continuation re-entry"
                (let ((p (make-parameter 1))
                      (k #f)
-                     (saved #f))
+                     (saved #f)
+                     (inner #f)
+                     (reentered #f))
                  (parameterize ((p 2))
                    (call/cc (lambda (continuation) (set! k continuation)))
                    (set! saved
                          (parameterize ((p 3))
                            (current-parameterization)))
-                   (call-with-parameterization saved (lambda () (p)))
-                   (p 4)
+                   (set! inner
+                         (call-with-parameterization saved (lambda () (p))))
                    (if k
                        (let ((continuation k))
                          (set! k #f)
+                         (p 4)
                          (continuation 'again))
-                       (p)))))
+                       (set! reentered (p))))
+                 (and (= inner 3)
+                      (= reentered 4)
+                      (= (p) 1))))
   (test-assert "snapshot bindings survive allocation"
                (let ((p (make-parameter 1))
                      (saved #f))
