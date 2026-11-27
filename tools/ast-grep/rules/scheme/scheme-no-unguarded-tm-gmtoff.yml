@@ -1,0 +1,20 @@
+id: scheme-no-unguarded-tm-gmtoff
+language: scheme
+severity: error
+message: "Guard tm_gmtoff field accesses with cond-expand (missing on Windows UCRT)."
+note: >-
+  Windows UCRT struct tm has no tm_gmtoff field. Access tm_gmtoff only inside a
+  non-Windows cond-expand branch.
+files:
+  - lib/**/*.sld
+  - lib/**/*.scm
+  - src/**/*.npl
+ignores:
+  - src/compiler/tests/**
+  - tests/**
+rule:
+  pattern: (c-struct-ref $TM 'tm_gmtoff)
+  not:
+    inside:
+      pattern: (cond-expand $$$CLAUSES)
+      stopBy: end

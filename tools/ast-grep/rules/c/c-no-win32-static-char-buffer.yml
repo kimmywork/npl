@@ -1,0 +1,15 @@
+id: c-no-win32-static-char-buffer
+language: c
+severity: error
+message: "Avoid mutable function-local static char buffers in runtime/os-win32.c."
+note: >-
+  Runtime OS helpers may be called concurrently by SRFI 18 threads. Pass a
+  caller-owned stack buffer or use heap allocation instead of a shared static buffer.
+files:
+  - runtime/os-win32.c
+rule:
+  kind: declaration
+  pattern: static char $NAME[$SIZE];
+  inside:
+    kind: compound_statement
+    stopBy: end

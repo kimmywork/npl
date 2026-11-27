@@ -1,0 +1,11 @@
+id: scheme-no-unguarded-tm-gmtoff
+valid:
+  - |
+    (define-library (npl time)
+      (cond-expand
+        (windows (begin (define (off tm) 0)))
+        (else (begin (define (off tm) (c-struct-ref tm 'tm_gmtoff))))))
+invalid:
+  - |
+    (define (off tm)
+      (c-struct-ref tm 'tm_gmtoff))

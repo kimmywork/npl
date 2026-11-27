@@ -1,0 +1,23 @@
+id: c-no-unguarded-posix-runtime-call
+language: c
+severity: error
+message: "Guard POSIX-only runtime APIs (posix_memalign, alarm, pipe, mmap) with #ifdef/#ifndef _WIN32."
+note: >-
+  runtime/ builds on both POSIX and native Windows (CLANG64). Provide a Win32
+  alternative (e.g. _aligned_malloc, npl_win32_alarm, _pipe, npl_win32_map_chunk)
+  inside an #ifdef _WIN32 / #else block.
+files:
+  - runtime/**/*.c
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    regex: ^(posix_memalign|alarm|pipe|mmap)$
+  not:
+    inside:
+      any:
+        - kind: preproc_ifdef
+        - kind: preproc_else
+        - kind: preproc_if
+      stopBy: end

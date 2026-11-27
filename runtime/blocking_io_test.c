@@ -63,11 +63,13 @@ int main(void)
 #endif
     npl_runtime_init();
     int fds[2];
+    int pipe_rc;
 #ifdef _WIN32
-    if (_pipe(fds, 4096, _O_BINARY) != 0) {
+    pipe_rc = _pipe(fds, 4096, _O_BINARY);
 #else
-    if (pipe(fds) != 0) {
+    pipe_rc = pipe(fds);
 #endif
+    if (pipe_rc != 0) {
         fprintf(stderr, "FAIL: pipe\n");
         return 1;
     }

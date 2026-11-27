@@ -1,0 +1,19 @@
+id: c-no-unboxed-64bit-stat-field
+valid:
+  - |
+    void fill(struct stat *st) {
+        NplVal sz = npl_ffi_from_int64((int64_t)st->st_size);
+        NplVal mode = npl_fixnum((int64_t)st->st_mode);
+        (void)sz; (void)mode;
+    }
+invalid:
+  - |
+    void fill(struct stat *st) {
+        NplVal sz = npl_fixnum((int64_t)st->st_size);
+        (void)sz;
+    }
+  - |
+    void fill(struct stat st) {
+        NplVal ino = npl_fixnum((int64_t)st.st_ino);
+        (void)ino;
+    }

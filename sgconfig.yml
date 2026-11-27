@@ -1,0 +1,18 @@
+ruleDirs:
+  - tools/ast-grep/rules
+
+testConfigs:
+  - testDir: tools/ast-grep/rule-tests
+
+customLanguages:
+  scheme:
+    libraryPath:
+      x86_64-pc-windows-msvc: .cache/ast-grep/scheme-windows-x86_64.dll
+      x86_64-unknown-linux-gnu: .cache/ast-grep/scheme-linux-x86_64.so
+      x86_64-apple-darwin: .cache/ast-grep/scheme-macos-x86_64.dylib
+      aarch64-apple-darwin: .cache/ast-grep/scheme-macos-arm64.dylib
+    extensions:
+      - npl
+      - sld
+      - scm
+    expandoChar: $

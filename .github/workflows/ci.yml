@@ -34,3 +34,28 @@ jobs:
 
       - name: Run the repository gate
         run: ./tools/run_tests.sh --skip-current-fixed-point
+
+  ast-grep-lint:
+    name: AST lint (C & Scheme)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CC: clang
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install ast-grep
+        run: npm install -g @ast-grep/cli@0.51.3
+
+      - name: Build tree-sitter-scheme parser
+        run: ./tools/ast-grep/setup.sh
+
+      - name: Run ast-grep rule tests and repository scan
+        run: ./tools/ast-grep/lint.sh --format github
