@@ -1,0 +1,31 @@
+(import (scheme base)
+        (rename (scheme base) (car user-car) (error user-error))
+        (prefix (scheme base) b:)
+        (scheme write)
+        (scheme process-context))
+
+(include "framework.npl")
+
+(define (main)
+  (test-equal "lambda* with renamed and prefixed imports"
+              (lambda () ((lambda* (x) x) 42))
+              42)
+  (test-equal "renamed error binding is not used for missing arguments"
+              (lambda ()
+                (guard (condition (#t 'raised))
+                  ((lambda* (x) x))))
+              'raised)
+  (test-equal "outer car shadow does not capture generated plumbing"
+              (lambda ()
+                (let ((car (lambda (x) #f)))
+                  ((lambda* (x) x) 42)))
+              42)
+  (test-equal "outer vector-ref shadow does not capture generated plumbing"
+              (lambda ()
+                (let ((vector-ref (lambda (x y) #f)))
+                  ((lambda* (x) x) 42)))
+              42)
+  (test-error "missing required argument still raises"
+              ((lambda* (x) x)))
+  (finish-tests "lambda-star-imports"))
+(main)

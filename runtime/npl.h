@@ -814,6 +814,7 @@ NplVal npl_string_to_keyword(NplVal string);
 NplVal npl_keyword_to_string(NplVal keyword);
 NplVal npl_keyword_predicate(NplVal value);
 NplVal npl_keyword_parse(NplVal spec, NplVal args);
+NplVal npl_keyword_missing(NplVal key, NplVal named);
 NplVal npl_intern_static_keyword(NplVal keyword);
 void npl_keyword_mark_roots(void);
 NplVal npl_substring(NplVal s, NplVal i, NplVal j); /* bytes [i,j) as new box */

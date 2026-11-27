@@ -283,6 +283,10 @@ with `#!colon-keyword`:
 (10 20 30)
 ```
 
+Keywords whose names contain spaces or delimiters use the barred spelling,
+for example `(string->keyword "a b")` writes as `#:|a b|`. The barred
+spelling preserves case under `#!fold-case`.
+
 `#:optional`/`#:key` are NPL's Guile-compatible extensions; the canonical
 SRFI 89 spelling is `(b 1)` and `(c: c 2)`. The `c:` spelling requires
 `#!colon-keyword` at the top of the source (`#!srfi-88` remains an alias);

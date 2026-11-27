@@ -185,3 +185,14 @@ NplVal npl_keyword_parse(NplVal spec, NplVal args)
     npl_gc_unroot(&spec);
     return result;
 }
+
+/* Generated lambda* code reports a missing parameter without depending on
+ * the caller's (possibly renamed or shadowed) error binding. */
+NplVal npl_keyword_missing(NplVal key, NplVal named)
+{
+    const char *message = named == npl_false()
+        ? "missing required argument"
+        : "missing required keyword argument";
+    npl_primitive_error("keyword-arguments", message, key);
+    return npl_nil();
+}

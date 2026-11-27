@@ -131,39 +131,16 @@
     symbol))
 
 
-; Find the outermost value binding for a name, ignoring lexical shadows.
-(define (lambda-star-outer-binding name env result)
-  (if (null? env)
-      result
-      (let ((entry (car env)))
-        (if (car entry)
-            (lambda-star-outer-binding
-              name (cdr env)
-              (if (string=? name (car entry))
-                  (car (cdr (cdr entry)))
-                  result))
-            (if (car (cdr entry))
-                (lambda-star-outer-binding name (cdr env) result)
-                (let ((bindings
-                        (npl_hash_table_ref
-                          (car (cdr (cdr entry))) name ())))
-                  (lambda-star-outer-binding
-                    name (cdr env)
-                    (if (null? bindings)
-                        result
-                        (cdr (car bindings))))))))))
-
+; Generated plumbing references core primitives directly, so caller
+; renames, prefixes, or lexical shadows cannot redirect them.
 (define (lambda-star-protect names mark env)
   (if (null? names)
       env
       (let ((name (car names)))
-        (let ((emitted (lambda-star-outer-binding name env "")))
-          (lambda-star-protect
-            (cdr names) mark
-            (add-value-binding
-              (lambda-star-marked-symbol mark name)
-              (if (> (string-length emitted) 0) emitted name)
-              env))))))
+        (lambda-star-protect
+          (cdr names) mark
+          (add-value-binding
+            (lambda-star-marked-symbol mark name) name env)))))
 
 (define (lambda-star-slot-name mark index)
   (lambda-star-marked-symbol
@@ -213,9 +190,10 @@
        (cons (lambda-star-marked-symbol mark "if")
          (cons present
            (cons raw
-             (cons (cons (lambda-star-marked-symbol mark "error")
-                     (cons (datum-string "missing required argument")
-                       (cons (quote-datum mark var) ())))
+             (cons (cons (lambda-star-marked-symbol
+                           mark "npl_keyword_missing")
+                     (cons (quote-datum mark var)
+                       (cons (datum-false) ())))
                    ())))))
       ((= kind 1)
        (cons (lambda-star-marked-symbol mark "if")
@@ -231,11 +209,11 @@
        (cons (lambda-star-marked-symbol mark "if")
          (cons present
            (cons raw
-             (cons (cons (lambda-star-marked-symbol mark "error")
-                     (cons (datum-string "missing required keyword argument")
-                       (cons (quote-datum mark
-                               (lambda-star-entry-payload entry))
-                             ())))
+             (cons (cons (lambda-star-marked-symbol
+                           mark "npl_keyword_missing")
+                     (cons (quote-datum mark
+                             (lambda-star-entry-payload entry))
+                       (cons (datum-true) ())))
                    ())))))
       (else raw))))
 
@@ -322,7 +300,8 @@
                           (cons outer-bindings (cons inner ())))
                         ())))
                   (lambda-star-protect
-                    '("car" "cdr" "vector-ref" "error" "npl_keyword_parse")
+                    '("car" "cdr" "vector-ref"
+                      "npl_keyword_parse" "npl_keyword_missing")
                     mark value-env)
                   macro-env)))))))))
 (define (expand-define-star form value-env macro-env)

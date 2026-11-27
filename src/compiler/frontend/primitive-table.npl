@@ -81,6 +81,7 @@
     ("keyword->string" fixed 1 0 "npl_keyword_to_string")
     ("string->keyword" fixed 1 0 "npl_string_to_keyword")
     ("npl_keyword_parse" fixed 2 0 "npl_keyword_parse")
+    ("npl_keyword_missing" fixed 2 0)
     ("npl_closure_set_name" fixed 2 0 "npl_closure_set_name")
     ("char?" fixed 1 0)
     ("char->integer" fixed 1 0)

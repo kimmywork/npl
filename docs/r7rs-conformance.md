@@ -176,8 +176,10 @@ R7RS code that uses such an identifier as a symbol must spell it with bars,
 `|foo:|`. The former `#!no-srfi-88` spelling is gone; use a fresh
 source/port for the default. This keeps existing R7RS identifiers such as
 import prefixes (`b:`) working by default while supporting SRFI 88 source
-when requested. `write` always emits `#:name`; keywords whose names contain
-delimiters are construction-only until a quoted keyword syntax exists.
+when requested. `write` emits `#:name` for ordinary names and `#:|...|`
+for names containing delimiters or whitespace, and for the empty name; both
+readers accept the barred spelling. Under `#!fold-case`, plain `#:Name` and
+`Name:` fold, while `#:|Name|` preserves case like a barred symbol.
 
 ## What "frozen" means
 

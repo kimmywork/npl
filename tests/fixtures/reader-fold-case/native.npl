@@ -1,6 +1,6 @@
 #!fold-case
 #!colon-keyword
-(import (scheme base) (scheme write))
+(import (scheme base) (scheme write) (npl keyword))
 
 (define folded-name 7)
 (define folded-space #\SPACE)
@@ -9,6 +9,8 @@
 (write (char=? FOLDED-SPACE #\space)) (newline)
 (write (eq? 'Foo: 'foo:)) (newline)
 (write (eq? #:Foo #:foo)) (newline)
+(write (keyword->string #:|Mixed Name|)) (newline)
+(write (keyword->string #:Mixed)) (newline)
 
 #!no-fold-case
 (define Mixed 8)
@@ -19,3 +21,5 @@
 (write (eq? 'Mixed 'mixed)) (newline)
 (write (eq? 'Foo: 'foo:)) (newline)
 (write (eq? #:Foo #:foo)) (newline)
+(write (keyword->string #:|Mixed Name|)) (newline)
+(write (keyword->string #:Mixed)) (newline)

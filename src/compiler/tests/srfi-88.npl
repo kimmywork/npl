@@ -59,5 +59,22 @@
   (test-equal "empty barred keyword literal"
               (lambda () (keyword->string #:||))
               "")
+  (test-equal "barred keyword read under fold-case keeps case"
+              (lambda ()
+                (keyword->string
+                  (read (open-input-string
+                          "#!fold-case #:|Mixed Name|"))))
+              "Mixed Name")
+  (test-equal "plain keyword read under fold-case folds"
+              (lambda ()
+                (keyword->string
+                  (read (open-input-string "#!fold-case #:Mixed"))))
+              "mixed")
+  (test-equal "trailing-colon keyword folds under fold-case"
+              (lambda ()
+                (keyword->string
+                  (read (open-input-string
+                          "#!fold-case #!colon-keyword\nMixed:"))))
+              "mixed")
   (finish-tests "srfi-88"))
 (main)
