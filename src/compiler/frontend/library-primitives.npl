@@ -17,7 +17,12 @@
     "npl_current_handler"
     "npl_handler_push"
     "npl_handler_pop"
-    "npl_raise_direct"))
+    "npl_raise_direct"
+    "$npl-primitive-car$"
+    "$npl-primitive-cdr$"
+    "$npl-primitive-vector-ref$"
+    "$npl-primitive-keyword-parse$"
+    "$npl-primitive-keyword-missing$"))
 
 (define PRIMITIVE-CONTROL-SOURCE
 "(call-with-current-continuation call-with-values call/cc dynamic-wind raise raise-continuable values with-exception-handler virtual-thread-yield! virtual-thread-block!)" )

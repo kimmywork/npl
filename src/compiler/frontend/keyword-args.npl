@@ -1,0 +1,328 @@
+; ---------------- define* / lambda* (SRFI 89) ----------------
+
+(define (keyword-named? value name)
+  (if (datum-keyword? value)
+      (string=? (datum-keyword-name value) name)
+      #f))
+
+(define (lambda-star-entry kind payload var default)
+  (cons kind (cons payload (cons var (cons default ())))))
+
+(define (lambda-star-entry-kind entry) (car entry))
+(define (lambda-star-entry-payload entry) (car (cdr entry)))
+(define (lambda-star-entry-var entry) (car (cdr (cdr entry))))
+(define (lambda-star-entry-default entry) (car (cdr (cdr (cdr entry)))))
+
+(define (lambda-star-parse formals)
+  (if (datum-symbol? formals)
+      (cons (cons (lambda-star-entry 3 (datum-false) formals #f) ()) #f)
+      (lambda-star-parse-list formals "positional" () #f)))
+
+; Returns (entries . allow-other-keys).
+(define (lambda-star-parse-list rest mode acc allow)
+  (cond
+    ((null? rest) (cons (rev acc) allow))
+    ((datum-symbol? rest)
+     (cons (rev (cons (lambda-star-entry 3 (datum-false) rest #f) acc))
+           allow))
+    ((not (pair? rest))
+     (fatal "malformed lambda* formals"))
+    (else
+     (let ((item (car rest)) (tail (cdr rest)))
+       (cond
+         ((datum-keyword? item)
+          (let ((name (datum-keyword-name item)))
+            (cond
+              ((string=? name "optional")
+               (lambda-star-parse-list tail "optional" acc allow))
+              ((string=? name "key")
+               (lambda-star-parse-list tail "key" acc allow))
+              ((string=? name "rest")
+               (if (not (pair? tail))
+                   (fatal "lambda* #:rest needs a name"))
+               (let ((var (car tail)))
+                 (if (not (datum-symbol? var))
+                     (fatal "lambda* #:rest needs an identifier"))
+                 (if (not (null? (cdr tail)))
+                     (fatal "lambda* #:rest must be last"))
+                 (cons
+                   (rev (cons (lambda-star-entry 3 (datum-false) var #f)
+                              acc))
+                   allow)))
+              ((string=? name "allow-other-keys")
+               (lambda-star-parse-list tail mode acc #t))
+              (else
+               (fatal "keyword marker is not valid here")))))
+         ((datum-symbol? item)
+          (cond
+            ((string=? mode "optional")
+             (lambda-star-parse-list
+               tail mode
+               (cons (lambda-star-entry 1 (datum-false) item (datum-false))
+                     acc)
+               allow))
+            ((string=? mode "key")
+             (lambda-star-parse-list
+               tail mode
+               (cons (lambda-star-entry
+                       2 (datum-keyword (datum-symbol-name item))
+                       item (datum-false))
+                     acc)
+               allow))
+            (else
+             (lambda-star-parse-list
+               tail mode
+               (cons (lambda-star-entry 0 (datum-false) item #f) acc)
+               allow))))
+         ((pair? item)
+          (let ((head (car item)) (args (cdr item)))
+            (cond
+              ((datum-keyword? head)
+               (if (not (pair? args))
+                   (fatal "named parameter needs a variable"))
+               (let ((var (car args)) (defaults (cdr args)))
+                 (if (not (datum-symbol? var))
+                     (fatal "named parameter variable must be an identifier"))
+                 (if (null? defaults)
+                     (lambda-star-parse-list
+                       tail mode
+                       (cons (lambda-star-entry 4 head var #f) acc)
+                       allow)
+                     (if (not (null? (cdr defaults)))
+                         (fatal "named parameter has too many parts")
+                         (lambda-star-parse-list
+                           tail mode
+                           (cons (lambda-star-entry
+                                   2 head var (car defaults))
+                                 acc)
+                           allow)))))
+              ((datum-symbol? head)
+               (if (not (pair? args))
+                   (fatal "optional parameter needs a default"))
+               (if (not (null? (cdr args)))
+                   (fatal "optional parameter has too many parts")
+                   (if (string=? mode "key")
+                       (lambda-star-parse-list
+                         tail mode
+                         (cons (lambda-star-entry
+                                 2 (datum-keyword (datum-symbol-name head))
+                                 head (car args))
+                               acc)
+                         allow)
+                       (lambda-star-parse-list
+                         tail mode
+                         (cons (lambda-star-entry 1 (datum-false)
+                                                  head (car args))
+                               acc)
+                         allow))))
+              (else (fatal "malformed lambda* parameter")))))
+         (else (fatal "malformed lambda* formals")))))))
+
+(define (lambda-star-spec entries)
+  (if (null? entries)
+      ()
+      (cons (cons (lambda-star-entry-kind (car entries))
+                  (lambda-star-entry-payload (car entries)))
+            (lambda-star-spec (cdr entries)))))
+
+(define (lambda-star-marked-symbol mark name)
+  (let ((symbol (datum-symbol name)))
+    (set-identifier-mark! symbol mark)
+    symbol))
+
+
+; Generated plumbing references core primitives directly, so caller
+; renames, prefixes, or lexical shadows cannot redirect them.
+(define (lambda-star-protect names mark env)
+  (if (null? names)
+      env
+      (let ((name (car names)))
+        (lambda-star-protect
+          (cdr names) mark
+          (add-value-binding
+            (lambda-star-marked-symbol mark name) name env)))))
+
+(define (lambda-star-slot-name mark index)
+  (lambda-star-marked-symbol
+    mark
+    (fresh-value-name
+      (datum-symbol (string-append "keyword_slot_"
+                                   (number->string index))))))
+
+(define (lambda-star-present-name mark index)
+  (lambda-star-marked-symbol
+    mark
+    (fresh-value-name
+      (datum-symbol (string-append "keyword_present_"
+                                   (number->string index))))))
+
+(define (lambda-star-raw-name mark index)
+  (lambda-star-marked-symbol
+    mark
+    (fresh-value-name
+      (datum-symbol (string-append "keyword_raw_"
+                                   (number->string index))))))
+
+; One (slot present raw) triple per parameter, generated once so binders and
+; references use the same hygienic names.
+(define (lambda-star-names mark entries index)
+  (if (null? entries)
+      ()
+      (cons
+        (cons (lambda-star-slot-name mark index)
+          (cons (lambda-star-present-name mark index)
+                (cons (lambda-star-raw-name mark index) ())))
+        (lambda-star-names mark (cdr entries) (+ index 1)))))
+
+(define (lambda-star-name-slot names) (car names))
+(define (lambda-star-name-present names) (car (cdr names)))
+(define (lambda-star-name-raw names) (car (cdr (cdr names))))
+
+(define (quote-datum mark datum)
+  (cons (lambda-star-marked-symbol mark "quote") (cons datum ())))
+
+(define (lambda-star-value-expr entry present raw mark)
+  (let ((kind (lambda-star-entry-kind entry))
+        (var (lambda-star-entry-var entry))
+        (default (lambda-star-entry-default entry)))
+    (cond
+      ((= kind 0)
+       (cons (lambda-star-marked-symbol mark "if")
+         (cons present
+           (cons raw
+             (cons (cons (lambda-star-marked-symbol
+                           mark "$npl-primitive-keyword-missing$")
+                     (cons (quote-datum mark var)
+                       (cons (datum-false) ())))
+                   ())))))
+      ((= kind 1)
+       (cons (lambda-star-marked-symbol mark "if")
+         (cons present
+           (cons raw
+             (cons (if default default (datum-false)) ())))))
+      ((= kind 2)
+       (cons (lambda-star-marked-symbol mark "if")
+         (cons present
+           (cons raw
+             (cons (if default default (datum-false)) ())))))
+      ((= kind 4)
+       (cons (lambda-star-marked-symbol mark "if")
+         (cons present
+           (cons raw
+             (cons (cons (lambda-star-marked-symbol
+                           mark "$npl-primitive-keyword-missing$")
+                     (cons (quote-datum mark
+                             (lambda-star-entry-payload entry))
+                       (cons (datum-true) ())))
+                   ())))))
+      (else raw))))
+
+(define (lambda-star-bindings entries names mark)
+  (if (null? entries)
+      ()
+      (let ((entry (car entries))
+            (name (car names)))
+        (cons
+          (cons (lambda-star-entry-var entry)
+            (cons (lambda-star-value-expr
+                    entry
+                    (lambda-star-name-present name)
+                    (lambda-star-name-raw name)
+                    mark)
+                  ()))
+          (lambda-star-bindings (cdr entries) (cdr names) mark)))))
+
+(define (lambda-star-slot-bindings names state index tail mark)
+  (if (null? names)
+      tail
+      (let ((name (car names)))
+        (let ((slot (lambda-star-name-slot name))
+              (present (lambda-star-name-present name))
+              (raw (lambda-star-name-raw name)))
+          (cons
+            (cons slot
+              (cons (cons (lambda-star-marked-symbol mark "$npl-primitive-vector-ref$")
+                          (cons state (cons index ()))) ()))
+            (cons
+              (cons present
+                (cons (cons (lambda-star-marked-symbol mark "$npl-primitive-car$")
+                            (cons slot ())) ()))
+              (cons
+                (cons raw
+                  (cons (cons (lambda-star-marked-symbol mark "$npl-primitive-cdr$")
+                              (cons slot ())) ()))
+                (lambda-star-slot-bindings
+                  (cdr names) state (+ index 1) tail mark))))))))
+
+(define (expand-lambda-star form value-env macro-env)
+  (let ((formals (car (cdr form)))
+        (body (cdr (cdr form))))
+    (let ((parsed (lambda-star-parse formals)))
+      (let ((entries (car parsed))
+            (allow (cdr parsed))
+            (mark (fresh-syntax-mark)))
+        (let ((args
+                (lambda-star-marked-symbol
+                  mark
+                  (fresh-value-name (datum-symbol "keyword_args"))))
+              (state
+                (lambda-star-marked-symbol
+                  mark
+                  (fresh-value-name (datum-symbol "keyword_state")))))
+          (let ((names (lambda-star-names mark entries 0)))
+            (let ((spec
+                    (quote-datum
+                      mark
+                      (if allow
+                          (cons (cons 5 (datum-false))
+                                (lambda-star-spec entries))
+                          (lambda-star-spec entries)))))
+              (let ((outer-bindings
+                      (cons
+                        (cons state
+                          (cons
+                            (cons (lambda-star-marked-symbol
+                                    mark "$npl-primitive-keyword-parse$")
+                              (cons spec (cons args ())))
+                            ()))
+                        (lambda-star-slot-bindings
+                          names state 0 () mark)))
+                    (inner
+                      (cons (lambda-star-marked-symbol mark "let*")
+                        (cons
+                          (lambda-star-bindings entries names mark)
+                          body))))
+                (expand-expression
+                  (cons (lambda-star-marked-symbol mark "lambda")
+                    (cons args
+                      (cons
+                        (cons (lambda-star-marked-symbol mark "let*")
+                          (cons outer-bindings (cons inner ())))
+                        ())))
+                  (lambda-star-protect
+                    '("$npl-primitive-car$"
+                      "$npl-primitive-cdr$"
+                      "$npl-primitive-vector-ref$"
+                      "$npl-primitive-keyword-parse$"
+                      "$npl-primitive-keyword-missing$")
+                    mark value-env)
+                  macro-env)))))))))
+(define (expand-define-star form value-env macro-env)
+  (if (null? (cdr form)) (fatal "define* needs a target"))
+  (let ((target (car (cdr form))) (rest (cdr (cdr form))))
+    (if (datum-symbol? target)
+        (expand-define
+          (cons (datum-symbol "define") (cons target rest))
+          value-env macro-env)
+        (if (pair? target)
+            (let ((name (car target)) (formals (cdr target)))
+              (if (not (datum-symbol? name))
+                  (fatal "define* name must be an identifier"))
+              (expand-define
+                (cons (datum-symbol "define")
+                  (cons name
+                    (cons (cons (datum-symbol "lambda*")
+                                (cons formals rest))
+                          ())))
+                value-env macro-env))
+            (fatal "bad define* target")))))

@@ -67,6 +67,7 @@ void npl_gc_visit_children_internal(NplHeader *header,
             break;
         case BOX_STRING:
         case BOX_SYMBOL:
+        case BOX_KEYWORD:
             visit(npl_string_owned_buffer_internal((const NplString *)header));
             break;
         case BOX_RATIONAL: {
@@ -93,6 +94,8 @@ void npl_gc_visit_children_internal(NplHeader *header,
             visit(closure->environment);
             for (int64_t i = 0; i < closure->capture_count; i++)
                 visit(closure->captures[i]);
+            /* Trailing display-name slot (npl_closure_set_name). */
+            visit(closure->captures[closure->capture_count]);
             break;
         }
         case BOX_VALUES: {

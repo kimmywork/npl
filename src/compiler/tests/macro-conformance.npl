@@ -52,6 +52,14 @@
                         ((_) secret))))
          body ...)))))
 
+; Keyword literals are valid pattern and template data.
+(define-syntax keyword-pattern
+  (syntax-rules ()
+    ((_ #:tag value) value)))
+(define-syntax keyword-template
+  (syntax-rules ()
+    ((_ value) (list #:tag value))))
+
 (define (single-define-body)
   (let ()
     (define-one local-value 41)
@@ -105,5 +113,11 @@
   (test-equal "internal macro sees outer body binding"
               (lambda () (definition-value-body))
               42)
+  (test-equal "keyword literal in pattern"
+              (lambda () (keyword-pattern #:tag 7))
+              7)
+  (test-list "keyword literal in template"
+             (lambda () (keyword-template 5))
+             '(#:tag 5))
   (finish-tests "macro-conformance"))
 (main)

@@ -1,0 +1,4897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- 2025-05-21 Wed 17:05 -->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>A Scheme Primer</title>
+<meta name="author" content="Christine Lemmer-Webber and the Spritely Institute" />
+<meta name="generator" content="Org Mode" />
+<style type="text/css">
+  #content { max-width: 60em; margin: auto; }
+  .title  { text-align: center;
+             margin-bottom: .2em; }
+  .subtitle { text-align: center;
+              font-size: medium;
+              font-weight: bold;
+              margin-top:0; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { font-family: monospace; color: green; }
+  .priority { font-family: monospace; color: orange; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .org-right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .org-left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .org-center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #e6e6e6;
+    border-radius: 3px;
+    background-color: #f2f2f2;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: auto;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    top: -8px;
+    right: 12px;
+    padding: 3px;
+    color: #555;
+    background-color: #f2f2f299;
+  }
+  pre.src:hover:before { display: inline; margin-top: 14px;}
+  /* Languages per Org manual */
+  pre.src-asymptote:before { content: 'Asymptote'; }
+  pre.src-awk:before { content: 'Awk'; }
+  pre.src-authinfo::before { content: 'Authinfo'; }
+  pre.src-C:before { content: 'C'; }
+  /* pre.src-C++ doesn't work in CSS */
+  pre.src-clojure:before { content: 'Clojure'; }
+  pre.src-css:before { content: 'CSS'; }
+  pre.src-D:before { content: 'D'; }
+  pre.src-ditaa:before { content: 'ditaa'; }
+  pre.src-dot:before { content: 'Graphviz'; }
+  pre.src-calc:before { content: 'Emacs Calc'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-fortran:before { content: 'Fortran'; }
+  pre.src-gnuplot:before { content: 'gnuplot'; }
+  pre.src-haskell:before { content: 'Haskell'; }
+  pre.src-hledger:before { content: 'hledger'; }
+  pre.src-java:before { content: 'Java'; }
+  pre.src-js:before { content: 'Javascript'; }
+  pre.src-latex:before { content: 'LaTeX'; }
+  pre.src-ledger:before { content: 'Ledger'; }
+  pre.src-lisp:before { content: 'Lisp'; }
+  pre.src-lilypond:before { content: 'Lilypond'; }
+  pre.src-lua:before { content: 'Lua'; }
+  pre.src-matlab:before { content: 'MATLAB'; }
+  pre.src-mscgen:before { content: 'Mscgen'; }
+  pre.src-ocaml:before { content: 'Objective Caml'; }
+  pre.src-octave:before { content: 'Octave'; }
+  pre.src-org:before { content: 'Org mode'; }
+  pre.src-oz:before { content: 'OZ'; }
+  pre.src-plantuml:before { content: 'Plantuml'; }
+  pre.src-processing:before { content: 'Processing.js'; }
+  pre.src-python:before { content: 'Python'; }
+  pre.src-R:before { content: 'R'; }
+  pre.src-ruby:before { content: 'Ruby'; }
+  pre.src-sass:before { content: 'Sass'; }
+  pre.src-scheme:before { content: 'Scheme'; }
+  pre.src-screen:before { content: 'Gnu Screen'; }
+  pre.src-sed:before { content: 'Sed'; }
+  pre.src-sh:before { content: 'shell'; }
+  pre.src-sql:before { content: 'SQL'; }
+  pre.src-sqlite:before { content: 'SQLite'; }
+  /* additional languages in org.el's org-babel-load-languages alist */
+  pre.src-forth:before { content: 'Forth'; }
+  pre.src-io:before { content: 'IO'; }
+  pre.src-J:before { content: 'J'; }
+  pre.src-makefile:before { content: 'Makefile'; }
+  pre.src-maxima:before { content: 'Maxima'; }
+  pre.src-perl:before { content: 'Perl'; }
+  pre.src-picolisp:before { content: 'Pico Lisp'; }
+  pre.src-scala:before { content: 'Scala'; }
+  pre.src-shell:before { content: 'Shell Script'; }
+  pre.src-ebnf2ps:before { content: 'ebfn2ps'; }
+  /* additional language identifiers per "defun org-babel-execute"
+       in ob-*.el */
+  pre.src-cpp:before  { content: 'C++'; }
+  pre.src-abc:before  { content: 'ABC'; }
+  pre.src-coq:before  { content: 'Coq'; }
+  pre.src-groovy:before  { content: 'Groovy'; }
+  /* additional language identifiers from org-babel-shell-names in
+     ob-shell.el: ob-shell is the only babel language using a lambda to put
+     the execution function name together. */
+  pre.src-bash:before  { content: 'bash'; }
+  pre.src-csh:before  { content: 'csh'; }
+  pre.src-ash:before  { content: 'ash'; }
+  pre.src-dash:before  { content: 'dash'; }
+  pre.src-ksh:before  { content: 'ksh'; }
+  pre.src-mksh:before  { content: 'mksh'; }
+  pre.src-posh:before  { content: 'posh'; }
+  /* Additional Emacs modes also supported by the LaTeX listings package */
+  pre.src-ada:before { content: 'Ada'; }
+  pre.src-asm:before { content: 'Assembler'; }
+  pre.src-caml:before { content: 'Caml'; }
+  pre.src-delphi:before { content: 'Delphi'; }
+  pre.src-html:before { content: 'HTML'; }
+  pre.src-idl:before { content: 'IDL'; }
+  pre.src-mercury:before { content: 'Mercury'; }
+  pre.src-metapost:before { content: 'MetaPost'; }
+  pre.src-modula-2:before { content: 'Modula-2'; }
+  pre.src-pascal:before { content: 'Pascal'; }
+  pre.src-ps:before { content: 'PostScript'; }
+  pre.src-prolog:before { content: 'Prolog'; }
+  pre.src-simula:before { content: 'Simula'; }
+  pre.src-tcl:before { content: 'tcl'; }
+  pre.src-tex:before { content: 'TeX'; }
+  pre.src-plain-tex:before { content: 'Plain TeX'; }
+  pre.src-verilog:before { content: 'Verilog'; }
+  pre.src-vhdl:before { content: 'VHDL'; }
+  pre.src-xml:before { content: 'XML'; }
+  pre.src-nxml:before { content: 'XML'; }
+  /* add a generic configuration mode; LaTeX export needs an additional
+     (add-to-list 'org-latex-listings-langs '(conf " ")) in .emacs */
+  pre.src-conf:before { content: 'Configuration File'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.org-right  { text-align: center;  }
+  th.org-left   { text-align: center;   }
+  th.org-center { text-align: center; }
+  td.org-right  { text-align: right;  }
+  td.org-left   { text-align: left;   }
+  td.org-center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara { display: inline; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .equation-container {
+    display: table;
+    text-align: center;
+    width: 100%;
+  }
+  .equation {
+    vertical-align: middle;
+  }
+  .equation-label {
+    display: table-cell;
+    text-align: right;
+    vertical-align: middle;
+  }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  .org-svg { }
+</style>
+</head>
+<body>
+<div id="content" class="content">
+<h1 class="title">A Scheme Primer</h1>
+<div id="table-of-contents" role="doc-toc">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents" role="doc-toc">
+<ul>
+<li><a href="#introduction">1. Introduction</a></li>
+<li><a href="#org358be61">2. Setting up</a></li>
+<li><a href="#hello-scheme">3. Hello Scheme!</a></li>
+<li><a href="#scheme-basic-types">4. Basic types, a few small functions</a></li>
+<li><a href="#scheme-variables-and-procedures">5. Variables and procedures</a></li>
+<li><a href="#scheme-conditionals-and-predicates">6. Conditionals and predicates</a></li>
+<li><a href="#scheme-lists-and-cons">7. Lists and "cons"</a></li>
+<li><a href="#scheme-closure">8. Closures</a></li>
+<li><a href="#scheme-iteration-recursion">9. Iteration and recursion</a></li>
+<li><a href="#scheme-effects">10. Mutation, assignment, and other kinds of side effects</a></li>
+<li><a href="#scheme-extensibility">11. On the extensibility of Scheme (and Lisps in general)</a></li>
+<li><a href="#scheme-in-scheme">12. Scheme in Scheme</a></li>
+</ul>
+</div>
+</div>
+<style type="text/css">
+    <!--
+      body {
+        color: #2e3436;
+        background-color: #eeeeec;
+      }
+      .org-abbrev-table-name {
+        /* abbrev-table-name */
+        color: #a40000;
+      }
+      .org-ansi-color-black {
+        /* ansi-color-black */
+        color: #2e3436;
+        background-color: #2e3436;
+      }
+      .org-ansi-color-blue {
+        /* ansi-color-blue */
+        color: #3465a4;
+        background-color: #3465a4;
+      }
+      .org-ansi-color-bold {
+        /* ansi-color-bold */
+        font-weight: bold;
+      }
+      .org-ansi-color-bright-black {
+        /* ansi-color-bright-black */
+        color: #5f615c;
+        background-color: #5f615c;
+      }
+      .org-ansi-color-bright-blue {
+        /* ansi-color-bright-blue */
+        color: #729fcf;
+        background-color: #729fcf;
+      }
+      .org-ansi-color-bright-cyan {
+        /* ansi-color-bright-cyan */
+        color: #34e2e2;
+        background-color: #34e2e2;
+      }
+      .org-ansi-color-bright-green {
+        /* ansi-color-bright-green */
+        color: #8ae234;
+        background-color: #8ae234;
+      }
+      .org-ansi-color-bright-magenta {
+        /* ansi-color-bright-magenta */
+        color: #ad7fa8;
+        background-color: #ad7fa8;
+      }
+      .org-ansi-color-bright-red {
+        /* ansi-color-bright-red */
+        color: #ef2929;
+        background-color: #ef2929;
+      }
+      .org-ansi-color-bright-white {
+        /* ansi-color-bright-white */
+        color: #eeeeec;
+        background-color: #eeeeec;
+      }
+      .org-ansi-color-bright-yellow {
+        /* ansi-color-bright-yellow */
+        color: #fce94f;
+        background-color: #fce94f;
+      }
+      .org-ansi-color-cyan {
+        /* ansi-color-cyan */
+        color: #06989a;
+        background-color: #06989a;
+      }
+      .org-ansi-color-faint {
+      }
+      .org-ansi-color-fast-blink {
+      }
+      .org-ansi-color-green {
+        /* ansi-color-green */
+        color: #4e9a06;
+        background-color: #4e9a06;
+      }
+      .org-ansi-color-inverse {
+      }
+      .org-ansi-color-italic {
+        /* ansi-color-italic */
+        font-style: italic;
+      }
+      .org-ansi-color-magenta {
+        /* ansi-color-magenta */
+        color: #75507b;
+        background-color: #75507b;
+      }
+      .org-ansi-color-red {
+        /* ansi-color-red */
+        color: #cc0000;
+        background-color: #cc0000;
+      }
+      .org-ansi-color-slow-blink {
+      }
+      .org-ansi-color-underline {
+        /* ansi-color-underline */
+        text-decoration: underline;
+      }
+      .org-ansi-color-white {
+        /* ansi-color-white */
+        color: #d3d7cf;
+        background-color: #d3d7cf;
+      }
+      .org-ansi-color-yellow {
+        /* ansi-color-yellow */
+        color: #c4a000;
+        background-color: #c4a000;
+      }
+      .org-bold {
+        /* bold */
+        font-weight: bold;
+      }
+      .org-bold-italic {
+        /* bold-italic */
+        font-weight: bold;
+        font-style: italic;
+      }
+      .org-border {
+      }
+      .org-bracket {
+      }
+      .org-browse-url-button {
+        /* browse-url-button */
+        color: #204a87;
+        text-decoration: underline;
+      }
+      .org-buffer-menu-buffer {
+        /* buffer-menu-buffer */
+        font-weight: bold;
+      }
+      .org-builtin {
+        /* font-lock-builtin-face */
+        color: #75507b;
+      }
+      .org-button {
+        /* button */
+        color: #204a87;
+        text-decoration: underline;
+      }
+      .org-calendar-month-header {
+        /* calendar-month-header */
+        color: #a40000;
+      }
+      .org-calendar-today {
+        /* calendar-today */
+        text-decoration: underline;
+      }
+      .org-calendar-weekday-header {
+        /* calendar-weekday-header */
+        color: #204a87;
+        font-weight: bold;
+      }
+      .org-calendar-weekend-header {
+        /* calendar-weekend-header */
+        color: #5f615c;
+        font-style: italic;
+      }
+      .org-child-frame-border {
+      }
+      .org-comint-highlight-input {
+        /* comint-highlight-input */
+        font-weight: bold;
+      }
+      .org-comint-highlight-prompt {
+        /* comint-highlight-prompt */
+        color: #204a87;
+        font-weight: bold;
+      }
+      .org-comment {
+        /* font-lock-comment-face */
+        color: #5f615c;
+        font-style: italic;
+      }
+      .org-comment-delimiter {
+        /* font-lock-comment-delimiter-face */
+        color: #5f615c;
+        font-style: italic;
+      }
+      .org-completions-common-part {
+        /* completions-common-part */
+        color: #0000cd;
+      }
+      .org-completions-first-difference {
+        /* completions-first-difference */
+        font-weight: bold;
+      }
+      .org-completions-group-separator {
+        /* completions-group-separator */
+        color: #7f7f7f;
+        text-decoration: line-through;
+      }
+      .org-completions-group-title {
+        /* completions-group-title */
+        color: #7f7f7f;
+        font-style: italic;
+      }
+      .org-completions-highlight {
+        /* completions-highlight */
+        background-color: #babdb6;
+      }
+      .org-confusingly-reordered {
+        /* confusingly-reordered */
+        text-decoration: underline;
+      }
+      .org-constant {
+        /* font-lock-constant-face */
+        color: #204a87;
+        font-weight: bold;
+      }
+      .org-cursor {
+        /* cursor */
+        background-color: #204a87;
+      }
+      .org-custom-button {
+        /* custom-button */
+        color: #000000;
+        background-color: #d3d3d3;
+      }
+      .org-custom-button-mouse {
+        /* custom-button-mouse */
+        color: #000000;
+        background-color: #e5e5e5;
+      }
+      .org-custom-button-pressed {
+        /* custom-button-pressed */
+        color: #000000;
+        background-color: #d3d3d3;
+      }
+      .org-custom-button-pressed-unraised {
+        /* custom-button-pressed-unraised */
+        color: #8b008b;
+        text-decoration: underline;
+      }
+      .org-custom-button-unraised {
+        /* custom-button-unraised */
+        text-decoration: underline;
+      }
+      .org-custom-changed {
+        /* custom-changed */
+        color: #ffffff;
+        background-color: #0000ff;
+      }
+      .org-custom-comment {
+        /* custom-comment */
+        background-color: #d9d9d9;
+      }
+      .org-custom-comment-tag {
+        /* custom-comment-tag */
+        color: #00008b;
+      }
+      .org-custom-documentation {
+      }
+      .org-custom-face-tag {
+        /* custom-face-tag */
+        color: #0000ff;
+        font-weight: bold;
+      }
+      .org-custom-group-subtitle {
+        /* custom-group-subtitle */
+        font-weight: bold;
+      }
+      .org-custom-group-tag {
+        /* custom-group-tag */
+        color: #0000ff;
+        font-size: 120%;
+        font-weight: bold;
+      }
+      .org-custom-group-tag-1 {
+        /* custom-group-tag-1 */
+        color: #ff0000;
+        font-size: 120%;
+        font-weight: bold;
+      }
+      .org-custom-invalid {
+        /* custom-invalid */
+        color: #ffff00;
+        background-color: #ff0000;
+      }
+      .org-custom-link {
+        /* custom-link */
+        color: #204a87;
+        text-decoration: underline;
+      }
+      .org-custom-modified {
+        /* custom-modified */
+        color: #ffffff;
+        background-color: #0000ff;
+      }
+      .org-custom-rogue {
+        /* custom-rogue */
+        color: #ffc0cb;
+        background-color: #000000;
+      }
+      .org-custom-saved {
+        /* custom-saved */
+        text-decoration: underline;
+      }
+      .org-custom-set {
+        /* custom-set */
+        color: #0000ff;
+        background-color: #ffffff;
+      }
+      .org-custom-state {
+        /* custom-state */
+        color: #006400;
+      }
+      .org-custom-themed {
+        /* custom-themed */
+        color: #ffffff;
+        background-color: #0000ff;
+      }
+      .org-custom-variable-button {
+        /* custom-variable-button */
+        font-weight: bold;
+        text-decoration: underline;
+      }
+      .org-custom-variable-obsolete {
+        /* custom-variable-obsolete */
+        color: #0000ff;
+      }
+      .org-custom-variable-tag {
+        /* custom-variable-tag */
+        color: #0000ff;
+        font-weight: bold;
+      }
+      .org-custom-visibility {
+        /* custom-visibility */
+        color: #204a87;
+        font-size: 80%;
+        text-decoration: underline;
+      }
+      .org-default {
+        /* default */
+        color: #2e3436;
+        background-color: #eeeeec;
+      }
+      .org-delimiter {
+      }
+      .org-diary {
+        /* diary */
+        color: #ff0000;
+      }
+      .org-diff-added {
+        /* diff-added */
+        background-color: #eeffee;
+      }
+      .org-diff-changed {
+      }
+      .org-diff-changed-unspecified {
+        /* diff-changed-unspecified */
+        background-color: #e5e5e5;
+      }
+      .org-diff-context {
+      }
+      .org-diff-error {
+        /* diff-error */
+        color: #ff0000;
+        background-color: #000000;
+        font-weight: bold;
+      }
+      .org-diff-file-header {
+        /* diff-file-header */
+        background-color: #bfbfbf;
+        font-weight: bold;
+      }
+      .org-diff-function {
+        /* diff-function */
+        background-color: #d9d9d9;
+      }
+      .org-diff-header {
+        /* diff-header */
+        background-color: #d9d9d9;
+      }
+      .org-diff-hunk-header {
+        /* diff-hunk-header */
+        background-color: #d9d9d9;
+      }
+      .org-diff-index {
+        /* diff-index */
+        background-color: #bfbfbf;
+        font-weight: bold;
+      }
+      .org-diff-indicator-added {
+        /* diff-indicator-added */
+        color: #22aa22;
+        background-color: #eeffee;
+      }
+      .org-diff-indicator-changed {
+        /* diff-indicator-changed */
+        color: #aaaa22;
+      }
+      .org-diff-indicator-removed {
+        /* diff-indicator-removed */
+        color: #aa2222;
+        background-color: #ffeeee;
+      }
+      .org-diff-nonexistent {
+        /* diff-nonexistent */
+        background-color: #bfbfbf;
+        font-weight: bold;
+      }
+      .org-diff-refine-added {
+        /* diff-refine-added */
+        background-color: #bbffbb;
+      }
+      .org-diff-refine-changed {
+        /* diff-refine-changed */
+        background-color: #ffff55;
+      }
+      .org-diff-refine-removed {
+        /* diff-refine-removed */
+        background-color: #ffcccc;
+      }
+      .org-diff-removed {
+        /* diff-removed */
+        background-color: #ffeeee;
+      }
+      .org-dired-broken-symlink {
+        /* dired-broken-symlink */
+        color: #ffff00;
+        background-color: #ff0000;
+        font-weight: bold;
+      }
+      .org-dired-directory {
+        /* dired-directory */
+        color: #a40000;
+      }
+      .org-dired-flagged {
+        /* dired-flagged */
+        color: #a40000;
+      }
+      .org-dired-header {
+        /* dired-header */
+        color: #204a87;
+      }
+      .org-dired-ignored {
+        /* dired-ignored */
+        color: #7f7f7f;
+      }
+      .org-dired-mark {
+        /* dired-mark */
+        color: #204a87;
+        font-weight: bold;
+      }
+      .org-dired-marked {
+        /* dired-marked */
+        color: #ce5c00;
+      }
+      .org-dired-perm-write {
+        /* dired-perm-write */
+        color: #5f615c;
+        font-style: italic;
+      }
+      .org-dired-set-id {
+        /* dired-set-id */
+        color: #a40000;
+      }
+      .org-dired-special {
+        /* dired-special */
+        color: #b35000;
+      }
+      .org-dired-symlink {
+        /* dired-symlink */
+        color: #346604;
+      }
+      .org-dired-warning {
+        /* dired-warning */
+        color: #a40000;
+      }
+      .org-doc {
+        /* font-lock-doc-face */
+        color: #5c3566;
+      }
+      .org-doc-markup {
+        /* font-lock-doc-markup-face */
+        color: #204a87;
+        font-weight: bold;
+      }
+      .org-eldoc-highlight-function-argument {
+        /* eldoc-highlight-function-argument */
+        font-weight: bold;
+      }
+      .org-elisp-shorthand-font-lock {
+        /* elisp-shorthand-font-lock-face */
+        color: #00ffff;
+      }
+      .org-epa-field-body {
+        /* epa-field-body */
+        font-style: italic;
+      }
+      .org-epa-field-name {
+        /* epa-field-name */
+        font-weight: bold;
+      }
+      .org-epa-mark {
+        /* epa-mark */
+        color: #ff0000;
+        font-weight: bold;
+      }
+      .org-epa-string {
+        /* epa-string */
+        color: #00008b;
+      }
+      .org-epa-validity-disabled {
+        /* epa-validity-disabled */
+        font-style: italic;
+      }
+      .org-epa-validity-high {
+        /* epa-validity-high */
+        font-weight: bold;
+      }
+      .org-epa-validity-low {
+        /* epa-validity-low */
+        font-style: italic;
+      }
+      .org-epa-validity-medium {
+        /* epa-validity-medium */
+        font-style: italic;
+      }
+      .org-error {
+        /* error */
+        color: #a40000;
+      }
+      .org-escape {
+        /* font-lock-escape-face */
+        font-weight: bold;
+      }
+      .org-escape-glyph {
+        /* escape-glyph */
+        color: #a40000;
+      }
+      .org-eww-form-checkbox {
+        /* eww-form-checkbox */
+        color: #000000;
+        background-color: #d3d3d3;
+      }
+      .org-eww-form-file {
+        /* eww-form-file */
+        color: #000000;
+        background-color: #808080;
+      }
+      .org-eww-form-select {
+        /* eww-form-select */
+        color: #000000;
+        background-color: #d3d3d3;
+      }
+      .org-eww-form-submit {
+        /* eww-form-submit */
+        color: #000000;
+        background-color: #808080;
+      }
+      .org-eww-form-text {
+        /* eww-form-text */
+        color: #ffffff;
+        background-color: #505050;
+      }
+      .org-eww-form-textarea {
+        /* eww-form-textarea */
+        color: #000000;
+        background-color: #C0C0C0;
+      }
+      .org-eww-invalid-certificate {
+        /* eww-invalid-certificate */
+        color: #ff0000;
+        font-weight: bold;
+      }
+      .org-eww-valid-certificate {
+        /* eww-valid-certificate */
+        color: #228b22;
+        font-weight: bold;
+      }
+      .org-ffap {
+        /* ffap */
+        background-color: #babdb6;
+      }
+      .org-file-name-shadow {
+        /* file-name-shadow */
+        color: #7f7f7f;
+      }
+      .org-fill-column-indicator {
+        /* fill-column-indicator */
+        color: #7f7f7f;
+      }
+      .org-fixed-pitch {
+      }
+      .org-fixed-pitch-serif {
+      }
+      .org-fringe {
+        /* fringe */
+        background-color: #d3d7cf;
+      }
+      .org-function-call {
+        /* font-lock-function-call-face */
+        color: #a40000;
+      }
+      .org-function-name {
+        /* font-lock-function-name-face */
+        color: #a40000;
+      }
+      .org-glyphless-char {
+        /* glyphless-char */
+        font-size: 60%;
+      }
+      .org-gnus-button {
+        /* gnus-button */
+        font-weight: bold;
+      }
+      .org-gnus-emphasis-bold {
+        /* gnus-emphasis-bold */
+        font-weight: bold;
+      }
+      .org-gnus-emphasis-bold-italic {
+        /* gnus-emphasis-bold-italic */
+        font-weight: bold;
+        font-style: italic;
+      }
+      .org-gnus-emphasis-highlight-words {
+        /* gnus-emphasis-highlight-words */
+        color: #ffff00;
+        background-color: #000000;
+      }
+      .org-gnus-emphasis-italic {
+        /* gnus-emphasis-italic */
+        font-style: italic;
+      }
+      .org-gnus-emphasis-strikethru {
+        /* gnus-emphasis-strikethru */
+        text-decoration: line-through;
+      }
+      .org-gnus-emphasis-underline {
+        /* gnus-emphasis-underline */
+        text-decoration: underline;
+      }
+      .org-gnus-emphasis-underline-bold {
+        /* gnus-emphasis-underline-bold */
+        font-weight: bold;
+        text-decoration: underline;
+      }
+      .org-gnus-emphasis-underline-bold-italic {
+        /* gnus-emphasis-underline-bold-italic */
+        font-weight: bold;
+        font-style: italic;
+        text-decoration: underline;
+      }
+      .org-gnus-emphasis-underline-italic {
+        /* gnus-emphasis-underline-italic */
+        font-style: italic;
+        text-decoration: underline;
+      }
+      .org-gnus-group-mail-1 {
+        /* gnus-group-mail-1 */
+        color: #5c3566;
+        font-weight: bold;
+      }
+      .org-gnus-group-mail-1-empty {
+        /* gnus-group-mail-1-empty */
+        color: #cd1076;
+      }
+      .org-gnus-group-mail-2 {
+        /* gnus-group-mail-2 */
+        color: #204a87;
+        font-weight: bold;
+      }
+      .org-gnus-group-mail-2-empty {
+        /* gnus-group-mail-2-empty */
+        color: #cd6090;
+      }
+      .org-gnus-group-mail-3 {
+        /* gnus-group-mail-3 */
+        color: #4e9a06;
+        font-weight: bold;
+      }
+      .org-gnus-group-mail-3-empty {
+        /* gnus-group-mail-3-empty */
+        color: #8b008b;
+      }
+      .org-gnus-group-mail-low {
+        /* gnus-group-mail-low */
+        color: #888a85;
+      }
+      .org-gnus-group-mail-low-empty {
+        /* gnus-group-mail-low-empty */
+        color: #8b0a50;
+      }
+      .org-gnus-group-news-1 {
+        /* gnus-group-news-1 */
+        color: #5c3566;
+        font-weight: bold;
+      }
+      .org-gnus-group-news-1-empty {
+        /* gnus-group-news-1-empty */
+        color: #228b22;
+      }
+      .org-gnus-group-news-2 {
+        /* gnus-group-news-2 */
+        color: #204a87;
+        font-weight: bold;
+      }
+      .org-gnus-group-news-2-empty {
+        /* gnus-group-news-2-empty */
+        color: #53868b;
+      }
+      .org-gnus-group-news-3 {
+        /* gnus-group-news-3 */
+        color: #a40000;
+        font-weight: bold;
+      }
+      .org-gnus-group-news-3-empty {
+      }
+      .org-gnus-group-news-4 {
+        /* gnus-group-news-4 */
+        color: #7a4c02;
+        font-weight: bold;
+      }
+      .org-gnus-group-news-4-empty {
+      }
+      .org-gnus-group-news-5 {
+        /* gnus-group-news-5 */
+        color: #ce5c00;
+        font-weight: bold;
+      }
+      .org-gnus-group-news-5-empty {
+      }
+      .org-gnus-group-news-6 {
+        /* gnus-group-news-6 */
+        font-weight: bold;
+      }
+      .org-gnus-group-news-6-empty {
+      }
+      .org-gnus-group-news-low {
+        /* gnus-group-news-low */
+        color: #888a85;
+      }
+      .org-gnus-group-news-low-empty {
+        /* gnus-group-news-low-empty */
+        color: #006400;
+      }
+      .org-gnus-header {
+        /* gnus-header */
+        font-size: 110%;
+      }
+      .org-gnus-header-content {
+        /* gnus-header-content */
+        color: #4e9a06;
+      }
+      .org-gnus-header-from {
+        /* gnus-header-from */
+        color: #c4a000;
+        font-weight: bold;
+      }
+      .org-gnus-header-name {
+        /* gnus-header-name */
+        color: #204a87;
+      }
+      .org-gnus-header-newsgroups {
+        /* gnus-header-newsgroups */
+        color: #888a85;
+      }
+      .org-gnus-header-subject {
+        /* gnus-header-subject */
+        color: #a40000;
+      }
+      .org-gnus-signature {
+        /* gnus-signature */
+        font-style: italic;
+      }
+      .org-gnus-splash {
+        /* gnus-splash */
+        color: #888888;
+      }
+      .org-gnus-summary-cancelled {
+        /* gnus-summary-cancelled */
+        color: #ffff00;
+        background-color: #000000;
+      }
+      .org-gnus-summary-high-ancient {
+        /* gnus-summary-high-ancient */
+        color: #4169e1;
+        font-weight: bold;
+      }
+      .org-gnus-summary-high-read {
+        /* gnus-summary-high-read */
+        color: #006400;
+        font-weight: bold;
+      }
+      .org-gnus-summary-high-ticked {
+        /* gnus-summary-high-ticked */
+        color: #b22222;
+        font-weight: bold;
+      }
+      .org-gnus-summary-high-undownloaded {
+        /* gnus-summary-high-undownloaded */
+        color: #008b8b;
+        font-weight: bold;
+      }
+      .org-gnus-summary-high-unread {
+        /* gnus-summary-high-unread */
+        font-weight: bold;
+      }
+      .org-gnus-summary-low-ancient {
+        /* gnus-summary-low-ancient */
+        color: #4169e1;
+        font-style: italic;
+      }
+      .org-gnus-summary-low-read {
+        /* gnus-summary-low-read */
+        color: #006400;
+        font-style: italic;
+      }
+      .org-gnus-summary-low-ticked {
+        /* gnus-summary-low-ticked */
+        color: #b22222;
+        font-style: italic;
+      }
+      .org-gnus-summary-low-undownloaded {
+        /* gnus-summary-low-undownloaded */
+        color: #008b8b;
+        font-style: italic;
+      }
+      .org-gnus-summary-low-unread {
+        /* gnus-summary-low-unread */
+        font-style: italic;
+      }
+      .org-gnus-summary-normal-ancient {
+        /* gnus-summary-normal-ancient */
+        color: #4169e1;
+      }
+      .org-gnus-summary-normal-read {
+        /* gnus-summary-normal-read */
+        color: #006400;
+      }
+      .org-gnus-summary-normal-ticked {
+        /* gnus-summary-normal-ticked */
+        color: #b22222;
+      }
+      .org-gnus-summary-normal-undownloaded {
+        /* gnus-summary-normal-undownloaded */
+        color: #008b8b;
+      }
+      .org-gnus-summary-normal-unread {
+      }
+      .org-gnus-summary-selected {
+        /* gnus-summary-selected */
+        text-decoration: underline;
+      }
+      .org-header-line {
+        /* header-line */
+        color: #333333;
+        background-color: #e5e5e5;
+      }
+      .org-header-line-highlight {
+      }
+      .org-help-argument-name {
+        /* help-argument-name */
+        font-style: italic;
+      }
+      .org-help-for-help-header {
+        /* help-for-help-header */
+        font-size: 126%;
+      }
+      .org-help-key-binding {
+        /* help-key-binding */
+        color: #00008b;
+        background-color: #f5f5f5;
+      }
+      .org-highlight {
+        /* highlight */
+        background-color: #babdb6;
+      }
+      .org-holiday {
+        /* holiday */
+        background-color: #ffc0cb;
+      }
+      .org-homoglyph {
+        /* homoglyph */
+        color: #a40000;
+      }
+      .org-icon {
+      }
+      .org-icon-button {
+        /* icon-button */
+        color: #000000;
+        background-color: #808080;
+      }
+      .org-internal-border {
+      }
+      .org-isearch {
+        /* isearch */
+        color: #ffffff;
+        background-color: #ce5c00;
+      }
+      .org-isearch-fail {
+        /* isearch-fail */
+        background-color: #ffc1c1;
+      }
+      .org-isearch-group-1 {
+        /* isearch-group-1 */
+        color: #b0e2ff;
+        background-color: #f000f0;
+      }
+      .org-isearch-group-2 {
+        /* isearch-group-2 */
+        color: #b0e2ff;
+        background-color: #a000a0;
+      }
+      .org-italic {
+        /* italic */
+        font-style: italic;
+      }
+      .org-keyword {
+        /* font-lock-keyword-face */
+        color: #346604;
+      }
+      .org-lazy-highlight {
+        /* lazy-highlight */
+        background-color: #e9b96e;
+      }
+      .org-line-number-current-line {
+        /* line-number-current-line */
+        color: #7f7f7f;
+        background-color: #eeeeec;
+      }
+      .org-line-number-major-tick {
+        /* line-number-major-tick */
+        background-color: #d9d9d9;
+        font-weight: bold;
+      }
+      .org-line-number-minor-tick {
+        /* line-number-minor-tick */
+        background-color: #f2f2f2;
+        font-weight: bold;
+      }
+      .org-link {
+        /* link */
+        color: #204a87;
+        text-decoration: underline;
+      }
+      .org-link-visited {
+        /* link-visited */
+        color: #3465a4;
+        text-decoration: underline;
+      }
+      .org-match {
+        /* match */
+        background-color: #fff68f;
+      }
+      .org-menu {
+      }
+      .org-message-cited-text-1 {
+        /* message-cited-text-1 */
+        color: #ff0000;
+      }
+      .org-message-cited-text-2 {
+        /* message-cited-text-2 */
+        color: #8b0000;
+      }
+      .org-message-cited-text-3 {
+        /* message-cited-text-3 */
+        color: #698b22;
+      }
+      .org-message-cited-text-4 {
+        /* message-cited-text-4 */
+        color: #36648b;
+      }
+      .org-message-header-cc {
+        /* message-header-cc */
+        color: #c4a000;
+      }
+      .org-message-header-name {
+        /* message-header-name */
+        color: #204a87;
+      }
+      .org-message-header-newsgroups {
+        /* message-header-newsgroups */
+        color: #00008b;
+        font-weight: bold;
+        font-style: italic;
+      }
+      .org-message-header-other {
+        /* message-header-other */
+        color: #c17d11;
+      }
+      .org-message-header-subject {
+        /* message-header-subject */
+        color: #a40000;
+      }
+      .org-message-header-to {
+        /* message-header-to */
+        color: #c4a000;
+        font-weight: bold;
+      }
+      .org-message-header-xheader {
+        /* message-header-xheader */
+        color: #0000ff;
+      }
+      .org-message-mml {
+        /* message-mml */
+        color: #228b22;
+      }
+      .org-message-separator {
+        /* message-separator */
+        color: #4e9a06;
+        font-weight: bold;
+      }
+      .org-message-signature-separator {
+        /* message-signature-separator */
+        font-weight: bold;
+      }
+      .org-minibuffer-prompt {
+        /* minibuffer-prompt */
+        color: #204a87;
+        font-weight: bold;
+      }
+      .org-misc-punctuation {
+      }
+      .org-mm-command-output {
+        /* mm-command-output */
+        color: #cd0000;
+      }
+      .org-mm-uu-extract {
+        /* mm-uu-extract */
+        color: #006400;
+        background-color: #ffffe0;
+      }
+      .org-mode-line {
+        /* mode-line */
+        color: #2e3436;
+        background-color: #d3d7cf;
+      }
+      .org-mode-line-active {
+        /* mode-line-active */
+        color: #2e3436;
+        background-color: #d3d7cf;
+      }
+      .org-mode-line-buffer-id {
+        /* mode-line-buffer-id */
+        font-weight: bold;
+      }
+      .org-mode-line-emphasis {
+        /* mode-line-emphasis */
+        font-weight: bold;
+      }
+      .org-mode-line-highlight {
+      }
+      .org-mode-line-inactive {
+        /* mode-line-inactive */
+        color: #2e3436;
+        background-color: #888a85;
+      }
+      .org-mouse {
+      }
+      .org-mouse-drag-and-drop-region {
+        /* mouse-drag-and-drop-region */
+        background-color: #babdb6;
+      }
+      .org-negation-char {
+      }
+      .org-next-error {
+        /* next-error */
+        background-color: #babdb6;
+      }
+      .org-next-error-message {
+        /* next-error-message */
+        background-color: #babdb6;
+      }
+      .org-nobreak-hyphen {
+        /* nobreak-hyphen */
+        color: #a52a2a;
+      }
+      .org-nobreak-space {
+        /* nobreak-space */
+        color: #a40000;
+        text-decoration: underline;
+      }
+      .org-number {
+      }
+      .org-operator {
+      }
+      .org-org-agenda-calendar-daterange {
+        /* org-agenda-calendar-daterange */
+        color: #2e3436;
+        background-color: #eeeeec;
+      }
+      .org-org-agenda-calendar-event {
+        /* org-agenda-calendar-event */
+        color: #2e3436;
+        background-color: #eeeeec;
+      }
+      .org-org-agenda-calendar-sexp {
+        /* org-agenda-calendar-sexp */
+        color: #2e3436;
+        background-color: #eeeeec;
+      }
+      .org-org-agenda-clocking {
+        /* org-agenda-clocking */
+        background-color: #8cc4ff;
+      }
+      .org-org-agenda-column-dateline {
+        /* org-agenda-column-dateline */
+        background-color: #e5e5e5;
+      }
+      .org-org-agenda-current-time {
+        /* org-agenda-current-time */
+        color: #b8860b;
+      }
+      .org-org-agenda-date {
+        /* org-agenda-date */
+        color: #0000ff;
+      }
+      .org-org-agenda-date-today {
+        /* org-agenda-date-today */
+        color: #0000ff;
+        font-weight: bold;
+        font-style: italic;
+      }
+      .org-org-agenda-date-weekend {
+        /* org-agenda-date-weekend */
+        color: #0000ff;
+        font-weight: bold;
+      }
+      .org-org-agenda-date-weekend-today {
+        /* org-agenda-date-weekend-today */
+        color: #0000ff;
+        font-weight: bold;
+        font-style: italic;
+      }
+      .org-org-agenda-diary {
+        /* org-agenda-diary */
+        color: #2e3436;
+        background-color: #eeeeec;
+      }
+      .org-org-agenda-dimmed-todo {
+        /* org-agenda-dimmed-todo-face */
+        color: #7f7f7f;
+      }
+      .org-org-agenda-done {
+        /* org-agenda-done */
+        color: #228b22;
+      }
+      .org-org-agenda-filter-category {
+        /* org-agenda-filter-category */
+        color: #2e3436;
+        background-color: #d3d7cf;
+      }
+      .org-org-agenda-filter-effort {
+        /* org-agenda-filter-effort */
+        color: #2e3436;
+        background-color: #d3d7cf;
+      }
+      .org-org-agenda-filter-regexp {
+        /* org-agenda-filter-regexp */
+        color: #2e3436;
+        background-color: #d3d7cf;
+      }
+      .org-org-agenda-filter-tags {
+        /* org-agenda-filter-tags */
+        color: #2e3436;
+        background-color: #d3d7cf;
+      }
+      .org-org-agenda-restriction-lock {
+        /* org-agenda-restriction-lock */
+        background-color: #eeeeee;
+      }
+      .org-org-agenda-structure {
+        /* org-agenda-structure */
+        color: #0000ff;
+      }
+      .org-org-agenda-structure-secondary {
+        /* org-agenda-structure-secondary */
+        color: #0000ff;
+      }
+      .org-org-archived {
+        /* org-archived */
+        color: #7f7f7f;
+      }
+      .org-org-block {
+        /* org-block */
+        color: #7f7f7f;
+      }
+      .org-org-block-begin-line {
+        /* org-block-begin-line */
+        color: #5f615c;
+        font-style: italic;
+      }
+      .org-org-block-end-line {
+        /* org-block-end-line */
+        color: #5f615c;
+        font-style: italic;
+      }
+      .org-org-checkbox {
+        /* org-checkbox */
+        font-weight: bold;
+      }
+      .org-org-checkbox-statistics-done {
+        /* org-checkbox-statistics-done */
+        color: #228b22;
+        font-weight: bold;
+      }
+      .org-org-checkbox-statistics-todo {
+        /* org-checkbox-statistics-todo */
+        color: #ff0000;
+        font-weight: bold;
+      }
+      .org-org-cite {
+        /* org-cite */
+        color: #204a87;
+        text-decoration: underline;
+      }
+      .org-org-cite-key {
+        /* org-cite-key */
+        color: #204a87;
+        text-decoration: underline;
+      }
+      .org-org-clock-overlay {
+        /* org-clock-overlay */
+        color: #000000;
+        background-color: #d3d3d3;
+      }
+      .org-org-code {
+        /* org-code */
+        color: #7f7f7f;
+      }
+      .org-org-column {
+        /* org-column */
+        background-color: #e5e5e5;
+      }
+      .org-org-column-title {
+        /* org-column-title */
+        background-color: #e5e5e5;
+        font-weight: bold;
+        text-decoration: underline;
+      }
+      .org-org-date {
+        /* org-date */
+        color: #a020f0;
+        text-decoration: underline;
+      }
+      .org-org-date-selected {
+        /* org-date-selected */
+        color: #ff0000;
+      }
+      .org-org-default {
+        /* org-default */
+        color: #2e3436;
+        background-color: #eeeeec;
+      }
+      .org-org-dispatcher-highlight {
+        /* org-dispatcher-highlight */
+        color: #00008b;
+        background-color: #c6e2ff;
+        font-weight: bold;
+      }
+      .org-org-document-info {
+        /* org-document-info */
+        color: #191970;
+      }
+      .org-org-document-info-keyword {
+        /* org-document-info-keyword */
+        color: #7f7f7f;
+      }
+      .org-org-document-title {
+        /* org-document-title */
+        color: #191970;
+        font-weight: bold;
+      }
+      .org-org-done {
+        /* org-done */
+        color: #228b22;
+        font-weight: bold;
+      }
+      .org-org-drawer {
+        /* org-drawer */
+        color: #0000ff;
+      }
+      .org-org-ellipsis {
+        /* org-ellipsis */
+        color: #b8860b;
+        text-decoration: underline;
+      }
+      .org-org-footnote {
+        /* org-footnote */
+        color: #a020f0;
+        text-decoration: underline;
+      }
+      .org-org-formula {
+        /* org-formula */
+        color: #b22222;
+      }
+      .org-org-headline-done {
+        /* org-headline-done */
+        color: #bc8f8f;
+      }
+      .org-org-headline-todo {
+        /* org-headline-todo */
+        color: #8b0000;
+      }
+      .org-org-hide {
+        /* org-hide */
+        color: #eeeeec;
+      }
+      .org-org-imminent-deadline {
+        /* org-imminent-deadline */
+        color: #a40000;
+      }
+      .org-org-inline-src-block {
+        /* org-inline-src-block */
+        color: #7f7f7f;
+      }
+      .org-org-latex-and-related {
+        /* org-latex-and-related */
+        color: #8b4513;
+      }
+      .org-org-level-1 {
+        /* org-level-1 */
+        color: #a40000;
+      }
+      .org-org-level-2 {
+        /* org-level-2 */
+        color: #b35000;
+      }
+      .org-org-level-3 {
+        /* org-level-3 */
+        color: #346604;
+      }
+      .org-org-level-4 {
+        /* org-level-4 */
+        color: #5f615c;
+        font-style: italic;
+      }
+      .org-org-level-5 {
+        /* org-level-5 */
+        color: #204a87;
+      }
+      .org-org-level-6 {
+        /* org-level-6 */
+        color: #204a87;
+        font-weight: bold;
+      }
+      .org-org-level-7 {
+        /* org-level-7 */
+        color: #75507b;
+      }
+      .org-org-level-8 {
+        /* org-level-8 */
+        color: #5c3566;
+      }
+      .org-org-link {
+        /* org-link */
+        color: #204a87;
+        text-decoration: underline;
+      }
+      .org-org-list-dt {
+        /* org-list-dt */
+        font-weight: bold;
+      }
+      .org-org-macro {
+        /* org-macro */
+        color: #8b4513;
+      }
+      .org-org-meta-line {
+        /* org-meta-line */
+        color: #5f615c;
+        font-style: italic;
+      }
+      .org-org-mode-line-clock {
+        /* org-mode-line-clock */
+        color: #2e3436;
+        background-color: #d3d7cf;
+      }
+      .org-org-mode-line-clock-overrun {
+        /* org-mode-line-clock-overrun */
+        color: #2e3436;
+        background-color: #ff0000;
+      }
+      .org-org-priority {
+        /* org-priority */
+        color: #346604;
+      }
+      .org-org-property-value {
+        /* org-property-value */
+        color: #2e3436;
+        background-color: #eeeeec;
+      }
+      .org-org-quote {
+        /* org-quote */
+        color: #7f7f7f;
+      }
+      .org-org-scheduled {
+        /* org-scheduled */
+        color: #006400;
+      }
+      .org-org-scheduled-previously {
+        /* org-scheduled-previously */
+        color: #b22222;
+      }
+      .org-org-scheduled-today {
+        /* org-scheduled-today */
+        color: #006400;
+      }
+      .org-org-sexp-date {
+        /* org-sexp-date */
+        color: #a020f0;
+      }
+      .org-org-special-keyword {
+        /* org-special-keyword */
+        color: #346604;
+      }
+      .org-org-table {
+        /* org-table */
+        color: #0000ff;
+      }
+      .org-org-table-header {
+        /* org-table-header */
+        color: #000000;
+        background-color: #d3d3d3;
+      }
+      .org-org-table-row {
+        /* org-table-row */
+        color: #0000ff;
+      }
+      .org-org-tag {
+        /* org-tag */
+        font-weight: bold;
+      }
+      .org-org-tag-group {
+        /* org-tag-group */
+        font-weight: bold;
+      }
+      .org-org-target {
+        /* org-target */
+        text-decoration: underline;
+      }
+      .org-org-time-grid {
+        /* org-time-grid */
+        color: #b8860b;
+      }
+      .org-org-todo {
+        /* org-todo */
+        color: #ff0000;
+        font-weight: bold;
+      }
+      .org-org-upcoming-deadline {
+        /* org-upcoming-deadline */
+        color: #b22222;
+      }
+      .org-org-upcoming-distant-deadline {
+        /* org-upcoming-distant-deadline */
+        color: #2e3436;
+        background-color: #eeeeec;
+      }
+      .org-org-verbatim {
+        /* org-verbatim */
+        color: #7f7f7f;
+      }
+      .org-org-verse {
+        /* org-verse */
+        color: #7f7f7f;
+      }
+      .org-org-warning {
+        /* org-warning */
+        color: #a40000;
+      }
+      .org-outline-1 {
+        /* outline-1 */
+        color: #a40000;
+      }
+      .org-outline-2 {
+        /* outline-2 */
+        color: #b35000;
+      }
+      .org-outline-3 {
+        /* outline-3 */
+        color: #346604;
+      }
+      .org-outline-4 {
+        /* outline-4 */
+        color: #5f615c;
+        font-style: italic;
+      }
+      .org-outline-5 {
+        /* outline-5 */
+        color: #204a87;
+      }
+      .org-outline-6 {
+        /* outline-6 */
+        color: #204a87;
+        font-weight: bold;
+      }
+      .org-outline-7 {
+        /* outline-7 */
+        color: #75507b;
+      }
+      .org-outline-8 {
+        /* outline-8 */
+        color: #5c3566;
+      }
+      .org-preprocessor {
+        /* font-lock-preprocessor-face */
+        color: #75507b;
+      }
+      .org-property-name {
+        /* font-lock-property-name-face */
+        color: #b35000;
+      }
+      .org-property-use {
+        /* font-lock-property-use-face */
+        color: #b35000;
+      }
+      .org-punctuation {
+      }
+      .org-query-replace {
+        /* query-replace */
+        color: #ffffff;
+        background-color: #ce5c00;
+      }
+      .org-regexp {
+        /* font-lock-regexp-face */
+        color: #5c3566;
+      }
+      .org-regexp-grouping-backslash {
+        /* font-lock-regexp-grouping-backslash */
+        font-weight: bold;
+      }
+      .org-regexp-grouping-construct {
+        /* font-lock-regexp-grouping-construct */
+        font-weight: bold;
+      }
+      .org-region {
+        /* region */
+        background-color: #babdb6;
+      }
+      .org-scroll-bar {
+      }
+      .org-secondary-selection {
+        /* secondary-selection */
+        background-color: #8cc4ff;
+      }
+      .org-separator-line {
+        /* separator-line */
+        background-color: #a0a0a0;
+        font-size: 10%;
+      }
+      .org-sh-escaped-newline {
+        /* sh-escaped-newline */
+        color: #5c3566;
+      }
+      .org-sh-heredoc {
+        /* sh-heredoc */
+        color: #ffa54f;
+      }
+      .org-sh-quoted-exec {
+        /* sh-quoted-exec */
+        color: #ff00ff;
+      }
+      .org-shadow {
+        /* shadow */
+        color: #7f7f7f;
+      }
+      .org-show-paren-match {
+        /* show-paren-match */
+        background-color: #40e0d0;
+      }
+      .org-show-paren-match-expression {
+        /* show-paren-match-expression */
+        background-color: #40e0d0;
+      }
+      .org-show-paren-mismatch {
+        /* show-paren-mismatch */
+        color: #ffffff;
+        background-color: #a020f0;
+      }
+      .org-shr-abbreviation {
+        /* shr-abbreviation */
+        text-decoration: underline;
+      }
+      .org-shr-code {
+      }
+      .org-shr-h1 {
+        /* shr-h1 */
+        font-size: 130%;
+        font-weight: bold;
+      }
+      .org-shr-h2 {
+        /* shr-h2 */
+        font-weight: bold;
+      }
+      .org-shr-h3 {
+        /* shr-h3 */
+        font-style: italic;
+      }
+      .org-shr-h4 {
+      }
+      .org-shr-h5 {
+      }
+      .org-shr-h6 {
+      }
+      .org-shr-link {
+        /* shr-link */
+        color: #204a87;
+        text-decoration: underline;
+      }
+      .org-shr-mark {
+        /* shr-mark */
+        color: #000000;
+        background-color: #ffff00;
+      }
+      .org-shr-selected-link {
+        /* shr-selected-link */
+        color: #204a87;
+        background-color: #ff0000;
+        text-decoration: underline;
+      }
+      .org-shr-strike-through {
+        /* shr-strike-through */
+        text-decoration: line-through;
+      }
+      .org-shr-sup {
+        /* shr-sup */
+        font-size: 80%;
+      }
+      .org-shr-text {
+        /* shr-text */
+        font-size: 110%;
+      }
+      .org-string {
+        /* font-lock-string-face */
+        color: #5c3566;
+      }
+      .org-success {
+        /* success */
+        color: #4e9a06;
+      }
+      .org-tab-bar {
+        /* tab-bar */
+        color: #000000;
+        background-color: #d9d9d9;
+      }
+      .org-tab-bar-tab {
+        /* tab-bar-tab */
+        color: #000000;
+        background-color: #d9d9d9;
+      }
+      .org-tab-bar-tab-group-current {
+        /* tab-bar-tab-group-current */
+        color: #000000;
+        background-color: #d9d9d9;
+        font-weight: bold;
+      }
+      .org-tab-bar-tab-inactive {
+        /* tab-bar-tab-inactive */
+        color: #000000;
+        background-color: #bfbfbf;
+      }
+      .org-tab-line {
+        /* tab-line */
+        color: #000000;
+        background-color: #d9d9d9;
+        font-size: 90%;
+      }
+      .org-table-cell {
+        /* table-cell */
+        color: #e5e5e5;
+        background-color: #0000ff;
+      }
+      .org-tabulated-list-fake-header {
+        /* tabulated-list-fake-header */
+        font-weight: bold;
+        text-decoration: underline;
+        text-decoration: overline;
+      }
+      .org-tool-bar {
+        /* tool-bar */
+        color: #000000;
+        background-color: #bfbfbf;
+      }
+      .org-tooltip {
+        /* tooltip */
+        color: #000000;
+        background-color: #ffffe0;
+      }
+      .org-trailing-whitespace {
+        /* trailing-whitespace */
+        background-color: #ef2929;
+      }
+      .org-treesit-explorer-anonymous-node {
+        /* treesit-explorer-anonymous-node */
+        color: #7f7f7f;
+      }
+      .org-treesit-explorer-field-name {
+      }
+      .org-tty-menu-disabled {
+        /* tty-menu-disabled-face */
+        color: #d3d3d3;
+        background-color: #0000ff;
+      }
+      .org-tty-menu-enabled {
+        /* tty-menu-enabled-face */
+        color: #ffff00;
+        background-color: #0000ff;
+        font-weight: bold;
+      }
+      .org-tty-menu-selected {
+        /* tty-menu-selected-face */
+        background-color: #ff0000;
+      }
+      .org-type {
+        /* font-lock-type-face */
+        color: #204a87;
+      }
+      .org-underline {
+        /* underline */
+        text-decoration: underline;
+      }
+      .org-variable-name {
+        /* font-lock-variable-name-face */
+        color: #b35000;
+      }
+      .org-variable-pitch {
+      }
+      .org-variable-pitch-text {
+        /* variable-pitch-text */
+        font-size: 110%;
+      }
+      .org-variable-use {
+        /* font-lock-variable-use-face */
+        color: #b35000;
+      }
+      .org-vc-conflict-state {
+      }
+      .org-vc-edited-state {
+      }
+      .org-vc-git-log-edit-summary-max-warning {
+        /* vc-git-log-edit-summary-max-warning */
+        color: #a40000;
+      }
+      .org-vc-git-log-edit-summary-target-warning {
+        /* vc-git-log-edit-summary-target-warning */
+        color: #ce5c00;
+      }
+      .org-vc-locally-added-state {
+      }
+      .org-vc-locked-state {
+      }
+      .org-vc-missing-state {
+      }
+      .org-vc-needs-update-state {
+      }
+      .org-vc-removed-state {
+      }
+      .org-vc-state-base {
+      }
+      .org-vc-up-to-date-state {
+      }
+      .org-vertical-border {
+      }
+      .org-warning {
+        /* warning */
+        color: #ce5c00;
+      }
+      .org-warning-1 {
+        /* font-lock-warning-face */
+        color: #a40000;
+      }
+      .org-widget-button {
+        /* widget-button */
+        font-weight: bold;
+      }
+      .org-widget-button-pressed {
+        /* widget-button-pressed */
+        color: #ff0000;
+      }
+      .org-widget-documentation {
+        /* widget-documentation */
+        color: #006400;
+      }
+      .org-widget-field {
+        /* widget-field */
+        background-color: #d9d9d9;
+      }
+      .org-widget-inactive {
+        /* widget-inactive */
+        color: #7f7f7f;
+      }
+      .org-widget-single-line-field {
+        /* widget-single-line-field */
+        background-color: #d9d9d9;
+      }
+      .org-window-divider {
+        /* window-divider */
+        color: #999999;
+      }
+      .org-window-divider-first-pixel {
+        /* window-divider-first-pixel */
+        color: #cccccc;
+      }
+      .org-window-divider-last-pixel {
+        /* window-divider-last-pixel */
+        color: #666666;
+      }
+
+      a {
+        color: inherit;
+        background-color: inherit;
+        font: inherit;
+        text-decoration: inherit;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+    -->
+</style>
+<p>
+The following is a primer for the <a href="https://en.wikipedia.org/wiki/Scheme">Scheme</a> family of programming
+languages.
+It was originally written to aid newcomers to technology being
+developed at <a href="https://spritely.institute/">The Spritely Institute</a> but is designed to be general
+enough to be readable by anyone who is interested in Scheme.
+</p>
+
+<p>
+This document is dual-licensed under <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache v2</a> and
+<a href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International</a> and its source is
+<a href="https://gitlab.com/spritely/scheme-primer">publicly available</a>.
+</p>
+
+<p>
+A walk-through of this document is available on <a href="https://www.youtube.com/watch?v=DDROSL-gGOo">YouTube</a> and <a href="https://share.tube/w/gdtnuipKbbVdR2u1murL4t">PeerTube</a>.
+</p>
+<div id="outline-container-introduction" class="outline-2">
+<h2 id="introduction"><span class="section-number-2">1.</span> Introduction</h2>
+<div class="outline-text-2" id="text-introduction">
+<p>
+In all the world of computer programming, there are few languages as
+simple, clean, comprehensive, powerful, and extensible as Scheme.  The
+introduction to the <a href="https://schemers.org/Documents/Standards/R5RS/">R5RS</a> edition of Scheme's standardization<sup><a id="fnr.rnrs" class="footref" href="#fn.rnrs" role="doc-backlink">1</a></sup>
+explains its philosophy well:
+</p>
+
+<blockquote>
+<p>
+Programming languages should be designed not by piling feature on top of
+feature, but by removing the weaknesses and restrictions that make
+additional features appear necessary.
+</p>
+</blockquote>
+
+<p>
+This minimalism means that the foundations of Scheme are easy to learn.
+The R5RS introduction continues with:
+</p>
+
+<blockquote>
+<p>
+Scheme demonstrates that a very small number of rules for forming
+expressions, with no restrictions on how they are composed, suffice to
+form a practical and efficient programming language that is flexible
+enough to support most of the major programming paradigms in use
+today.
+</p>
+</blockquote>
+
+<p>
+With just a few rules and an incredibly simple syntax, Scheme manages
+to be able to handle any language paradigm you can throw at it.
+Its minimal base and strong support for extensibility means that it is
+beloved by and frequently used as a foundation for academic language
+research.
+</p>
+
+<p>
+But a strong reputation in one domain can also be a weak reputation in
+another.
+Scheme's association with being an academic language has also lead it
+to be frequently interpreted as too difficult for the "average"
+programmer to adopt.
+</p>
+
+<p>
+In reality, there is nothing difficult about Scheme, and any
+programmer can learn it in a very short amount of time (even, maybe
+especially, children and non-programmers).<sup><a id="fnr.scheme-and-non-programmers" class="footref" href="#fn.scheme-and-non-programmers" role="doc-backlink">2</a></sup>
+</p>
+
+<p>
+At the <a href="https://spritely.institute/">Spritely Institute</a>, we decided to base our core technology,
+<a href="https://spritely.institute/goblins/">Spritely Goblins</a>, on Scheme.
+We found that while there were excellent in-depth writings on Scheme,
+and some simple and short Scheme tutorials, what was lacking was a
+middle-of-the-road introduction.
+The following is somewhere between a brief and comprehensive overview
+of Scheme.
+A shallow read of the following text is sufficient to begin being
+productive with Scheme, but the enthusiastic reader will find much depth
+(especially by reading the footnotes).
+</p>
+
+<p>
+We begin with no assumption of programming experience, but
+such experience will help speed the reader through some of the
+early chapters.
+The further we go in the tutorial, the more advanced topics become.
+We will end with a real whammy:
+<a href="#scheme-in-scheme">how to write a Scheme interpreter in Scheme</a>
+in a mere 30 single lines of code.
+</p>
+</div>
+</div>
+<div id="outline-container-org358be61" class="outline-2">
+<h2 id="org358be61"><span class="section-number-2">2.</span> Setting up</h2>
+<div class="outline-text-2" id="text-2">
+<p>
+You will need to choose a Scheme implementation to work with,
+as well as an editor.
+There are many choices for each, but we will narrow our suggestions
+to two paths:
+</p>
+
+<ul class="org-ul">
+<li><a href="https://www.gnu.org/software/guile/">Guile Scheme</a> + <a href="https://www.gnu.org/software/emacs/">GNU Emacs</a> + <a href="https://www.nongnu.org/geiser/">Geiser</a>: this is what this tutorial was
+written using, and is a powerful option (which also opens the door
+to working with <a href="https://guix.gnu.org/">Guix</a>, one of the most interesting Scheme projects
+out there).  However, it is also a path with a considerable
+learning curve.</li>
+<li><a href="https://racket-lang.org/">Racket</a>, which comes with a built-in IDE called DrRacket.  This is
+an easy path to get started with.</li>
+</ul>
+
+<p>
+Some code examples are preceded by <code>REPL&gt;</code>.  <i>REPL</i> stands for
+"Read Eval Print Loop", which here means an interactive scheme prompt
+to experiment with entering expressions.
+</p>
+</div>
+</div>
+<div id="outline-container-hello-scheme" class="outline-2">
+<h2 id="hello-scheme"><span class="section-number-2">3.</span> Hello Scheme!</h2>
+<div class="outline-text-2" id="text-hello-scheme">
+<p>
+Here's the familiar "hello world", written in Scheme:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(display <span class="org-string">"Hello world!\n"</span>)
+</pre>
+</div>
+
+<p>
+This prints "Hello world!" to the screen.
+(The <code>"\n"</code> represents a "newline", like if you pressed enter
+after typing some text in a word processor.)
+</p>
+
+<p>
+If you are familiar with other programming languages, this
+might look a little bit familiar and a little bit different.
+In most other programming languages, this might look like:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-python">display(<span class="org-string">"Hello world!</span><span class="org-constant">\n</span><span class="org-string">"</span>)
+</pre>
+</div>
+
+<p>
+In this sense, calling functions in Scheme (and other Lisps like it)
+is not too different than other languages, except that the function
+name goes inside the parentheses.
+</p>
+</div>
+</div>
+<div id="outline-container-scheme-basic-types" class="outline-2">
+<h2 id="scheme-basic-types"><span class="section-number-2">4.</span> Basic types, a few small functions</h2>
+<div class="outline-text-2" id="text-scheme-basic-types">
+<p>
+Unlike in some other languages, math expressions like <code>+</code> and <code>-</code>
+are prefix functions just like any other function, and so they go
+first:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(+ 1 2)         <span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 3</span>
+(/ 10 2)        <span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 5</span>
+(/ 2 3)         <span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 2/3 </span>
+</pre>
+</div>
+
+<p>
+Most of these can accept multiple arguments:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(+ 1 8 10)   <span class="org-comment-delimiter">; </span><span class="org-comment">equivalent to "1 + 8 + 10" in infix notation</span>
+</pre>
+</div>
+
+<p>
+Procedures can also be nested, and we can use the "substitution
+method" to see how they simplify:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(* (- 8 (/ 30 5)) 21)   <span class="org-comment-delimiter">; </span><span class="org-comment">beginning expression</span>
+(* (- 8 6) 21)          <span class="org-comment-delimiter">; </span><span class="org-comment">simplify: (/ 30 5) =&gt; 6</span>
+(* 2 21)                <span class="org-comment-delimiter">; </span><span class="org-comment">simplify: (- 8 6)  =&gt; 2</span>
+42                      <span class="org-comment-delimiter">; </span><span class="org-comment">simplify: (* 2 21) =&gt; 42</span>
+</pre>
+</div>
+
+<p>
+A variety of types are supported.
+For example, here are some math types:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">42          <span class="org-comment-delimiter">; </span><span class="org-comment">integer</span>
+98.6        <span class="org-comment-delimiter">; </span><span class="org-comment">floating point</span>
+2/3         <span class="org-comment-delimiter">; </span><span class="org-comment">fractions, or "rational" numbers</span>
+-42         <span class="org-comment-delimiter">; </span><span class="org-comment">these can all also be negative</span>
+</pre>
+</div>
+
+<p>
+Since Scheme supports both "exact" numbers like integers and fractions,
+and does not have any restriction on number size, it is very good for
+more precise scientific and mathematical computing.
+The floating point representation is considered "inexact", and throws
+away precision for speed.
+</p>
+
+<p>
+Here are some more types:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">#t                             <span class="org-comment-delimiter">; </span><span class="org-comment">boolean representing "true"</span>
+#f                             <span class="org-comment-delimiter">; </span><span class="org-comment">boolean representing "false"</span>
+<span class="org-string">"Pangalactic Gargleblaster"</span>    <span class="org-comment-delimiter">; </span><span class="org-comment">string (text)</span>
+'foo                           <span class="org-comment-delimiter">; </span><span class="org-comment">a quoted symbol</span>
+'(1 2 3)                       <span class="org-comment-delimiter">; </span><span class="org-comment">a quoted list (of numbers, in this case)</span>
+(<span class="org-keyword">lambda</span> (x) (* x 2))           <span class="org-comment-delimiter">; </span><span class="org-comment">procedure (we'll come back to this)</span>
+'(<span class="org-keyword">lambda</span> (x) (* x 2))          <span class="org-comment-delimiter">; </span><span class="org-comment">a list of lists, symbols, and numbers</span>
+</pre>
+</div>
+
+<p>
+Symbols are maybe the strangest type if you've come from non-Lisp
+programming languages (with some exceptions).
+While symbols look kind of like strings, they represent something
+more programmatic.
+(In <i>Goblins</i>' <code>methods</code> syntax, we use symbols to represent method
+names.)
+</p>
+
+<p>
+The quote symbol <code>'</code> prevents the following symbol or expression from
+being evaluated. If a list itself is quoted, as in the quoted <code>lambda</code>
+expression above, the symbols inside are also not evaluated.
+</p>
+
+<p>
+We will devote some time to discussing lists in
+<a href="#scheme-lists-and-cons">Lists and "cons"</a>.
+The combination of lists and symbols is featured very prominently in
+many Lisps, including Scheme, because they lie at the heart of
+Lisp's extensibility: code which can write code.
+We will see how to take advantage of this power in
+<a href="#scheme-extensibility">On the extensibility of Scheme (and Lisps in general)</a>.
+</p>
+</div>
+</div>
+<div id="outline-container-scheme-variables-and-procedures" class="outline-2">
+<h2 id="scheme-variables-and-procedures"><span class="section-number-2">5.</span> Variables and procedures</h2>
+<div class="outline-text-2" id="text-scheme-variables-and-procedures">
+<p>
+We can assign values to variables using <code>define</code>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">name</span> <span class="org-string">"Jane"</span>)
+REPL&gt; (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!"</span>)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Hello Jane!"</span>
+</pre>
+</div>
+
+<p>
+However, if what follows <code>define</code> is wrapped in parentheses,
+Scheme interprets this as a procedure definition:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define</span> (<span class="org-function-name">greet</span> name)
+  (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!"</span>))
+</pre>
+</div>
+
+<p>
+Now that we have named this procedure we can invoke it:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (greet <span class="org-string">"Samantha"</span>)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Hello Samantha!"</span>
+</pre>
+</div>
+
+<p>
+Note that <i>Scheme</i> has <i>implicit return</i>.
+By being the last expression in the procedure, the result
+of the <code>string-append</code> is automatically returned to its caller.
+</p>
+
+<p>
+This second syntax for <code>define</code> is actually just <i>syntactic sugar</i>.
+These two definitions of <code>greet</code> are exactly the same:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define</span> (<span class="org-function-name">greet</span> name)
+  (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!"</span>))
+
+(<span class="org-keyword">define</span> <span class="org-function-name">greet</span>
+  (<span class="org-keyword">lambda</span> (name)
+    (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!"</span>)))
+</pre>
+</div>
+
+<p>
+<code>lambda</code> is the name for an "anonymous procedure" (ie, no name
+provided).
+While we have given this the name <code>greet</code>, the procedure
+would be usable without it:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; ((<span class="org-keyword">lambda</span> (name)
+         (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!"</span>))
+       <span class="org-string">"Horace"</span>)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Hello Horace!"</span>
+</pre>
+</div>
+
+<p>
+There is also another way to name things aside from <code>define</code>,
+which is <code>let</code>, which allows for a sequence of bound variables
+and then a body which is evaluated with those bindings.
+<code>let</code> has the form:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">let</span> ((<span class="org-type">&lt;VARIABLE-NAME&gt;</span> <span class="org-type">&lt;VALUE-EXPRESSION&gt;</span>) ...)
+  <span class="org-type">&lt;BODY&gt;</span> ...)
+</pre>
+</div>
+
+<p>
+(The <code>...</code> in the above example represents that its previous
+expression can be repeated multiple times.)
+</p>
+
+<p>
+Here is an example of <code>let</code> in use:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">let</span> ((name <span class="org-string">"Horace"</span>))
+        (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!"</span>))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Hello Horace!"</span>
+</pre>
+</div>
+
+<p>
+Clever readers may notice that this looks very similar to the previous
+example, and in fact, <code>let</code> is <i>syntax sugar</i> for a lambda which is
+immediately applied with arguments.
+The two previous code examples are fully equivalent:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">let</span> ((name <span class="org-string">"Horace"</span>))
+        (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!"</span>))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Hello Horace!"</span>
+REPL&gt; ((<span class="org-keyword">lambda</span> (name)
+         (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!"</span>))
+       <span class="org-string">"Horace"</span>)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Hello Horace!"</span>
+</pre>
+</div>
+
+<p>
+<code>let*</code> is like <code>let</code>, but allows bindings to refer to previous
+bindings within the expression:<sup><a id="fnr.more-lets" class="footref" href="#fn.more-lets" role="doc-backlink">3</a></sup>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">let*</span> ((name <span class="org-string">"Horace"</span>)
+             (greeting
+              (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!\n"</span>)))
+        (display greeting))   <span class="org-comment-delimiter">; </span><span class="org-comment">print greeting to screen</span>
+<span class="org-comment-delimiter">; </span><span class="org-comment">prints: Hello Horace!</span>
+</pre>
+</div>
+
+<p>
+It is possible to manually apply a list of arguments to a procedure
+using <code>apply</code>.
+for example, to sum a list of numbers, we can use <code>apply</code> and <code>+</code>
+in combination:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (apply + '(1 2 5))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 8</span>
+</pre>
+</div>
+
+<p>
+As the inverse of this, it is possible to capture a variable-length
+set of arguments using "dot notation".<sup><a id="fnr.dot-notation-cons-related" class="footref" href="#fn.dot-notation-cons-related" role="doc-backlink">4</a></sup>
+Here we show this off while also demonstrating Guile's <code>format</code>
+(which when called with <code>#f</code> as its first argument returns a
+formatted string as a value, and when called with <code>#t</code> as its first
+argument prints to the screen, the latter of which is what we want
+here):
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">chatty-add</span> chatty-name . nums)
+        (format #t <span class="org-string">"&lt;~a&gt; If you add those together you get ~a!\n"</span>
+                chatty-name (apply + nums)))
+REPL&gt; (chatty-add <span class="org-string">"Chester"</span> 2 4 8 6)
+<span class="org-comment-delimiter">; </span><span class="org-comment">Prints:</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">&lt;Chester&gt; If you add those together you get 20!</span>
+</pre>
+</div>
+
+<p>
+While not standard in Scheme, many Scheme implementations also
+support optional and keyword arguments.
+Guile implements this abstraction as <code>define*</code>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define*</span> (<span class="org-function-name">shopkeeper</span> thing-to-buy
+                           <span class="org-builtin">#:optional</span> (how-many 1)
+                           (cost 20)
+                           <span class="org-builtin">#:key</span> (shopkeeper <span class="org-string">"Sammy"</span>)
+                           (store <span class="org-string">"Plentiful Great Produce"</span>))
+        (format #t <span class="org-string">"You walk into ~a, grab something from the shelves,\n"</span>
+                store)
+        (display <span class="org-string">"and walk up to the counter.\n\n"</span>)
+        (format #t <span class="org-string">"~a looks at you and says, "</span>
+                shopkeeper)
+        (format #t <span class="org-string">"'~a ~a, eh? That'll be ~a coins!'\n"</span>
+                how-many thing-to-buy
+                (* cost how-many)))
+REPL&gt; (shopkeeper <span class="org-string">"apples"</span>)
+<span class="org-comment-delimiter">; </span><span class="org-comment">Prints:</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">You walk into Plentiful Great Produce, grab something from the shelves,</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">and walk up to the counter.</span>
+<span class="org-comment-delimiter">;</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">Sammy looks at you and says, '1 apples, eh? That'll be 20 coins!'</span>
+REPL&gt; (shopkeeper <span class="org-string">"bananas"</span> 10 28)
+<span class="org-comment-delimiter">; </span><span class="org-comment">Prints:</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">You walk into Plentiful Great Produce, grab something from the shelves,</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">and walk up to the counter.</span>
+<span class="org-comment-delimiter">;</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">Sammy looks at you and says, '10 bananas, eh? That'll be 280 coins!'</span>
+REPL&gt; (shopkeeper <span class="org-string">"screws"</span> 3 2
+                  <span class="org-builtin">#:shopkeeper</span> <span class="org-string">"Horace"</span>
+                  <span class="org-builtin">#:store</span> <span class="org-string">"Horace's Hardware"</span>)
+<span class="org-comment-delimiter">; </span><span class="org-comment">Prints:</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">You walk into Horace's Hardware, grab something from the shelves,</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">and walk up to the counter.</span>
+<span class="org-comment-delimiter">;</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">Horace looks at you and says, '3 screws, eh? That'll be 6 coins!'</span>
+</pre>
+</div>
+
+<p>
+Finally, Scheme's procedures can do something else interesting:
+they can return multiple values using&#x2026; <code>values</code>!
+As a particularly silly example, perhaps we would like to compare
+what it's like to both add and multiply two numbers:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">add-and-multiply</span> x y)
+        (values (+ x y)
+                (* x y)))
+REPL&gt; (add-and-multiply 2 8)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 10</span>
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 16</span>
+REPL&gt; (<span class="org-keyword">define-values</span> (added multiplied)
+        (add-and-multiply 3 10))
+REPL&gt; added
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 13</span>
+REPL&gt; multiplied
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 30</span>
+</pre>
+</div>
+
+<p>
+As you can see, we can capture said values with <code>define-values</code>, as
+shown above.  (<code>let-values</code> and <code>call-with-values</code> can also be used,
+but that's enough new syntax for this section!)
+</p>
+</div>
+</div>
+<div id="outline-container-scheme-conditionals-and-predicates" class="outline-2">
+<h2 id="scheme-conditionals-and-predicates"><span class="section-number-2">6.</span> Conditionals and predicates</h2>
+<div class="outline-text-2" id="text-scheme-conditionals-and-predicates">
+<p>
+Sometimes we would like to test whether or not something is true.
+For instance, we can see whether or not an object is a string
+by using the <code>string?</code>:<sup><a id="fnr.string-huh" class="footref" href="#fn.string-huh" role="doc-backlink">5</a></sup>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (string? <span class="org-string">"apple"</span>)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+REPL&gt; (string? 128)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+REPL&gt; (string? 'apple)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+</pre>
+</div>
+
+<p>
+(Remember that <code>#t</code> represents "true" and <code>#f</code> represents "false".)
+</p>
+
+<p>
+We can use this in combination with <code>if</code>, which has the form:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">if</span> <span class="org-type">&lt;TEST&gt;</span>
+    <span class="org-type">&lt;CONSEQUENT&gt;</span>
+    [<span class="org-type">&lt;ALTERNATE&gt;</span>])
+</pre>
+</div>
+
+<p>
+(The square brackets around <code>&lt;ALTERNATE&gt;</code> means that it is optional.)<sup><a id="fnr.when" class="footref" href="#fn.when" role="doc-backlink">6</a></sup>
+</p>
+
+<p>
+So, we could write a silly function that excitedly reports on
+whether or not an object is a string or not:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">string-enthusiast</span> obj)
+        (<span class="org-keyword">if</span> (string? obj)
+            <span class="org-string">"Oh my gosh you gave me A STRING!!!"</span>
+            <span class="org-string">"That WASN'T A STRING AT ALL!! MORE STRINGS PLEASE!"</span>))
+REPL&gt; (string-enthusiast <span class="org-string">"carrot"</span>)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Oh my gosh you gave me A STRING!!!"</span>
+REPL&gt; (string-enthusiast 529)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "That WASN'T A STRING AT ALL!! MORE STRINGS PLEASE!"</span>
+</pre>
+</div>
+
+<p>
+As we can see, unlike in some other popular languages, <code>if</code> also
+returns the value of evaluating whichever branch is chosen based on
+<code>&lt;TEST&gt;</code>.
+</p>
+
+<p>
+Scheme also ships with some mathematical comparison tests.  <code>&gt;</code> and
+<code>&lt;</code> stand for "greater than" and "less than" respectively, and <code>&gt;=</code>
+and <code>&lt;=</code> stand for "greater than or equal to" and "less than or equal
+to", while <code>=</code> checks for numerical equality:<sup><a id="fnr.prefix-vs-infix" class="footref" href="#fn.prefix-vs-infix" role="doc-backlink">7</a></sup>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (&gt; 8 9)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+REPL&gt; (&lt; 8 9)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+REPL&gt; (&gt; 8 8)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+REPL&gt; (&gt;= 8 8)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+</pre>
+</div>
+
+<p>
+If we wanted to test for multiple possibilities, we could use nested
+<code>if</code> statements:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">goldilocks</span> n smallest-ok biggest-ok)
+        (<span class="org-keyword">if</span> (&lt; n smallest-ok)
+            <span class="org-string">"Too small!"</span>
+            (<span class="org-keyword">if</span> (&gt; n biggest-ok)
+                <span class="org-string">"Too big!"</span>
+                <span class="org-string">"Just right!"</span>)))
+REPL&gt; (goldilocks 3 10 20)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Too small!"</span>
+REPL&gt; (goldilocks 33 10 20)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Too big!"</span>
+REPL&gt; (goldilocks 12 10 20)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Just right!"</span>
+</pre>
+</div>
+
+<p>
+However, there is a much nicer syntax named <code>cond</code> which
+we can use instead which has the following form:<sup><a id="fnr.cond-or-if" class="footref" href="#fn.cond-or-if" role="doc-backlink">8</a></sup>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">cond</span>
+ (<span class="org-type">&lt;TEST&gt;</span>
+  <span class="org-type">&lt;THEN-BODY&gt;</span> ...) ...
+ [(<span class="org-keyword">else</span> <span class="org-type">&lt;ELSE-BODY&gt;</span> ...)])
+</pre>
+</div>
+
+<p>
+Compare how much nicer our <code>goldilocks</code> procedure looks with <code>cond</code>
+instead of nested <code>if</code> statements:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme"><span class="org-comment-delimiter">;; </span><span class="org-comment">Nested "if" version</span>
+(<span class="org-keyword">define</span> (<span class="org-function-name">goldilocks</span> n smallest-ok biggest-ok)
+  (<span class="org-keyword">if</span> (&lt; n smallest-ok)
+      <span class="org-string">"Too small!"</span>
+      (<span class="org-keyword">if</span> (&gt; n biggest-ok)
+          <span class="org-string">"Too big!"</span>
+          <span class="org-string">"Just right!"</span>)))
+
+<span class="org-comment-delimiter">;; </span><span class="org-comment">"cond" version</span>
+(<span class="org-keyword">define</span> (<span class="org-function-name">goldilocks</span> n smallest-ok biggest-ok)
+  (<span class="org-keyword">cond</span>
+   ((&lt; n smallest-ok)
+    <span class="org-string">"Too small!"</span>)
+   ((&gt; n biggest-ok)
+    <span class="org-string">"Too big!"</span>)
+   (<span class="org-keyword">else</span>
+    <span class="org-string">"Just right!"</span>)))
+</pre>
+</div>
+
+<p>
+Scheme also provides some different ways to compare whether or not
+two objects are the same thing.
+The shortest, simplest (but not comprehensive) summary of the zoo of
+equality predicates is that <code>equal?</code> compares based on content
+equivalence, whereas <code>eq?</code> compares based on object identity (as
+defined by the language's runtime).<sup><a id="fnr.equality-is-a-tough-subject" class="footref" href="#fn.equality-is-a-tough-subject" role="doc-backlink">9</a></sup>
+For example, <code>list</code> constructs a fresh list with a new identity
+every time, so the following are <code>equal?</code> but not <code>eq?</code>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">a-list</span> (list 1 2 3))
+REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">b-list</span> (list 1 2 3))
+REPL&gt; (equal? a-list a-list)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+REPL&gt; (eq? a-list a-list)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+REPL&gt; (equal? a-list b-list)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+REPL&gt; (eq? a-list b-list)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+</pre>
+</div>
+
+<p>
+Finally, in Scheme, anything that's not <code>#f</code> is considered
+true.
+This is sometimes used with something like <code>member</code>, which looks
+for matching elements and returns the remaining list if anything
+is found, and <code>#f</code> otherwise:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (member 'b '(a b c))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (b c)</span>
+REPL&gt; (member 'z '(a b c))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">fruit-sleuth</span> fruit basket)
+        (<span class="org-keyword">if</span> (member fruit basket)
+            <span class="org-string">"Found the fruit you're looking for!"</span>
+            <span class="org-string">"No fruit found! Gadzooks!"</span>))
+REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">fruit-basket</span> '(apple banana citron))
+REPL&gt; (fruit-sleuth 'banana fruit-basket)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Found the fruit you're looking for!"</span>
+REPL&gt; (fruit-sleuth 'pineapple fruit-basket)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "No fruit found! Gadzooks!"</span>
+</pre>
+</div>
+</div>
+</div>
+<div id="outline-container-scheme-lists-and-cons" class="outline-2">
+<h2 id="scheme-lists-and-cons"><span class="section-number-2">7.</span> Lists and "cons"</h2>
+<div class="outline-text-2" id="text-scheme-lists-and-cons">
+<p class="verse">
+"My other CAR is a CDR"<br>
+&#xa0;&#xa0;&#x2014; Bumper sticker of a Lisp enthusiast<br>
+</p>
+
+<p>
+For structured data, Scheme supports lists, which can contain any
+other type.<sup><a id="fnr.other-compound-types" class="footref" href="#fn.other-compound-types" role="doc-backlink">10</a></sup>  Here are two ways to write the
+same list:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (list 1 2 <span class="org-string">"cat"</span> 33.8 'foo)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (1 2 "cat" 33.8 foo)</span>
+REPL&gt; '(1 2 <span class="org-string">"cat"</span> 33.8 foo)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (1 2 "cat" 33.8 foo)</span>
+</pre>
+</div>
+
+<p>
+One difference between the two above is that in the latter quoted
+example, the symbol <code>foo</code> did not need to be quoted, since the outer
+list's quoting excused everything within from being evaluated.
+</p>
+
+<p>
+Additionally, quotes within an expression are cumulative. Notice that
+in the latter example, because the entire list is quoted, the list
+member <code>foo</code> does not need to be. Adding an additional quote before
+<code>foo</code> is legal, but may make it harder to work with the list later by
+needing to 'unquote' or evaluate it many times to get the actual
+symbol back.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; '(foo 'bar '''baz)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (foo (quote bar) (quote (quote (quote baz))))</span>
+</pre>
+</div>
+
+<p>
+There is a "special" list known as "the empty list", which is a list
+with no elements, simply designated <code>'()</code> (also known as <i>nil</i>,
+and which is the only object which will return <code>#t</code> in response to
+the predicate <code>null?</code> in standard Scheme).
+Lists in <i>Scheme</i> are actually "linked lists", which are combinations
+of pairs called "cons cells" that terminate in the empty
+list:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; '()
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; ()</span>
+REPL&gt; (cons 'a '())
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (a)</span>
+REPL&gt; (cons 'a (cons 'b (cons 'c '())))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (a b c)</span>
+</pre>
+</div>
+
+<p>
+The latter of which is equivalent to either:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (list 'a 'b 'c)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (a b c)</span>
+REPL&gt; '(a b c)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (a b c)</span>
+</pre>
+</div>
+
+<p>
+For very historical reasons,<sup><a id="fnr.cons-car-cdr-historical-reasons" class="footref" href="#fn.cons-car-cdr-historical-reasons" role="doc-backlink">11</a></sup>
+accessing the first element of a cons cell is done with <code>car</code> and the
+second element of a cons cell with <code>cdr</code> (pronounced "could-er"):<sup><a id="fnr.first-and-rest" class="footref" href="#fn.first-and-rest" role="doc-backlink">12</a></sup>
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (car '(a b c))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; a</span>
+REPL&gt; (cdr '(a b c))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (b c)</span>
+REPL&gt; (car (cdr '(a b c)))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; b</span>
+</pre>
+</div>
+
+<p>
+The second member of <code>cons</code> does not have to be another cons cell or
+the empty list.  If not, it is considered a "dotted list", and has an
+unusual-for-lisp infix syntax:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (cons 'a 'b)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (a . b)</span>
+</pre>
+</div>
+
+<p>
+Notice how this is structurally different from the following:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (cons 'a (cons 'b '()))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (a b)</span>
+</pre>
+</div>
+
+<p>
+It's easy to get caught up on piecing apart <code>cons</code> cells (arguably
+schemers do far too often, but <code>cons</code> is also elegantly
+powerful).<sup><a id="fnr.little-schemer" class="footref" href="#fn.little-schemer" role="doc-backlink">13</a></sup>
+</p>
+
+<p>
+In a sense, this subsection is a digression.  We intentionally
+do not use <code>cons</code> too much in this paper, and we have entirely
+kept <code>car</code> and <code>cdr</code> out of the main text.  This may lead to the
+question, why contain this subsection on lists at all?
+</p>
+
+<p>
+The reason is that we are building up to something we will explore
+further shortly, the extensibility of Scheme.  Scheme is written in
+its core data types, and is modifiable as such.  We will get to this
+more shortly, but as an example, we can quote any expression,
+transforming code into data:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (+ 1 2 (- 8 4))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 7</span>
+REPL&gt; '(+ 1 2 (- 8 4))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (+ 1 2 (- 8 4))</span>
+REPL&gt; (<span class="org-keyword">let</span> ((name <span class="org-string">"Horace"</span>))
+        (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!"</span>))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Hello Horace!"</span>
+REPL&gt; '(<span class="org-keyword">let</span> ((name <span class="org-string">"Horace"</span>))
+         (string-append <span class="org-string">"Hello "</span> name <span class="org-string">"!"</span>))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (let ((name "Horace")) (string-append "Hello " name "!"))</span>
+</pre>
+</div>
+
+<p>
+This last example is especially curious: we finally see the reason
+for symbols in Scheme to be important, as the function and syntax
+names become captured as symbols upon being quoted.
+In this sense, Lisp (including Scheme) is written in Lisp: there
+is little distinction between the representation the programmer
+sees and the representation the compiler sees, as see in
+<a href="#scheme-extensibility">On the extensibility of Scheme (and Lisps in general)</a>.
+</p>
+
+<p>
+By the way, the apostrophe quote is just a shorthand for
+<code>(quote &lt;EXPR&gt;)</code>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme"><span class="org-comment-delimiter">;; </span><span class="org-comment">these two are the same</span>
+'foo
+(quote foo)
+
+<span class="org-comment-delimiter">;; </span><span class="org-comment">and these two are the same</span>
+'(<span class="org-keyword">lambda</span> (x) (* x 2))
+(quote (<span class="org-keyword">lambda</span> (x) (* x 2)))
+</pre>
+</div>
+
+
+<p>
+Lists can also be used as an associative mapping between keys
+and values, called <i>alists</i> (association lists).
+A variety of procedures for convenient lookup exist, such as
+<code>assoc</code>, which returns the pair if found or <code>#f</code> if not:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">animal-noises</span>
+        '((cat . meow)
+          (dog . woof)
+          (sheep . baa)))
+REPL&gt; (assoc 'cat animal-noises)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (cat . meow)</span>
+REPL&gt; (assoc 'alien animal-noises)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+</pre>
+</div>
+
+<p>
+Association lists are easy to implement, look nice enough in
+Scheme's printed representation, and are easy to use with
+functional programming.
+(Want to add more to an alist?  Just cons on another cons cell!)
+This means they tend to be popular with schemers.
+However, they are not always efficient.
+While <code>assoc</code> is fine for small alists, an alist that is
+one thousand elements long will take one thousand steps to find
+a key-value pair buried at its bottom.
+Other datastructures, such as hashmaps which provide constant-time
+average lookups, are commonly provided in many Scheme implementations,
+and are sometimes a better choice.
+</p>
+
+<p>
+Aside from quote, it is also possible to use quasiquote, which uses
+the backtick to begin a quasiquote, and the comma to unquote.
+In this way we can move quickly between the world of data and code.
+For example, using a somewhat apocryphal metric for converting
+cat years to human years:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">cat-years</span> years)
+        (<span class="org-keyword">cond</span>
+         ((&lt;= years 1)       <span class="org-comment-delimiter">; </span><span class="org-comment">first year equivalent to 15</span>
+          (* years 15))
+         ((&lt;= years 2)
+          (+ 15 (* 9 (- years 1))))   <span class="org-comment-delimiter">;      </span><span class="org-comment">second year 9</span>
+         (<span class="org-keyword">else</span>
+          (+ 24 (* 4 (- years 2)))))) <span class="org-comment-delimiter">; </span><span class="org-comment">years after that 4</span>
+REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">cat-entry</span> name age)
+        `(cat (name ,name)
+              (age  ,age)
+              (cat-years-age ,(cat-years age))))
+REPL&gt; (cat-entry <span class="org-string">"Missy Rose"</span> 16)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (cat (name "Missy Rose")</span>
+<span class="org-comment-delimiter">;         </span><span class="org-comment">(age 16)</span>
+<span class="org-comment-delimiter">;         </span><span class="org-comment">(cat-years-age 80))</span>
+REPL&gt; (cat-entry <span class="org-string">"Kelsey"</span> 22)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (cat (name "Kelsey")</span>
+<span class="org-comment-delimiter">;         </span><span class="org-comment">(age 22)</span>
+<span class="org-comment-delimiter">;         </span><span class="org-comment">(cat-years-age 104))</span>
+</pre>
+</div>
+
+<p>
+Wow!  Those are some old cats!
+</p>
+</div>
+</div>
+<div id="outline-container-scheme-closure" class="outline-2">
+<h2 id="scheme-closure"><span class="section-number-2">8.</span> Closures</h2>
+<div class="outline-text-2" id="text-scheme-closure">
+<p>
+Recall our earlier definition and use of <code>goldilocks</code>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">goldilocks</span> n smallest-ok biggest-ok)
+        (<span class="org-keyword">cond</span>
+         ((&lt; n smallest-ok)
+          <span class="org-string">"Too small!"</span>)
+         ((&gt; n biggest-ok)
+          <span class="org-string">"Too big!"</span>)
+         (<span class="org-keyword">else</span>
+          <span class="org-string">"Just right!"</span>)))
+REPL&gt; (goldilocks 3 10 20)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Too small!"</span>
+REPL&gt; (goldilocks 33 10 20)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Too big!"</span>
+REPL&gt; (goldilocks 12 10 20)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Just right!"</span>
+</pre>
+</div>
+
+<p>
+Entering the same values for <code>smallest-ok</code> and <code>biggest-ok</code> over and
+over again is tedious.
+Goldilocks' range of preferences are unlikely to change from
+invocation to invocation.  Is there a way we could produce a version
+of Goldilocks with a kind of memory so we only have to pass in
+<code>smallest-ok</code> and <code>biggest-ok</code> once but still test against multiple
+versions of <code>n</code>?
+Indeed there is&#x2026; <i>closures</i> to the rescue!
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define</span> (<span class="org-function-name">make-goldilocks</span> smallest-ok biggest-ok)
+  (<span class="org-keyword">define</span> (<span class="org-function-name">goldilocks</span> n)   <span class="org-comment-delimiter">; </span><span class="org-comment">make a procedure which encloses</span>
+    (<span class="org-keyword">cond</span>                  <span class="org-comment-delimiter">;  </span><span class="org-comment">smallest-ok and biggest-ok so</span>
+     ((&lt; n smallest-ok)    <span class="org-comment-delimiter">;  </span><span class="org-comment">that only the n argument needs</span>
+      <span class="org-string">"Too small!"</span>)        <span class="org-comment-delimiter">;  </span><span class="org-comment">to be passed in  </span>
+     ((&gt; n biggest-ok)
+      <span class="org-string">"Too big!"</span>)
+     (<span class="org-keyword">else</span>
+      <span class="org-string">"Just right!"</span>)))
+  goldilocks)              <span class="org-comment-delimiter">; </span><span class="org-comment">return goldilocks procedure</span>
+</pre>
+</div>
+
+<p>
+We can now invoke <code>make-goldilocks</code>, which returns the <i>enclosed</i>
+<code>goldilocks</code> procedure<sup><a id="fnr.why-not-lambda" class="footref" href="#fn.why-not-lambda" role="doc-backlink">14</a></sup>.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (make-goldilocks 10 30)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #&lt;procedure goldilocks (n)&gt;</span>
+</pre>
+</div>
+
+<p>
+Now we can call the inner <code>goldilocks</code> over and over again.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">goldi</span>
+        (make-goldilocks 10 30))
+REPL&gt; (goldi 7)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Too small!"</span>
+REPL&gt; (goldi 256)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Too big!"</span>
+REPL&gt; (goldi 22)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Just right!"</span>
+</pre>
+</div>
+
+<p>
+The outer procedure "closes over" the inner procedure, giving it
+access to (and a memory of) <code>smallest-ok</code> and <code>biggest-ok</code>.
+</p>
+
+<p>
+Notably, this is the same pattern <i>Goblins</i> uses to implement
+constructors for its objects: the outer procedure is the constructor,
+the inner procedure is the behavior of the object.
+(The primary difference is indeed that <i>Goblins</i> objects spawned with
+<code>spawn</code> get a <i>bcom</i> capability which they can use to change their
+behavior!)
+</p>
+
+<p>
+Beautifully, we can also build our own cons cells out of pure
+abstraction using this same technique.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">abstract-cons</span> car-data cdr-data)
+        (<span class="org-keyword">lambda</span> (method)
+          (<span class="org-keyword">cond</span>
+           ((eq? method 'car)
+            car-data)
+           ((eq? method 'cdr)
+            cdr-data)
+           (<span class="org-keyword">else</span> (error <span class="org-string">"Unknown method:"</span> method)))))
+REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">our-cons</span> (abstract-cons 'foo 'bar))
+REPL&gt; (our-cons 'car)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; foo</span>
+REPL&gt; (our-cons 'cdr)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; bar</span>
+</pre>
+</div>
+
+<p>
+In this sense, closures are also data structures built from the code
+flow of the program itself.
+</p>
+
+<p>
+Closures are a property of <i>lexical scoping</i>.
+We take advantage of this in Goblins: the capabilities an object
+has access to is merely the capabilities it has within its behavior's
+scope.
+</p>
+</div>
+</div>
+<div id="outline-container-scheme-iteration-recursion" class="outline-2">
+<h2 id="scheme-iteration-recursion"><span class="section-number-2">9.</span> Iteration and recursion</h2>
+<div class="outline-text-2" id="text-scheme-iteration-recursion">
+<p>
+Much of programming involves sequences of operations, especially
+on datastructures which contain other information.
+One especially useful procedure for functional programming which
+operates on lists is <code>map</code>, which applies its first argument's
+procedure to each element in its series.
+</p>
+
+<p>
+For example, <code>string-length</code> gives the number of characters which
+exist in a given string:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (string-length <span class="org-string">"cat"</span>)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 3</span>
+REPL&gt; (string-length <span class="org-string">"gorilla"</span>)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 7</span>
+</pre>
+</div>
+
+<p>
+So, using <code>map</code>, we could easily construct a list representing
+the length of each of its strings:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">map</span> string-length '(<span class="org-string">"cat"</span> <span class="org-string">"dog"</span> <span class="org-string">"gorilla"</span> <span class="org-string">"salamander"</span>))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (3 3 7 10)</span>
+</pre>
+</div>
+
+<p>
+We could also supply a procedure we define:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">symbol-length</span> sym)
+        (string-length (symbol-&gt;string sym)))
+REPL&gt; (<span class="org-keyword">map</span> symbol-length '(basil oregano parsley thyme))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (5 7 7 5)</span>
+</pre>
+</div>
+
+<p>
+In fact, there is no requirement that we name the procedure&#x2026; we can
+use <code>lambda</code> to construct an anonymous procedure which we pass to
+<code>map</code> directly:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">map</span> (<span class="org-keyword">lambda</span> (str)
+             (string-append <span class="org-string">"I just love "</span>
+                            (string-upcase str)
+                            <span class="org-string">"!!!"</span>))
+           '(<span class="org-string">"strawberries"</span> <span class="org-string">"bananas"</span> <span class="org-string">"grapes"</span>))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; ("I just love STRAWBERRIES!!!"</span>
+<span class="org-comment-delimiter">;     </span><span class="org-comment">"I just love BANANAS!!!"</span>
+<span class="org-comment-delimiter">;     </span><span class="org-comment">"I just love GRAPES!!!")</span>
+</pre>
+</div>
+
+<p>
+<code>map</code> performs some extra work by building up a list of results every
+time.
+But what if we wanted to simply display our love of some food to the
+screen using <code>display</code> and did not care about operating on the data
+any further?
+We could use <code>for-each</code>, which has the same structure as <code>map</code> but
+does not build a result:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">for-each</span> (<span class="org-keyword">lambda</span> (str)
+                  (display
+                   (string-append <span class="org-string">"I just love "</span>
+                                  (string-upcase str)
+                                  <span class="org-string">"!!!\n"</span>)))
+                '(<span class="org-string">"ice cream"</span> <span class="org-string">"fudge"</span> <span class="org-string">"cookies"</span>))
+<span class="org-comment-delimiter">; </span><span class="org-comment">prints:</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">I just love ICE CREAM!!!</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">I just love FUDGE!!!</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">I just love COOKIES!!!</span>
+</pre>
+</div>
+
+<div class="org-center">
+<p>
+<b>NOTE!</b> The following text in this subsection, indeed in the rest
+of the Scheme tutorial, is beyond anything required to understand
+the main body of our paper "The Heart of Spritely"!
+However, it will significantly advance a newcomer's understanding of
+Scheme.
+</p>
+</div>
+
+<p>
+Scheme has the surprising property that iteration is actually
+defined in terms of recursion!
+</p>
+
+<p>
+Here is what we mean.
+We could define our own version of <code>for-each</code>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define</span> (<span class="org-function-name">for-each</span> proc lst)
+  (<span class="org-keyword">if</span> (eq? lst '())  <span class="org-comment-delimiter">; </span><span class="org-comment">End of the list?</span>
+      'done          <span class="org-comment-delimiter">; </span><span class="org-comment">We're done, so simply return "done"</span>
+      (<span class="org-keyword">let</span> ((item (car lst)))  <span class="org-comment-delimiter">; </span><span class="org-comment">Otherwise... let's fetch this item</span>
+        (proc item)            <span class="org-comment-delimiter">; </span><span class="org-comment">Call the procedure with this item</span>
+        (<span class="org-keyword">for-each</span> proc (cdr lst)))))  <span class="org-comment-delimiter">; </span><span class="org-comment">Iterate with the remaining work</span>
+</pre>
+</div>
+
+<p>
+This calls <code>proc</code> successively with each item from <code>lst</code> until it runs
+out of items.
+If you have experience with other programming languages, your
+expectation would probably be that this design could accidentally
+"blow the stack".
+However, Scheme is smart: it sees that there is no more work left to
+be done within the current version of <code>for-each</code> once we reach the
+last line&#x2026; in other words, where <code>for-each</code> calls itself is
+in the "tail position".
+Because of this, Scheme is able to skip allocating a new frame on the
+stack and "jump" back to the beginning of <code>for-each</code> again with the
+new variables allocated.
+This is called <code>tail call elimination</code> and all iteration facilities
+are actually defined this way in terms of recursion in Scheme.
+</p>
+
+<p>
+It is also possible to build tree-recursive procedures.
+The following (somewhat advanced, if you don't follow this it's ok)
+procedure builds a binary tree:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define</span> (<span class="org-function-name">build-tree</span> depth)
+  (<span class="org-keyword">if</span> (= depth 0)
+      '(0)
+      (list depth
+            (build-tree (- depth 1))
+            (build-tree (- depth 1)))))
+</pre>
+</div>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (build-tree 3)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (3 (2 (1 (0)</span>
+<span class="org-comment-delimiter">;             </span><span class="org-comment">(0))</span>
+<span class="org-comment-delimiter">;          </span><span class="org-comment">(1 (0)</span>
+<span class="org-comment-delimiter">;             </span><span class="org-comment">(0)))</span>
+<span class="org-comment-delimiter">;       </span><span class="org-comment">(2 (1 (0)</span>
+<span class="org-comment-delimiter">;             </span><span class="org-comment">(0))</span>
+<span class="org-comment-delimiter">;          </span><span class="org-comment">(1 (0)</span>
+<span class="org-comment-delimiter">;             </span><span class="org-comment">(0))))</span>
+</pre>
+</div>
+
+<p>
+Or, better visualized:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-text">       3
+      / \
+     /   \
+    2     2
+   / \   / \
+  1  1   1  1
+ /\  /\ /\  /\
+0 0 0 0 0 0 0 0
+</pre>
+</div>
+
+<p>
+However, unlike <code>for-each</code>, <code>build-tree</code> does <i>not</i> call itself
+in the tail position.
+There is no way to simply "jump" to the beginning of the procedure
+without allocating work to be done on the stack with the way this code
+is written: more work needs to be done, as <code>list</code> sits waiting for its
+results.
+As such, unlike <code>for-each</code>, <code>build-tree</code> is recursive but not
+iterative.
+</p>
+
+<p>
+Finally, come conveniences.
+Here are two variants on <code>let</code>, both useful for recursive and
+iterative procedures.
+The first is <code>letrec</code> which allows for procedures to call and refer to
+themselves or others defined by the <code>letrec</code>, regardless of definition
+ordering:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">letrec</span> ((alice
+                (<span class="org-keyword">lambda</span> (first?)
+                  (report-status <span class="org-string">"Alice"</span> first?)
+                  (<span class="org-keyword">if</span> first? (bob #f))))
+               (bob
+                (<span class="org-keyword">lambda</span> (first?)
+                  (report-status <span class="org-string">"Bob"</span> first?)
+                  (<span class="org-keyword">if</span> first? (alice #f))))
+               (report-status
+                (<span class="org-keyword">lambda</span> (name first?)
+                  (display
+                   (string-append name <span class="org-string">" is "</span>
+                                  (<span class="org-keyword">if</span> first?
+                                      <span class="org-string">"first"</span>
+                                      <span class="org-string">"second"</span>)
+                                  <span class="org-string">"!\n"</span>)))))
+        (alice #t)
+        (display <span class="org-string">"-----\n"</span>)
+        (bob #t))
+<span class="org-comment-delimiter">; </span><span class="org-comment">prints:</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">Alice is first!</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">Bob is second!</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">-----</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">Bob is first!</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">Alice is second!</span>
+</pre>
+</div>
+
+<p>
+The second useful abstraction is the <i>named let</i> variant of <code>let</code>,
+where a looping name identifier appears as the first argument:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">let</span> <span class="org-function-name">loop</span> ((words '(<span class="org-string">"carrot"</span> <span class="org-string">"potato"</span> <span class="org-string">"pea"</span> <span class="org-string">"celery"</span>))
+                 (num-words 0)
+                 (num-chars 0))
+        (<span class="org-keyword">if</span> (eq? words '())
+            (format #f <span class="org-string">"We found ~a words and ~a chars!"</span>
+                    num-words num-chars)
+            (loop (cdr words)
+                  (+ num-words 1)
+                  (+ num-chars (string-length (car words))))))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "We found 4 words and 21 chars!"</span>
+</pre>
+</div>
+
+<p>
+What a <i>named let</i> does is define the named procedure (here named
+<code>loop</code>) and immediately invokes it with the initial bindings of the
+<code>let</code>.
+The procedure is available within the body of the <code>let</code> for
+convenient recursive (perhaps iterative) calls.
+</p>
+</div>
+</div>
+<div id="outline-container-scheme-effects" class="outline-2">
+<h2 id="scheme-effects"><span class="section-number-2">10.</span> Mutation, assignment, and other kinds of side effects</h2>
+<div class="outline-text-2" id="text-scheme-effects">
+<p>
+This section is included for completeness.
+Notably, Goblins provides a different approach to much of this here
+which we will discuss towards the end.
+</p>
+
+<p>
+Scheme ships with a way to reassign the current value of a variable
+using <code>set!</code>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">chest</span> 'sword)
+REPL&gt; chest
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; sword</span>
+REPL&gt; (set! chest 'gold)
+REPL&gt; chest
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; gold</span>
+</pre>
+</div>
+
+<p>
+This can even be combined with the techniques shown in <a href="#scheme-closure">Closures</a>.
+For instance, here's an example of an object that counts down
+from an initial number <code>n</code> until it reaches its zero, and then
+always returns zero afterwards.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">make-countdown</span> n)
+        (<span class="org-keyword">lambda</span> ()
+          (<span class="org-keyword">define</span> <span class="org-function-name">last-n</span> n)
+          (<span class="org-keyword">if</span> (zero? n)
+              0
+              (<span class="org-keyword">begin</span>
+                (set! n (- n 1))
+                last-n))))
+REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">cdown</span> (make-countdown 3))
+REPL&gt; (cdown)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 3</span>
+REPL&gt; (cdown)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 2</span>
+REPL&gt; (cdown)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 1</span>
+REPL&gt; (cdown)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 0</span>
+REPL&gt; (cdown)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 0</span>
+</pre>
+</div>
+
+<p>
+There are several interesting things about this example:
+</p>
+
+<ul class="org-ul">
+<li>We have introduced time and change into our computations.  Before
+the introduction of side effects such as assignment, calling a
+procedure with the same arguments will always produce the same
+result.  But in the above example, <code>cdown</code> changes its response over
+time (even without being passed any arguments on invocation).</li>
+<li>Since we want to show the initial number the first time the
+procedure is called, we have to capture <code>last-n</code> <i>before</i>
+using <code>set!</code> to change <code>n</code>.  If we accidentally reverse this order,
+we will introduce a bug where <code>cdown</code> would have started with <code>2</code>
+instead of <code>3</code> in the example above.</li>
+<li>Here we also see an interesting new piece of syntax: <code>begin</code>.
+<code>begin</code> executes several expressions in sequence, returning
+the value of the last expression.</li>
+</ul>
+
+<p>
+This last one is interesting.
+Prior to introducing effects (such as the assignment shown above,
+displaying to the screen, logging to a file or database, etc),
+there is never any reason for <code>begin</code>.
+To understand this, recall the <i>substitution method</i> demonstrated at
+the beginning of this tutorial:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(* (- 8 (/ 30 5)) 21)   <span class="org-comment-delimiter">; </span><span class="org-comment">beginning expression</span>
+(* (- 8 6) 21)          <span class="org-comment-delimiter">; </span><span class="org-comment">simplify: (/ 30 5) =&gt; 6</span>
+(* 2 21)                <span class="org-comment-delimiter">; </span><span class="org-comment">simplify: (- 8 6)  =&gt; 2</span>
+42                      <span class="org-comment-delimiter">; </span><span class="org-comment">simplify: (* 2 21) =&gt; 42</span>
+</pre>
+</div>
+
+<p>
+Before effects, every procedure invoked is to compute a new part of
+the program.
+But since each branch of <code>if</code> only evaluates one expression, we must
+provide a way to sequence the <i>alternate</i> clause so that we can both
+<code>set!</code> and then return a value.<sup><a id="fnr.cond-begin" class="footref" href="#fn.cond-begin" role="doc-backlink">15</a></sup>
+In other words, a <i>purely functional</i> program is really built to
+take a series of inputs and precisely compute a value, the same value,
+every time.
+This is a clean set of substitutions all the way up and down the
+evaluation.
+(In other worlds, before introducing time, we will have programs which
+are fully <i>deterministic</i>.)
+</p>
+
+<p>
+However, by introducing <i>mutation</i> and <i>side effects</i>, we have
+introduced a powerful, but dangerous, new construct into our program:
+time.
+Our programs are no longer <i>purely functional</i>, time has made them
+<i>imperative</i>: do this, then do that.
+Time is change, and change requires sequences of events, not mere
+substitutions.
+And time means that the same programs and procedures run with the same
+inputs will not always produce the same outputs.
+We have traded a timeless world for one that changes.
+</p>
+
+<p>
+Despite the caution, change can be desirable.
+We live in a world with time and change, and so too often do our
+programs.
+Scheme has a (somewhat inconsistent) naming convention for observing
+time and change: the addition of a <code>!</code> suffix, as we have seen with
+<code>set!</code>.
+The <code>!</code> can be seen as a kind of warning, as if the user is shouting
+about the possibility of mutation.
+(However, the runtime of Scheme provides no guarantee that the
+presence or absence of this suffix says anything about mutation
+whatsoever.)
+</p>
+
+<p>
+However, <code>set!</code> is not the only form of change and mutation available
+in standard (and nonstandard) Scheme.<sup><a id="fnr.set-vs-w7-cells" class="footref" href="#fn.set-vs-w7-cells" role="doc-backlink">16</a></sup>
+Another example is mutable vectors and <code>vector-set!</code>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">vec</span> (vector 'a 'b 'c))
+REPL&gt; vec
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #(a b c)</span>
+REPL&gt; (vector-ref vec 1)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; b</span>
+REPL&gt; (vector-set! vec 1 'boop)
+REPL&gt; (vector-ref vec 1)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; boop</span>
+REPL&gt; vec
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #(a boop c)</span>
+</pre>
+</div>
+
+<p>
+Both of these examples resemble mutation.
+However, we have already seen a different form of side effects in
+this tutorial, namely <code>display</code>, which writes to the screen.
+In fact, <code>display</code> itself builds on the idea of <i>ports</i>, which
+are mechanisms in Scheme for reading and writing from and to
+input and output devices.
+</p>
+
+<p>
+All of these carry the same challenges of <code>set!</code>.
+Put simply, the introduction of ambient time makes our programs less
+timeless.
+However, if turns out that we cannot remove <i>all</i> time and change
+from our computers, as illustrated in this nested set of quotes:
+</p>
+
+<blockquote>
+<p>
+As Simon Peyton Jones, a well-known functional programmer, likes to
+say, "All you can do without side effects is push a button and
+watch the box get hot for a while."  (Which isn't technically true,
+since even the box getting hot is a side effect.)
+</p>
+
+<p>
+&#x2014; From <i>Land of Lisp</i> by Conrad Barski, M.D.
+</p>
+</blockquote>
+
+<p>
+As Simon and Conrad point out, the challenge with functional
+programming is that even though side effects can be dangerous, they
+are in a sense all the user really cares about.
+At some point, in order for a computer to be useful, input must
+be read from the user and output must be given back, and these
+are inherently side-effectful.
+Even using the radiant heat of a busy computer to warm your house
+is a side effect.
+At some point, we must both enter and leave the realm of pure
+mathlandia.<sup><a id="fnr.monads-etc" class="footref" href="#fn.monads-etc" role="doc-backlink">17</a></sup>
+</p>
+</div>
+</div>
+<div id="outline-container-scheme-extensibility" class="outline-2">
+<h2 id="scheme-extensibility"><span class="section-number-2">11.</span> On the extensibility of Scheme (and Lisps in general)</h2>
+<div class="outline-text-2" id="text-scheme-extensibility">
+<p>
+Let's say we'd like some new syntax.
+For instance, maybe we want to run multiple pieces of code in sequence
+when a condition is met.
+We could write:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">if</span> (our-test)
+    (<span class="org-keyword">begin</span>
+      (do-thing-1)
+      (do-thing-2)))
+</pre>
+</div>
+
+<p>
+But this is kind of ugly.
+What if we created some new syntax specifically for this purpose?
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">when</span> (our-test)
+  (do-thing-1)
+  (do-thing-2))
+</pre>
+</div>
+
+<p>
+<code>when</code> cannot be built as a function because we do not want to
+execute <code>(do-thing-1)</code> or <code>(do-thing-2)</code> unless <code>(our-test)</code> passes.
+We need new syntax.
+</p>
+
+<p>
+Could we build the new syntax ourselves?
+Remembering that we can "write Lisp in Lisp", the answer seems to be
+yes:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">when</span> test . body)
+        `(<span class="org-keyword">if</span> ,test
+             ,(cons 'begin body)))
+REPL&gt; (<span class="org-keyword">when</span> '(our-test)
+        '(do-thing-1)
+        '(do-thing-2))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (if (our-test)</span>
+<span class="org-comment-delimiter">;        </span><span class="org-comment">(begin</span>
+<span class="org-comment-delimiter">;          </span><span class="org-comment">(do-thing-1)</span>
+<span class="org-comment-delimiter">;          </span><span class="org-comment">(do-thing-2)))</span>
+</pre>
+</div>
+
+<p>
+This does build out the appropriate syntax!
+And it does demonstrate that our claim that Lisp can "write code which
+writes code" is indeed true.<sup><a id="fnr.homoiconic" class="footref" href="#fn.homoiconic" role="doc-backlink">18</a></sup>
+</p>
+
+<p>
+However, there are two obvious problems with this first attempt:
+</p>
+<ul class="org-ul">
+<li>We had to quote each argument passed to <code>when</code>. This is annoying to
+do.</li>
+<li><code>when</code> does not actually run its code, it just returns the <i>quoted
+structure</i> that the code should expand to.</li>
+</ul>
+
+<p>
+However, with just one tweak our procedure can be turned into a
+"macro": a special kind of procedure used by the compiler to expand
+code.
+Here is all we need to do:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define-macro</span> (<span class="org-variable-name">when</span> test . body)
+  `(<span class="org-keyword">if</span> ,test
+       ,(cons 'begin body)))
+</pre>
+</div>
+
+<p>
+All we needed to do was rename <code>define</code> to <code>define-macro</code>!
+Now Scheme knows it should use this for code expansion.
+This allows us to define new kinds of syntax forms.
+</p>
+
+<p>
+<code>define-macro</code> shows very clearly what macros in Lisp and Scheme
+do: they operate on structure.
+Manually building up a list structure like this is how macros
+in Common Lisp work.
+However, this is not the general way to write macros in Scheme.
+Scheme macros look very similar though:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(define-syntax-rule (<span class="org-keyword">when</span> test body ...)
+  (<span class="org-keyword">if</span> test
+      (<span class="org-keyword">begin</span> body ...)))
+</pre>
+</div>
+
+<p>
+<code>define-syntax-rule</code> uses <i>pattern matching</i> to implement macros.  The
+first argument to <code>define-syntax-rule</code> describes the pattern which the
+user will enter, and the second describes the template which will be
+expanded.<sup><a id="fnr.other-macro-builders" class="footref" href="#fn.other-macro-builders" role="doc-backlink">19</a></sup>
+We can also notice that <code>body ...</code> appears in both the pattern
+and the template; the <code>...</code> ellipsis in the pattern represents that
+multiple expressions will be captured from the user's input and
+the <code>...</code> in the template indicates where the repeating should occur.
+We can see that we do not need to manually quote things using
+this mechanism; Scheme cleverly takes care of it for us.
+</p>
+
+<p>
+Ultimately, the Scheme version of syntax definitions is less obvious
+as to how it works under the hood than the <code>define-macro</code> version is.
+However, there is an issue that arrives in syntax transformation
+systems called <i>hygiene</i>: that a syntax form / macro not introduce
+unexpected temporary identifiers into the body of the form it expands
+into.
+We will not get into the debate in this primer, but both Common Lisp
+and Scheme's macros have significant tradeoffs, with Scheme being much
+more likely to be properly "hygienic", easier to write for simple
+syntax forms, but harder to write for more complicated ones, and less
+obvious as to how they work under the hood.
+For this reason, even though you will likely never use the <code>define-macro</code>
+approach in Scheme, it is a useful way to understand the idea behind
+"code that writes code".
+</p>
+
+<p>
+Now that we know how to produce new syntax the Scheme way, let's see
+if we can make our life more convenient than before.
+Let's revisit our use of <code>for-each</code> from earlier:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">for-each</span> (<span class="org-keyword">lambda</span> (str)
+                  (display
+                   (string-append <span class="org-string">"I just love "</span>
+                                  (string-upcase str)
+                                  <span class="org-string">"!!!\n"</span>)))
+                '(<span class="org-string">"strawberries"</span> <span class="org-string">"bananas"</span> <span class="org-string">"grapes"</span>))
+<span class="org-comment-delimiter">; </span><span class="org-comment">prints:</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">I just love STRAWBERRIES!!!</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">I just love BANANAS!!!</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">I just love GRAPES!!!</span>
+</pre>
+</div>
+
+<p>
+This works, but it is also unnecessarily tedious.
+That <code>lambda</code> is an unnecessary piece of detail!
+A small new syntax definition lets us clean things up:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(define-syntax-rule (for (item lst) body ...)
+  (<span class="org-keyword">for-each</span> (<span class="org-keyword">lambda</span> (item)
+              body ...)
+            lst))
+</pre>
+</div>
+
+<p>
+Let's give it a try:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (for (str '(<span class="org-string">"strawberries"</span> <span class="org-string">"bananas"</span> <span class="org-string">"grapes"</span>))
+        (display
+         (string-append <span class="org-string">"I just love "</span>
+                        (string-upcase str)
+                        <span class="org-string">"!!!\n"</span>)))
+<span class="org-comment-delimiter">; </span><span class="org-comment">prints:</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">I just love STRAWBERRIES!!!</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">I just love BANANAS!!!</span>
+<span class="org-comment-delimiter">;   </span><span class="org-comment">I just love GRAPES!!!</span>
+</pre>
+</div>
+
+<p>
+It works!  This is much easier to read.<sup><a id="fnr.c-style-for" class="footref" href="#fn.c-style-for" role="doc-backlink">20</a></sup>
+</p>
+
+<p>
+We need not stop here.  The <code>methods</code> feature in Spritely Goblins
+is an example of a macro.  Here is a simplified version:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(define-syntax-rule (methods ((method-id method-args ...)
+                              body ...) ...)
+  (<span class="org-keyword">lambda</span> (method . args)
+    (<span class="org-keyword">letrec</span> ((method-id
+              (<span class="org-keyword">lambda</span> (method-args ...)
+                body ...)) ...)
+      (<span class="org-keyword">cond</span>
+       ((eq? method (quote method-id))
+        (apply method-id args)) ...
+       (<span class="org-keyword">else</span>
+        (error <span class="org-string">"No such method:"</span> method))))))
+</pre>
+</div>
+
+<p>
+We can both see here simultaneously how expressive Scheme style
+pattern matching examples are, but also how with multiple layers
+of ellipses (the <code>...</code>), it can be a bit challenging to see how
+the code expander is figuring out how to unpack things.
+</p>
+
+<p>
+But let's not worry about that for now, and instead show
+an example of usage:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> (<span class="org-function-name">make-enemy</span> name hp)
+        (methods
+         ((get-name)
+          name)
+         ((damage-me weapon hp-lost)
+          (<span class="org-keyword">cond</span>
+           ((dead?)
+            (format #t <span class="org-string">"Poor ~a is already dead!\n"</span> name))
+           (<span class="org-keyword">else</span>
+            (set! hp (- hp hp-lost))
+            (format #t <span class="org-string">"You attack ~a, doing ~a damage!\n"</span>
+                    name hp-lost))))
+         ((dead?)
+          (&lt;= hp 0))))
+REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">hobgob</span>
+        (make-enemy <span class="org-string">"Hobgoblin"</span> 25))
+REPL&gt; (hobgob 'get-name)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; "Hobgoblin"</span>
+REPL&gt; (hobgob 'dead?)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+REPL&gt; (hobgob 'damage-me <span class="org-string">"club"</span> 10)
+<span class="org-comment-delimiter">; </span><span class="org-comment">prints: You attack Hobgoblin, doing 10 damage!</span>
+REPL&gt; (hobgob 'damage-me <span class="org-string">"sword"</span> 20)
+<span class="org-comment-delimiter">; </span><span class="org-comment">prints: You attack Hobgoblin, doing 20 damage!</span>
+REPL&gt; (hobgob 'damage-me <span class="org-string">"pickle"</span> 2)
+<span class="org-comment-delimiter">; </span><span class="org-comment">prints: Poor Hobgoblin is already dead!</span>
+REPL&gt; (hobgob 'dead?)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+</pre>
+</div>
+
+<p>
+We can go further.
+We can extend Scheme to include <a href="http://minikanren.org/">logic programming</a>,
+we can <a href="https://wingolog.org/archives/2011/08/30/the-gnu-extension-language">add pattern matching</a>, etc etc etc.
+Indeed, we will use a pattern matching system included in Guile's
+standard library in the next subsection.
+</p>
+
+<p>
+Because of the syntactic extensibility of Lisp/Scheme, advanced
+programming language features can be implemented as libraries rather
+than as entirely separate sub-languages.
+Multiple problem domains can be combined into one system.
+For this reason, we say that languages in the Lisp language family
+support <i>composable domain specific languages</i>.
+</p>
+
+<p>
+It is also liberating.
+In other programming languages, users must pray at the altar of the
+programming language implementers for features to show up in the next
+official language release, features which would be only a few small
+and simple lines of code in the hand of a Lisp/Scheme user.
+</p>
+
+<p>
+This is true power.
+But there is more.
+In the next section we will unlock Scheme itself, allowing us to
+configure and experiment with its underlying mechanisms, in a
+surprisingly compact amount of code.
+</p>
+</div>
+</div>
+<div id="outline-container-scheme-in-scheme" class="outline-2">
+<h2 id="scheme-in-scheme"><span class="section-number-2">12.</span> Scheme in Scheme</h2>
+<div class="outline-text-2" id="text-scheme-in-scheme">
+<p>
+Here is a working implementation of Scheme written in Scheme:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(use-modules (ice-9 match))
+
+(<span class="org-keyword">define</span> (<span class="org-function-name">env-lookup</span> env name)
+  (match (assoc name env)
+    ((_key . val)
+     val)
+    (_
+     (error <span class="org-string">"Variable unbound:"</span> name))))
+
+(<span class="org-keyword">define</span> (<span class="org-function-name">extend-env</span> env names vals)
+  (<span class="org-keyword">if</span> (eq? names '())
+      env
+      (cons (cons (car names) (car vals))
+            (extend-env env (cdr names) (cdr vals)))))
+
+(<span class="org-keyword">define</span> (<span class="org-function-name">evaluate</span> expr env)
+  (match expr
+    <span class="org-comment-delimiter">;; </span><span class="org-comment">Support builtin types</span>
+    ((<span class="org-keyword">or</span> #t #f (? number?))
+     expr)
+    <span class="org-comment-delimiter">;; </span><span class="org-comment">Quoting</span>
+    (('quote quoted-expr)
+     quoted-expr)
+    <span class="org-comment-delimiter">;; </span><span class="org-comment">Variable lookup</span>
+    ((? symbol? name)
+     (env-lookup env name))
+    <span class="org-comment-delimiter">;; </span><span class="org-comment">Conditionals</span>
+    (('if test consequent alternate)
+     (<span class="org-keyword">if</span> (evaluate test env)
+         (evaluate consequent env)
+         (evaluate alternate env)))
+    <span class="org-comment-delimiter">;; </span><span class="org-comment">Lambdas (Procedures)</span>
+    (('lambda (args ...) body)
+     (<span class="org-keyword">lambda</span> (. vals)
+       (evaluate body (extend-env env args vals))))
+    <span class="org-comment-delimiter">;; </span><span class="org-comment">Procedure Invocation (Application)</span>
+    ((proc-expr arg-exprs ...)
+     (apply (evaluate proc-expr env)
+            (<span class="org-keyword">map</span> (<span class="org-keyword">lambda</span> (arg-expr)
+                   (evaluate arg-expr env))
+                 arg-exprs)))))
+</pre>
+</div>
+
+<p>
+Without comments, blank lines, and the pattern matching import at the
+top (not necessary, but convenient), this is a mere 30 lines of code.
+This evaluator, while bare bones, is complete enough to be able to
+compute anything we can imagine.
+(You could even write another similar Scheme evaluator on top of this
+one!)<sup><a id="fnr.metacircular" class="footref" href="#fn.metacircular" role="doc-backlink">21</a></sup>
+</p>
+
+<p>
+Our evaluator takes two arguments, a Scheme expression <code>expr</code> and an
+environment <code>env</code>.
+Scheme's lispy structure is of great benefit here, since as we
+have learned we can easily quote entire sections of code.
+(Indeed, that is exactly what we are going to do.)
+The <code>env</code> of the second argument is an association list mapping
+symbols for names and their associated procedures.
+</p>
+
+<p>
+Seeing is believing.
+Let's do some simple arithmetic, passing in some procedures to
+the default environment which can do some math:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define</span> <span class="org-function-name">math-env</span>
+  `((+ . ,+)
+    (- . ,-)
+    (* . ,*)
+    (/ . ,/)))
+</pre>
+</div>
+
+<p>
+As we can see, the first "substitution method" example we wrote works
+just fine using this environment:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (evaluate '(* (- 8 (/ 30 5)) 21)
+                math-env)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 42</span>
+</pre>
+</div>
+
+<p>
+What do you know, that's the same answer we got in our own program!
+</p>
+
+<p>
+We can also make a lambda and apply it.  Let's make one that can
+square a number:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (evaluate '((<span class="org-keyword">lambda</span> (x)
+                    (* x x))
+                  4)
+                math-env)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 16</span>
+</pre>
+</div>
+
+<p>
+Nice, works perfectly.
+</p>
+
+<p>
+Let's do something more advanced.
+Supplying only two operators, <code>+</code> and <code>=</code>, we are able to compute
+the Fibonacci sequence:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">fib-program</span>
+        '((<span class="org-keyword">lambda</span> (prog arg)   <span class="org-comment-delimiter">; </span><span class="org-comment">boot</span>
+            (prog prog arg))
+          (<span class="org-keyword">lambda</span> (fib n)      <span class="org-comment-delimiter">; </span><span class="org-comment">main program</span>
+            (<span class="org-keyword">if</span> (= n 0)
+                0
+                (<span class="org-keyword">if</span> (= n 1)
+                    1
+                    (+ (fib fib (+ n -1))
+                       (fib fib (+ n -2))))))
+          10))                 <span class="org-comment-delimiter">; </span><span class="org-comment">argument</span>
+REPL&gt; (<span class="org-keyword">define</span> <span class="org-function-name">fib-env</span>
+        `((+ . ,+)
+          (= . ,=)))
+REPL&gt; (evaluate fib-program fib-env)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 55</span>
+</pre>
+</div>
+
+<p>
+This seems like magic.  But it works!  The evaluator really is
+performing the underlying computation, using merely addition (on both
+positive and negative numbers) and numeric equality check procedures,
+which we have provided.
+</p>
+
+<p>
+The main program needs to be able to call itself, so the first
+procedure (labeled <code>boot</code>) takes a program and an argument and invokes
+the procedure with itself and that argument.<sup><a id="fnr.cheap-y" class="footref" href="#fn.cheap-y" role="doc-backlink">22</a></sup>
+The second procedure (labeled <code>main program</code>) takes itself as the
+argument <code>fib</code> (supplied by our boot procedure) as well as an argument
+of <code>n</code> (also supplied by the boot procedure)&#x2026; and it works!
+Our evaluator recursively builds up the Fibonacci sequence.
+</p>
+
+<p>
+Our evaluator can also be easily understood.
+Let us break it down section by section.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define</span> (<span class="org-function-name">env-lookup</span> env name)
+  (match (assoc name env)
+    ((_key . val)
+     val)
+    (_
+     (error <span class="org-string">"Variable unbound:"</span> name))))
+</pre>
+</div>
+
+<p>
+This one is easy.
+We are defining environments as association lists, so all <code>env-lookup</code>
+does is search for a matching name in the list.
+Newer additions will be found first, meaning that the same name
+defined in a deeper scope will <i>shadow</i> the parent scope.
+This can be seen by usage:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (env-lookup '((foo . newer-foo)
+                    (bar . bar)
+                    (foo . older-foo))
+                  'foo)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 'newer-foo</span>
+</pre>
+</div>
+
+<p>
+The next one is a utility:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define</span> (<span class="org-function-name">extend-env</span> env names vals)
+  (<span class="org-keyword">if</span> (eq? names '())
+      env
+      (cons (cons (car names) (car vals))
+            (extend-env env (cdr names) (cdr vals)))))
+</pre>
+</div>
+
+<p>
+<code>extend-env</code> takes an environment and a list of names and a
+parallel list of values.
+This is a convenience which we will use in procedure definitions
+later.
+Once again, easily understood by usage:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (extend-env '((foo . foo-val))
+                  '(bar quux)
+                  '(bar-val quux-val))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; ((bar . bar-val)</span>
+<span class="org-comment-delimiter">;     </span><span class="org-comment">(quux . quux-val)</span>
+<span class="org-comment-delimiter">;     </span><span class="org-comment">(foo . foo-val))</span>
+</pre>
+</div>
+
+<p>
+And now we are onto the evaluator.  The shell of <code>evaluate</code> looks
+like so:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define</span> (<span class="org-function-name">evaluate</span> expr env)
+  (match expr
+    (<span class="org-type">&lt;MATCH-PATTERN&gt;</span>
+     <span class="org-type">&lt;MATCH-BODY&gt;</span> ...) ...))
+</pre>
+</div>
+
+<p>
+<code>evaluate</code> takes two arguments:
+</p>
+<ul class="org-ul">
+<li><code>expr</code>: the expression to evaluate</li>
+<li><code>env</code>: the environment in which we will evaluate the expression</li>
+</ul>
+
+<p>
+For the body of <code>evaluate</code>, we are dispatching our behavior
+depending on which patterns match <code>expr</code>.
+We are using <code>match</code> from <a href="https://www.gnu.org/software/guile/manual/html_node/Pattern-Matching.html">Guile's pattern matching syntax</a>
+(which came from our module import at the top).
+The short of it is though that if a <code>&lt;MATCH-PATTERN&gt;</code> matches,
+we will then stop searching for matches and evaluate
+<code>&lt;MATCH-BODY&gt;</code> (possibly with bindings set up from the
+<code>&lt;MATCH-PATTERN&gt;</code>).
+</p>
+
+<p>
+So, now all we need to do is look at each pattern we support.
+The first is easy:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme"><span class="org-comment-delimiter">;; </span><span class="org-comment">Support builtin types</span>
+((<span class="org-keyword">or</span> #t #f (? number?))
+ expr)
+</pre>
+</div>
+
+<p>
+The <code>or</code> says we can match any one of its contained patterns.
+The first two are literally the true and false values from Scheme
+itself.
+The parentheses starting with a <code>?</code> symbol indicates that we will
+try matching against a predicate, in this case <code>number?</code>.
+If any of these match, we simply return the very same <code>expr</code> we
+are matching against&#x2026; borrowing booleans and numbers straight
+from the underlying Scheme implementation.
+</p>
+
+<p>
+In other words, the above powers:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (evaluate #t '())
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+REPL&gt; (evaluate #f '())
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+REPL&gt; (evaluate 33 '())
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 33</span>
+REPL&gt; (evaluate -2/3 '())
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; -2/3</span>
+</pre>
+</div>
+
+<p>
+That was easy!
+The next one is also easy:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme"><span class="org-comment-delimiter">;; </span><span class="org-comment">Quoting</span>
+(('quote quoted-expr)
+ quoted-expr)
+</pre>
+</div>
+
+<p>
+Recall that <code>'foo</code> is just shorthand for <code>(quote foo)</code>, and likewise
+<code>'(1 2 3)</code> is shorthand for <code>(quote (1 2 3))</code>.
+In this pattern, we look for anything matching a list starting
+with the <code>'quote</code> symbol and a second element which is the expression
+to be quoted.
+</p>
+
+<p>
+In other words, the above powers:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (evaluate ''foo '())
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; foo</span>
+REPL&gt; (evaluate ''(1 2 3) '())
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (1 2 3)</span>
+REPL&gt; (evaluate (quote (quote (1 2 3))) '())
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (1 2 3)</span>
+</pre>
+</div>
+
+<p>
+Those last two are the same.  Note that we quote twice: once for
+quoting the entire program to be run, and once within the quoted
+program to say we want to quote an expression.
+</p>
+
+<p>
+So far so good.  The next one is still quite easy:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme"><span class="org-comment-delimiter">;; </span><span class="org-comment">Variable lookup</span>
+((? symbol? name)
+ (env-lookup env name))
+</pre>
+</div>
+
+<p>
+The <code>(? symbol? name)</code> part binds <code>name</code> to the matching component.
+(In this case, <code>name</code> will be bound to the same value as the <code>expr</code>
+matched against, but this improves readability a little.)
+</p>
+
+<p>
+As for the body&#x2026; why, this is quite simple!
+We have already reviewed how <code>env-lookup</code> works.
+In other words if we see a symbol (not a quoted one of course, that
+has already been handled), we look up its corresponding value in
+the environment.
+</p>
+
+<p>
+In other words, the above powers:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (evaluate 'x '((x . 33)))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 33</span>
+</pre>
+</div>
+
+<p>
+However, it will also empower variable lookups we define through
+lambda applications:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (evaluate '((<span class="org-keyword">lambda</span> (x) x) 33) '())
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 33</span>
+</pre>
+</div>
+
+<p>
+Of course, we have not yet gotten to <code>lambda</code>!
+But we are nearly there.
+</p>
+
+<p>
+The next one, conditionals, also turns out to be fairly easy:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme"><span class="org-comment-delimiter">;; </span><span class="org-comment">Conditionals</span>
+(('if test consequent alternate)
+ (<span class="org-keyword">if</span> (evaluate test env)
+     (evaluate consequent env)
+     (evaluate alternate env)))
+</pre>
+</div>
+
+<p>
+In other words, a list starting with the symbol <code>'if</code> will be
+matched, with the three sub-expressions following <code>'if</code> bound to
+the variables <code>test</code>, <code>consequent</code>, and <code>alternate</code> in the match
+body.
+We use the underlying Scheme <code>if</code>, and first evaluate <code>test</code> against
+the current environment <code>env</code> (notice the recursion!), and the host
+Scheme's <code>if</code> helps us whether to evaluate the <code>consequent</code> or
+<code>alternate</code> inside of <code>env</code>, again using <code>evaluate</code> recursively.
+</p>
+
+<p>
+Okay, now it's time to build procedures.  This one is a little
+bit more complicated, but ultimately not too complicated either:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme"><span class="org-comment-delimiter">;; </span><span class="org-comment">Lambdas (Procedures)</span>
+(('lambda (args ...) body)
+ (<span class="org-keyword">lambda</span> (. vals)
+   (evaluate body (extend-env env args vals))))
+</pre>
+</div>
+
+<p>
+The pattern here looks for a list starting with <code>'lambda</code>, with the
+second list member being the set of arguments, with the body being
+captured as, well, <code>body</code>.
+We then return a procedure which is ready to be evaluated with the
+same number of arguments.<sup><a id="fnr.arity-mismatch" class="footref" href="#fn.arity-mismatch" role="doc-backlink">23</a></sup>
+The inner body of the procedure we return recursively calls
+<code>evaluate</code> against the <code>body</code> expression of the lambda we are
+matching against, but with a newly extended environment, binding
+together the names within <code>args</code> and the <code>vals</code> from the procedure
+invocation.<sup><a id="fnr.lexical-scope-happens-here" class="footref" href="#fn.lexical-scope-happens-here" role="doc-backlink">24</a></sup>
+</p>
+
+<p>
+In other words, the above powers:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; ((evaluate '(<span class="org-keyword">lambda</span> (x y) x) '())
+       'first 'second)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; first</span>
+REPL&gt; ((evaluate '(<span class="org-keyword">lambda</span> (x y) y) '())
+       'first 'second)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; second</span>
+</pre>
+</div>
+
+<p>
+There is only one more piece left&#x2026; application!
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme"><span class="org-comment-delimiter">;; </span><span class="org-comment">Procedure Invocation (Application)</span>
+((proc-expr arg-exprs ...)
+ (apply (evaluate proc-expr env)
+        (<span class="org-keyword">map</span> (<span class="org-keyword">lambda</span> (arg-expr)
+               (evaluate arg-expr env))
+             arg-exprs)))
+</pre>
+</div>
+
+<p>
+This is the general-purpose procedure application piece of the puzzle!
+At this point, the pattern will match any list with one or more items,
+determining that this must mean a procedure applied to arguments.
+We evaluate the <code>proc-expr</code>, representing the procedure to be
+evaluated, within the current arguments, calling <code>evaluate</code>
+recursively with the current environment, <code>env</code>.
+We also gather all the <code>arg-expr</code> argument expressions passed to this
+procedure by calling <code>evaluate</code> recursively on each with the current
+environment, <code>env</code><sup><a id="fnr.oh-thats-why-metacircular" class="footref" href="#fn.oh-thats-why-metacircular" role="doc-backlink">25</a></sup>.
+</p>
+
+<p>
+In other words, the above powers:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (evaluate '(* (- 8 (/ 30 5)) 21)
+                math-env)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; 42</span>
+</pre>
+</div>
+
+<p>
+And with all pieces combined, we have enough power not only to compute
+the Fibonacci sequence, but any computable problem imaginable!
+</p>
+
+<p>
+To be fair, this does borrow a portion of Scheme's underlying power,
+but not as much as it may appear&#x2026; certainly less than many languages
+implemented on top of other languages do (certainly, certainly far
+less than Clojure borrows from Java, for instance, or nearly any
+popular language borrows from C's standard library).<sup><a id="fnr.lisp-read" class="footref" href="#fn.lisp-read" role="doc-backlink">26</a></sup>
+And it is not so complete as to implement any of the Scheme standards.
+But without too much extra work, we could get there, and it is enough
+for demonstration.
+But we also get to <i>choose</i> how much power we give the language,
+by modifying the initial environment the code evaluates in.
+</p>
+
+<p>
+<b>It is also a capability-secure language!</b>
+Aside from going into an infinite loop and consuming too many
+resources in terms of memory or CPU power, there is nothing
+particularly dangerous this language can do.
+However, we can decide how much power we would like to give it.
+If we choose, we can provide an environment with mutable cells,
+or one with access to the filesystem.
+The choice is ours.
+</p>
+
+<p>
+And with tiny tweaks, our evaluator can operate in different and
+marvelous ways.
+We can add new syntax.
+We can add new syntax to add new syntax (macros)!
+We can change evaluation order, we can add static type analysis,
+we can do many things.
+</p>
+
+<p>
+We promised that you would have learned Scheme from this tutorial.
+If you have reached this point, you have reached much more: you
+are no longer just a user of Scheme, but a builder of Scheme.
+The power is yours!<sup><a id="fnr.more-reading" class="footref" href="#fn.more-reading" role="doc-backlink">27</a></sup>
+</p>
+</div>
+</div>
+<div id="footnotes">
+<h2 class="footnotes">Footnotes: </h2>
+<div id="text-footnotes">
+
+<div class="footdef"><sup><a id="fn.rnrs" class="footnum" href="#fnr.rnrs" role="doc-backlink">1</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+R5RS stands for "Revised(5) Report on the Algorithmic
+Language Scheme".  It is not the only edition of Scheme, but it is
+very small, clean, and minimal.  It may be too small, in some ways:
+implementations of R5RS Scheme are notorious for being incompatible
+with each other when it comes to actual libraries in use, not least of
+which because R5RS did not even include a library system!  Nonetheless,
+R5RS is short and easy to read.  If you enjoy this document, we would
+encourage reading either R5RS (or R7RS-small for an only slightly longer
+but more inter-compatible modern report on Scheme).
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.scheme-and-non-programmers" class="footnum" href="#fnr.scheme-and-non-programmers" role="doc-backlink">2</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+In general, Scheme/Lisp programmers'
+editors do the work of managing parentheses for them, and most code is
+read by indentation rather than by the parenthetical grouping.
+In other words, Lisp programmers usually don't spend much time
+thinking about the parentheses at all.
+</p>
+
+<p class="footpara">
+However, since most programming languages <i>don't</i> use syntax like
+this, experienced programmers sometimes find parenthetical Lisp style
+syntax intimidating.
+(In general, students totally new to programming have an easier time
+learning traditional Lisp syntax than seasoned programmers unfamiliar
+with Lisp do.)
+</p>
+
+<p class="footpara">
+We've found that in running workshops introducing programming,
+students learning programming for the first time don't find Lisp
+syntax intimidating once they start programming, but experienced
+programmers do because Lisp's syntax looks alien at first sight if you
+know most other languages.
+We have even found that in teaching both Scheme (through Racket) and
+Python in parallel, many students with no programming background
+whatsoever (the workshops were aimed at students with a humanities
+background) expressed a strong preference for parenthetical Lisp
+syntax because of its clarity and found it easier to write and debug
+given appropriate editor support (Racket makes this easy with its
+newcomer-friendly IDE, DrRacket).
+For more about this phenomenon, see the talk
+<a href="https://fosdem.org/2022/schedule/event/lispforeveryone/">Lisp but Beautiful; Lisp for Everyone</a>.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.more-lets" class="footnum" href="#fnr.more-lets" role="doc-backlink">3</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+There is also <code>letrec</code>, which allows for bindings to
+recursively refer to each other (or themselves).  Both <code>let*</code> and
+<code>letrec</code> theoretically have some overhead, but a sufficiently advanced
+compiler can notice when either of these is equivalent to <code>let</code> and
+optimize appropriately.  If Scheme were to be specified from scratch,
+it might be more sensible to just have one <code>let</code> which absorbs both
+<code>let*</code> and <code>letrec</code>.  Alas, history is history.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.dot-notation-cons-related" class="footnum" href="#fnr.dot-notation-cons-related" role="doc-backlink">4</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+This notation is directly related
+to the design of <code>cons</code> cells, which we will discuss more in
+<a href="#scheme-lists-and-cons">Lists and "cons"</a>.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.string-huh" class="footnum" href="#fnr.string-huh" role="doc-backlink">5</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+Procedures which test for truth / falseness are called
+<i>predicates</i> in Scheme.  This is a bit confusing given the more broad
+definition of predicates used across natural languages and mathematics
+where a <i>predicate</i> is something that demonstrates a relationship.
+Technically, a test that gives a boolean value does demonstrate a
+relationship related to that test, so this is not wrong, but it may
+be counter-intuitive depending on the reader's background.
+</p>
+
+<p class="footpara">
+Scheme <i>predicates</i> traditionally have a <code>?</code> suffix attached to them.
+The <code>?</code> suffix is conventionally pronounced "huh?", and thus
+"string-huh?".
+In some other Lisps, a <code>-p</code> suffix is used in the same way Scheme uses
+<code>?</code>.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.when" class="footnum" href="#fnr.when" role="doc-backlink">6</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+In standard scheme, <code>&lt;ALTERNATE&gt;</code> is technically not
+required.  However, there is a separate procedure named <code>when</code>,
+provided by many Schemes by default, which has the form:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">when</span> <span class="org-type">&lt;TEST&gt;</span>
+  <span class="org-type">&lt;BODY&gt;</span> ...)
+</pre>
+</div>
+
+<p class="footpara">
+In <i>Racket</i>, an <code>if</code> without <code>&lt;ALTERNATE&gt;</code> (called a "one legged
+<code>if</code>") is not allowed, and even outside of <i>Racket</i>, <code>when</code> is
+preferred in such a situation.  This is also because in a
+<i>purely functional programming language</i>, there is no such thing
+as calling a conditional where one possibility returns nothing of
+interest.  In other words, it only ever makes sense to use <code>when</code>
+(or a "one legged <code>if</code>") for a <i>side effect</i>.  Distinguishing
+between these cases is thus useful for the reader to observe.
+We will revisit <code>when</code>, including how to write it ourselves, in
+<a href="#scheme-extensibility">On the extensibility of Scheme (and Lisps in general)</a>.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.prefix-vs-infix" class="footnum" href="#fnr.prefix-vs-infix" role="doc-backlink">7</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+Admittedly, this is a place where Lisp's prefix
+notation falls short of an infix notation choice, since there is
+a visual notation of size inherent in angle-bracket notation
+of greater-than / less-than.
+Some Schemes support <a href="https://srfi.schemers.org/srfi-105/srfi-105.html">SRFI-105: Curly infix expressions</a> which is a
+bit easier to read.  Compare:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (&gt; 8 9)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+REPL&gt; (&lt; 8 9)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+REPL&gt; (&gt; 8 8)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+REPL&gt; (&gt;= 8 8)
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+</pre>
+</div>
+
+<p class="footpara">
+vs:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; {8 &gt; 9}
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+REPL&gt; {8 &lt; 9}
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+REPL&gt; {8 &gt; 8}
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #f</span>
+REPL&gt; {8 &gt;= 8}
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #t</span>
+</pre>
+</div></div></div>
+
+<div class="footdef"><sup><a id="fn.cond-or-if" class="footnum" href="#fnr.cond-or-if" role="doc-backlink">8</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+As we will see in
+<a href="#scheme-extensibility">On the extensibility of Scheme (and Lisps in general)</a>,
+Scheme permits us to implement new forms of syntax.
+A Scheme implementation only needs one primitive form of syntax for conditionals, since
+<code>if</code> can be written as a simplified version of <code>cond</code>, and <code>cond</code> can
+be written as a nested series of <code>if</code> statements.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.equality-is-a-tough-subject" class="footnum" href="#fnr.equality-is-a-tough-subject" role="doc-backlink">9</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+The most understated footnote in
+computer science appears in <a href="https://dspace.mit.edu/handle/1721.1/44215">The Art of the Propagator</a> by Gerald Jay
+Sussman and Alexey Radul, which simply says:
+</p>
+
+<blockquote>
+<p>
+Equality is a tough subject
+</p>
+</blockquote></div></div>
+
+<div class="footdef"><sup><a id="fn.other-compound-types" class="footnum" href="#fnr.other-compound-types" role="doc-backlink">10</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+<i>Scheme</i> also has built-in support for
+<i>vectors</i>, which are like lists but which provide the benefit of
+constant-time access, but are not as useful for functional
+programming since they cannot easily have new elements prepended
+to them.  Many <i>Scheme</i> languages also support and provide other
+interesting data types, including hashmaps and user-defined records.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.cons-car-cdr-historical-reasons" class="footnum" href="#fnr.cons-car-cdr-historical-reasons" role="doc-backlink">11</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+The name <code>cons</code> sensibly
+refers to "constructing" a pair, but the names <code>car</code> and <code>cdr</code>
+are a fully historical detail of Lisp's first implementation, the
+former referring to "contents of the address register" and the
+latter the "contents of the decrement register".  It's amazing
+how long terms stick around, for better or worse.
+</p>
+
+<p class="footpara">
+For some interesting Lisp history, see:
+</p>
+
+<ul class="org-ul">
+<li><a href="http://jmc.stanford.edu/articles/lisp.html">History of Lisp</a> by John McCarthy</li>
+<li><a href="https://www.dreamsongs.com/Files/Hopl2.pdf">The Evolution of Lisp</a> by Guy L. Steele and Richard P. Gabriel</li>
+<li><a href="https://www.softwarepreservation.org/projects/LISP/">History of LISP</a> by Paul McJones</li>
+</ul></div></div>
+
+<div class="footdef"><sup><a id="fn.first-and-rest" class="footnum" href="#fnr.first-and-rest" role="doc-backlink">12</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+Since <code>car</code> and <code>cdr</code> are such "historical
+details", it's tempting to try to replace them with better names.
+If one is just using lists, <code>first</code> and <code>rest</code> are very good
+aliases:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (first '(a b c))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; a</span>
+REPL&gt; (rest '(a b c))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; (b c)</span>
+REPL&gt; (first (rest '(a b c)))
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; b</span>
+</pre>
+</div>
+
+<p class="footpara">
+However, in cons cells that are simply pairs like <code>(cons 'a 'b)</code>,
+this makes less sense&#x2026; <code>rest</code> returns a single element, rather
+than a sequence.  So it is, and the names <code>car</code> and <code>cdr</code> live on.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.little-schemer" class="footnum" href="#fnr.little-schemer" role="doc-backlink">13</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+Much else can be said about <code>cons</code>, "the
+magnificent" (as well as how to develop an intuitive sense of
+recursion) read <a href="https://mitpress.mit.edu/books/little-schemer-fourth-edition">The Little Schemer</a>.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.why-not-lambda" class="footnum" href="#fnr.why-not-lambda" role="doc-backlink">14</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+In the make-goldilocks procedure, we made an inner
+named procedure. While there is nothing technically wrong with using a
+lambda expression here, the implicitly returned procedure from
+<code>(make-goldilocks 10 30)</code> would be anonymous and it would be harder to
+understand what it actually does.
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">REPL&gt; (make-goldilocks 10 30) <span class="org-comment-delimiter">;; </span><span class="org-comment">using lambda</span>
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #&lt;procedure 78d86f615b80 at &lt;unknown port&gt;:27:2 (n)&gt;</span>
+REPL&gt; (make-goldilocks 10 30) <span class="org-comment-delimiter">;; </span><span class="org-comment">using define</span>
+<span class="org-comment-delimiter">; </span><span class="org-comment">=&gt; #&lt;procedure goldilocks (n)&gt;</span>
+</pre>
+</div></div></div>
+
+<div class="footdef"><sup><a id="fn.cond-begin" class="footnum" href="#fnr.cond-begin" role="doc-backlink">15</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+Notably, <code>cond</code> does permit multiple expressions in
+its <code>&lt;THEN-BODY&gt;</code> / <code>&lt;ELSE-BODY&gt;</code> sections, but we can think of this
+as <code>cond</code> being written to contain <code>begin</code>.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.set-vs-w7-cells" class="footnum" href="#fnr.set-vs-w7-cells" role="doc-backlink">16</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+The ambient availability of <code>set!</code> creates problems
+for Scheme programs which should be confined.
+The interested reader should observe the alternative approach in the
+<i>W7</i> variant of Scheme from
+<a href="http://mumble.net/~jar/pubs/secureos/secureos.html">A Security Kernel Based on the Lambda Calculus</a>.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.monads-etc" class="footnum" href="#fnr.monads-etc" role="doc-backlink">17</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+Functional programmers sometimes solve this with a
+clever trick called <i>monads</i>.
+Monads will not be covered in this tutorial, but they can be thought
+of as a clever and explicit form of handling time by threading a
+bundle of state through an otherwise stateless program.
+This provides enormous power: time exists, but in a deterministic
+manner: the programmer becomes a time lord.
+However, they come at some cost, by exposing plumbing outward to
+the programmer.
+</p>
+
+<p class="footpara">
+Goblins takes an alternate approach, as discussed in
+<a href="https://spritely.institute/static/papers/spritely-core.html#turns-are-cheap-transactions">Turns are cheap transactions</a> and
+<a href="https://spritely.institute/static/papers/spritely-core.html#time-travel-distributed-debugging">Time-travel distributed debugging</a>.
+By capturing the nature of change within turns, the programmer
+gains the ability to traverse time.
+With <i>language level safety</i> features, as discussed in
+<a href="https://spritely.institute/static/papers/spritely-core.html#application-library-safety">Application safety, library safety, and beyond</a>,
+fully deterministic and contained execution can be guaranteed.
+All this can be done by abstracting the details of managing change
+such that the user need not think of them; the Goblins core kernel
+can take care of this for the user.
+This will be expanded upon in detail within a future paper.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.homoiconic" class="footnum" href="#fnr.homoiconic" role="doc-backlink">18</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+Since Lisp's <i>abstract syntax tree</i> is written in same
+datastructures used by its users for programming and is visually
+represented in its <i>surface syntax</i> in those same structures,
+it is called <i>homoiconic</i>.
+<i>Homoiconicity</i> is one of the most distinguishing pieces of Lisp,
+leading to much of its extensibility.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.other-macro-builders" class="footnum" href="#fnr.other-macro-builders" role="doc-backlink">19</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+Actually, <code>define-syntax-rule</code> is itself
+sugar.  The following are equivalent:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(define-syntax-rule (<span class="org-keyword">when</span> test body ...)
+  (<span class="org-keyword">if</span> test
+      (<span class="org-keyword">begin</span> body ...)))
+
+(<span class="org-keyword">define-syntax</span> <span class="org-variable-name">when</span>
+  (<span class="org-keyword">syntax-rules</span> ()
+    ((<span class="org-keyword">when</span> test body ...)
+     (<span class="org-keyword">if</span> test
+         (<span class="org-keyword">begin</span> body ...)))))
+</pre>
+</div>
+
+<p class="footpara">
+Indeed, we can build <code>define-syntax-rule</code> out of <code>define-syntax</code> and
+<code>syntax-rules</code>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(<span class="org-keyword">define-syntax</span> <span class="org-variable-name">define-syntax-rule</span>
+  (<span class="org-keyword">syntax-rules</span> ()
+    ((define-syntax-rule (id pattern ...) template)
+     (<span class="org-keyword">define-syntax</span> <span class="org-variable-name">id</span>
+       (<span class="org-keyword">syntax-rules</span> ()
+         ((id pattern ...)
+          template))))))
+</pre>
+</div>
+
+<p class="footpara">
+There is a zoo of other syntax transformation syntax forms available
+in most Schemes, and many of them vary across Scheme implementations,
+though <code>define-syntax</code> and <code>syntax-rules</code> are part of the Scheme
+standard.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.c-style-for" class="footnum" href="#fnr.c-style-for" role="doc-backlink">20</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+A fun exercise for the reader: try to implement a
+C-style for loop!
+</p>
+
+<p class="footpara">
+Here's the C version:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-c"><span class="org-comment-delimiter">// </span><span class="org-comment">C's version of for:</span>
+<span class="org-comment-delimiter">//   </span><span class="org-comment">for ( init; condition; increment ) {</span>
+<span class="org-comment-delimiter">//      </span><span class="org-comment">statement(s);</span>
+<span class="org-comment-delimiter">//   </span><span class="org-comment">}</span>
+<span class="org-keyword">for</span> (i = 0; i &lt; 10; i = i + 2) {
+  printf(<span class="org-string">"i is: %d\n"</span>, i);
+}
+</pre>
+</div>
+
+<p class="footpara">
+Try to make the following work:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-scheme">(for ((i 0) (&lt; i 10) (+ i 2))
+  (display (string-append <span class="org-string">"i is: "</span> (number-&gt;string i) <span class="org-string">"\n"</span>)))
+</pre>
+</div></div></div>
+
+<div class="footdef"><sup><a id="fn.metacircular" class="footnum" href="#fnr.metacircular" role="doc-backlink">21</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+This idea of implementing a language on top
+of a similar host language is called a "metacircular evaluator".
+It is popular amongst computer science researchers as a way to
+explore variants of programming language design without needing
+to reinvent the entire system.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.cheap-y" class="footnum" href="#fnr.cheap-y" role="doc-backlink">22</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+This is a sophisticated example to demonstrate,
+with an interesting challenge to it: Fibonacci, as we have
+implemented it, is self-recursive!
+But self-recursion usually involves a feature like <code>letrec</code>,
+which we have not provided.
+To get around this, the main program (the second procedure) is passed
+to itself via the first procedure.
+Hence the comment calling the first procedure "boot".
+</p>
+
+<p class="footpara">
+This is kind of a cheap version of the <a href="https://en.wikipedia.org/wiki/Fixed-point_combinator#Y_combinator">Y combinator</a>'s
+bootstrapping technique.  (No, not the company that starts startups,
+but now you can understand how that organization got its name.)
+The Y combinator performs the same trick but is more general.
+In many ways, evaluators like the one we have written have a lot
+in common with Y.
+<a href="https://dreamsongs.com/Files/WhyOfY.pdf">The Why of Y</a> is a lovely and concise article on the Y combinator
+and how one could derive it from a practical need, similar to
+the one we have demonstrated above.
+<a href="https://mitpress.mit.edu/books/little-schemer-fourth-edition">The Little Schemer</a> also ends its lovely journey with writing a
+metacircular evaluator, similar to the one above, and explores
+how one might derive Y.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.arity-mismatch" class="footnum" href="#fnr.arity-mismatch" role="doc-backlink">23</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+If a user invokes this procedure with the wrong
+number of arguments, it will cause an error, but not a particularly
+useful one.
+Try figuring out how to give it a better one.
+(Hint: if <code>args</code> and <code>vals</code> aren't the same <code>length</code>, something is
+wrong!)
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.lexical-scope-happens-here" class="footnum" href="#fnr.lexical-scope-happens-here" role="doc-backlink">24</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+This is where the choice is made
+between lexical and dynamic scoping.  The environment which is
+extended is not the environment of the caller, but the environment of
+the previous expression in which this lambda was defined&#x2026; this is
+how we achieve the functionality described in the <code>closures</code> section.
+</p>
+
+<p class="footpara">
+In a sense, the "lexical scope" is explicitly set in the procedure's
+written definition, is capability secure, and preserves the "if you
+don't have it, you can't use it" property.  "Dynamic scope" is instead
+"scope is defined by the invoker" (and their parent invokers, all the
+way up the stack of current invocations) and is implicit, but also
+ambient including in the ambient authority sense, making dynamic scope
+suffer more serious security issues (and not coincidentally, more
+strongly resemble access control list systems).
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.oh-thats-why-metacircular" class="footnum" href="#fnr.oh-thats-why-metacircular" role="doc-backlink">25</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+Aha!  Now we can understand what is
+meant by metacircular!  The following ASCII art is a tribute to
+metacircular iconography as it appears in <a href="https://mitp-content-server.mit.edu/books/content/sectbyfn/books_pres_0/6515/sicp.zip/index.html">SICP</a>:
+</p>
+
+<div class="org-src-container">
+<pre class="src src-text">\'.
+ \ '.                      .-****-.
+  \  \                    *       _*
+  _L__L_           _     * EVAL .'  *
+  //~ ~           / /    *.___.'    *
+  G   &gt;           //     '.   APPLY.'
+  / \\\\-------.,//        *.____.*
+ / ' \\\______ |;3
+|   \ \\      \//
+</pre>
+</div>
+
+<p class="footpara">
+This is clear from looking at the last two match clauses (procedures
+and applications) and how they cooperate.
+Eval calls apply, which calls eval, which calls apply, which calls
+eval, until a "fixed point" is reached (our computation produces an
+answer)!
+Metacircular indeed.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.lisp-read" class="footnum" href="#fnr.lisp-read" role="doc-backlink">26</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+Notably, the power of <code>quote</code> has made it so that we
+could write an interpreter without the need to parse textual syntax:
+all we need to do is quote our datastructures!
+Indeed, most textbooks on programming language design overly focus
+on the textual parsing of programming languages, giving the illusion
+that important parts of the language structure are related to the
+<i>surface syntax</i>, but this is never essentially true.
+Every programming language paradigm imaginable is representable in
+a simple symbolic expression representation such as is used by
+Scheme.
+Code and data are not truly as far apart as they may appear.
+</p>
+
+<p class="footpara">
+Of course, if we wanted to make this into a useful programming
+language, we would want to be able to read programs from source
+files on disk.
+<code>read</code> comes standard with Scheme (and really nearly any Lisp), so in
+general this work has already been done for us.
+However, implementing <code>read</code> in Scheme is also easy, and can be done
+in about the same amount of code as we implemented <code>evaluate</code>.
+</p></div></div>
+
+<div class="footdef"><sup><a id="fn.more-reading" class="footnum" href="#fnr.more-reading" role="doc-backlink">27</a></sup> <div class="footpara" role="doc-footnote"><p class="footpara">
+You have made it to not only the final section, but
+the final footnote!  At this point we must assume that you have a real
+passion for learning about these kinds of things, so we will provide
+you with even more resources:
+</p>
+
+<ul class="org-ul">
+<li>For more on how evaluators, like the one we have written above, work
+as well as its history, see William Byrd's incredible talk:
+<a href="https://www.youtube.com/watch?v=OyfBQmvr2Hc">The Most Beautiful Program Ever Written</a>.</li>
+
+<li><a href="https://mitp-content-server.mit.edu/books/content/sectbyfn/books_pres_0/6515/sicp.zip/full-text/book/book.html">Structure and Interpretation of Computer Programs</a> (also known as
+SICP or "the wizard book") contains expanded versions of nearly
+everything we have covered here, as well as how to build an event
+loop, simple constraint solvers, evaluators like this one, logic
+programming evaluators, and compilers to more efficient machine
+code.  There is no better way to understand the nature of computing
+than to study SICP.  A good way to learn it is to switch between
+reading the source text and <a href="https://www.youtube.com/watch?v=-J_xL4IGhJA&amp;list=PLE18841CABEA24090">watching the 1980s lectures</a>.  SICP is
+available as a printed book, as an "info" manual conveniently
+readable in Emacs, or in HTML, but if you are going to read SICP
+from a web browser we strongly recommend <a href="https://sarabander.github.io/sicp/html/">this version</a>.</li>
+
+<li><a href="https://mitpress.mit.edu/books/little-schemer-fourth-edition">The Little Schemer</a> is a fun book written in a conversational style.
+It has many useful lessons in it and a whimsical, puzzle-like
+quality to it, with delightful illustrations throughout.  There are
+also many followup books in the series which explore other computer
+science topics in depth.</li>
+
+<li><a href="https://mitpress.mit.edu/books/software-design-flexibility">Software Design for Flexibility</a> takes many of the ideas from SICP
+and builds on them further.  In many ways it can be thought of as
+SICP's true sequel.</li>
+
+<li>Not to mention that simply <i>using</i> Scheme or other Lisps are also a
+great way to learn about them.  Contributing to <a href="https://spritely.institute">Spritely</a> or <a href="https://guix.gnu.org/">Guix</a>
+are two excellent ways to put these skills to use!</li>
+</ul>
+
+<p class="footpara">
+Enjoy the journey!
+</p></div></div>
+
+
+</div>
+</div></div>
+<div id="postamble" class="status">
+<p>Author: Christine Lemmer-Webber and the Spritely Institute</p><p>Created: </p><p>Last modified: 2025-04-25 Fri 18:14</p>
+</div>
+</body>
+</html>

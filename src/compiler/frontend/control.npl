@@ -73,6 +73,7 @@
     ((= (car expression) 109) #t)
     ((= (car expression) 110) #t)
     ((= (car expression) 204) #t)
+    ((= (car expression) 205) #t)
     (else #f)))
 
 (define (control-transform-simple-list expressions)

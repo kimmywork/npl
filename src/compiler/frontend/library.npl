@@ -572,10 +572,27 @@
         (library-import-bindings
           (library-resolve-import-set (car import-sets)) bundle))))
 
+(define LIBRARY-PREFIX-KEYS (cell ()))
+
 (define (library-prefix)
   (cell-set! LIBRARY-NEXT-ID (+ 1 (cell-get LIBRARY-NEXT-ID)))
   (string-append "_npl_lib_"
     (string-append (number->string (cell-get LIBRARY-NEXT-ID)) "_")))
+
+; Emitted names carry a per-library prefix; procedure printing wants the
+; source library key and the unprefixed name.
+(define (library-procedure-display-name name)
+  (let loop ((entries (cell-get LIBRARY-PREFIX-KEYS)))
+    (if (null? entries)
+        name
+        (let ((prefix (car (car entries))))
+          (if (if (>= (string-length name) (string-length prefix))
+                  (string=? (substring name 0 (string-length prefix)) prefix)
+                  #f)
+              (string-append (cdr (car entries)) ":"
+                             (substring name (string-length prefix)
+                                        (string-length name)))
+              (loop (cdr entries)))))))
 
 (define (library-predeclare-identifiers identifiers prefix environment)
   (if (null? identifiers)
@@ -665,6 +682,9 @@
                             (car (cdr (cdr parts))))))
                     (let ((prefix (library-prefix))
                           (saved-prefix (cell-get TOP-DEFINITION-PREFIX)))
+                    (cell-set! LIBRARY-PREFIX-KEYS
+                      (cons (cons prefix (library-entry-key entry))
+                            (cell-get LIBRARY-PREFIX-KEYS)))
                     (let ((value-env
                             (library-predeclare-forms
                               library-body prefix (car imports))))

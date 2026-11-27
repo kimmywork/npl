@@ -1,0 +1,9 @@
+(import (rename (scheme base) (car user-car))
+        (only (scheme base) newline)
+        (scheme write))
+
+(define (car x) #f)
+
+(write (let ((car (lambda (x) #f))) (car 99))) (newline)
+(write ((lambda* (x) x) 42)) (newline)
+(exit)

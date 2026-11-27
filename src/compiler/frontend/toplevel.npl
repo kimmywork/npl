@@ -2,7 +2,7 @@
 ; splicing definition-producing macro output, and forward keyword cells.
 
 (define (direct-defined-identifier form)
-  (if (raw-form? form "define")
+  (if (if (raw-form? form "define") #t (raw-form? form "define*"))
       (if (null? (cdr form))
           ()
           (let ((target (car (cdr form))))

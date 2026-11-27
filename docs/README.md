@@ -10,6 +10,7 @@ project overview, quick start, platform support, and license, see the
 
 ## Guides
 
+- [An NPL Primer](guide/npl-primer.md)
 - [Toolchain and install layout](toolchain.md)
 - [Verification and the gate](testing.md)
 - [R7RS-small conformance](r7rs-conformance.md)

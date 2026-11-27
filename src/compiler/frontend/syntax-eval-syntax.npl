@@ -25,14 +25,19 @@
       ()
       (if (syntax-atomic? templates)
           (syntax-eval-quasiquote templates env depth)
-          (let ((head (car templates)))
-            (if (if (raw-form? head "unquote-splicing") (= depth 1) #f)
-                (syntax-append
-                  (syntax-eval (car (cdr head)) env)
-                  (syntax-eval-quasiquote-list (cdr templates) env depth))
-                (cons (syntax-eval-quasiquote head env depth)
-                      (syntax-eval-quasiquote-list
-                        (cdr templates) env depth)))))))
+          (if (raw-form? templates "unquote")
+              (syntax-eval-quasiquote templates env depth)
+              (if (raw-form? templates "unquote-splicing")
+                  (fatal "unquote-splicing in dotted tail")
+                  (let ((head (car templates)))
+                    (if (if (raw-form? head "unquote-splicing") (= depth 1) #f)
+                        (syntax-append
+                          (syntax-eval (car (cdr head)) env)
+                          (syntax-eval-quasiquote-list
+                            (cdr templates) env depth))
+                        (cons (syntax-eval-quasiquote head env depth)
+                              (syntax-eval-quasiquote-list
+                                (cdr templates) env depth)))))))))
 
 ; ---------------- syntax-case environments ----------------
 

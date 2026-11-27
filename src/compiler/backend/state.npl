@@ -13,6 +13,7 @@
 (define FUNC-ARITIES (cell (npl_make_hash_table 3 #f #f 0)))
 (define GLOBS (cell (npl_make_hash_table 3 #f #f 0)))
 (define SYMS (cell ()))
+(define KEYWORDS (cell ()))
 
 (define (new-tmp)
   (cell-set! TMPN (+ 1 (cell-get TMPN)))

@@ -116,11 +116,27 @@
     (let ((value (car cell)))
       (if (eq? value EVAL-UNBOUND) (eval-unbound cell) value))))
 
+; Internal lambda* helpers keep primitive identity across the evaluator's
+; name-based global cells; user definitions of car or npl_keyword_parse
+; cannot redirect them.
+(define (eval-internal-primitive name)
+  (cond
+    ((string=? name "$npl-primitive-car$") car)
+    ((string=? name "$npl-primitive-cdr$") cdr)
+    ((string=? name "$npl-primitive-vector-ref$") vector-ref)
+    ((string=? name "$npl-primitive-keyword-parse$") npl_keyword_parse)
+    ((string=? name "$npl-primitive-keyword-missing$") npl_keyword_missing)
+    (else #f)))
+
 (define (eval-compile-reference name scope environment)
-  (let ((address (eval-scope-lookup name scope 0)))
-    (if address
-        (eval-local-reference (car address) (cdr address))
-        (eval-global-reference (eval-environment-cell environment name)))))
+  (let ((primitive (eval-internal-primitive name)))
+    (if primitive
+        (eval-constant primitive)
+        (let ((address (eval-scope-lookup name scope 0)))
+          (if address
+              (eval-local-reference (car address) (cdr address))
+              (eval-global-reference
+                (eval-environment-cell environment name)))))))
 
 (define (eval-global-assignment cell value)
   (lambda (frame)
@@ -129,21 +145,48 @@
           (eval-unbound cell)
           (set-car! cell new-value)))))
 
+(define (eval-name-local-initializer name init compiled)
+  (if (if (pair? init)
+          (if (number? (car init))
+              (if (= (car init) 212) #t (= (car init) 219))
+              #f)
+          #f)
+      (let ((display (string->symbol (display-name-of name))))
+        (lambda (frame)
+          (let ((value (compiled frame)))
+            (if (procedure? value)
+                (npl_closure_set_name value display)
+                #f)
+            value)))
+      compiled))
+
 (define (eval-compile-set form scope environment)
   (let ((name (cdr (car (cdr form))))
-        (value (eval-compile (car (cdr (cdr form))) scope environment)))
-    (let ((address (eval-scope-lookup name scope 0)))
-      (cond
-        (address
-         (let ((depth (car address)) (index (cdr address)))
-           (lambda (frame)
-             (vector-set! (eval-frame-up frame depth) index (value frame)))))
-        ((eval-environment-mutable? environment)
-         (eval-global-assignment (eval-environment-cell environment name)
-                                 value))
-        (else (lambda (frame) (error "eval: immutable binding")))))))
+        (expression (car (cdr (cdr form)))))
+    (let ((value
+            (eval-name-local-initializer
+              name expression
+              (eval-compile expression scope environment))))
+      (let ((address (eval-scope-lookup name scope 0)))
+        (cond
+          (address
+           (let ((depth (car address)) (index (cdr address)))
+             (lambda (frame)
+               (vector-set! (eval-frame-up frame depth) index (value frame)))))
+          ((eval-environment-mutable? environment)
+           (eval-global-assignment (eval-environment-cell environment name)
+                                   value))
+          (else (lambda (frame) (error "eval: immutable binding"))))))))
 
-(define (eval-global-definition cell value)
+(define (eval-name-definition name compiled)
+  (lambda (frame)
+    (let ((value (compiled frame)))
+      (if (procedure? value)
+          (npl_closure_set_name value (string->symbol name))
+          #f)
+      value)))
+
+(define (eval-global-definition cell value name)
   (lambda (frame)
     (set-car! cell (value frame))))
 
@@ -153,22 +196,30 @@
   (cond
     ((pair? scope) (error "eval: definition in expression context"))
     ((eval-environment-mutable? environment)
-     (eval-global-definition (eval-environment-cell environment name) value))
+     (eval-global-definition (eval-environment-cell environment name) value
+                             name))
     (else (lambda (frame) (error "eval: immutable environment")))))
 
 (define (eval-compile-define form scope environment)
-  (eval-compile-definition
-    (cdr (car (cdr form)))
-    (eval-compile (car (cdr (cdr form))) scope environment)
-    scope environment))
+  (let ((name (cdr (car (cdr form))))
+        (expression (car (cdr (cdr form)))))
+    (eval-compile-definition
+      name
+      (eval-name-local-initializer
+        name expression
+        (eval-compile expression scope environment))
+      scope environment)))
 
 (define (eval-compile-define-function form scope environment)
   (let ((signature (car (cdr form))))
-    (eval-compile-definition
-      (cdr (car signature))
-      (eval-compile-lambda-parts (cdr signature) (car (cdr (cdr form)))
-                                 scope environment)
-      scope environment)))
+    (let ((name (cdr (car signature))))
+      (eval-compile-definition
+        name
+        (eval-name-definition
+          name
+          (eval-compile-lambda-parts (cdr signature) (car (cdr (cdr form)))
+                                     scope environment))
+        scope environment))))
 
 ; ---------------- procedures ----------------
 
@@ -279,9 +330,11 @@
 ; The cell of an operator that names a global variable, else #f.
 (define (eval-global-operator-cell operator scope environment)
   (if (eval-core-symbol? operator)
-      (if (eval-scope-lookup (cdr operator) scope 0)
+      (if (eval-internal-primitive (cdr operator))
           #f
-          (eval-environment-cell environment (cdr operator)))
+          (if (eval-scope-lookup (cdr operator) scope 0)
+              #f
+              (eval-environment-cell environment (cdr operator))))
       #f))
 
 (define (eval-application-of operator operands scope environment)
@@ -476,10 +529,20 @@
        (lambda (frame)
          (code (list->vector (cons frame (eval-run-list inits frame)))))))))
 
+(define (eval-name-local-inits bindings inits)
+  (if (null? bindings)
+      '()
+      (let ((binding (car bindings)))
+        (cons (eval-name-local-initializer
+                (cdr (car binding)) (cdr binding) (car inits))
+              (eval-name-local-inits (cdr bindings) (cdr inits))))))
+
 (define (eval-compile-let form scope environment)
   (let ((bindings (car (cdr form))))
     (eval-make-let
-      (eval-compile-list (eval-binding-inits bindings) scope environment)
+      (eval-name-local-inits
+        bindings
+        (eval-compile-list (eval-binding-inits bindings) scope environment))
       (eval-compile-body (car (cdr (cdr form)))
                          (cons (eval-binding-names bindings) scope)
                          environment))))
@@ -528,7 +591,9 @@
   (let ((bindings (car (cdr form))))
     (let ((inner (cons (eval-binding-names bindings) scope)))
       (eval-make-letrec
-        (eval-compile-list (eval-binding-inits bindings) inner environment)
+        (eval-name-local-inits
+          bindings
+          (eval-compile-list (eval-binding-inits bindings) inner environment))
         (eval-compile-body (car (cdr (cdr form))) inner environment)
         sequential))))
 
@@ -553,6 +618,7 @@
     ((= tag 108) (eval-constant #t))
     ((= tag 109) (eval-constant #f))
     ((= tag 110) (eval-constant EVAL-UNSPECIFIED))
+    ((= tag 205) (eval-constant (string->keyword (cdr form))))
     ((= tag 204) (eval-literal (frontend-datum->runtime (car (cdr form)))))
     ((= tag 200) (eval-compile-define form scope environment))
     ((= tag 211) (eval-compile-define-function form scope environment))

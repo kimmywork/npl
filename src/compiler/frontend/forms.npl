@@ -53,6 +53,7 @@
     ((number? value) value)
     ((null? value) ())
     ((datum-symbol? value) (core-symbol value))
+    ((datum-keyword? value) (cons 205 (datum-keyword-name value)))
     ((datum-string? value) (cons 101 (datum-string-text value)))
     ((datum-char? value) (cons 102 (datum-char-code value)))
     ((datum-vector? value)
@@ -138,8 +139,10 @@
              (lower-quasiquote content (- depth 1))))))
     ((datum-vector? value)
      (call-node "list->vector"
-       (cons (lower-quasiquote-list (datum-vector-items value) depth) ())))
+       (cons (lower-quasiquote-vector-items (datum-vector-items value) depth)
+             ())))
     ((datum-symbol? value) (quote-node value))
+    ((datum-keyword? value) (cons 205 (datum-keyword-name value)))
     ((datum-string? value) (quote-node value))
     ((datum-char? value) (quote-node value))
     ((datum-bytevector? value) (quote-node value))
@@ -148,16 +151,35 @@
     ((pair-shape? value) (lower-quasiquote-list value depth))
     (else (quote-node value))))
 
-(define (lower-quasiquote-list values depth)
+; Vectors have no dotted tail: every element is a separate element.
+(define (lower-quasiquote-vector-items values depth)
   (if (null? values)
       (quote-node ())
       (if (pair-shape? values)
           (let ((item (lower-quasiquote (car values) depth)))
-            (let ((rest (lower-quasiquote-list (cdr values) depth)))
+            (let ((rest (lower-quasiquote-vector-items (cdr values) depth)))
               (if (splice-node? item)
                   (call-node "append"
                     (cons (car (cdr item)) (cons rest ())))
                   (call-node "cons" (cons item (cons rest ()))))))
+          (fatal "vector quasiquote elements must be a proper list"))))
+
+(define (lower-quasiquote-list values depth)
+  (if (null? values)
+      (quote-node ())
+      (if (pair-shape? values)
+          ; `(a . ,b) reads as the proper list (a unquote b), so an unquote
+          ; form in the cdr is the dotted-tail case, not two list elements.
+          (if (raw-form? values "unquote")
+              (lower-quasiquote values depth)
+              (if (raw-form? values "unquote-splicing")
+                  (fatal "unquote-splicing in dotted tail")
+                  (let ((item (lower-quasiquote (car values) depth)))
+                    (let ((rest (lower-quasiquote-list (cdr values) depth)))
+                      (if (splice-node? item)
+                          (call-node "append"
+                            (cons (car (cdr item)) (cons rest ())))
+                          (call-node "cons" (cons item (cons rest ()))))))))
           (let ((tail (lower-quasiquote values depth)))
             (if (splice-node? tail)
                 (fatal "unquote-splicing in dotted tail")

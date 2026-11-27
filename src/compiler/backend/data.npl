@@ -67,6 +67,17 @@
             (data-line (static-text-data lab 3 0 nm))
             lab)))))
 
+(define (intern-keyword nm)
+  (let ((found (lk-s (cell-get KEYWORDS) nm)))
+    (if (> (string-length found) 0)
+        found
+        (begin
+          (cell-set! DATAN (+ 1 (cell-get DATAN)))
+          (let ((lab (string-append "$kw_" (number->string (cell-get DATAN)))))
+            (cell-set! KEYWORDS (cons (cons nm lab) (cell-get KEYWORDS)))
+            (data-line (static-text-data lab 34 0 nm))
+            lab)))))
+
 (define (fresh-string-label text)
   (cell-set! DATAN (+ 1 (cell-get DATAN)))
   (let ((lab (string-append "$s_" (number->string (cell-get DATAN)))))
@@ -99,6 +110,7 @@
     ((null? d) "2")
     ((number? d) (integer-literal-op d #f))
     ((datum-symbol? d) (label-ref-op (intern-sym (datum-symbol-name d))))
+    ((datum-keyword? d) (label-ref-op (intern-keyword (datum-keyword-name d))))
     ((datum-string? d) (fresh-string-op (datum-string-text d)))
     ((datum-char? d)
      (number->string (+ (* (datum-char-code d) 256) 14)))
@@ -122,6 +134,7 @@
 (define (walk-boxed d)
   (case (car d)
     ((100) (label-ref-op (intern-sym (cdr d))))
+    ((205) (label-ref-op (intern-keyword (cdr d))))
     ((101) (fresh-string-op (cdr d)))
     ((102) (number->string (+ (* (cdr d) 256) 14)))
     ((103) (label-ref-op (ensure-static-vector d)))
@@ -136,6 +149,8 @@
     ((number? datum) (integer-literal-op datum #t))
     ((datum-symbol? datum)
      (label-constant (intern-sym (datum-symbol-name datum))))
+    ((datum-keyword? datum)
+     (label-constant (intern-keyword (datum-keyword-name datum))))
     ((datum-string? datum)
      (label-constant (fresh-string-label (datum-string-text datum))))
     ((datum-char? datum)

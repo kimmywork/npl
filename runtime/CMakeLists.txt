@@ -16,6 +16,7 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/hashtable.c
   ${RUNTIME_SRC_DIR}/inexact.c
   ${RUNTIME_SRC_DIR}/io.c
+  ${RUNTIME_SRC_DIR}/keyword.c
   ${RUNTIME_SRC_DIR}/lexer.c
   ${RUNTIME_SRC_DIR}/number_read.c
   ${RUNTIME_SRC_DIR}/numeric.c
@@ -24,6 +25,8 @@ add_library(npl_runtime_objects OBJECT
   ${RUNTIME_SRC_DIR}/port-ready.c
   ${RUNTIME_SRC_DIR}/read.c
   ${RUNTIME_SRC_DIR}/read-buffer.c
+  ${RUNTIME_SRC_DIR}/read-directive.c
+  ${RUNTIME_SRC_DIR}/read-neoteric.c
   ${RUNTIME_SRC_DIR}/shared-lock.c
   ${RUNTIME_SRC_DIR}/stack.c
   ${RUNTIME_SRC_DIR}/string.c
@@ -71,6 +74,7 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/hashtable.c
   ${RUNTIME_SRC_DIR}/inexact.c
   ${RUNTIME_SRC_DIR}/io.c
+  ${RUNTIME_SRC_DIR}/keyword.c
   ${RUNTIME_SRC_DIR}/lexer.c
   ${RUNTIME_SRC_DIR}/number_read.c
   ${RUNTIME_SRC_DIR}/numeric.c
@@ -79,6 +83,8 @@ add_library(npl_runtime_shared_objects OBJECT
   ${RUNTIME_SRC_DIR}/port-ready.c
   ${RUNTIME_SRC_DIR}/read.c
   ${RUNTIME_SRC_DIR}/read-buffer.c
+  ${RUNTIME_SRC_DIR}/read-directive.c
+  ${RUNTIME_SRC_DIR}/read-neoteric.c
   ${RUNTIME_SRC_DIR}/shared-lock.c
   ${RUNTIME_SRC_DIR}/stack.c
   ${RUNTIME_SRC_DIR}/string.c

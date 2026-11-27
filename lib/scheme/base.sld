@@ -42,6 +42,7 @@
     memq memv member assq assv assoc equal? append
     make-vector vector->list vector-copy vector-copy! vector-fill!
     vector-append vector-map vector-for-each
+    npl_keyword_parse
     make-bytevector bytevector-copy bytevector-copy! bytevector-append
     char=? char<? char>? char<=? char>=?
     make-string string list->string string->list string-copy string-copy!

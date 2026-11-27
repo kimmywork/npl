@@ -187,7 +187,7 @@
              r))
     ((100) (symbol-value (cdr e) env))
     ((101) (fresh-string-op (cdr e)))
-    ((102 103 104) (walk-boxed e))
+    ((102 103 104 205) (walk-boxed e))
     ((204) (walk-datum (car (cdr e))))
     ((212) (emit-lambda e env))
     ((219) (emit-direct-lambda e env))
@@ -250,6 +250,11 @@
       (string-append result " =l call $npl_make_closure(l $"
                      (lookup-func nm) ", l 2, l "
                      (number->string (lookup-func-arity nm)) ")"))
+    (func-line
+      (string-append "call $npl_closure_set_name(l " result ", l "
+                     (label-ref-op
+                       (intern-sym (library-procedure-display-name nm)))
+                     ")"))
     result))
 
 (define (emit-expr e env)

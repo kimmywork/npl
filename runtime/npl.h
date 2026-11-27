@@ -82,6 +82,8 @@ typedef NplVal (*NplGenericFunction)(NplVal, int64_t, NplVal *);
 #define BOX_DYNAMIC_CONTEXT 32
 /* T2b: a virtual thread's one-shot scheduler continuation and state. */
 #define BOX_VIRTUAL_THREAD 33
+/* SRFI 88 keyword objects; NplString layout, interned separately from symbols. */
+#define BOX_KEYWORD 34
 
 #define NPL_FLAG_LITERAL 1
 /* Strings (string.c): 32-bit characters; characters in an out-of-line wide
@@ -267,6 +269,9 @@ typedef struct {
     uint32_t position;
     uint32_t length;
     uint32_t pushed;        /* bytes in pushback (stream ports) */
+    uint32_t read_fold_case;     /* #!fold-case state for this port */
+    uint32_t read_keyword_colon; /* #!colon-keyword state (srfi-88 alias) */
+    uint32_t read_neoteric;      /* #!curly-infix neoteric forms */
     uint8_t pushback[8];    /* read-ahead bytes, consumed first (io.c): at
                                most one character of lookahead plus the
                                tail of one invalid UTF-8 sequence */
@@ -282,7 +287,10 @@ typedef struct {
  * closures have no captures and an arbitrary environment value. direct:
  * the lambda's direct entry (.agents/archive/design/design-calls.md C3), which takes the
  * closure's arguments without the continuation and returns the value;
- * NULL for every other closure. The collector does not visit it. */
+ * NULL for every other closure. The collector does not visit it.  Every
+ * closure has one extra trailing slot at captures[capture_count] for an
+ * optional display name (npl_closure_set_name); captures still begin at
+ * byte 48, so compiled capture offsets are unchanged. */
 typedef struct {
     NplHeader header;
     NplGenericFunction function;
@@ -655,6 +663,7 @@ NplVal npl_box_integer_limbs_internal(int32_t sign, const uint32_t *limbs,
 /* The direct entry of a closure called with argc arguments (the
  * continuation included), or 0 (value.c). */
 NplVal npl_closure_direct(NplVal value, int64_t argc);
+NplVal npl_closure_set_name(NplVal value, NplVal name);
 /* Mark an evaluator constant immutable, deeply (value.c). */
 NplVal npl_freeze_literal(NplVal value);
 NplVal npl_direct_fallback(NplGenericFunction function, NplVal environment,
@@ -799,6 +808,15 @@ NplVal npl_procedure_p(NplVal value);
 /* Symbols are interned (runtime/symbol.c): equal names are eq?. */
 NplVal npl_string_to_symbol(NplVal string);
 NplVal npl_intern_static_symbol(NplVal symbol);
+/* SRFI 88 keyword objects are interned separately from symbols. */
+NplVal npl_keyword(const char *s, uint32_t len);
+NplVal npl_string_to_keyword(NplVal string);
+NplVal npl_keyword_to_string(NplVal keyword);
+NplVal npl_keyword_predicate(NplVal value);
+NplVal npl_keyword_parse(NplVal spec, NplVal args);
+NplVal npl_keyword_missing(NplVal key, NplVal named);
+NplVal npl_intern_static_keyword(NplVal keyword);
+void npl_keyword_mark_roots(void);
 NplVal npl_substring(NplVal s, NplVal i, NplVal j); /* bytes [i,j) as new box */
 NplVal npl_int_to_string_char(NplVal code);         /* 1-byte string */
 

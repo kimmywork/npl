@@ -1,0 +1,60 @@
+#!curly-infix
+
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl infix))
+
+(include "framework.npl")
+
+(define (main)
+  (test-equal "curly simple infix" (lambda () {8 > 9}) #f)
+  (test-equal "curly repeated operator" (lambda () {1 + 2 + 3}) 6)
+  (test-equal "curly nested" (lambda ()
+                               (let ((a 2) (b 3) (c 4))
+                                 {a * {b + c}}))
+              14)
+  (test-equal "curly empty" (lambda () (null? {})) #t)
+  (test-equal "curly escaping" (lambda () {5}) 5)
+  (test-equal "curly unary" (lambda () {- 5}) -5)
+  (test-equal "curly quote" (lambda () (car '{a + b})) '+)
+  (test-equal "curly mixed marker" (lambda () (car '{4 + 5 * 6})) '$nfx$)
+  (test-equal "mixed handler raises"
+              (lambda () (guard (condition (#t 'raised))
+                           ($nfx$ 4 + 5 * 6)))
+              'raised)
+  (test-equal "bracket apply"
+              (lambda () ($bracket-apply$ (vector 10 20 30) 1))
+              20)
+  (test-equal "neoteric call"
+              (lambda () (let ((f (lambda (x) (+ x 1)))) f(41)))
+              42)
+  (test-equal "neoteric curried call"
+              (lambda ()
+                (let ((k (lambda (x) (lambda (y) (+ x y))))) k(1)(2)))
+              3)
+  (test-equal "neoteric curly argument"
+              (lambda () (let ((g (lambda (x) (* x 3)))) g{5 + 2}))
+              21)
+  (test-equal "neoteric bracket argument"
+              (lambda () (vector 10 20 30)[1])
+              20)
+  (test-assert "neoteric quote" (equal? 'f(1) '(f 1)))
+  (test-equal "neoteric whitespace stays separate"
+              (lambda () (let ((f (lambda (x) x))) (f (+ 3 5))))
+              8)
+  (test-assert "dotted curly is mixed"
+               (equal? '{a + b . c} '($nfx$ a + b . c)))
+  (test-assert "dotted neoteric call"
+               (equal? 'f(a . b) '(f a . b)))
+  (test-assert "dotted neoteric arguments"
+               (equal? 'read(. options) '(read . options)))
+  (test-assert "dot-led neoteric symbol"
+               (equal? '.foo(x) '(.foo x)))
+  (test-assert "empty-list operator"
+               (equal? '{a () b () c} '(() a b c)))
+  (test-assert "cyclic operator terminates"
+               (let ((operator (car '{0 #1=(x . #1#) 1 #1# 2})))
+                 (eq? (cdr (cdr operator)) operator)))
+  (finish-tests "srfi-105"))
+(main)

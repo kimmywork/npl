@@ -1,0 +1,69 @@
+(import (scheme base)
+        (scheme write)
+        (scheme process-context)
+        (npl format))
+
+(include "framework.npl")
+
+(define (main)
+  (test-equal "format display and write"
+              (lambda () (format "~a ~s" "hi" "hi"))
+              "hi \"hi\"")
+  (test-equal "format decimal"
+              (lambda () (format "~d" 42))
+              "42")
+  (test-equal "format radix"
+              (lambda () (format "~x ~o ~b" 255 8 5))
+              "ff 10 101")
+  (test-equal "format tilde and newline"
+              (lambda () (format "~~ ~%"))
+              "~ \n")
+  (test-equal "format freshline"
+              (lambda () (format "a~&b"))
+              "a\nb")
+  (test-equal "format fixed width"
+              (lambda () (format "~6F" 32))
+              "    32")
+  (test-equal "format fixed digits"
+              (lambda () (format "~8,2F" 32))
+              "   32.00")
+  (test-equal "format character"
+              (lambda () (format "~c" #\A))
+              "A")
+  (test-equal "format indirection"
+              (lambda () (format "~?" "~a-~a" '(1 2)))
+              "1-2")
+  (test-equal "format to port"
+              (lambda ()
+                (let ((port (open-output-string)))
+                  (format port "~a" 42)
+                  (get-output-string port)))
+              "42")
+  (test-error "format fixed rejects non-numeric input"
+              (format "~F" #t))
+  (test-equal "freshline after literal newline"
+              (lambda () (format "a\n~&"))
+              "a\n")
+  (test-equal "freshline after written newline character"
+              (lambda () (format "~s~&" #\newline))
+              "#\\newline\n")
+  (test-equal "freshline after displayed string newline"
+              (lambda () (format "~a~&" "x\n"))
+              "x\n")
+  (test-equal "freshline after nested format"
+              (lambda () (format "~?~&" "x\n" '()))
+              "x\n")
+  (test-equal "nested format starts at current newline state"
+              (lambda () (format "~%~?" "~&" '()))
+              "\n")
+  (test-equal "empty nested format keeps newline state"
+              (lambda () (format "~%~?~&" "" '()))
+              "\n")
+  (test-equal "trailing tilde is not a newline"
+              (lambda () (format "~?~&" "~%~" '()))
+              "\n~\n")
+  (test-equal "~K nested newline state"
+              (lambda () (format "~K~&" "~%" '()))
+              "\n")
+  (finish-tests "srfi-48"))
+(main)
