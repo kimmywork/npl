@@ -35,6 +35,18 @@
             (lambda () (path-normalize "../a/b/.."))
             "../a")
 (test-equal "path-normalize empty result" (lambda () (path-normalize "a/..")) ".")
+(cond-expand
+  (windows
+    (test-equal "path-normalize drive root"
+                (lambda () (path-normalize "C:\\")) "C:/")
+    (test-equal "path-normalize drive root fold"
+                (lambda () (path-normalize "C:\\dir\\..")) "C:/")
+    (test-equal "path-normalize drive relative"
+                (lambda () (path-normalize "C:dir\\a\\..")) "C:dir")
+    (test-equal "path-normalize UNC root"
+                (lambda () (path-normalize "\\\\server\\share\\a\\..\\file.scm"))
+                "//server/share/file.scm"))
+  (else #t))
 (test-identity "exact-natural? zero" (lambda () (exact-natural? 0)) #t)
 (test-identity "exact-natural? negative" (lambda () (exact-natural? -1)) #f)
 (test-identity "exact-natural? inexact" (lambda () (exact-natural? 2.0)) #f)
