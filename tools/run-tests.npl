@@ -217,6 +217,8 @@
   (report "native link modes" (check-link-modes ROOT NPLC))
   (report "unified nplc driver" (check-driver ROOT))
   (report "install layout" (check-install ROOT))
+  (run-program "CI change classifier tests"
+               (list NPLI "tools/ci-changes-tests.npl"))
   (run-script "relay orchestration" "tools/check_relay_scripts.sh"))
 
 (define (run-repl-suite)

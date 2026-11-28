@@ -14,52 +14,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
-    name: Detect changes
+  build-toolchain:
+    name: Build toolchain (nplc & npli)
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
+    env:
+      CC: clang
+      NPL_TEST_LC_ALL: C.UTF-8
     outputs:
-      ast_lint: ${{ steps.filter.outputs.ast_lint }}
-      build: ${{ steps.filter.outputs.build }}
-      libraries: ${{ steps.filter.outputs.libraries }}
-      runtime: ${{ steps.filter.outputs.runtime }}
-      toolchain: ${{ steps.filter.outputs.toolchain }}
-      repl: ${{ steps.filter.outputs.repl }}
-      compiler: ${{ steps.filter.outputs.compiler }}
-      fixtures: ${{ steps.filter.outputs.fixtures }}
-      unit_property: ${{ steps.filter.outputs.unit_property }}
+      ast_lint: ${{ steps.classify.outputs.ast_lint }}
+      libraries: ${{ steps.classify.outputs.libraries }}
+      runtime: ${{ steps.classify.outputs.runtime }}
+      toolchain: ${{ steps.classify.outputs.toolchain }}
+      repl: ${{ steps.classify.outputs.repl }}
+      compiler: ${{ steps.classify.outputs.compiler }}
+      fixtures: ${{ steps.classify.outputs.fixtures }}
+      unit_property: ${{ steps.classify.outputs.unit_property }}
 
     steps:
       - name: Check out
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Classify changed files
-        id: filter
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            if ! git rev-parse --verify "origin/${{ github.base_ref }}" >/dev/null 2>&1; then
-              git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
-            fi
-            bash ./tools/ci_changes.sh --base "origin/${{ github.base_ref }}" | tee -a "$GITHUB_OUTPUT"
-          else
-            bash ./tools/ci_changes.sh --all | tee -a "$GITHUB_OUTPUT"
-          fi
-
-  build-toolchain:
-    name: Build toolchain (nplc & npli)
-    needs: [changes]
-    if: needs.changes.outputs.build == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    env:
-      CC: clang
-      NPL_TEST_LC_ALL: C.UTF-8
-
-    steps:
-      - name: Check out
-        uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: |
@@ -74,10 +50,27 @@ jobs:
             thread_test safepoint_test thread_object_test thread_lifecycle_test \
             shared_lock_test blocking_io_test virtual_thread_test
 
+      - name: Classify changed files with npli
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+          export NPL_NATIVE_PATH="$PWD/build/lib/npl/native"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if ! git rev-parse --verify "origin/${{ github.base_ref }}" >/dev/null 2>&1; then
+              git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            fi
+            ./build/bin/npli ./tools/ci-changes.npl --base "origin/${{ github.base_ref }}" | tee -a "$GITHUB_OUTPUT"
+          else
+            ./build/bin/npli ./tools/ci-changes.npl --all | tee -a "$GITHUB_OUTPUT"
+          fi
+
       - name: Pack build tree
+        if: steps.classify.outputs.upload == 'true'
         run: tar -czf build-linux.tar.gz build
 
       - name: Upload toolchain artifact
+        if: steps.classify.outputs.upload == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: linux-toolchain
@@ -87,8 +80,8 @@ jobs:
 
   libraries:
     name: Libraries & metadata
-    needs: [changes, build-toolchain]
-    if: needs.changes.outputs.libraries == 'true'
+    needs: [build-toolchain]
+    if: needs.build-toolchain.outputs.libraries == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -112,8 +105,8 @@ jobs:
 
   runtime:
     name: Runtime & numeric
-    needs: [changes, build-toolchain]
-    if: needs.changes.outputs.runtime == 'true'
+    needs: [build-toolchain]
+    if: needs.build-toolchain.outputs.runtime == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -142,8 +135,8 @@ jobs:
 
   toolchain:
     name: Toolchain, driver & install
-    needs: [changes, build-toolchain]
-    if: needs.changes.outputs.toolchain == 'true'
+    needs: [build-toolchain]
+    if: needs.build-toolchain.outputs.toolchain == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -174,8 +167,8 @@ jobs:
 
   repl:
     name: REPL & evaluator
-    needs: [changes, build-toolchain]
-    if: needs.changes.outputs.repl == 'true'
+    needs: [build-toolchain]
+    if: needs.build-toolchain.outputs.repl == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -206,8 +199,8 @@ jobs:
 
   compiler:
     name: Compiler acceptance
-    needs: [changes, build-toolchain]
-    if: needs.changes.outputs.compiler == 'true'
+    needs: [build-toolchain]
+    if: needs.build-toolchain.outputs.compiler == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -238,8 +231,8 @@ jobs:
 
   fixtures:
     name: Expect fixtures (shard ${{ matrix.shard }}/2)
-    needs: [changes, build-toolchain]
-    if: needs.changes.outputs.fixtures == 'true'
+    needs: [build-toolchain]
+    if: needs.build-toolchain.outputs.fixtures == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -274,8 +267,8 @@ jobs:
 
   unit-property:
     name: Unit & property tests
-    needs: [changes, build-toolchain]
-    if: needs.changes.outputs.unit_property == 'true'
+    needs: [build-toolchain]
+    if: needs.build-toolchain.outputs.unit_property == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -306,8 +299,8 @@ jobs:
 
   ast-grep-lint:
     name: AST lint (C & Scheme)
-    needs: [changes]
-    if: needs.changes.outputs.ast_lint == 'true'
+    needs: [build-toolchain]
+    if: needs.build-toolchain.outputs.ast_lint == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -334,7 +327,6 @@ jobs:
   linux-gate:
     name: Linux gate
     needs:
-      - changes
       - build-toolchain
       - libraries
       - runtime
@@ -351,7 +343,6 @@ jobs:
     steps:
       - name: Check job results
         env:
-          RES_CHANGES: ${{ needs.changes.result }}
           RES_BUILD: ${{ needs.build-toolchain.result }}
           RES_LIBRARIES: ${{ needs.libraries.result }}
           RES_RUNTIME: ${{ needs.runtime.result }}
@@ -364,7 +355,6 @@ jobs:
         run: |
           failed=0
           for pair in \
-            "changes:$RES_CHANGES" \
             "build-toolchain:$RES_BUILD" \
             "libraries:$RES_LIBRARIES" \
             "runtime:$RES_RUNTIME" \
