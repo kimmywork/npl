@@ -14,10 +14,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  linux-gate:
-    name: Linux gate
+  changes:
+    name: Detect changes
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 5
+    outputs:
+      ast_lint: ${{ steps.filter.outputs.ast_lint }}
+      build: ${{ steps.filter.outputs.build }}
+      libraries: ${{ steps.filter.outputs.libraries }}
+      runtime: ${{ steps.filter.outputs.runtime }}
+      toolchain: ${{ steps.filter.outputs.toolchain }}
+      repl: ${{ steps.filter.outputs.repl }}
+      compiler: ${{ steps.filter.outputs.compiler }}
+      fixtures: ${{ steps.filter.outputs.fixtures }}
+      unit_property: ${{ steps.filter.outputs.unit_property }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if ! git rev-parse --verify "origin/${{ github.base_ref }}" >/dev/null 2>&1; then
+              git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            fi
+            bash ./tools/ci_changes.sh --base "origin/${{ github.base_ref }}" | tee -a "$GITHUB_OUTPUT"
+          else
+            bash ./tools/ci_changes.sh --all | tee -a "$GITHUB_OUTPUT"
+          fi
+
+  build-toolchain:
+    name: Build toolchain (nplc & npli)
+    needs: [changes]
+    if: needs.changes.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     env:
       CC: clang
       NPL_TEST_LC_ALL: C.UTF-8
@@ -26,17 +61,253 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Install build and test dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build clang file guile-3.0 python3
+            build-essential cmake ninja-build clang
 
-      - name: Run the repository gate
-        run: ./tools/run_tests.sh --skip-current-fixed-point
+      - name: Build nplc, npli, and runtime harnesses
+        run: |
+          cmake -S . -B build -G Ninja
+          ninja -C build nplc npli gc_stress numeric_stress \
+            thread_test safepoint_test thread_object_test thread_lifecycle_test \
+            shared_lock_test blocking_io_test virtual_thread_test
+
+      - name: Pack build tree
+        run: tar -czf build-linux.tar.gz build
+
+      - name: Upload toolchain artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-toolchain
+          path: build-linux.tar.gz
+          retention-days: 1
+          compression-level: 0
+
+  libraries:
+    name: Libraries & metadata
+    needs: [changes, build-toolchain]
+    if: needs.changes.outputs.libraries == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      NPL_NO_BUILD: "1"
+      NPL_TEST_LC_ALL: C.UTF-8
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Download toolchain artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-toolchain
+
+      - name: Unpack build tree
+        run: tar -xzf build-linux.tar.gz && rm -f build-linux.tar.gz
+
+      - name: Run library metadata, duplicates, origins, and coverage checks
+        run: ./tools/run_tests.sh --suite libraries
+
+  runtime:
+    name: Runtime & numeric
+    needs: [changes, build-toolchain]
+    if: needs.changes.outputs.runtime == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      NPL_NO_BUILD: "1"
+      NPL_TEST_LC_ALL: C.UTF-8
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install runtime test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends guile-3.0
+
+      - name: Download toolchain artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-toolchain
+
+      - name: Unpack build tree
+        run: tar -xzf build-linux.tar.gz && rm -f build-linux.tar.gz
+
+      - name: Run C runtime thread, GC, and numeric oracle suites
+        run: ./tools/run_tests.sh --suite runtime
+
+  toolchain:
+    name: Toolchain, driver & install
+    needs: [changes, build-toolchain]
+    if: needs.changes.outputs.toolchain == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CC: clang
+      NPL_NO_BUILD: "1"
+      NPL_TEST_LC_ALL: C.UTF-8
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install toolchain test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake clang
+
+      - name: Download toolchain artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-toolchain
+
+      - name: Unpack build tree
+        run: tar -xzf build-linux.tar.gz && rm -f build-linux.tar.gz
+
+      - name: Run link-modes, driver, install layout, and relay checks
+        run: ./tools/run_tests.sh --suite toolchain
+
+  repl:
+    name: REPL & evaluator
+    needs: [changes, build-toolchain]
+    if: needs.changes.outputs.repl == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CC: clang
+      NPL_NO_BUILD: "1"
+      NPL_TEST_LC_ALL: C.UTF-8
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install REPL test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang guile-3.0
+
+      - name: Download toolchain artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-toolchain
+
+      - name: Unpack build tree
+        run: tar -xzf build-linux.tar.gz && rm -f build-linux.tar.gz
+
+      - name: Run REPL, script mode, and core consistency suites
+        run: ./tools/run_tests.sh --suite repl
+
+  compiler:
+    name: Compiler acceptance
+    needs: [changes, build-toolchain]
+    if: needs.changes.outputs.compiler == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CC: clang
+      NPL_NO_BUILD: "1"
+      NPL_TEST_LC_ALL: C.UTF-8
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install compiler test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang
+
+      - name: Download toolchain artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-toolchain
+
+      - name: Unpack build tree
+        run: tar -xzf build-linux.tar.gz && rm -f build-linux.tar.gz
+
+      - name: Run full compiler language, SSA, FFI, and contract suites
+        run: ./tools/run_tests.sh --suite compiler
+
+  fixtures:
+    name: Expect fixtures (shard ${{ matrix.shard }}/2)
+    needs: [changes, build-toolchain]
+    if: needs.changes.outputs.fixtures == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    env:
+      CC: clang
+      NPL_NO_BUILD: "1"
+      NPL_TEST_LC_ALL: C.UTF-8
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install fixture test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang guile-3.0
+
+      - name: Download toolchain artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-toolchain
+
+      - name: Unpack build tree
+        run: tar -xzf build-linux.tar.gz && rm -f build-linux.tar.gz
+
+      - name: Run differential expect fixtures
+        run: ./tools/run_tests.sh --suite fixtures --shard ${{ matrix.shard }}/2
+
+  unit-property:
+    name: Unit & property tests
+    needs: [changes, build-toolchain]
+    if: needs.changes.outputs.unit_property == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CC: clang
+      NPL_NO_BUILD: "1"
+      NPL_TEST_LC_ALL: C.UTF-8
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang
+
+      - name: Download toolchain artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-toolchain
+
+      - name: Unpack build tree
+        run: tar -xzf build-linux.tar.gz && rm -f build-linux.tar.gz
+
+      - name: Run unit and property suites
+        run: ./tools/run_tests.sh --suite unit --suite property
 
   ast-grep-lint:
     name: AST lint (C & Scheme)
+    needs: [changes]
+    if: needs.changes.outputs.ast_lint == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -59,3 +330,56 @@ jobs:
 
       - name: Run ast-grep rule tests and repository scan
         run: ./tools/ast-grep/lint.sh --format github
+
+  linux-gate:
+    name: Linux gate
+    needs:
+      - changes
+      - build-toolchain
+      - libraries
+      - runtime
+      - toolchain
+      - repl
+      - compiler
+      - fixtures
+      - unit-property
+      - ast-grep-lint
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check job results
+        env:
+          RES_CHANGES: ${{ needs.changes.result }}
+          RES_BUILD: ${{ needs.build-toolchain.result }}
+          RES_LIBRARIES: ${{ needs.libraries.result }}
+          RES_RUNTIME: ${{ needs.runtime.result }}
+          RES_TOOLCHAIN: ${{ needs.toolchain.result }}
+          RES_REPL: ${{ needs.repl.result }}
+          RES_COMPILER: ${{ needs.compiler.result }}
+          RES_FIXTURES: ${{ needs.fixtures.result }}
+          RES_UNIT_PROPERTY: ${{ needs.unit-property.result }}
+          RES_AST_LINT: ${{ needs.ast-grep-lint.result }}
+        run: |
+          failed=0
+          for pair in \
+            "changes:$RES_CHANGES" \
+            "build-toolchain:$RES_BUILD" \
+            "libraries:$RES_LIBRARIES" \
+            "runtime:$RES_RUNTIME" \
+            "toolchain:$RES_TOOLCHAIN" \
+            "repl:$RES_REPL" \
+            "compiler:$RES_COMPILER" \
+            "fixtures:$RES_FIXTURES" \
+            "unit-property:$RES_UNIT_PROPERTY" \
+            "ast-grep-lint:$RES_AST_LINT"; do
+            name=${pair%%:*}
+            result=${pair#*:}
+            printf '%-18s %s\n' "$name" "$result"
+            case "$result" in
+              success|skipped) ;;
+              *) failed=1 ;;
+            esac
+          done
+          exit "$failed"

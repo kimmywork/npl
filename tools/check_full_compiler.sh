@@ -1,6 +1,19 @@
 #!/bin/bash
 set -eu
 
+SKIP_RUNTIME_TESTS=0
+for arg in "$@"; do
+    case "$arg" in
+        --skip-runtime-tests)
+            SKIP_RUNTIME_TESTS=1
+            ;;
+        *)
+            echo "usage: check_full_compiler.sh [--skip-runtime-tests]" >&2
+            exit 2
+            ;;
+    esac
+done
+
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 BUILD="$ROOT/build"
@@ -12,29 +25,37 @@ TESTS="$ROOT/src/compiler/tests"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
-ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts thread_test safepoint_test thread_object_test thread_lifecycle_test shared_lock_test blocking_io_test virtual_thread_test >/dev/null
-# zlib is optional; the target exists only when CMake found the library.
-ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
+if [ "${NPL_NO_BUILD:-0}" != "1" ]; then
+    cmake -S "$ROOT" -B "$BUILD" -G Ninja >/dev/null
+    RUNTIME_TEST_TARGETS=()
+    if [ "$SKIP_RUNTIME_TESTS" -eq 0 ]; then
+        RUNTIME_TEST_TARGETS=(thread_test safepoint_test thread_object_test thread_lifecycle_test shared_lock_test blocking_io_test virtual_thread_test)
+    fi
+    ninja -C "$BUILD" qbe_build npl_runtime npl_runtime_shared npl_time npl_unix npl_demo_crc32 npl_demo_crc32_static npl_c_struct_layouts ${RUNTIME_TEST_TARGETS[@]+"${RUNTIME_TEST_TARGETS[@]}"} >/dev/null
+    # zlib is optional; the target exists only when CMake found the library.
+    ninja -C "$BUILD" npl_demo_zlib npl_demo_zlib_static >/dev/null 2>&1 || true
+fi
 
-# T1 acceptance: native TLS current context, per-thread stack limits and
-# dynamic state, explicit attach/detach, and GC visibility of every context.
-"$BUILD/runtime/thread_test"
-# T1.3 acceptance: concurrent mutators, world-stop park/resume, parked
-# thread stack/register scanning, cancellation, blocking/exclusion.
-"$BUILD/runtime/safepoint_test"
-# T2 acceptance: SRFI 18 object layer and GC visibility.
-"$BUILD/runtime/thread_object_test"
-# T2 acceptance: thread lifecycle, join, termination, mutex and CV.
-"$BUILD/runtime/thread_lifecycle_test"
-# T1.3 acceptance: shared-object lock under concurrent mutation + GC.
-"$BUILD/runtime/shared_lock_test"
-# T1.3 acceptance: blocking libc call publishes context for GC.
-"$BUILD/runtime/blocking_io_test"
-# T2b acceptance: one-shot scheduler tokens, N virtual threads on one
-# carrier, then cross-carrier migration with M carriers.
-"$BUILD/runtime/virtual_thread_test" 1
-"$BUILD/runtime/virtual_thread_test" 4
+if [ "$SKIP_RUNTIME_TESTS" -eq 0 ]; then
+    # T1 acceptance: native TLS current context, per-thread stack limits and
+    # dynamic state, explicit attach/detach, and GC visibility of every context.
+    "$BUILD/runtime/thread_test"
+    # T1.3 acceptance: concurrent mutators, world-stop park/resume, parked
+    # thread stack/register scanning, cancellation, blocking/exclusion.
+    "$BUILD/runtime/safepoint_test"
+    # T2 acceptance: SRFI 18 object layer and GC visibility.
+    "$BUILD/runtime/thread_object_test"
+    # T2 acceptance: thread lifecycle, join, termination, mutex and CV.
+    "$BUILD/runtime/thread_lifecycle_test"
+    # T1.3 acceptance: shared-object lock under concurrent mutation + GC.
+    "$BUILD/runtime/shared_lock_test"
+    # T1.3 acceptance: blocking libc call publishes context for GC.
+    "$BUILD/runtime/blocking_io_test"
+    # T2b acceptance: one-shot scheduler tokens, N virtual threads on one
+    # carrier, then cross-carrier migration with M carriers.
+    "$BUILD/runtime/virtual_thread_test" 1
+    "$BUILD/runtime/virtual_thread_test" 4
+fi
 
 EXTRA_NATIVE=()
 EXTRA_LIBS=()

@@ -12,8 +12,14 @@ tools/run-tests.npl --skip-current-fixed-point  # direct npli invocation
 
 Runner options:
 
+- `--suite NAME` (repeatable) runs only the named suite(s): `fixed-point`,
+  `libraries`, `runtime`, `toolchain`, `repl`, `compiler`, `fixtures`,
+  `unit`, `property`.
+- `--shard K/N` runs 1-based round-robin shard `K` of `N` for `fixtures`.
+- `NPL_NO_BUILD=1` reuses a prebuilt `build/` tree without invoking CMake/Ninja
+  (used by parallel CI verification jobs after the build job).
 - `--skip-current-fixed-point` skips the gen1/gen2/gen3 relay check.
-- `--skip-legacy` runs only the fixture manifest and property suites.
+- `--skip-legacy` runs only the fixture manifest, unit, and property suites.
 - `--properties-only` runs only the property suites (it skips fixtures,
   unit self-tests, and legacy adapters).
 

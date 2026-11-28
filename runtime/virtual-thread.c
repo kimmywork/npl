@@ -300,6 +300,12 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
     if (!tagged(thunk, BOX_CLOSURE))
         npl_primitive_error("make-virtual-thread", "expected a procedure",
                             thunk);
+    /* Root incoming values and the new record across both allocations: a C
+     * caller outside npl_trampoline may sit above runtime_init_once's stack
+     * marker while another thread is collecting. */
+    npl_gc_root(&thunk);
+    npl_gc_root(&name);
+    npl_gc_root(&parameters);
     NplVirtualThread *vt = (NplVirtualThread *)
         npl_alloc_object(sizeof(NplVirtualThread));
     vt->header.tag = BOX_VIRTUAL_THREAD;
@@ -328,11 +334,16 @@ NplVal npl_vthread_make(NplVal thunk, NplVal name, NplVal parameters)
     vt->queue_next = NULL;
 
     NplVal value = boxed(vt);
+    npl_gc_root(&value);
     NplVal root = npl_make_closure(vthread_done, value, 1);
     set_field(vt, &vt->root, root);
     npl_gc_write_barrier(vt, parameters);
     npl_gc_write_barrier(vt, vt->name);
     npl_gc_write_barrier(vt, thunk);
+    npl_gc_unroot(&value);
+    npl_gc_unroot(&parameters);
+    npl_gc_unroot(&name);
+    npl_gc_unroot(&thunk);
 
     /* Registration happens at start, not creation: an unstarted virtual
      * thread that the caller discards must not stay a permanent strong root. */
@@ -658,8 +669,10 @@ static void *helper_entry(void *argument)
          * with an uncaught exception (and wake joiners), not exit the process.
          * The helper's fresh context has an empty handler chain otherwise. */
         NplVal handler = npl_make_closure(vthread_uncaught, boxed(vt), 2);
+        npl_gc_root(&handler);
         CTX->current_handler = npl_nil();
         CTX->initial_handler = npl_handler_push_initial(handler);
+        npl_gc_unroot(&handler);
         NplVal done = npl_make_closure(helper_done, boxed(vt), 1);
         /* Root the completion closure for the whole trampoline run: it is
          * the work thunk's trailing continuation and must survive any GC
@@ -688,7 +701,9 @@ static void mount_new(NplVirtualThread *vt)
     CTX->logical_thread = vt;
     CTX->current_parameters = npl_clone_parameter_bindings(vt->parameters);
     NplVal handler = npl_make_closure(vthread_uncaught, boxed(vt), 2);
+    npl_gc_root(&handler);
     CTX->initial_handler = npl_handler_push_initial(handler);
+    npl_gc_unroot(&handler);
     save_state(vt);
 }
 
