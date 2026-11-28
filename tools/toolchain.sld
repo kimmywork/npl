@@ -1,7 +1,7 @@
 ; Toolchain checks expressed in NPL.  Each function returns #t/#f and prints
 ; its own evidence; tools/run-tests.npl treats them like any other suite.
 (define-library (tools toolchain)
-  (export check-gc check-current-fixed-point
+  (export check-gc check-runtime-threads check-current-fixed-point
           check-numeric-reference check-core-consistency
           check-install check-driver)
   (import (scheme base)
@@ -43,17 +43,21 @@
               (substring text 0 (- (string-length text) 1))
               text)))
 
+    (define (toolchain-skip-build?)
+      (let ((value (get-environment-variable "NPL_NO_BUILD")))
+        (if value (string=? value "1") #f)))
+
     (define (check-gc root)
       (let ((build (string-append root "/build"))
             (work (make-temporary-directory))
             (nursery (get-environment-variable "NPL_GC_NURSERY_BYTES"))
             (verify (get-environment-variable "NPL_GC_VERIFY")))
-        (let ((configured (= (run-command "cmake" "-S" root "-B" build
-                                          "-G" "Ninja") 0))
-              (built #f))
-          (if configured
-              (set! built (= (run-command "ninja" "-C" build "gc_stress") 0))
-              #f)
+        (let ((built (if (toolchain-skip-build?)
+                         (file-exists? (string-append build "/runtime/gc_stress"))
+                         (if (= (run-command "cmake" "-S" root "-B" build
+                                             "-G" "Ninja") 0)
+                             (= (run-command "ninja" "-C" build "gc_stress") 0)
+                             #f))))
           (if (not built)
               (begin
                 (display "gc_stress build failed")
@@ -112,6 +116,52 @@
                         (newline)
                         #t)
                       #f)))))))
+
+    (define (check-runtime-threads root)
+      (let* ((build (string-append root "/build"))
+             (targets '("thread_test" "safepoint_test" "thread_object_test"
+                        "thread_lifecycle_test" "shared_lock_test"
+                        "blocking_io_test" "virtual_thread_test"))
+             (built (if (toolchain-skip-build?)
+                        #t
+                        (if (= (run-command "cmake" "-S" root "-B" build
+                                            "-G" "Ninja") 0)
+                            (= (run-command
+                                 (append (list "ninja" "-C" build) targets))
+                               0)
+                            #f))))
+        (if (not built)
+            (begin
+              (display "runtime threads build failed")
+              (newline)
+              #f)
+            (let ((cases (list (list "thread_test")
+                               (list "safepoint_test")
+                               (list "thread_object_test")
+                               (list "thread_lifecycle_test")
+                               (list "shared_lock_test")
+                               (list "blocking_io_test")
+                               (list "virtual_thread_test" "1")
+                               (list "virtual_thread_test" "4"))))
+              (let loop ((rest cases) (ok #t))
+                (if (null? rest)
+                    (if ok
+                        (begin
+                          (display "runtime threads: PASS")
+                          (newline)
+                          #t)
+                        #f)
+                    (let* ((entry (car rest))
+                           (binary (string-append build "/runtime/" (car entry)))
+                           (passed (if (file-exists? binary)
+                                       (= (run-command (cons binary (cdr entry))) 0)
+                                       #f)))
+                      (if (not passed)
+                          (begin
+                            (display "runtime thread check failed: ")
+                            (display (car entry))
+                            (newline)))
+                      (loop (cdr rest) (if passed ok #f)))))))))
 
     (define (build-compiler qbe cc runtime input binary work stem)
       (let ((assembly (string-append work "/" stem ".s")))
@@ -205,10 +255,14 @@
             (reference (string-append root "/tests/numeric/reference.scm"))
             (work (make-temporary-directory)))
         (if (not (file-exists? numeric))
-            (begin
-              (run-command "cmake" "-S" root "-B" build "-G" "Ninja")
-              (run-command "cmake" "--build" build "--target" "numeric_stress"
-                           "-j" "2")))
+            (if (toolchain-skip-build?)
+                (begin
+                  (display "numeric_stress binary missing")
+                  (newline))
+                (begin
+                  (run-command "cmake" "-S" root "-B" build "-G" "Ninja")
+                  (run-command "cmake" "--build" build "--target" "numeric_stress"
+                               "-j" "2"))))
         (let ((table-out (string-append work "/table.out"))
               (table-err (string-append work "/table.err"))
               (input (string-append work "/input"))

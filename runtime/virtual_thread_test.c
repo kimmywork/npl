@@ -180,7 +180,12 @@ int main(int argc, char **argv)
 #else
     alarm(120);
 #endif
+    uintptr_t stack_marker = 0;
     npl_runtime_init();
+    /* Cover main()'s frame: runtime_init_once recorded a marker deeper on
+     * the stack, while Phase 2 allocates while gc_worker is collecting. */
+    (void)npl_gc_swap_stack_bottom(
+        (uintptr_t)(void *)&stack_marker + sizeof(stack_marker));
 
     npl_gc_root(&g_param);
     g_param = npl_make_parameter(npl_nil(), npl_fixnum(-1));
@@ -255,7 +260,9 @@ int main(int argc, char **argv)
         g_progress[i] = 0;
         NplVal environment = npl_fixnum(i);
         NplVal procedure = npl_make_closure(async_thunk, environment, 1);
+        npl_gc_root(&procedure);
         g_vts[i] = npl_vthread_make(procedure, npl_false(), npl_nil());
+        npl_gc_unroot(&procedure);
         npl_vthread_start(g_vts[i]);
     }
     for (int i = 0; i < NTHREADS; i++) {

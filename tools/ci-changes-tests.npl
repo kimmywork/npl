@@ -1,0 +1,84 @@
+; Unit tests for (tools ci-changes).
+(import (scheme base)
+        (npl test)
+        (tools ci-changes))
+
+(define (flag-of results key)
+  (let ((entry (assoc key results)))
+    (if entry (cdr entry) 'missing)))
+
+(test-begin "tools-ci-changes")
+
+(let ((all (all-ci-suites)))
+  (test-equal "all-ci-suites enables ast_lint" #t (flag-of all "ast_lint"))
+  (test-equal "all-ci-suites enables upload" #t (flag-of all "upload"))
+  (test-equal "all-ci-suites enables libraries" #t (flag-of all "libraries"))
+  (test-equal "all-ci-suites enables runtime" #t (flag-of all "runtime"))
+  (test-equal "all-ci-suites enables toolchain" #t (flag-of all "toolchain"))
+  (test-equal "all-ci-suites enables repl" #t (flag-of all "repl"))
+  (test-equal "all-ci-suites enables compiler" #t (flag-of all "compiler"))
+  (test-equal "all-ci-suites enables fixtures" #t (flag-of all "fixtures"))
+  (test-equal "all-ci-suites enables unit_property" #t (flag-of all "unit_property")))
+
+(let ((docs (classify-changed-paths '("docs/testing.md" "README.md"))))
+  (test-equal "docs-only skips ast_lint" #f (flag-of docs "ast_lint"))
+  (test-equal "docs-only skips upload" #f (flag-of docs "upload"))
+  (test-equal "docs-only skips fixtures" #f (flag-of docs "fixtures")))
+
+(let ((lint (classify-changed-paths '("tools/ast-grep/rules/c/foo.yml"))))
+  (test-equal "ast-grep-only enables ast_lint" #t (flag-of lint "ast_lint"))
+  (test-equal "ast-grep-only skips upload" #f (flag-of lint "upload"))
+  (test-equal "ast-grep-only skips compiler" #f (flag-of lint "compiler")))
+
+(let ((rt (classify-changed-paths '("runtime/virtual-thread.c"))))
+  (test-equal "runtime enables ast_lint" #t (flag-of rt "ast_lint"))
+  (test-equal "runtime enables upload" #t (flag-of rt "upload"))
+  (test-equal "runtime skips libraries" #f (flag-of rt "libraries"))
+  (test-equal "runtime enables runtime" #t (flag-of rt "runtime"))
+  (test-equal "runtime enables compiler" #t (flag-of rt "compiler"))
+  (test-equal "runtime enables fixtures" #t (flag-of rt "fixtures"))
+  (test-equal "runtime enables unit_property" #t (flag-of rt "unit_property")))
+
+(let ((lib (classify-changed-paths '("lib/npl/util.sld"))))
+  (test-equal "lib enables ast_lint" #t (flag-of lib "ast_lint"))
+  (test-equal "lib enables libraries" #t (flag-of lib "libraries"))
+  (test-equal "lib skips runtime" #f (flag-of lib "runtime"))
+  (test-equal "lib enables compiler" #t (flag-of lib "compiler"))
+  (test-equal "lib enables fixtures" #t (flag-of lib "fixtures")))
+
+(let ((repl (classify-changed-paths '("src/repl/main.npl"))))
+  (test-equal "repl enables ast_lint" #t (flag-of repl "ast_lint"))
+  (test-equal "repl enables repl" #t (flag-of repl "repl"))
+  (test-equal "repl enables fixtures" #t (flag-of repl "fixtures"))
+  (test-equal "repl enables toolchain" #t (flag-of repl "toolchain"))
+  (test-equal "repl skips compiler" #f (flag-of repl "compiler"))
+  (test-equal "repl skips runtime" #f (flag-of repl "runtime"))
+  (test-equal "repl skips libraries" #f (flag-of repl "libraries")))
+
+(let ((fix (classify-changed-paths '("tests/fixtures/lists/behavior.scm"))))
+  (test-equal "fixtures skips ast_lint" #f (flag-of fix "ast_lint"))
+  (test-equal "fixtures enables fixtures" #t (flag-of fix "fixtures"))
+  (test-equal "fixtures enables libraries" #t (flag-of fix "libraries"))
+  (test-equal "fixtures skips repl" #f (flag-of fix "repl"))
+  (test-equal "fixtures skips compiler" #f (flag-of fix "compiler")))
+
+(let ((core (classify-changed-paths '("tests/fixtures/core-bindings/native.npl"))))
+  (test-equal "core-bindings enables repl" #t (flag-of core "repl"))
+  (test-equal "core-bindings enables fixtures" #t (flag-of core "fixtures")))
+
+(let ((moved (classify-changed-paths '("runtime/old.c" "docs/moved.md"))))
+  (test-equal "moved out of runtime still runs runtime" #t (flag-of moved "runtime"))
+  (test-equal "moved out of runtime still runs ast_lint" #t (flag-of moved "ast_lint")))
+
+(let ((self (classify-changed-paths '("tools/ci-changes.sld"))))
+  (test-equal "classifier change enables ast_lint" #t (flag-of self "ast_lint"))
+  (test-assert "classifier change enables all suites" (equal? self (all-ci-suites))))
+
+(let ((unknown (classify-changed-paths '("new-top-level-file.xyz"))))
+  (test-assert "unknown path fails safe to all suites" (equal? unknown (all-ci-suites))))
+
+(test-assert "empty path list disables all suites"
+  (not (flag-of (classify-changed-paths '()) "upload")))
+
+(test-end "tools-ci-changes")
+(finish-tests "tools-ci-changes")

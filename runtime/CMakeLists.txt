@@ -49,9 +49,14 @@ if(WIN32)
 endif()
 
 target_include_directories(npl_runtime_objects PUBLIC ${RUNTIME_SRC_DIR})
+# Keep frame pointers in the runtime: glibc setjmp() PTR_MANGLEs %rbp / x29,
+# so a caller's live NplVal kept in that register would vanish from jmp_buf
+# scans. With -fno-omit-frame-pointer, safepoint/GC entries push the caller's
+# unmangled frame pointer onto the scanned C stack and never repurpose it.
 target_compile_options(npl_runtime_objects PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic
   -Wno-unused-parameter
+  -fno-omit-frame-pointer
 )
 set_target_properties(npl_runtime_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
@@ -120,6 +125,7 @@ target_include_directories(npl_runtime_shared_objects PUBLIC ${RUNTIME_SRC_DIR})
 target_compile_options(npl_runtime_shared_objects PRIVATE
   -std=c99 -Wall -Wextra -Wpedantic
   -Wno-unused-parameter
+  -fno-omit-frame-pointer
 )
 # The old NPL_RUNTIME_SHARED C macro selected who defined npl_stack_limit /
 # npl_opaque_zero.  The executable now owns both slots in every link mode
@@ -191,7 +197,7 @@ add_executable(gc_stress
 target_include_directories(gc_stress PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(gc_stress PRIVATE npl_runtime)
 target_compile_options(gc_stress PRIVATE
-  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2 -fno-omit-frame-pointer)
 set_target_properties(gc_stress PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
@@ -202,7 +208,7 @@ add_executable(numeric_stress
 target_include_directories(numeric_stress PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(numeric_stress PRIVATE npl_runtime)
 target_compile_options(numeric_stress PRIVATE
-  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2 -fno-omit-frame-pointer)
 set_target_properties(numeric_stress PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
@@ -215,7 +221,7 @@ add_executable(thread_test
 target_include_directories(thread_test PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(thread_test PRIVATE npl_runtime)
 target_compile_options(thread_test PRIVATE
-  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2 -fno-omit-frame-pointer)
 set_target_properties(thread_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
@@ -228,7 +234,7 @@ add_executable(thread_object_test
 target_include_directories(thread_object_test PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(thread_object_test PRIVATE npl_runtime)
 target_compile_options(thread_object_test PRIVATE
-  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2 -fno-omit-frame-pointer)
 set_target_properties(thread_object_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
@@ -241,7 +247,7 @@ add_executable(thread_lifecycle_test
 target_include_directories(thread_lifecycle_test PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(thread_lifecycle_test PRIVATE npl_runtime)
 target_compile_options(thread_lifecycle_test PRIVATE
-  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2 -fno-omit-frame-pointer)
 set_target_properties(thread_lifecycle_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
@@ -253,7 +259,7 @@ add_executable(blocking_io_test
 target_include_directories(blocking_io_test PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(blocking_io_test PRIVATE npl_runtime)
 target_compile_options(blocking_io_test PRIVATE
-  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2 -fno-omit-frame-pointer)
 set_target_properties(blocking_io_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
@@ -265,7 +271,7 @@ add_executable(shared_lock_test
 target_include_directories(shared_lock_test PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(shared_lock_test PRIVATE npl_runtime)
 target_compile_options(shared_lock_test PRIVATE
-  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2 -fno-omit-frame-pointer)
 set_target_properties(shared_lock_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
@@ -278,7 +284,7 @@ add_executable(safepoint_test
 target_include_directories(safepoint_test PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(safepoint_test PRIVATE npl_runtime)
 target_compile_options(safepoint_test PRIVATE
-  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2 -fno-omit-frame-pointer)
 set_target_properties(safepoint_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)
 
@@ -291,6 +297,6 @@ add_executable(virtual_thread_test
 target_include_directories(virtual_thread_test PRIVATE ${RUNTIME_SRC_DIR})
 target_link_libraries(virtual_thread_test PRIVATE npl_runtime)
 target_compile_options(virtual_thread_test PRIVATE
-  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2)
+  -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-parameter -O2 -fno-omit-frame-pointer)
 set_target_properties(virtual_thread_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/runtime)

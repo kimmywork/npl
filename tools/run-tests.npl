@@ -38,6 +38,13 @@
 (define SKIP-FIXED-POINT #f)
 (define SKIP-LEGACY #f)
 (define ONLY-PROPERTIES #f)
+(define SELECTED-SUITES '())
+(define SHARD-INDEX 1)
+(define SHARD-TOTAL 1)
+
+(define VALID-SUITES
+  '("fixed-point" "libraries" "runtime" "toolchain" "repl"
+    "compiler" "fixtures" "unit" "property"))
 
 (define (report name passed)
   (display name)
@@ -46,7 +53,8 @@
       (begin
         (display " FAIL")
         (set! FAILED (+ FAILED 1))))
-  (newline))
+  (newline)
+  (flush-output-port))
 
 (define (run-program name arguments)
   (report name (= (run-process* arguments #f #f #f) 0)))
@@ -70,21 +78,37 @@
         (display "R7RS ")
         (display name)
         (display " SKIP (zlib not built)")
-        (newline))
+        (newline)
+        (flush-output-port))
       (begin
         (display "R7RS ")
         (display name)
         (newline)
+        (flush-output-port)
         (if (run-fixture-directory (path-join "tests/fixtures" name)
                                    NPLC NPLI)
-            (begin (display "  PASS") (newline))
+            (begin (display "  PASS") (newline) (flush-output-port))
             (begin
               (display "  FAIL")
               (newline)
+              (flush-output-port)
               (set! FAILED (+ FAILED 1)))))))
 
+(define (shard-select items)
+  (if (= SHARD-TOTAL 1)
+      items
+      (let ((target (- SHARD-INDEX 1)))
+        (let loop ((rest items) (index 0) (out '()))
+          (if (null? rest)
+              (reverse out)
+              (loop (cdr rest)
+                    (+ index 1)
+                    (if (= (modulo index SHARD-TOTAL) target)
+                        (cons (car rest) out)
+                        out)))))))
+
 (define (run-fixtures)
-  (let loop ((names (fixture-directories)))
+  (let loop ((names (shard-select (fixture-directories))))
     (if (null? names)
         0
         (begin
@@ -167,27 +191,94 @@
                         (loop (- index 1)))))))
     (substring name 0 dot)))
 
-(define (legacy-steps)
+(define (run-fixed-point-suite)
   (if SKIP-FIXED-POINT
-      (display "current compiler fixed point SKIP\n")
+      (begin
+        (display "current compiler fixed point SKIP\n")
+        (flush-output-port))
       (report "current compiler fixed point"
-              (check-current-fixed-point ROOT)))
+              (check-current-fixed-point ROOT))))
+
+(define (run-libraries-suite)
   (report "library metadata" (check-libraries ROOT))
   (report "duplicate definitions" (check-duplicate-definitions ROOT))
   (report "export origins" (check-export-origins ROOT))
   (report "library test coverage" (check-library-test-coverage ROOT))
   ; The checker's own tests import (tools libraries) from the checkout
   ; root, which npli resolves from the working directory.
-  (run-program "library checker tests" (list NPLI "tools/libraries-tests.npl"))
-  (report "native link modes" (check-link-modes ROOT NPLC))
-  (run-script "full compiler language" "tools/check_full_compiler.sh")
-  (report "unified nplc driver" (check-driver ROOT))
-  (report "install layout" (check-install ROOT))
-  (report "npli REPL and scripts" (check-repl-suites ROOT NPLC NPLI))
-  (report "core semantic consistency" (check-core-consistency ROOT))
-  (run-script "relay orchestration" "tools/check_relay_scripts.sh")
+  (run-program "library checker tests" (list NPLI "tools/libraries-tests.npl")))
+
+(define (run-runtime-suite)
+  (report "runtime threads" (check-runtime-threads ROOT))
   (report "runtime GC" (check-gc ROOT))
   (report "exact numeric substrate" (check-numeric-reference ROOT)))
+
+(define (run-toolchain-suite)
+  (report "native link modes" (check-link-modes ROOT NPLC))
+  (report "unified nplc driver" (check-driver ROOT))
+  (report "install layout" (check-install ROOT))
+  (run-program "CI change classifier tests"
+               (list NPLI "tools/ci-changes-tests.npl"))
+  (run-script "relay orchestration" "tools/check_relay_scripts.sh"))
+
+(define (run-repl-suite)
+  (report "npli REPL and scripts" (check-repl-suites ROOT NPLC NPLI))
+  (report "core semantic consistency" (check-core-consistency ROOT)))
+
+(define (run-compiler-suite)
+  (run-script "full compiler language"
+              "tools/check_full_compiler.sh" "--skip-runtime-tests"))
+
+(define (suite-selected? name)
+  (if (null? SELECTED-SUITES)
+      (cond
+        ((string=? name "fixed-point") (not SKIP-LEGACY))
+        ((string=? name "libraries") (not SKIP-LEGACY))
+        ((string=? name "runtime") (not SKIP-LEGACY))
+        ((string=? name "toolchain") (not SKIP-LEGACY))
+        ((string=? name "repl") (not SKIP-LEGACY))
+        ((string=? name "compiler") (not SKIP-LEGACY))
+        ((string=? name "fixtures") (not ONLY-PROPERTIES))
+        ((string=? name "unit") (not ONLY-PROPERTIES))
+        ((string=? name "property") #t)
+        (else #f))
+      (if (member name SELECTED-SUITES) #t #f)))
+
+(define (parse-shard spec)
+  (let ((slash (let loop ((index 0))
+                 (cond
+                   ((= index (string-length spec)) #f)
+                   ((char=? (string-ref spec index) #\/) index)
+                   (else (loop (+ index 1)))))))
+    (if (not slash)
+        #f
+        (let ((left (string->number (substring spec 0 slash)))
+              (right (string->number
+                       (substring spec (+ slash 1) (string-length spec)))))
+          (if (if (integer? left)
+                  (if (integer? right)
+                      (if (exact? left)
+                          (if (exact? right)
+                              (if (>= left 1)
+                                  (if (>= right 1) (<= left right) #f)
+                                  #f)
+                              #f)
+                          #f)
+                      #f)
+                  #f)
+              (cons left right)
+              #f)))))
+
+(define (usage-error message)
+  (if message
+      (begin
+        (display "run-tests.npl: " (current-error-port))
+        (display message (current-error-port))
+        (newline (current-error-port))))
+  (display "usage: run-tests.npl [--suite NAME]... [--shard K/N] [--skip-current-fixed-point] [--skip-legacy] [--properties-only]"
+           (current-error-port))
+  (newline (current-error-port))
+  (exit 2))
 
 (define (main)
   (let ((arguments (cdr (command-line))))
@@ -204,24 +295,47 @@
          (set! SKIP-LEGACY #t)
          (set! ONLY-PROPERTIES #t)
          (loop (cdr rest)))
+        ((string=? (car rest) "--suite")
+         (if (null? (cdr rest))
+             (usage-error "--suite requires a suite name")
+             (let ((name (car (cdr rest))))
+               (if (member name VALID-SUITES)
+                   (begin
+                     (set! SELECTED-SUITES (cons name SELECTED-SUITES))
+                     (loop (cdr (cdr rest))))
+                   (usage-error (string-append "unknown suite: " name))))))
+        ((string=? (car rest) "--shard")
+         (if (null? (cdr rest))
+             (usage-error "--shard requires K/N")
+             (let ((parsed (parse-shard (car (cdr rest)))))
+               (if parsed
+                   (begin
+                     (set! SHARD-INDEX (car parsed))
+                     (set! SHARD-TOTAL (cdr parsed))
+                     (loop (cdr (cdr rest))))
+                   (usage-error (string-append "invalid shard: " (car (cdr rest))))))))
         (else
-         (display "usage: run-tests.npl [--skip-current-fixed-point] [--skip-legacy] [--properties-only]"
-                  (current-error-port))
-         (newline (current-error-port))
-         (exit 2)))))
-  (if SKIP-LEGACY #f (legacy-steps))
-  (if ONLY-PROPERTIES #f (run-fixtures))
-  (if ONLY-PROPERTIES #f (run-unit-tests))
-  (run-properties)
+         (usage-error (string-append "unknown option: " (car rest)))))))
+  (if (suite-selected? "fixed-point") (run-fixed-point-suite))
+  (if (suite-selected? "libraries") (run-libraries-suite))
+  (if (suite-selected? "runtime") (run-runtime-suite))
+  (if (suite-selected? "toolchain") (run-toolchain-suite))
+  (if (suite-selected? "repl") (run-repl-suite))
+  (if (suite-selected? "compiler") (run-compiler-suite))
+  (if (suite-selected? "fixtures") (run-fixtures))
+  (if (suite-selected? "unit") (run-unit-tests))
+  (if (suite-selected? "property") (run-properties))
   (if (= FAILED 0)
       (begin
         (display "all suites: PASS")
         (newline)
+        (flush-output-port)
         (exit 0))
       (begin
         (display "suite failures: ")
         (display FAILED)
         (newline)
+        (flush-output-port)
         (exit 1))))
 
 (main)

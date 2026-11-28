@@ -150,6 +150,7 @@
           (path-join root "src/compiler/tests"))
         (list (path-join root "src/evaluator/core-tests.npl")
               (path-join root "tools/libraries-tests.npl")
+              (path-join root "tools/ci-changes-tests.npl")
               (path-join root "tools/run-tests.npl"))))
 
     (define (coverage-percent part total)

@@ -1,0 +1,89 @@
+; CI changed-file classifier CLI.
+; Usage:
+;   npli tools/ci-changes.npl --all
+;   npli tools/ci-changes.npl --base <git-ref>
+;   npli tools/ci-changes.npl < file-list.txt
+(import (scheme base)
+        (scheme file)
+        (scheme process-context)
+        (scheme write)
+        (only (npl internal primitive) read-file)
+        (only (npl util) path-join)
+        (npl process)
+        (tools ci-changes))
+
+(define (strip-cr line)
+  (let ((len (string-length line)))
+    (if (if (> len 0) (char=? (string-ref line (- len 1)) #\return) #f)
+        (substring line 0 (- len 1))
+        line)))
+
+; R7RS read-line returns a non-empty final line even when EOF lacks a newline.
+(define (read-nonempty-lines port)
+  (let loop ((out '()))
+    (let ((line (read-line port)))
+      (if (eof-object? line)
+          (reverse out)
+          (let ((clean (strip-cr line)))
+            (if (= (string-length clean) 0)
+                (loop out)
+                (loop (cons clean out))))))))
+
+(define (emit-results results)
+  (for-each
+    (lambda (entry)
+      (display (car entry))
+      (display "=")
+      (display (if (cdr entry) "true" "false"))
+      (newline))
+    results)
+  (flush-output-port))
+
+(define (git-diff-paths base)
+  (let* ((work (make-temporary-directory))
+         (out-path (path-join work "diff.out"))
+         (err-path (path-join work "diff.err"))
+         ; --no-renames reports both old and new paths when a file moves across areas.
+         (status (run-process*
+                   (list "git" "diff" "--name-only" "--no-renames"
+                         (string-append base "...HEAD"))
+                   #f out-path err-path)))
+    (if (= status 0)
+        (let ((paths (call-with-input-file out-path read-nonempty-lines)))
+          (if (file-exists? out-path) (delete-file out-path))
+          (if (file-exists? err-path) (delete-file err-path))
+          (delete-directory work)
+          paths)
+        (let ((err-text (if (file-exists? err-path) (read-file err-path) "")))
+          (display "ci-changes.npl: git diff failed\n" (current-error-port))
+          (if (> (string-length err-text) 0)
+              (display err-text (current-error-port)))
+          (if (file-exists? out-path) (delete-file out-path))
+          (if (file-exists? err-path) (delete-file err-path))
+          (delete-directory work)
+          (exit 1)))))
+
+(define (usage-error)
+  (display "usage: ci-changes.npl [--all | --base <git-ref>]\n"
+           (current-error-port))
+  (exit 2))
+
+(define (main)
+  (let ((args (cdr (command-line))))
+    (cond
+      ((null? args)
+       (emit-results
+         (classify-changed-paths (read-nonempty-lines (current-input-port)))))
+      ((if (string=? (car args) "--all") (null? (cdr args)) #f)
+       (emit-results (all-ci-suites)))
+      ((if (string=? (car args) "--base")
+           (if (pair? (cdr args)) (null? (cdr (cdr args))) #f)
+           #f)
+       (let ((paths (git-diff-paths (car (cdr args)))))
+         (emit-results
+           (if (null? paths)
+               (all-ci-suites)
+               (classify-changed-paths paths)))))
+      (else (usage-error)))))
+
+(main)
